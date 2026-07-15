@@ -4,6 +4,7 @@ import { allowed, reportSummary } from './domain.js';
 import { displayName, roleLabel } from './bot-profile.js';
 import { welcomeMessage, helpMessage } from './bot-help.js';
 import { reportKeyboard, sendReport } from './bot-reports.js';
+import { showAttendanceMenu } from './bot-attendance.js';
 
 const norm=value=>String(value||'').toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ًٌٍَُِّْـ]/g,'').replace(/[؟?!.,،؛:]+/g,'').replace(/\s+/g,' ').trim();
 const num=value=>Number(value||0)||0;
@@ -80,7 +81,15 @@ async function salesCollectionGap(chatId){
 
 export async function handleBuiltInCommand({message,identity,text}){
   const chatId=message.chat.id,raw=String(text||'').trim(),t=norm(text),role=identity?.role||'pending',active=Boolean(identity?.active),name=displayName(identity,message.from);
+  if(/^\/start(?:@\w+)?\s+attendance$/i.test(raw)){
+    if(!active)await sendMessage(chatId,welcomeMessage(identity,message.from));else await showAttendanceMenu(message,identity);
+    return true;
+  }
   if(/^\/start(?:@\w+)?$/i.test(raw)){await sendMessage(chatId,welcomeMessage(identity,message.from));return true;}
+  if(/^\/attendance(?:@\w+)?$/i.test(raw)){
+    if(!active)await sendMessage(chatId,'Your account must be approved before attendance can be recorded. Use /whoami.');else await showAttendanceMenu(message,identity);
+    return true;
+  }
   if(/^\/help(?:@\w+)?$/i.test(raw)||/^(مساعده|الاوامر|اوامر|المميزات|ماذا تستطيع|تقدر تعمل ايه)$/.test(t)){await sendMessage(chatId,helpMessage(identity,message.from));return true;}
   if(/^\/whoami(?:@\w+)?$/i.test(raw)||/^(من انا|مين انا)$/.test(t)){
     await sendMessage(chatId,`رقم Telegram: ${message.from.id}\nالاسم: ${name}\nالدور: ${roleLabel(role)}\nالحالة: ${active?'معتمد':'ينتظر اعتماد مدير النظام'}\nالمحادثة: ${message.chat.id}`);return true;
