@@ -37,7 +37,7 @@ async function storeMessage(updateId,message,group,identity){
 async function handleText(message,group,identity,text,voicePath='',stored=null){
   const chatId=message.chat.id,role=identity.role||'pending',active=Boolean(identity.active),t=String(text||'').trim(),name=displayName(identity,message.from),n=norm(t);
 
-  if(/^(حاله الورشه|حاله الورشة|وضع الورشه|وضع الورشة|وضع الميكانيكي|ملخص اعمال الميكانيكي|ملخص أعمال الميكانيكي|تقرير تنفيذي للورشه|تقرير تنفيذي للورشة)$/.test(n)){
+  if(/^(حاله الورشه|وضع الورشه|وضع الميكانيكي|ملخص اعمال الميكانيكي|تقرير تنفيذي للورشه)$/.test(n)){
     if(!active)return sendMessage(chatId,'حسابك يحتاج اعتمادًا قبل عرض حالة الورشة. استخدم /whoami.');
     if(!['admin','manager','mechanic','accountant'].includes(role))return sendMessage(chatId,'عرض الحالة التنفيذية للورشة متاح لمدير النظام ومدير المصنع والمحاسب ومسؤول الورشة.');
     return sendExecutiveWorkshopStatus(chatId);
@@ -46,6 +46,16 @@ async function handleText(message,group,identity,text,voicePath='',stored=null){
   if(await handleBuiltInCommand({message,identity,text:t}))return;
   if(!active)return sendMessage(chatId,`مرحبًا ${esc(name)}. فهمت رسالتك وسجلتها، لكن حسابك غير معتمد لتنفيذ الإجراءات. أرسل رقمك من /whoami إلى مدير النظام.`);
   if(['group','supergroup'].includes(message.chat.type)&&!group.active)return sendMessage(chatId,'فهمت الرسالة وسجلتها، لكن المجموعة لم تعتمد بعد. يجب تحديد قسمها قبل التوجيه النهائي.');
+
+  const directActions=[
+    {re:/^(بلاغ اصل بدون لوحه|اصل بدون لوحه|عطل معده بدون لوحه)$/,action:'general_fault'},
+    {re:/^(فحص معده|فحص معدات|فحص اصل|بدء فحص معده)$/,action:'inspection'},
+    {re:/^(طلب قطع غيار|عاوز قطع غيار|اريد قطع غيار)$/,action:'parts'},
+    {re:/^(تقرير يومي للورشه|بدء التقرير اليومي|تقرير الميكانيكي اليومي)$/,action:'daily'},
+    {re:/^(تحديث امر اصلاح|تحديث طلب اصلاح|تحديث صيانه)$/,action:'update'}
+  ];
+  const direct=directActions.find(item=>item.re.test(n));
+  if(direct)return startMechanicAction(message,identity,direct.action);
 
   const session=await getBotSession(chatId,message.from.id);
   if(session?.state?.startsWith('mechanic_')){
