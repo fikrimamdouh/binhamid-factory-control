@@ -6,9 +6,20 @@ import { welcomeMessage, helpMessage } from './bot-help.js';
 import { reportKeyboard, sendReport } from './bot-reports.js';
 
 const norm=value=>String(value||'').toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ًٌٍَُِّْـ]/g,'').replace(/[؟?!.,،؛:]+/g,'').replace(/\s+/g,' ').trim();
+const num=value=>Number(value||0)||0;
+function riyadhDate(value=new Date()){
+  const parts=new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Riyadh',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date(value));
+  const get=type=>parts.find(x=>x.type===type)?.value||'';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+function rowDate(row={}){const value=row.date||row.reportDate||row.createdAt||row.created_at||row.filledAt||row.outAt||row.timestamp;return value?String(value).slice(0,10):'';}
+function fuelLiters(row={}){return num(row.liters??row.quantity??row.qty??row.dieselLiters??row.fuelLiters);}
+function fuelCost(row={}){return num(row.totalCost??row.cost??row.amount??row.total);}
+function formatNumber(value,digits=2){return num(value).toLocaleString('en-US',{maximumFractionDigits:digits});}
+async function getState(){return(await select('app_state','key=eq.primary&select=revision,updated_at,payload&limit=1'))?.[0]||null;}
 
 async function programStatus(chatId,identity){
-  const row=(await select('app_state','key=eq.primary&select=revision,updated_at,payload&limit=1'))?.[0];
+  const row=await getState();
   if(!row?.payload)return sendMessage(chatId,'الربط السحابي جاهز، لكن لا توجد نسخة بيانات محفوظة من البرنامج حتى الآن. افتح البرنامج واضغط «مزامنة الآن».');
   const when=row.updated_at?new Date(row.updated_at).toLocaleString('ar-SA',{timeZone:'Asia/Riyadh'}):'غير معروف';
   let text=`📡 حالة الربط مع البرنامج\n\nآخر مزامنة: ${when}\nرقم النسخة السحابية: ${Number(row.revision||0)}\nالحالة: البيانات متاحة للبوت من آخر نسخة سحابية.`;
@@ -18,6 +29,53 @@ async function programStatus(chatId,identity){
   }
   text+='\n\nأي تعديل جديد داخل البرنامج لن يظهر هنا إلا بعد اكتمال المزامنة السحابية.';
   return sendMessage(chatId,text);
+}
+
+async function factoryAnalysis(chatId){
+  const row=await getState();
+  if(!row?.payload)return sendMessage(chatId,'لا توجد نسخة سحابية يمكن تحليلها. افتح البرنامج واضغط «مزامنة الآن» ثم أعد الطلب.');
+  const [openOrders,discrepancies]=await Promise.all([
+    select('maintenance_orders','status=in.(reported,inspection,quotation_required,approval_pending,approved,in_repair,testing)&select=id,vehicle_stopped,priority&limit=1000'),
+    select('discrepancies','status=in.(open,under_review)&select=id,severity&limit=1000')
+  ]);
+  const s=reportSummary(row.payload),sales=num(s.salesToday),collections=num(s.collectionsToday),gap=sales-collections,ratio=sales>0?collections/sales:null;
+  const stopped=(openOrders||[]).filter(x=>x.vehicle_stopped).length,urgent=(openOrders||[]).filter(x=>x.priority==='urgent').length,critical=(discrepancies||[]).filter(x=>x.severity==='critical').length;
+  const notes=[];
+  if(sales===0&&collections===0)notes.push('لا توجد حركة مبيعات أو تحصيل مسجلة لليوم في النسخة المتزامنة.');
+  else if(gap>0)notes.push(`التحصيل أقل من المبيعات بمبلغ ${formatNumber(gap)} ر.س${ratio!==null?`، ونسبة التحصيل ${formatNumber(ratio*100,1)}%`:''}.`);
+  else if(gap<0)notes.push(`التحصيل أعلى من مبيعات اليوم بمبلغ ${formatNumber(Math.abs(gap))} ر.س، وقد يشمل تحصيل مديونيات سابقة.`);
+  else notes.push('المبيعات والتحصيل متساويان اليوم حسب البيانات المتاحة.');
+  if(num(s.fuelLitersToday)>0)notes.push(`استهلاك الديزل المسجل اليوم ${formatNumber(s.fuelLitersToday)} لتر بتكلفة ${formatNumber(s.fuelCostToday)} ر.س.`);else notes.push('لا توجد تعبئة ديزل مسجلة اليوم في النسخة الحالية.');
+  if((openOrders||[]).length)notes.push(`يوجد ${(openOrders||[]).length} أمر إصلاح مفتوح، منها ${stopped} لمركبات متوقفة و${urgent} عاجلة.`);else notes.push('لا توجد أوامر إصلاح مفتوحة في قاعدة أوامر الصيانة.');
+  if((discrepancies||[]).length)notes.push(`توجد ${(discrepancies||[]).length} فروقات رقابية مفتوحة، منها ${critical} حرجة.`);else notes.push('لا توجد فروقات رقابية مفتوحة.');
+  const priority=critical?'الأولوية: مراجعة الفروقات الحرجة فورًا.':stopped?'الأولوية: متابعة المركبات المتوقفة وأوامر الإصلاح.':gap>0?'الأولوية: متابعة فجوة التحصيل مقابل المبيعات.':'لا يظهر مؤشر حرج من البيانات المتاحة حاليًا.';
+  return sendMessage(chatId,`<b>تحليل وضع المصنع اليوم</b>\n\n${notes.map(x=>`• ${x}`).join('\n')}\n\n<b>${priority}</b>\n\nالتحليل مبني على آخر نسخة سحابية، وليس على بيانات لم تتم مزامنتها.`);
+}
+
+async function fuelAnalysis(chatId){
+  const row=await getState();
+  if(!row?.payload)return sendMessage(chatId,'لا توجد نسخة سحابية لتحليل الديزل. نفّذ «مزامنة الآن» من البرنامج ثم أعد الطلب.');
+  const fuel=row.payload?.ops?.fuel||[],today=riyadhDate(),todayRows=fuel.filter(x=>rowDate(x)===today),todayLiters=todayRows.reduce((sum,x)=>sum+fuelLiters(x),0),todayCost=todayRows.reduce((sum,x)=>sum+fuelCost(x),0);
+  const daily=[];
+  for(let offset=1;offset<=7;offset++){
+    const date=new Date();date.setDate(date.getDate()-offset);const key=riyadhDate(date);
+    const rows=fuel.filter(x=>rowDate(x)===key);daily.push({key,liters:rows.reduce((sum,x)=>sum+fuelLiters(x),0),fills:rows.length});
+  }
+  const avg=daily.reduce((sum,x)=>sum+x.liters,0)/7,avgFills=daily.reduce((sum,x)=>sum+x.fills,0)/7;
+  if(!todayRows.length&&avg===0)return sendMessage(chatId,'لا توجد بيانات ديزل لليوم أو للأيام السبعة السابقة في النسخة السحابية، لذلك لا يمكن الحكم على الارتفاع. راجع استيراد الديزل ثم نفّذ المزامنة.');
+  let verdict='ضمن النطاق المعتاد';
+  if(avg===0&&todayLiters>0)verdict='لا يوجد متوسط سابق كافٍ للمقارنة';
+  else if(todayLiters>avg*1.25)verdict='مرتفع عن المتوسط';
+  else if(todayLiters<avg*0.75)verdict='أقل من المتوسط';
+  const change=avg>0?((todayLiters-avg)/avg)*100:null;
+  return sendMessage(chatId,`<b>تحليل استهلاك الديزل اليوم</b>\n\nاستهلاك اليوم: <b>${formatNumber(todayLiters)} لتر</b>\nتكلفة اليوم: <b>${formatNumber(todayCost)} ر.س</b>\nعدد التعبئات اليوم: <b>${todayRows.length}</b>\nمتوسط آخر 7 أيام: <b>${formatNumber(avg)} لتر يوميًا</b>\nمتوسط عدد التعبئات: <b>${formatNumber(avgFills,1)}</b>\n${change===null?'التغير: لا يوجد خط أساس كافٍ':`التغير عن المتوسط: <b>${change>=0?'+':''}${formatNumber(change,1)}%</b>`}\n\nالنتيجة: <b>${verdict}</b>.\n\nالمقارنة حسابية من البيانات المتزامنة، ولا تثبت وحدها وجود مخالفة.`);
+}
+
+async function salesCollectionGap(chatId){
+  const row=await getState();
+  if(!row?.payload)return sendMessage(chatId,'لا توجد نسخة سحابية متاحة للمقارنة.');
+  const s=reportSummary(row.payload),gap=num(s.salesToday)-num(s.collectionsToday);
+  return sendMessage(chatId,`مبيعات اليوم: <b>${formatNumber(s.salesToday)} ر.س</b>\nتحصيل اليوم: <b>${formatNumber(s.collectionsToday)} ر.س</b>\nالفرق: <b>${formatNumber(Math.abs(gap))} ر.س</b> ${gap>0?'لصالح المبيعات':gap<0?'لصالح التحصيل':'ولا يوجد فرق'}.`);
 }
 
 export async function handleBuiltInCommand({message,identity,text}){
@@ -40,6 +98,17 @@ export async function handleBuiltInCommand({message,identity,text}){
   if(/^\/reports(?:@\w+)?$/i.test(raw)){
     if(!active||!allowed(role,'report')){await sendMessage(chatId,'عرض التقارير متاح لمدير المصنع ومدير النظام فقط.');return true;}
     await sendMessage(chatId,`حاضر يا ${name}. اختر التقرير المطلوب:`,reportKeyboard());return true;
+  }
+  const analytical=/^(حلل لي وضع المصنع اليوم|حلل وضع المصنع اليوم|تحليل وضع المصنع اليوم|حلل وضع المصنع|اعمل تحليل للمصنع اليوم)$/.test(t);
+  if(analytical){if(!active||!allowed(role,'report'))await sendMessage(chatId,'تحليل وضع المصنع متاح لمدير المصنع ومدير النظام فقط.');else await factoryAnalysis(chatId);return true;}
+  if(/^(هل استهلاك الديزل اليوم مرتفع|حلل استهلاك الديزل اليوم|تحليل الديزل اليوم|استهلاك الديزل اليوم مرتفع|قارن ديزل اليوم)$/.test(t)){
+    if(!active||!allowed(role,'report'))await sendMessage(chatId,'تحليل الديزل متاح لمدير المصنع ومدير النظام فقط.');else await fuelAnalysis(chatId);return true;
+  }
+  if(/المبيعات.*التحصيل.*بكام|الفرق بين المبيعات والتحصيل|المبيعات اعلى من التحصيل/.test(t)){
+    if(!active||!allowed(role,'report'))await sendMessage(chatId,'مقارنة المبيعات والتحصيل متاحة لمدير المصنع ومدير النظام فقط.');else await salesCollectionGap(chatId);return true;
+  }
+  if(/كم مركبه متوقفه|كم سيارة متوقفة|كم امر اصلاح مفتوح|المركبات المتوقفه/.test(t)){
+    if(!active||!allowed(role,'report'))await sendMessage(chatId,'تقرير الورشة متاح لمدير المصنع ومدير النظام فقط.');else await sendReport(chatId,'workshop');return true;
   }
   const reports=[
     {re:/^(ملخص اليوم|تقرير اليوم|الوضع اليوم|ملخص المصنع)$/,kind:'daily'},
