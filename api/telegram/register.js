@@ -16,6 +16,7 @@ export default async function handler(req,res){
       {command:'reports',description:'عرض تقارير الإدارة المتاحة'},
       {command:'sales',description:'فتح قائمة أوامر بيع البلوك والخرسانة'},
       {command:'workshop',description:'فتح قائمة الورشة والميكانيكي'},
+      {command:'suppliers',description:'بحث عن قطعة أو مورد وطلب عرض سعر'},
       {command:'status',description:'عرض حالة الربط وآخر مزامنة'},
       {command:'whoami',description:'عرض رقم الحساب والدور والصلاحية'}
     ],language_code:'ar'});
