@@ -12,6 +12,30 @@
       ]
     },
     {
+      "source": "/",
+      "headers": [
+        {"key":"Cache-Control","value":"no-store, no-cache, must-revalidate, max-age=0"}
+      ]
+    },
+    {
+      "source": "/index.html",
+      "headers": [
+        {"key":"Cache-Control","value":"no-store, no-cache, must-revalidate, max-age=0"}
+      ]
+    },
+    {
+      "source": "/legacy.html",
+      "headers": [
+        {"key":"Cache-Control","value":"no-store, no-cache, must-revalidate, max-age=0"}
+      ]
+    },
+    {
+      "source": "/assets/(.*)",
+      "headers": [
+        {"key":"Cache-Control","value":"no-store, no-cache, must-revalidate, max-age=0"}
+      ]
+    },
+    {
       "source": "/favicon.svg",
       "headers": [
         {"key":"Cache-Control","value":"public, max-age=86400"}
