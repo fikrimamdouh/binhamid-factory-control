@@ -14,6 +14,8 @@ import { transcribeTelegramVoice, voiceFailureMessage } from '../_lib/bot-voice.
 import { handleMechanicTextCommand, continueMechanicSession, startMechanicAction, confirmSparePartsRequest } from '../_lib/bot-mechanic.js';
 import { sendExecutiveWorkshopStatus } from '../_lib/bot-workshop-dashboard.js';
 import { handleSalesTextCommand, continueSalesSession, startSalesAction, confirmSalesOrder, cancelSalesDraft } from '../_lib/bot-sales.js';
+import { startGuidedSales, continueGuidedSales, handleGuidedSalesCallback } from '../_lib/bot-sales-guided.js';
+import { handleProcurementTextCommand, continueProcurementSession, handleProcurementCallback } from '../_lib/bot-procurement.js';
 
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const now=()=>new Date().toISOString();
@@ -49,6 +51,12 @@ async function handleText(message,group,identity,text,voicePath='',stored=null){
   if(['group','supergroup'].includes(message.chat.type)&&!group.active)return sendMessage(chatId,'فهمت الرسالة وسجلتها، لكن المجموعة لم تعتمد بعد. يجب تحديد قسمها قبل التوجيه النهائي.');
 
   const session=await getBotSession(chatId,message.from.id);
+  if(session?.state?.startsWith('supplier_')||session?.state?.startsWith('rfq_')){
+    if(await continueProcurementSession(message,identity,session,t))return;
+  }
+  if(session?.state?.startsWith('guided_sales_')){
+    if(await continueGuidedSales(message,identity,session,t))return;
+  }
   if(session?.state?.startsWith('sales_')){
     if(await continueSalesSession(message,identity,session,t))return;
   }
@@ -60,6 +68,7 @@ async function handleText(message,group,identity,text,voicePath='',stored=null){
     if(waiting?.handled)return;
   }
 
+  if(await handleProcurementTextCommand(message,identity,t))return;
   if(await handleSalesTextCommand(message,identity,t))return;
 
   const directActions=[
@@ -93,7 +102,13 @@ async function handleCallback(update){
   if(!identity.active)return sendMessage(message.chat.id,'حسابك غير معتمد لتنفيذ هذا الإجراء.');
   const[action,id]=String(q.data||'').split(':');
   if(action==='report'){if(!allowed(role,'report'))return sendMessage(message.chat.id,'ليست لديك صلاحية طلب التقرير.');return sendReport(message.chat.id,id);}
-  if(action==='sales')return startSalesAction({...message,from:q.from},identity,id);
+  if(action==='sales'){
+    if(id==='new_block')return startGuidedSales({...message,from:q.from},identity,'block');
+    if(id==='new_concrete')return startGuidedSales({...message,from:q.from},identity,'concrete');
+    return startSalesAction({...message,from:q.from},identity,id);
+  }
+  if(['gs_item','gs_qty','gs_price','gs_date','gs_pay'].includes(action))return handleGuidedSalesCallback(message,q.from,identity,action,id);
+  if(['proc','supplier_city','supplier_rfq','rfq_qty','rfq_urgency'].includes(action))return handleProcurementCallback(message,q.from,identity,action,id);
   if(action==='sales_confirm')return confirmSalesOrder({...message,from:q.from},id,identity);
   if(action==='sales_cancel')return cancelSalesDraft({...message,from:q.from},identity);
   if(action==='mech')return startMechanicAction({...message,from:q.from},identity,id);
