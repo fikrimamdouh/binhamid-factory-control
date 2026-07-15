@@ -6,6 +6,18 @@
   },
   "headers": [
     {
+      "source": "/(.*)",
+      "headers": [
+        {"key":"Permissions-Policy","value":"unload=(self)"}
+      ]
+    },
+    {
+      "source": "/favicon.svg",
+      "headers": [
+        {"key":"Cache-Control","value":"public, max-age=86400"}
+      ]
+    },
+    {
       "source": "/api/(.*)",
       "headers": [
         {"key":"Cache-Control","value":"no-store"},
