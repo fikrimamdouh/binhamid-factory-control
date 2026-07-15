@@ -3,13 +3,14 @@ import { config } from '../_lib/config.js';
 import { json, method, body, errorResponse } from '../_lib/http.js';
 import { select, insert, upsert, patch, rpc, uploadObject } from '../_lib/supabase.js';
 import { sendMessage, answerCallback, downloadTelegramFile } from '../_lib/telegram.js';
-import { transcribe } from '../_lib/ai.js';
 import { inferDepartment, sha256, extractPlate, isFaultMessage, allowed } from '../_lib/domain.js';
-import { enrichIdentity, displayName, roleLabel, welcomeMessage } from '../_lib/bot-profile.js';
+import { enrichIdentity, displayName } from '../_lib/bot-profile.js';
 import { interpretMessage } from '../_lib/bot-routing.js';
 import { reportKeyboard, sendReport } from '../_lib/bot-reports.js';
 import { handleExcel, handleAttachment } from '../_lib/bot-files.js';
 import { getBotSession, createMaintenanceDraft, continueWaitingPlate, confirmMaintenance, cancelMaintenance, chooseVehicle } from '../_lib/bot-maintenance.js';
+import { handleBuiltInCommand } from '../_lib/bot-commands.js';
+import { transcribeTelegramVoice, voiceFailureMessage } from '../_lib/bot-voice.js';
 
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const now=()=>new Date().toISOString();
@@ -30,8 +31,7 @@ async function storeMessage(updateId,message,group,identity){
 }
 async function handleText(message,group,identity,text,voicePath='',stored=null){
   const chatId=message.chat.id,role=identity.role||'pending',active=Boolean(identity.active),t=String(text||'').trim(),name=displayName(identity,message.from);
-  if(/^(\/whoami(?:@\w+)?|من انا|مين انا)\s*$/i.test(t))return sendMessage(chatId,`رقم Telegram: <code>${esc(message.from.id)}</code>\nالاسم: <b>${esc(name)}</b>\nالدور: <b>${esc(roleLabel(role))}</b>\nالحالة: <b>${active?'معتمد':'ينتظر اعتماد مدير النظام'}</b>\nالمجموعة: <code>${esc(message.chat.id)}</code>`);
-  if(/^(\/start(?:@\w+)?|\/help(?:@\w+)?|المميزات|ماذا تستطيع|تقدر تعمل ايه)\s*$/i.test(t)||/^(مرحبا|اهلا|أهلا|السلام عليكم|صباح الخير|مساء الخير)[.!؟\s]*$/i.test(t))return sendMessage(chatId,esc(welcomeMessage(identity,message.from)));
+  if(await handleBuiltInCommand({message,identity,text:t}))return;
   if(!active)return sendMessage(chatId,`مرحبًا ${esc(name)}. فهمت رسالتك وسجلتها، لكن حسابك غير معتمد لتنفيذ الإجراءات. أرسل رقمك من /whoami إلى مدير النظام.`);
   if(['group','supergroup'].includes(message.chat.type)&&!group.active)return sendMessage(chatId,'فهمت الرسالة وسجلتها، لكن المجموعة لم تعتمد بعد. يجب تحديد قسمها قبل التوجيه النهائي.');
   const session=await getBotSession(chatId,message.from.id);
@@ -59,7 +59,13 @@ async function handleMessage(update){
   const[group,identity]=await Promise.all([ensureGroup(message.chat),ensureIdentity(message.from)]),stored=await storeMessage(update.update_id,message,group,identity);
   if(message.document){const name=message.document.file_name||'';return/\.(xlsx|xls)$/i.test(name)||/spreadsheet|excel/i.test(message.document.mime_type||'')?handleExcel(message,group,identity,stored):handleAttachment(message,group,identity,stored);}
   if(message.photo?.length)return handleAttachment(message,group,identity,stored);
-  if(message.voice){const downloaded=await downloadTelegramFile(message.voice.file_id),hash=sha256(downloaded.buffer),path=`telegram/${group.department||'unassigned'}/${new Date().toISOString().slice(0,10)}/voice-${hash.slice(0,16)}.ogg`;await uploadObject(path,downloaded.buffer,message.voice.mime_type||downloaded.contentType);let text='';try{text=await transcribe(downloaded.buffer,'voice.ogg',message.voice.mime_type||downloaded.contentType)||'';}catch(error){console.error('transcription',error.message);}await patch('telegram_messages',`id=eq.${stored.id}`,{file_path:path,transcription:text||null});return text?handleText(message,group,identity,text,path,stored):sendMessage(message.chat.id,'حفظت الرسالة الصوتية، لكن تعذر تحويلها إلى نص. أعد التسجيل بصوت أوضح أو أرسلها كتابة.');}
+  if(message.voice){
+    const downloaded=await downloadTelegramFile(message.voice.file_id),hash=sha256(downloaded.buffer),path=`telegram/${group.department||'unassigned'}/${new Date().toISOString().slice(0,10)}/voice-${hash.slice(0,16)}.ogg`;
+    await uploadObject(path,downloaded.buffer,message.voice.mime_type||downloaded.contentType);
+    const result=await transcribeTelegramVoice(downloaded.buffer,message.voice.mime_type||downloaded.contentType);
+    await patch('telegram_messages',`id=eq.${stored.id}`,{file_path:path,transcription:result.text||null,related_entity_type:result.text?'voice_transcribed':`voice_${result.reason||'failed'}`});
+    return result.text?handleText(message,group,identity,result.text,path,stored):sendMessage(message.chat.id,voiceFailureMessage(result));
+  }
   return handleText(message,group,identity,String(message.text||message.caption||'').trim(),'',stored);
 }
 export default async function handler(req,res){
