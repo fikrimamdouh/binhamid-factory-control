@@ -2,13 +2,15 @@ import { config } from './config.js';
 function ensure() {
   if (!config.supabaseUrl || !config.supabaseKey) throw Object.assign(new Error('Supabase غير مضبوط على Vercel'), { status: 503 });
 }
+function serviceHeaders(extra = {}) {
+  return { apikey: String(config.supabaseKey || '').trim(), ...extra };
+}
 export async function supabase(path, options = {}) {
   ensure();
   const response = await fetch(`${config.supabaseUrl}${path}`, {
     ...options,
     headers: {
-      apikey: config.supabaseKey,
-      Authorization: `Bearer ${config.supabaseKey}`,
+      ...serviceHeaders(),
       ...(options.body && !(options.body instanceof Uint8Array) && !(options.body instanceof Buffer) ? { 'Content-Type': 'application/json' } : {}),
       ...(options.headers || {})
     }
@@ -17,7 +19,7 @@ export async function supabase(path, options = {}) {
   let data = text;
   try { data = text ? JSON.parse(text) : null; } catch {}
   if (!response.ok) {
-    const message = data?.message || data?.error_description || data?.hint || text || `Supabase ${response.status}`;
+    const message = data?.message || data?.error_description || data?.hint || data?.msg || text || `Supabase ${response.status}`;
     throw Object.assign(new Error(message), { status: response.status === 409 ? 409 : 502, upstreamStatus: response.status, data });
   }
   return data;
@@ -35,7 +37,7 @@ export async function uploadObject(path, buffer, contentType = 'application/octe
 export async function downloadObject(path) {
   ensure();
   const encoded = path.split('/').map(encodeURIComponent).join('/');
-  const response = await fetch(`${config.supabaseUrl}/storage/v1/object/${encodeURIComponent(config.storageBucket)}/${encoded}`, { headers: { apikey: config.supabaseKey, Authorization: `Bearer ${config.supabaseKey}` } });
+  const response = await fetch(`${config.supabaseUrl}/storage/v1/object/${encodeURIComponent(config.storageBucket)}/${encoded}`, { headers: serviceHeaders() });
   if (!response.ok) throw Object.assign(new Error(`تعذر تنزيل المرفق: ${response.status}`), { status: 502 });
   return { buffer: Buffer.from(await response.arrayBuffer()), contentType: response.headers.get('content-type') || 'application/octet-stream' };
 }
