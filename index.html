@@ -5,17 +5,18 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>نظام رقابة مصنع بن حامد</title>
   <style>
-    html,body{height:100%;margin:0;background:#f7f3ec;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#163746}
-    .boot{height:100%;display:grid;place-items:center;padding:24px;text-align:center}
+    html,body{height:100%;margin:0;background:#f7f3ec;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#163746;overflow:hidden}
+    .boot{position:fixed;inset:0;z-index:2;display:grid;place-items:center;padding:24px;text-align:center;background:#f7f3ec}
     .boot-card{width:min(520px,92vw);background:#fff;border:1px solid #e2dcd1;border-radius:16px;padding:28px;box-shadow:0 18px 50px rgba(11,34,51,.12)}
     .boot-mark{width:56px;height:56px;border-radius:15px;margin:0 auto 14px;background:#0b2233;color:#e6c982;display:grid;place-items:center;font-weight:900;font-size:22px}
     .boot h1{font-size:20px;margin:0 0 8px}.boot p{font-size:13px;color:#697b84;margin:0;line-height:1.8}
     .boot-line{height:4px;background:#edf1f2;border-radius:8px;overflow:hidden;margin-top:18px}.boot-line:before{content:"";display:block;width:35%;height:100%;background:#a97926;animation:load 1s infinite alternate ease-in-out}@keyframes load{to{transform:translateX(-185%)}}
     .boot-error{color:#922f2f;background:#fff1f1;border:1px solid #edcccc;padding:12px;border-radius:10px;margin-top:14px;display:none;white-space:pre-wrap;text-align:right}
+    #appFrame{width:100%;height:100%;border:0;display:block;background:#f7f3ec;visibility:hidden}
   </style>
 </head>
 <body>
-  <main class="boot">
+  <main class="boot" id="bootScreen">
     <section class="boot-card">
       <div class="boot-mark">BH</div>
       <h1>نظام رقابة مصنع بن حامد</h1>
@@ -24,22 +25,54 @@
       <div id="bootError" class="boot-error"></div>
     </section>
   </main>
+
+  <iframe id="appFrame" title="نظام رقابة مصنع بن حامد" src="/legacy.html?v=20260715-cloud-foundation-2"></iframe>
+
   <script>
-  (async function boot(){
-    try{
-      const response=await fetch('/legacy.html?v=20260715-cloud-foundation-1',{cache:'no-store'});
-      if(!response.ok)throw new Error('تعذر تحميل النسخة التشغيلية: '+response.status);
-      let html=await response.text();
-      const head=`<link rel="stylesheet" href="/assets/cloud-control.css?v=20260715-1">`;
-      const tail=`<script src="/assets/cloud-control.js?v=20260715-1"><\/script>`;
-      if(!/<\/head>/i.test(html)||!/<\/body>/i.test(html))throw new Error('النسخة التشغيلية غير مكتملة.');
-      html=html.replace(/<\/head>/i,head+'</head>').replace(/<\/body>/i,tail+'</body>');
-      document.open();document.write(html);document.close();
-    }catch(error){
-      const box=document.getElementById('bootError');
-      if(box){box.style.display='block';box.textContent=String(error&&error.message||error)+'\nأعد تحميل الصفحة. إذا استمر الخطأ افتح النسخة الاحتياطية المحلية.';}
+  (function boot(){
+    const frame=document.getElementById('appFrame');
+    const screen=document.getElementById('bootScreen');
+    const errorBox=document.getElementById('bootError');
+    let completed=false;
+
+    function fail(error){
+      if(completed)return;
+      const message=String(error&&error.message||error||'تعذر تحميل البرنامج.');
+      errorBox.style.display='block';
+      errorBox.textContent=message+'\nأعد تحميل الصفحة. بيانات المتصفح المحلية لم تُحذف.';
       console.error('[BinHamid boot]',error);
     }
+
+    frame.addEventListener('load',function(){
+      try{
+        const doc=frame.contentDocument;
+        if(!doc||!doc.head||!doc.body)throw new Error('تعذر الوصول إلى النسخة التشغيلية.');
+
+        if(!doc.getElementById('binhamid-cloud-style')){
+          const link=doc.createElement('link');
+          link.id='binhamid-cloud-style';
+          link.rel='stylesheet';
+          link.href='/assets/cloud-control.css?v=20260715-2';
+          doc.head.appendChild(link);
+        }
+
+        if(!doc.getElementById('binhamid-cloud-script')){
+          const script=doc.createElement('script');
+          script.id='binhamid-cloud-script';
+          script.src='/assets/cloud-control.js?v=20260715-2';
+          script.defer=true;
+          script.onerror=function(){fail(new Error('تعذر تحميل مركز الاتصال، بينما النسخة الأساسية ما زالت متاحة.'));};
+          doc.body.appendChild(script);
+        }
+
+        completed=true;
+        frame.style.visibility='visible';
+        screen.remove();
+      }catch(error){fail(error);}
+    });
+
+    frame.addEventListener('error',function(){fail(new Error('تعذر تحميل النسخة التشغيلية.'));});
+    setTimeout(function(){if(!completed)fail(new Error('استغرق التحميل وقتًا أطول من المتوقع.'));},15000);
   })();
   </script>
 </body>
