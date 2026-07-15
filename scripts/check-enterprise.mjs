@@ -2,7 +2,16 @@ import { spawnSync } from 'node:child_process';
 
 const files=[
   'assets/cloud-control.js',
-  'api/telegram/webhook-v3.js',
+  'assets/cloud-control-navigation-fix.js',
+  'assets/attendance-control.js',
+  'api/telegram/webhook-v2.js',
+  'api/telegram/register.js',
+  'api/admin/attendance.js',
+  'api/admin/users.js',
+  'api/cron/manager-brief.js',
+  'api/_lib/telegram-webapp.js',
+  'api/_lib/bot-commands.js',
+  'api/_lib/bot-attendance.js',
   'api/_lib/bot-enterprise.js',
   'api/_lib/bot-enterprise-store.js',
   'api/_lib/bot-enterprise-defs.js',
