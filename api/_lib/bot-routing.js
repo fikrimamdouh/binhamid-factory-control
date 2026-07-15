@@ -10,9 +10,10 @@ async function remember(chatId,userId,userText,assistantText){
   const aiHistory=[...history,{user:String(userText).slice(0,1200),assistant:String(assistantText).slice(0,1200),at:new Date().toISOString()}].slice(-8);
   await upsert('bot_sessions',[{channel:'telegram',chat_id:String(chatId),external_user_id:String(userId),state:session?.state||'idle',context:{...context,aiHistory},updated_at:new Date().toISOString()}],'channel,chat_id,external_user_id');
 }
-function fallbackReply(route,name){
-  const d=route.destination||DEPARTMENT_LABELS.general;
+function fallbackReply(route,name,text=''){
+  const d=route.destination||DEPARTMENT_LABELS.general,t=String(text).toLowerCase();
   if(route.intent==='thanks')return `العفو يا ${name}. أنا متابع معك.`;
+  if(route.intent==='greeting')return `أهلًا يا ${name}. أنا جاهز. اكتب طلبك مباشرة أو اكتب «مساعدة».`;
   if(route.intent==='report')return `حاضر يا ${name}. سأعرض لك تقارير الإدارة المتاحة.`;
   if(route.intent==='maintenance')return `فهمت يا ${name}. هذه رسالة عطل ومسارها الورشة والصيانة.`;
   if(route.intent==='fuel')return `فهمت يا ${name}. الرسالة تخص الديزل والوقود ومسارها ${d}.`;
@@ -21,7 +22,8 @@ function fallbackReply(route,name){
   if(route.intent==='sales')return `فهمت يا ${name}. هذه رسالة مبيعات ومسارها ${d}.`;
   if(route.intent==='quotation')return `فهمت يا ${name}. هذا عرض سعر ومساره ${d} للمراجعة قبل الاعتماد.`;
   if(route.intent==='finance')return `فهمت يا ${name}. هذه معاملة مالية ومسارها ${d}.`;
-  return `وصلت رسالتك يا ${name}. حفظتها في مركز الاتصال وحددت مسارها المقترح.`;
+  if(/كيف حالك|عامل ايه|اخبارك/.test(t))return `أنا جاهز ومتصل بالنظام يا ${name}. قل لي ما الذي تريد متابعته في المصنع.`;
+  return `فهمت كلامك يا ${name}. عندما يكون الطلب متعلقًا ببيانات المصنع سأحدد المسار والإجراء، أما الأسئلة العامة فسأجيبك مباشرة دون ترحيلها كمعاملة.`;
 }
 export async function interpretMessage({message,group,identity,text,stored}){
   const chatId=message.chat.id,name=displayName(identity,message.from),role=identity.role||'pending';
@@ -32,9 +34,9 @@ export async function interpretMessage({message,group,identity,text,stored}){
   if(!INTENTS.has(route.intent))route.intent=fallback.intent;
   route.destination=String(route.destination||fallback.destination||DEPARTMENT_LABELS.general).slice(0,180);
   route.summary=String(route.summary||fallback.summary||text).slice(0,500);
-  route.reply=String(route.reply||fallbackReply(route,name)).slice(0,1800);
-  if(stored?.id)await patch('telegram_messages',`id=eq.${encodeURIComponent(stored.id)}`,{related_entity_type:`route_${String(route.intent).replace(/[^a-z_]/g,'')}`});
-  await remember(chatId,message.from.id,text,route.reply);
+  route.reply=String(route.reply||fallbackReply(route,name,text)).slice(0,1800);
   const operational=!['greeting','thanks','general'].includes(route.intent);
-  return {route,response:`${esc(route.reply)}\n\n<b>المسار المقترح:</b> ${esc(route.destination)}\n<b>فهم الرسالة:</b> ${esc(route.summary)}${operational?'\n<b>الحالة:</b> محفوظة في مركز الاتصال ولم تُرحّل نهائيًا بعد.':''}`};
+  if(stored?.id)await patch('telegram_messages',`id=eq.${encodeURIComponent(stored.id)}`,{related_entity_type:operational?`route_${String(route.intent).replace(/[^a-z_]/g,'')}`:'conversation'});
+  await remember(chatId,message.from.id,text,route.reply);
+  return {route,response:operational?`${esc(route.reply)}\n\n<b>المسار المقترح:</b> ${esc(route.destination)}\n<b>فهم الرسالة:</b> ${esc(route.summary)}\n<b>الحالة:</b> محفوظة في مركز الاتصال ولم تُرحّل نهائيًا بعد.`:esc(route.reply)};
 }
