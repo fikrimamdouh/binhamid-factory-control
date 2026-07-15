@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>نظام رقابة مصنع بن حامد</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <style>
     html,body{height:100%;margin:0;background:#f7f3ec;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#163746;overflow:hidden}
     .boot{position:fixed;inset:0;z-index:2;display:grid;place-items:center;padding:24px;text-align:center;background:#f7f3ec}
@@ -26,7 +27,7 @@
     </section>
   </main>
 
-  <iframe id="appFrame" title="نظام رقابة مصنع بن حامد" src="/legacy.html?v=20260715-cloud-foundation-2"></iframe>
+  <iframe id="appFrame" title="نظام رقابة مصنع بن حامد" allow="unload" src="/legacy.html?v=20260715-cloud-foundation-3"></iframe>
 
   <script>
   (function boot(){
@@ -52,14 +53,14 @@
           const link=doc.createElement('link');
           link.id='binhamid-cloud-style';
           link.rel='stylesheet';
-          link.href='/assets/cloud-control.css?v=20260715-2';
+          link.href='/assets/cloud-control.css?v=20260715-3';
           doc.head.appendChild(link);
         }
 
         if(!doc.getElementById('binhamid-cloud-script')){
           const script=doc.createElement('script');
           script.id='binhamid-cloud-script';
-          script.src='/assets/cloud-control.js?v=20260715-2';
+          script.src='/assets/cloud-control.js?v=20260715-3';
           script.defer=true;
           script.onerror=function(){fail(new Error('تعذر تحميل مركز الاتصال، بينما النسخة الأساسية ما زالت متاحة.'));};
           doc.body.appendChild(script);
