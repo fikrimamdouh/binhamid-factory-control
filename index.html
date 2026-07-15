@@ -27,7 +27,7 @@
     </section>
   </main>
 
-  <iframe id="appFrame" title="نظام رقابة مصنع بن حامد" allow="unload" src="/legacy.html?v=20260715-cloud-foundation-5"></iframe>
+  <iframe id="appFrame" title="نظام رقابة مصنع بن حامد" allow="unload; geolocation" src="/legacy.html?v=20260716-enterprise-attendance-1"></iframe>
 
   <script>
   (function boot(){
@@ -53,30 +53,34 @@
           const link=doc.createElement('link');
           link.id='binhamid-cloud-style';
           link.rel='stylesheet';
-          link.href='/assets/cloud-control.css?v=20260715-5';
+          link.href='/assets/cloud-control.css?v=20260716-enterprise-attendance-1';
           doc.head.appendChild(link);
         }
 
-        function injectNavigationFix(){
-          if(doc.getElementById('binhamid-cloud-navigation-fix'))return;
-          const fix=doc.createElement('script');
-          fix.id='binhamid-cloud-navigation-fix';
-          fix.src='/assets/cloud-control-navigation-fix.js?v=20260715-2';
-          fix.async=false;
-          fix.onerror=function(){console.error('[BinHamid] تعذر تحميل إصلاح تنقل مركز الاتصال.');};
-          doc.body.appendChild(fix);
+        function injectScript(id,src,onerror){
+          if(doc.getElementById(id))return;
+          const script=doc.createElement('script');
+          script.id=id;
+          script.src=src;
+          script.async=false;
+          if(onerror)script.onerror=onerror;
+          doc.body.appendChild(script);
+        }
+        function injectExtensions(){
+          injectScript('binhamid-cloud-navigation-fix','/assets/cloud-control-navigation-fix.js?v=20260716-3',function(){console.error('[BinHamid] تعذر تحميل إصلاح تنقل مركز الاتصال.');});
+          injectScript('binhamid-attendance-control','/assets/attendance-control.js?v=20260716-1',function(){console.error('[BinHamid] تعذر تحميل إدارة الحضور والسائقين.');});
         }
 
         if(!doc.getElementById('binhamid-cloud-script')){
           const script=doc.createElement('script');
           script.id='binhamid-cloud-script';
-          script.src='/assets/cloud-control.js?v=20260715-5';
+          script.src='/assets/cloud-control.js?v=20260716-enterprise-attendance-1';
           script.async=false;
-          script.onload=injectNavigationFix;
+          script.onload=injectExtensions;
           script.onerror=function(){fail(new Error('تعذر تحميل مركز الاتصال، بينما النسخة الأساسية ما زالت متاحة.'));};
           doc.body.appendChild(script);
         }else{
-          injectNavigationFix();
+          injectExtensions();
         }
 
         completed=true;
