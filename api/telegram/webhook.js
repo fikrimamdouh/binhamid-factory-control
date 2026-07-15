@@ -82,7 +82,7 @@ async function handleAttachment(message,group,identity,stored) {
 
 async function handleText(message,group,identity,text,voicePath='') {
   const chatId=message.chat.id, role=identity.role||'pending', active=Boolean(identity.active);
-  if(/^\/whoami|من انا|مين انا/i.test(text)){return sendMessage(chatId,`رقم Telegram: <code>${esc(message.from.id)}</code>\nالدور: <b>${esc(role)}</b>\nالحالة: <b>${active?'معتمد':'ينتظر اعتماد مدير النظام'}</b>\nالمجموعة: <code>${esc(message.chat.id)}</code>`);}
+  if(/^(\/whoami(?:@\w+)?|من انا|مين انا)\s*$/i.test(text)){return sendMessage(chatId,`رقم Telegram: <code>${esc(message.from.id)}</code>\nالدور: <b>${esc(role)}</b>\nالحالة: <b>${active?'معتمد':'ينتظر اعتماد مدير النظام'}</b>\nالمجموعة: <code>${esc(message.chat.id)}</code>`);}
   if(!active){return sendMessage(chatId,'تم تسجيل رسالتك، لكن حسابك غير معتمد لتنفيذ إجراءات. أرسل رقمك الظاهر من /whoami إلى مدير النظام لاعتماد الدور.');}
   if(['group','supergroup'].includes(message.chat.type)&&!group.active){return sendMessage(chatId,'هذه المجموعة ظهرت في مركز الاتصال لكنها لم تعتمد بعد. مدير النظام يحدد هل هي الورشة أو المالية أو البلوك أو الخرسانة.');}
   const session=await getSession(chatId,message.from.id);
@@ -121,18 +121,4 @@ export default async function handler(req,res){
   try{if(update.callback_query)await handleCallback(update);else if(update.message||update.edited_message)await handleMessage(update);}
   catch(error){console.error('[telegram webhook]',error);}
   json(res,200,{ok:true});
-}
-async function handleMessage(update) {
-  const message=update.message||update.edited_message;if(!message?.from||message.from.is_bot)return;
-  const [group,identity]=await Promise.all([ensureGroup(message.chat),ensureIdentity(message.from)]);const stored=await storeMessage(update.update_id,message,group,identity);
-  if(message.document){const name=message.document.file_name||'';if(/\.(xlsx|xls)$/i.test(name)||/spreadsheet|excel/i.test(message.document.mime_type||''))return handleExcel(message,group,identity,stored);return handleAttachment(message,group,identity,stored);}
-  if(message.photo?.length)return handleAttachment(message,group,identity,stored);
-  if(message.voice){const downloaded=await downloadTelegramFile(message.voice.file_id);const hash=sha256(downloaded.buffer);const path=`telegram/${group.department||'unassigned'}/${new Date().toISOString().slice(0,10)}/voice-${hash.slice(0,16)}.ogg`;await uploadObject(path,downloaded.buffer,message.voice.mime_type||downloaded.contentType);let text='';try{text=await transcribe(downloaded.buffer,'voice.ogg',message.voice.mime_type||downloaded.contentType)||'';}catch(error){console.error('transcription',error.message);}await patch('telegram_messages',`id=eq.${stored.id}`,{file_path:path,transcription:text||null});if(!text)return accessibleReply(message.chat.id,'تم حفظ الرسالة الصوتية، لكن خدمة تحويل الصوت إلى نص غير مفعلة أو تعذر فهم التسجيل. قل رقم اللوحة في رسالة صوتية أو نصية أقصر.',true);return handleText(message,group,identity,text,path);}
-  return handleText(message,group,identity,String(message.text||message.caption||'').trim());
-}
-
-export default async function handler(req,res){
-  if(!method(req,res,['POST']))return;
-  try{verifyTelegram(req);const update=await body(req,2_000_000);json(res,200,{ok:true});if(update.callback_query)await handleCallback(update);else if(update.message||update.edited_message)await handleMessage(update);}
-  catch(error){if(!res.headersSent)errorResponse(res,error);else console.error('[telegram webhook]',error);}
 }
