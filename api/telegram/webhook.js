@@ -50,6 +50,8 @@ async function handleText(message,group,identity,text,voicePath='',stored=null){
   if(!active)return sendMessage(chatId,`مرحبًا ${esc(name)}. فهمت رسالتك وسجلتها، لكن حسابك غير معتمد لتنفيذ الإجراءات. أرسل رقمك من /whoami إلى مدير النظام.`);
   if(['group','supergroup'].includes(message.chat.type)&&!group.active)return sendMessage(chatId,'فهمت الرسالة وسجلتها، لكن المجموعة لم تعتمد بعد. يجب تحديد قسمها قبل التوجيه النهائي.');
 
+  if(/^\/suppliers(?:@\w+)?$/i.test(t))return handleProcurementCallback(message,message.from,identity,'proc','search');
+
   const session=await getBotSession(chatId,message.from.id);
   if(session?.state?.startsWith('supplier_')||session?.state?.startsWith('rfq_')){
     if(await continueProcurementSession(message,identity,session,t))return;
