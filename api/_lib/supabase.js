@@ -1,4 +1,21 @@
 import { config } from './config.js';
+function fetchRetry(url, options = {}, tries = 3) {
+  return (async () => {
+    let lastError;
+    for (let attempt = 1; attempt <= tries; attempt++) {
+      try { return await fetch(url, options); }
+      catch (error) {
+        lastError = error;
+        const signal = String(error?.cause?.code || error?.cause?.message || error?.message || '');
+        const transient = /ECONNRESET|ETIMEDOUT|EAI_AGAIN|UND_ERR|socket|network|fetch failed|terminated|TLS/i.test(signal);
+        if (!transient || attempt === tries) throw error;
+        await new Promise(r => setTimeout(r, 350 * attempt));
+      }
+    }
+    throw lastError;
+  })();
+}
+
 function ensure() {
   if (!config.supabaseUrl || !config.supabaseKey) throw Object.assign(new Error('Supabase غير مضبوط على Vercel'), { status: 503 });
 }
@@ -13,7 +30,7 @@ function serviceHeaders(extra = {}) {
 }
 export async function supabase(path, options = {}) {
   ensure();
-  const response = await fetch(`${config.supabaseUrl}${path}`, {
+  const response = await fetchRetry(`${config.supabaseUrl}${path}`, {
     ...options,
     headers: {
       ...serviceHeaders(),
@@ -43,7 +60,8 @@ export async function uploadObject(path, buffer, contentType = 'application/octe
 export async function downloadObject(path) {
   ensure();
   const encoded = path.split('/').map(encodeURIComponent).join('/');
-  const response = await fetch(`${config.supabaseUrl}/storage/v1/object/${encodeURIComponent(config.storageBucket)}/${encoded}`, { headers: serviceHeaders() });
+  const response = await fetchRetry(`${config.supabaseUrl}/storage/v1/object/${encodeURIComponent(config.storageBucket)}/${encoded}`, { headers: serviceHeaders() });
   if (!response.ok) throw Object.assign(new Error(`تعذر تنزيل المرفق: ${response.status}`), { status: 502 });
   return { buffer: Buffer.from(await response.arrayBuffer()), contentType: response.headers.get('content-type') || 'application/octet-stream' };
 }
+
