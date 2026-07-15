@@ -27,7 +27,7 @@
     </section>
   </main>
 
-  <iframe id="appFrame" title="نظام رقابة مصنع بن حامد" allow="unload" src="/legacy.html?v=20260715-cloud-foundation-4"></iframe>
+  <iframe id="appFrame" title="نظام رقابة مصنع بن حامد" allow="unload" src="/legacy.html?v=20260715-cloud-foundation-5"></iframe>
 
   <script>
   (function boot(){
@@ -53,7 +53,7 @@
           const link=doc.createElement('link');
           link.id='binhamid-cloud-style';
           link.rel='stylesheet';
-          link.href='/assets/cloud-control.css?v=20260715-4';
+          link.href='/assets/cloud-control.css?v=20260715-5';
           doc.head.appendChild(link);
         }
 
@@ -61,7 +61,7 @@
           if(doc.getElementById('binhamid-cloud-navigation-fix'))return;
           const fix=doc.createElement('script');
           fix.id='binhamid-cloud-navigation-fix';
-          fix.src='/assets/cloud-control-navigation-fix.js?v=20260715-1';
+          fix.src='/assets/cloud-control-navigation-fix.js?v=20260715-2';
           fix.async=false;
           fix.onerror=function(){console.error('[BinHamid] تعذر تحميل إصلاح تنقل مركز الاتصال.');};
           doc.body.appendChild(fix);
@@ -70,7 +70,7 @@
         if(!doc.getElementById('binhamid-cloud-script')){
           const script=doc.createElement('script');
           script.id='binhamid-cloud-script';
-          script.src='/assets/cloud-control.js?v=20260715-4';
+          script.src='/assets/cloud-control.js?v=20260715-5';
           script.async=false;
           script.onload=injectNavigationFix;
           script.onerror=function(){fail(new Error('تعذر تحميل مركز الاتصال، بينما النسخة الأساسية ما زالت متاحة.'));};
