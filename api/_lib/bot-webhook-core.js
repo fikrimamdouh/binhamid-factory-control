@@ -18,5 +18,5 @@ export async function storeTelegramMessage(updateId,message,group,identity){
   const type=message.voice?'voice':message.document?'document':message.photo?'photo':message.location?'location':message.contact?'contact':message.text?'text':'other';
   const text=message.text||message.caption||(message.location?`${message.location.latitude},${message.location.longitude}`:'');
   const row={update_id:String(updateId),chat_id:String(message.chat.id),message_id:String(message.message_id),group_id:group?.id||null,sender_user_id:identity?.user_id||null,sender_external_id:String(message.from?.id||''),message_type:type,text,file_id:message.voice?.file_id||message.document?.file_id||message.photo?.at(-1)?.file_id||null,file_name:message.document?.file_name||null,mime_type:message.document?.mime_type||message.voice?.mime_type||null,raw:{message},created_at:new Date((message.date||Date.now()/1000)*1000).toISOString()};
-  return(await upsert('telegram_messages',[row],'update_id'))?.[0]||row;
+  return(await upsert('telegram_messages',[row],'chat_id,message_id'))?.[0]||row;
 }
