@@ -3,9 +3,9 @@ import { sendMessage } from './telegram.js';
 import { allowed, reportSummary } from './domain.js';
 import { displayName, roleLabel } from './bot-profile.js';
 import { welcomeMessage, helpMessage } from './bot-help.js';
-import { sendReport } from './bot-reports.js';
+import { reportKeyboard, sendReport } from './bot-reports.js';
 
-const norm=value=>String(value||'').toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ًٌٍَُِّْـ]/g,'').replace(/\s+/g,' ').trim();
+const norm=value=>String(value||'').toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ًٌٍَُِّْـ]/g,'').replace(/[؟?!.,،؛:]+/g,'').replace(/\s+/g,' ').trim();
 
 async function programStatus(chatId,identity){
   const row=(await select('app_state','key=eq.primary&select=revision,updated_at,payload&limit=1'))?.[0];
@@ -21,10 +21,10 @@ async function programStatus(chatId,identity){
 }
 
 export async function handleBuiltInCommand({message,identity,text}){
-  const chatId=message.chat.id,t=norm(text),role=identity?.role||'pending',active=Boolean(identity?.active),name=displayName(identity,message.from);
-  if(/^\/start(?:@\w+)?$/i.test(String(text||'').trim())){await sendMessage(chatId,welcomeMessage(identity,message.from));return true;}
-  if(/^\/help(?:@\w+)?$/i.test(String(text||'').trim())||/^(مساعده|الاوامر|اوامر|المميزات|ماذا تستطيع|تقدر تعمل ايه)$/.test(t)){await sendMessage(chatId,helpMessage(identity,message.from));return true;}
-  if(/^\/whoami(?:@\w+)?$/i.test(String(text||'').trim())||/^(من انا|مين انا)$/.test(t)){
+  const chatId=message.chat.id,raw=String(text||'').trim(),t=norm(text),role=identity?.role||'pending',active=Boolean(identity?.active),name=displayName(identity,message.from);
+  if(/^\/start(?:@\w+)?$/i.test(raw)){await sendMessage(chatId,welcomeMessage(identity,message.from));return true;}
+  if(/^\/help(?:@\w+)?$/i.test(raw)||/^(مساعده|الاوامر|اوامر|المميزات|ماذا تستطيع|تقدر تعمل ايه)$/.test(t)){await sendMessage(chatId,helpMessage(identity,message.from));return true;}
+  if(/^\/whoami(?:@\w+)?$/i.test(raw)||/^(من انا|مين انا)$/.test(t)){
     await sendMessage(chatId,`رقم Telegram: ${message.from.id}\nالاسم: ${name}\nالدور: ${roleLabel(role)}\nالحالة: ${active?'معتمد':'ينتظر اعتماد مدير النظام'}\nالمحادثة: ${message.chat.id}`);return true;
   }
   if(/^(انت مين|من انت|اسمك ايه|عرف نفسك|ايه شغلك|بتعمل ايه|ما وظيفتك)$/.test(t)){
@@ -33,9 +33,13 @@ export async function handleBuiltInCommand({message,identity,text}){
   if(/^(مرحبا|اهلا|السلام عليكم|صباح الخير|مساء الخير)$/.test(t)){
     await sendMessage(chatId,`أهلًا يا ${name}. أنا جاهز لمساعدتك في تقارير المصنع والديزل والصيانة والمبيعات والتحصيل. اكتب طلبك مباشرة أو اكتب «مساعدة».`);return true;
   }
-  if(/^(حاله النظام|حاله الربط|اخر مزامنه|البرنامج متصل|بيانات البرنامج)$/.test(t)){
+  if(/^\/status(?:@\w+)?$/i.test(raw)||/^(حاله النظام|حاله الربط|اخر مزامنه|البرنامج متصل|بيانات البرنامج)$/.test(t)){
     if(!active){await sendMessage(chatId,'حسابك مسجل، لكنه يحتاج اعتمادًا قبل عرض حالة بيانات البرنامج. استخدم /whoami.');return true;}
     await programStatus(chatId,identity);return true;
+  }
+  if(/^\/reports(?:@\w+)?$/i.test(raw)){
+    if(!active||!allowed(role,'report')){await sendMessage(chatId,'عرض التقارير متاح لمدير المصنع ومدير النظام فقط.');return true;}
+    await sendMessage(chatId,`حاضر يا ${name}. اختر التقرير المطلوب:`,reportKeyboard());return true;
   }
   const reports=[
     {re:/^(ملخص اليوم|تقرير اليوم|الوضع اليوم|ملخص المصنع)$/,kind:'daily'},
