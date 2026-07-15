@@ -48,7 +48,6 @@ create table if not exists public.attendance_events (
   horizontal_accuracy_m numeric(12,2),
   distance_from_site_m numeric(12,2),
   within_geofence boolean,
-  selfie_path text,
   note text,
   source_chat_id text,
   source_message_id text,
@@ -89,7 +88,9 @@ create index if not exists driver_events_user_time_idx on public.driver_events(a
 create index if not exists driver_events_vehicle_time_idx on public.driver_events(vehicle_external_id, occurred_at desc);
 create index if not exists assignments_site_idx on public.employee_assignments(site_id, active);
 
-create or replace function public.approve_telegram_user(
+drop function if exists public.approve_telegram_user(text,text,text,boolean);
+drop function if exists public.approve_telegram_user(text,text,text,boolean,text);
+create function public.approve_telegram_user(
   p_external_id text,
   p_full_name text,
   p_role text,
