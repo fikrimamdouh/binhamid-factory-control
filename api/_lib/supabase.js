@@ -3,7 +3,13 @@ function ensure() {
   if (!config.supabaseUrl || !config.supabaseKey) throw Object.assign(new Error('Supabase غير مضبوط على Vercel'), { status: 503 });
 }
 function serviceHeaders(extra = {}) {
-  return { apikey: String(config.supabaseKey || '').trim(), ...extra };
+  const key = String(config.supabaseKey || '').trim();
+  const headers = { apikey: key, ...extra };
+  // Supabase secret keys (sb_secret_...) are API keys, not JWTs, and must not
+  // be sent as Bearer tokens. Legacy service_role keys are JWTs and still
+  // require Authorization so PostgREST assumes the service_role database role.
+  if (key && !key.startsWith('sb_secret_')) headers.Authorization = `Bearer ${key}`;
+  return headers;
 }
 export async function supabase(path, options = {}) {
   ensure();
