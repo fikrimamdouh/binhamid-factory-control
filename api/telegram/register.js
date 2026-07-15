@@ -14,6 +14,7 @@ export default async function handler(req,res){
       {command:'start',description:'تشغيل الموظف الذكي وعرض جميع الإمكانات'},
       {command:'help',description:'عرض المساعدة وقائمة الأوامر'},
       {command:'reports',description:'عرض تقارير الإدارة المتاحة'},
+      {command:'sales',description:'فتح قائمة أوامر بيع البلوك والخرسانة'},
       {command:'workshop',description:'فتح قائمة الورشة والميكانيكي'},
       {command:'status',description:'عرض حالة الربط وآخر مزامنة'},
       {command:'whoami',description:'عرض رقم الحساب والدور والصلاحية'}
