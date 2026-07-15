@@ -9,7 +9,7 @@ async function fetchRetry(url, options = {}, tries = 3) {
       const signal = String(error?.cause?.code || error?.cause?.message || error?.message || '');
       const transient = /ECONNRESET|ETIMEDOUT|EAI_AGAIN|UND_ERR|socket|network|fetch failed|terminated|TLS/i.test(signal);
       if (!transient || attempt === tries) throw error;
-      await new Promise(r => setTimeout(r, 350 * attempt));
+      await new Promise(resolve => setTimeout(resolve, 350 * attempt));
     }
   }
   throw lastError;
@@ -31,6 +31,7 @@ export async function downloadTelegramFile(fileId) {
   return { buffer: Buffer.from(await response.arrayBuffer()), filePath: info.file_path, contentType: response.headers.get('content-type') || 'application/octet-stream' };
 }
 export function keyboard(rows) { return { reply_markup: { inline_keyboard: rows } }; }
+export function replyKeyboard(rows, options = {}) { return { reply_markup: { keyboard: rows, resize_keyboard: true, one_time_keyboard: Boolean(options.oneTime), selective: true } }; }
 export async function sendVoiceBuffer(chatId, buffer, caption = '') {
   ensure();
   const form = new FormData();
@@ -42,4 +43,14 @@ export async function sendVoiceBuffer(chatId, buffer, caption = '') {
   if (!data.ok) throw Object.assign(new Error(data.description || 'تعذر إرسال الرد الصوتي'), { status: 502 });
   return data.result;
 }
-
+export async function sendDocumentBuffer(chatId, buffer, filename, contentType = 'application/octet-stream', caption = '') {
+  ensure();
+  const form = new FormData();
+  form.append('chat_id', String(chatId));
+  if (caption) form.append('caption', caption);
+  form.append('document', new Blob([buffer], { type: contentType }), filename || 'document.bin');
+  const response = await fetchRetry(`https://api.telegram.org/bot${config.telegramToken}/sendDocument`, { method: 'POST', body: form });
+  const data = await response.json();
+  if (!data.ok) throw Object.assign(new Error(data.description || 'تعذر إرسال المستند'), { status: 502 });
+  return data.result;
+}
