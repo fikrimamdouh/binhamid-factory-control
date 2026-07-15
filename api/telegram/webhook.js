@@ -35,7 +35,10 @@ async function handleText(message,group,identity,text,voicePath='',stored=null){
   if(!active)return sendMessage(chatId,`مرحبًا ${esc(name)}. فهمت رسالتك وسجلتها، لكن حسابك غير معتمد لتنفيذ الإجراءات. أرسل رقمك من /whoami إلى مدير النظام.`);
   if(['group','supergroup'].includes(message.chat.type)&&!group.active)return sendMessage(chatId,'فهمت الرسالة وسجلتها، لكن المجموعة لم تعتمد بعد. يجب تحديد قسمها قبل التوجيه النهائي.');
   const session=await getBotSession(chatId,message.from.id);
-  if(session?.state==='waiting_plate')return continueWaitingPlate(message,identity,session,t,voicePath);
+  if(session?.state==='waiting_plate'){
+    const waiting=await continueWaitingPlate(message,identity,session,t,voicePath);
+    if(waiting?.handled)return;
+  }
   if(/^(تقارير|تقرير|ملخص)$/i.test(t)||/اعرض.*تقارير/.test(t)){if(!allowed(role,'report'))return sendMessage(chatId,'فهمت أنك تطلب التقارير، لكن الإجراء متاح لمدير المصنع ومدير النظام فقط.');return sendMessage(chatId,`حاضر ${esc(name)}. اختر التقرير المطلوب:`,reportKeyboard());}
   if((group.department==='workshop'||role==='mechanic'||role==='admin')&&isFaultMessage(t)){if(!allowed(role,'maintenance')&&!allowed(role,'approve'))return sendMessage(chatId,'فهمت أنها رسالة صيانة، لكن دورك لا يسمح بفتح بلاغات الورشة.');return createMaintenanceDraft({chatId,messageId:message.message_id,identity,text:t,plate:extractPlate(t),voicePath});}
   const smart=await interpretMessage({message,group,identity,text:t,stored});
