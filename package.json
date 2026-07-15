@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.mjs",
-    "check": "node --check assets/cloud-control.js && node --test tests/*.test.mjs"
+    "check": "node scripts/check-enterprise.mjs && node --test tests/*.test.mjs"
   },
   "dependencies": {
     "xlsx": "^0.18.5"
