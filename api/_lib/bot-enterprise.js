@@ -11,9 +11,13 @@ import { sendEnterpriseAlerts, sendEnterpriseApprovals, sendEnterpriseCategorySu
 export async function showRoleHome(message,identity){
   const name=displayName(identity,message.from),role=identity?.role||'pending';
   if(!identity?.active)return sendMessage(message.chat.id,`مرحبًا ${name}. حسابك مسجل وينتظر الاعتماد. استخدم /whoami وأرسل الرقم لمدير النظام.`);
-  return sendMessage(message.chat.id,`<b>لوحة الموظف الذكي</b>\nمرحبًا ${name} — ${roleLabel(role)}.\nاختر العملية المطلوبة؛ كل مسار يعمل خطوة بخطوة مع مراجعة قبل الحفظ.`,roleHomeKeyboard(role));
+  const markup=roleHomeKeyboard(role),rows=markup.reply_markup.inline_keyboard;
+  if(['admin','manager'].includes(role))rows.splice(rows.length-1,0,[{text:'📡 GPS الأسطول',callback_data:'gps:fleet'},{text:'📈 التحليلات الرقابية',callback_data:'ent:insights_help'}]);
+  else if(role==='mechanic')rows.splice(rows.length-1,0,[{text:'📡 GPS الأسطول',callback_data:'gps:fleet'}]);
+  return sendMessage(message.chat.id,`<b>لوحة الموظف الذكي</b>\nمرحبًا ${name} — ${roleLabel(role)}.\nاختر العملية المطلوبة؛ كل مسار يعمل خطوة بخطوة مع مراجعة قبل الحفظ.`,markup);
 }
 function documentsMenu(){return keyboard([[{text:'تقرير المدير',callback_data:'doc:manager'},{text:'تقرير المهام',callback_data:'doc:tasks'}],[{text:'تقرير الورشة',callback_data:'doc:workshop'},{text:'تقرير المبيعات',callback_data:'doc:sales'}]]);}
+function insightsMenu(){return keyboard([[{text:'تحليل الديزل',callback_data:'insight:fuel'},{text:'المخزون الحرج',callback_data:'insight:inventory'}],[{text:'مديونية العملاء',callback_data:'insight:debt'},{text:'طاقة الخرسانة',callback_data:'insight:capacity'}],[{text:'بحث شامل',callback_data:'ent:search'}]]);}
 export async function handleEnterpriseTextCommand(message,identity,text){
   const raw=String(text||'').trim(),value=norm(raw);
   if(/^\/(menu|home)(?:@\w+)?$/i.test(raw)||/^(القائمه الرئيسيه|القائمة الرئيسية|لوحه التحكم|لوحة التحكم|العمليات)$/.test(value)){await showRoleHome(message,identity);return true;}
@@ -44,6 +48,7 @@ export async function handleEnterpriseCallback(message,from,identity,action,valu
     if(value==='quality_menu')return sendMessage(message.chat.id,'اختر عملية الجودة والرقابة:',qualityMenu());
     if(value==='trip_menu')return sendMessage(message.chat.id,'اختر حالة الرحلة أو التوريد:',tripMenu());
     if(value==='people_menu')return sendMessage(message.chat.id,'اختر الموظفين والمهام:',peopleMenu());
+    if(value==='insights_help')return sendMessage(message.chat.id,'اختر التحليل المطلوب:',insightsMenu());
     if(value==='priorities')return canManage(identity.role)?sendEnterprisePriorities(message.chat.id):sendMessage(message.chat.id,'هذا الملخص مخصص للإدارة.');
     if(value==='approvals')return sendEnterpriseApprovals(message.chat.id,identity);
     if(value==='operations')return sendEnterpriseOperations(message.chat.id);
@@ -51,7 +56,7 @@ export async function handleEnterpriseCallback(message,from,identity,action,valu
     if(value==='my_tasks')return sendEnterpriseTasks(message.chat.id,identity,'mine');
     if(value==='team_tasks')return sendEnterpriseTasks(message.chat.id,identity,'team');
     if(value==='daily_reports')return sendEnterpriseDailyReports(message.chat.id);
-    if(value==='documents')return sendMessage(message.chat.id,'اختر التقرير المطلوب. إنشاء PDF يحتاج تفعيل خدمة التحويل في إعدادات الخادم.',documentsMenu());
+    if(value==='documents')return sendMessage(message.chat.id,'اختر التقرير المطلوب. سيصدر PDF عند تفعيل خدمة التحويل، وإلا يرسل نسخة HTML قابلة للطباعة.',documentsMenu());
     if(value==='alerts')return sendEnterpriseAlerts(message.chat.id);
     if(value==='finance_summary')return sendEnterpriseCategorySummary(message.chat.id,'finance','ملخص المالية');
     if(value==='collection_summary')return sendEnterpriseCategorySummary(message.chat.id,'collection','ملخص التحصيل');
