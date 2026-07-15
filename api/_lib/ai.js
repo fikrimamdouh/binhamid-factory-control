@@ -32,9 +32,10 @@ intent أحد: greeting, thanks, report, maintenance, fuel, payroll, collection,
 department أحد: workshop, finance, block, concrete, management, fuel, general, unassigned.
 confidence رقم من 0 إلى 1. reply لا يزيد عن 500 حرف.`;
   const payload={user:{name:userName,role:roleLabel,department:departmentLabel},message:String(text).slice(0,3000),recent_history:(history||[]).slice(-8),fallback_route:fallbackRoute};
+  const model=config.textModel==='gpt-5.4-mini'?'gpt-5.6':config.textModel;
   const response=await fetch('https://api.openai.com/v1/responses',{
     method:'POST',headers:{Authorization:`Bearer ${config.openaiKey}`,'Content-Type':'application/json'},
-    body:JSON.stringify({model:config.textModel,instructions,input:JSON.stringify(payload),max_output_tokens:700}),signal:AbortSignal.timeout(14000)
+    body:JSON.stringify({model,instructions,input:JSON.stringify(payload),max_output_tokens:700}),signal:AbortSignal.timeout(14000)
   });
   const data=await response.json().catch(()=>({}));
   if(!response.ok)throw Object.assign(new Error(data?.error?.message||'تعذر تشغيل الفهم الذكي'),{status:502});
