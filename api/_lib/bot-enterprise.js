@@ -7,6 +7,8 @@ import { canManage, getEnterpriseSession, norm } from './bot-enterprise-store.js
 import { executeEnterpriseSearch, startEnterpriseSearch } from './bot-enterprise-search.js';
 import { sendEnterprisePriorities } from './bot-enterprise-priorities.js';
 import { sendEnterpriseAlerts, sendEnterpriseApprovals, sendEnterpriseCategorySummary, sendEnterpriseDailyReports, sendEnterpriseOperations, sendEnterpriseTasks, setEnterpriseOperationStatus } from './bot-enterprise-status.js';
+import { sendFuelAnomalies } from './bot-insights-fleet.js';
+import { sendInventoryRisks, sendDebtAnalysis, sendConcreteCapacity } from './bot-insights-ops.js';
 
 export async function showRoleHome(message,identity){
   const name=displayName(identity,message.from),role=identity?.role||'pending';
@@ -17,7 +19,7 @@ export async function showRoleHome(message,identity){
   return sendMessage(message.chat.id,`<b>لوحة الموظف الذكي</b>\nمرحبًا ${name} — ${roleLabel(role)}.\nاختر العملية المطلوبة؛ كل مسار يعمل خطوة بخطوة مع مراجعة قبل الحفظ.`,markup);
 }
 function documentsMenu(){return keyboard([[{text:'تقرير المدير',callback_data:'doc:manager'},{text:'تقرير المهام',callback_data:'doc:tasks'}],[{text:'تقرير الورشة',callback_data:'doc:workshop'},{text:'تقرير المبيعات',callback_data:'doc:sales'}]]);}
-function insightsMenu(){return keyboard([[{text:'تحليل الديزل',callback_data:'insight:fuel'},{text:'المخزون الحرج',callback_data:'insight:inventory'}],[{text:'مديونية العملاء',callback_data:'insight:debt'},{text:'طاقة الخرسانة',callback_data:'insight:capacity'}],[{text:'بحث شامل',callback_data:'ent:search'}]]);}
+function insightsMenu(){return keyboard([[{text:'تحليل الديزل',callback_data:'ent:insight_fuel'},{text:'المخزون الحرج',callback_data:'ent:insight_inventory'}],[{text:'مديونية العملاء',callback_data:'ent:insight_debt'},{text:'طاقة الخرسانة',callback_data:'ent:insight_capacity'}],[{text:'بحث شامل',callback_data:'ent:search'}]]);}
 export async function handleEnterpriseTextCommand(message,identity,text){
   const raw=String(text||'').trim(),value=norm(raw);
   if(/^\/(menu|home)(?:@\w+)?$/i.test(raw)||/^(القائمه الرئيسيه|القائمة الرئيسية|لوحه التحكم|لوحة التحكم|العمليات)$/.test(value)){await showRoleHome(message,identity);return true;}
@@ -49,6 +51,10 @@ export async function handleEnterpriseCallback(message,from,identity,action,valu
     if(value==='trip_menu')return sendMessage(message.chat.id,'اختر حالة الرحلة أو التوريد:',tripMenu());
     if(value==='people_menu')return sendMessage(message.chat.id,'اختر الموظفين والمهام:',peopleMenu());
     if(value==='insights_help')return sendMessage(message.chat.id,'اختر التحليل المطلوب:',insightsMenu());
+    if(value==='insight_fuel')return sendFuelAnomalies(message.chat.id);
+    if(value==='insight_inventory')return sendInventoryRisks(message.chat.id);
+    if(value==='insight_debt')return sendDebtAnalysis(message.chat.id);
+    if(value==='insight_capacity')return sendConcreteCapacity(message.chat.id);
     if(value==='priorities')return canManage(identity.role)?sendEnterprisePriorities(message.chat.id):sendMessage(message.chat.id,'هذا الملخص مخصص للإدارة.');
     if(value==='approvals')return sendEnterpriseApprovals(message.chat.id,identity);
     if(value==='operations')return sendEnterpriseOperations(message.chat.id);
