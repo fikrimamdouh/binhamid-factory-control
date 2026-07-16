@@ -60,7 +60,7 @@ export async function buildManagerSnapshot(dayValue=new Date().toISOString().sli
   const [batches,maintenance,purchases,customers,orders,fuelEvents,state,backups,notifications,existingAlerts,cost]=await Promise.all([
     safeSelect('daily_report_batches',`report_date=gte.${previousDay}&report_date=lte.${day}&select=id,report_date,status,summary,created_at,committed_at&order=report_date.desc&limit=20`),
     safeSelect('maintenance_orders','status=in.(reported,inspection,quotation_required,approval_pending,approved,in_repair,testing)&select=id,reference_no,priority,vehicle_stopped,status,actual_cost,reported_at,vehicle_external_id&order=reported_at.asc&limit=1000'),
-    safeSelect('purchase_requests','status=in.(requested,pending,open,under_review,approval_pending)&select=id,reference_no,item_description,urgency,status,requested_at,amount&order=requested_at.asc&limit=1000'),
+    safeSelect('purchase_requests','status=in.(requested,pending,open,under_review,approval_pending)&select=id,reference_no,item_description,quantity,unit,urgency,status,requested_at,updated_at&order=requested_at.asc&limit=1000'),
     safeSelect('customers','active=eq.true&select=external_id,customer_code,customer_name,credit_limit,payment_days&limit=5000'),
     safeSelect('sales_orders','status=not.in.(cancelled,rejected,collected)&select=id,reference_no,customer_external_id,customer_name,total_amount,paid_amount,delivery_date,created_at,status&limit=10000'),
     safeSelect('driver_events',`event_type=eq.fuel_complete&occurred_at=gte.${since30}T00:00:00Z&occurred_at=lte.${day}T23:59:59.999Z&select=id,reference_no,vehicle_external_id,fuel_liters,fuel_amount,station_name,occurred_at,latitude,longitude&order=occurred_at.desc&limit=5000`),
