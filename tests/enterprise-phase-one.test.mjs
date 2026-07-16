@@ -11,10 +11,16 @@ test('Telegram registration points only to webhook v3',async()=>{
   assert.match(register,/getWebhookInfo/);
 });
 
-test('webhook v3 uses the shared enterprise implementation outside function routes',async()=>{
+test('webhook v3 uses the secure gateway and shared enterprise implementation outside function routes',async()=>{
   const webhook=await read('api/telegram/webhook-v3.js');
+  const gateway=await read('api/_lib/telegram-webhook-gateway.js');
   const engine=await read('api/_lib/telegram-webhook-handler.js');
-  assert.match(webhook,/telegram-webhook-handler\.js/);
+  assert.match(webhook,/telegram-webhook-gateway\.js/);
+  assert.match(gateway,/telegram-webhook-handler\.js/);
+  assert.match(gateway,/bot-procurement-secure\.js/);
+  assert.match(gateway,/bot-sales-secure\.js/);
+  assert.match(gateway,/bot-mechanic-secure\.js/);
+  assert.match(gateway,/bot-attendance-secure\.js/);
   assert.match(engine,/handleEnterpriseTextCommand/);
   assert.match(engine,/handleAttendanceCallback/);
 });
