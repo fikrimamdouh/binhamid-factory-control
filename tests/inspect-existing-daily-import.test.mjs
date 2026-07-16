@@ -5,25 +5,44 @@ import path from 'node:path';
 const root=path.resolve(new URL('..',import.meta.url).pathname);
 const source=fs.readFileSync(path.join(root,'legacy.html'),'utf8');
 
-function contexts(term,radius=1400){
-  const rows=[];
-  let from=0;
-  while(true){
-    const index=source.indexOf(term,from);
-    if(index<0)break;
-    rows.push(source.slice(Math.max(0,index-radius),Math.min(source.length,index+term.length+radius)));
-    from=index+term.length;
+function extractFrom(marker){
+  const start=source.indexOf(marker);
+  if(start<0)return '';
+  const brace=source.indexOf('{',start);
+  if(brace<0)return source.slice(start,start+2000);
+  let depth=0,quote='',escaped=false,templateDepth=0;
+  for(let i=brace;i<source.length;i++){
+    const ch=source[i],next=source[i+1];
+    if(quote){
+      if(escaped){escaped=false;continue;}
+      if(ch==='\\'){escaped=true;continue;}
+      if(quote==='`'&&ch==='$'&&next==='{'){templateDepth++;i++;continue;}
+      if(quote==='`'&&ch==='}'&&templateDepth){templateDepth--;continue;}
+      if(ch===quote&&!templateDepth)quote='';
+      continue;
+    }
+    if(ch==='"'||ch==="'"||ch==='`'){quote=ch;continue;}
+    if(ch==='{')depth++;
+    else if(ch==='}'&&--depth===0)return source.slice(start,i+1);
   }
-  return rows;
+  return source.slice(start,start+12000);
 }
 
 test('inspect existing daily summary and movement report importers',()=>{
-  const terms=['ملخص اليوم','استيراد تقرير الحركة','تقرير الحركة','XLSX','FileReader','readAsArrayBuffer','sheet_to_json'];
-  console.log('LEGACY_IMPORT_INSPECTION_START');
-  for(const term of terms){
-    const found=contexts(term);
-    console.log(`TERM ${term} COUNT ${found.length}`);
-    found.forEach((text,index)=>console.log(`CONTEXT ${term} #${index+1}\n${text}\nEND_CONTEXT`));
+  const markers=[
+    'function bh12ParseSales',
+    'function bh12ParseCollections',
+    'function bh12ParseDailyWorkbook',
+    'window.opsImportDailySummary=async function',
+    'function opsParseMovementWorkbook',
+    'async function opsImportDailyMovement'
+  ];
+  console.log('LEGACY_IMPORT_FUNCTIONS_START');
+  for(const marker of markers){
+    const text=extractFrom(marker);
+    console.log(`FUNCTION_MARKER ${marker} FOUND ${Boolean(text)} LENGTH ${text.length}`);
+    console.log(text);
+    console.log('END_FUNCTION_MARKER');
   }
-  console.log('LEGACY_IMPORT_INSPECTION_END');
+  console.log('LEGACY_IMPORT_FUNCTIONS_END');
 });
