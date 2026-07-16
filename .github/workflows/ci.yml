@@ -21,4 +21,15 @@ jobs:
         with:
           name: vercel-function-inventory
           path: function-inventory.txt
-      - run: npm run check
+      - name: Run project checks
+        id: project-checks
+        continue-on-error: true
+        run: npm run check > check-output.txt 2>&1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: project-check-output
+          path: check-output.txt
+      - name: Enforce project checks
+        if: steps.project-checks.outcome != 'success'
+        run: cat check-output.txt && exit 1
