@@ -13,6 +13,7 @@ const files=[
   'api/_lib/routes/admin.js',
   'api/_lib/routes/imports.js',
   'api/_lib/routes/management.js',
+  'api/_lib/routes/state.js',
   'api/_lib/routes/system-runtime.js',
   'api/_lib/routes/telegram-admin.js',
   'api/_lib/telegram.js',
