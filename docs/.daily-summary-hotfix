@@ -1,0 +1,1 @@
+Daily Summary hotfix v2: the original screen receives a legacy-compatible in-memory worksheet built from the shared parser. This marker is temporary and must be removed before merge.
