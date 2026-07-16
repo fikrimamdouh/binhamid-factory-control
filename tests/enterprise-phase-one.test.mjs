@@ -33,9 +33,26 @@ test('state sync and import downloads stay behind the central router',async()=>{
   assert.equal(config.rewrites.find(item=>item.source==='/api/imports/file')?.destination,'/api/router?route=imports/file');
 });
 
-test('webhook v3 uses the unified enterprise implementation',async()=>{
-  const webhook=await read('api/telegram/webhook-v3.js');
-  assert.match(webhook,/webhook-v2\.js/);
+test('attendance, scheduled notifications and all Telegram webhooks use the single router',async()=>{
+  const router=await read('api/router.js');
+  const webhook=await read('api/_lib/webhook-v2.js');
+  const attendance=await read('api/_lib/attendance.js');
+  const brief=await read('api/_lib/manager-brief.js');
+  const config=JSON.parse(await read('vercel.json'));
+  assert.match(router,/'admin\/attendance':attendance/);
+  assert.match(router,/'cron\/manager-brief':managerBrief/);
+  assert.match(router,/'telegram\/webhook-v3':telegramWebhook/);
+  assert.match(webhook,/verifyTelegram\(req\)/);
+  assert.match(attendance,/recordWebAppAttendance/);
+  assert.match(brief,/sendManagerBrief/);
+  for(const [source,route] of [
+    ['/api/admin/attendance','admin/attendance'],
+    ['/api/cron/manager-brief','cron/manager-brief'],
+    ['/api/telegram/webhook','telegram/webhook'],
+    ['/api/telegram/webhook-v2','telegram/webhook-v2'],
+    ['/api/telegram/webhook-v3','telegram/webhook-v3']
+  ]) assert.equal(config.rewrites.find(item=>item.source===source)?.destination,`/api/router?route=${route}`);
+  assert.deepEqual(Object.keys(config.functions),['api/router.js']);
 });
 
 test('incoming and outgoing Telegram messages are persisted',async()=>{

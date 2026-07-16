@@ -1,12 +1,14 @@
 {
   "functions": {
-    "api/**/*.js": {
+    "api/router.js": {
       "maxDuration": 30
     }
   },
   "rewrites": [
     {"source":"/api/admin/groups","destination":"/api/router?route=admin/groups"},
     {"source":"/api/admin/users","destination":"/api/router?route=admin/users"},
+    {"source":"/api/admin/attendance","destination":"/api/router?route=admin/attendance"},
+    {"source":"/api/cron/manager-brief","destination":"/api/router?route=cron/manager-brief"},
     {"source":"/api/dashboard","destination":"/api/router?route=dashboard"},
     {"source":"/api/conversations","destination":"/api/router?route=conversations"},
     {"source":"/api/operations","destination":"/api/router?route=operations"},
@@ -19,7 +21,10 @@
     {"source":"/api/system/status","destination":"/api/router?route=system/status"},
     {"source":"/api/telegram/register","destination":"/api/router?route=telegram/register"},
     {"source":"/api/telegram/status","destination":"/api/router?route=telegram/status"},
-    {"source":"/api/telegram/test","destination":"/api/router?route=telegram/test"}
+    {"source":"/api/telegram/test","destination":"/api/router?route=telegram/test"},
+    {"source":"/api/telegram/webhook","destination":"/api/router?route=telegram/webhook"},
+    {"source":"/api/telegram/webhook-v2","destination":"/api/router?route=telegram/webhook-v2"},
+    {"source":"/api/telegram/webhook-v3","destination":"/api/router?route=telegram/webhook-v3"}
   ],
   "headers": [
     {

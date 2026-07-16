@@ -4,7 +4,7 @@ import path from 'node:path';
 const root=process.cwd();
 const apiRoot=path.join(root,'api');
 const hobbyLimit=12;
-const projectTarget=6;
+const projectTarget=1;
 
 function walk(dir){
   if(!fs.existsSync(dir))return[];
