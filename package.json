@@ -5,12 +5,14 @@
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.mjs",
-    "check": "node scripts/check-enterprise.mjs && node --test tests/*.test.mjs"
+    "audit:functions": "node scripts/audit-vercel-functions.mjs",
+    "check:functions": "node scripts/audit-vercel-functions.mjs --assert",
+    "check": "node scripts/check-enterprise.mjs && node --test tests/*.test.mjs && npm run check:functions"
   },
   "dependencies": {
     "xlsx": "^0.18.5"
   },
   "engines": {
-    "node": ">=20"
+    "node": "20.x"
   }
 }
