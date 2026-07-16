@@ -9,7 +9,7 @@ function equalHex(left,right){
   }catch{return false;}
 }
 
-export function validateTelegramWebApp(initData,maxAgeSeconds=600){
+export function validateTelegramWebApp(initData,maxAgeSeconds=config.telegramWebAppMaxAgeSeconds){
   if(!config.telegramToken)throw Object.assign(new Error('Telegram Bot Token غير مضبوط'),{status:503});
   const params=new URLSearchParams(String(initData||''));
   const received=params.get('hash');
@@ -21,7 +21,7 @@ export function validateTelegramWebApp(initData,maxAgeSeconds=600){
   if(!equalHex(received,calculated))throw Object.assign(new Error('جلسة Telegram غير صحيحة'),{status:401});
   const authDate=Number(params.get('auth_date')||0);
   const age=Date.now()/1000-authDate;
-  if(!authDate||age< -60||age>maxAgeSeconds)throw Object.assign(new Error('انتهت صلاحية شاشة الحضور. افتحها من البوت مرة أخرى'),{status:401});
+  if(!authDate||age< -60||age>maxAgeSeconds)throw Object.assign(new Error('انتهت صلاحية شاشة Telegram. افتحها من البوت مرة أخرى'),{status:401});
   let user=null;
   try{user=JSON.parse(params.get('user')||'{}');}catch{}
   if(!user?.id)throw Object.assign(new Error('بيانات مستخدم Telegram غير موجودة'),{status:401});
