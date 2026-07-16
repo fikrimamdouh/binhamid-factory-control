@@ -4,11 +4,15 @@ import * as management from './_lib/routes/management.js';
 import * as imports from './_lib/routes/imports.js';
 import * as systemRuntime from './_lib/routes/system-runtime.js';
 import * as telegramAdmin from './_lib/routes/telegram-admin.js';
+import * as managerDashboard from './_lib/routes/manager-dashboard.js';
+import * as costs from './_lib/routes/costs.js';
+import * as driverWebApp from './_lib/routes/driver-webapp.js';
+import * as resilience from './_lib/routes/resilience.js';
 
 const routes={
   'admin/groups':admin.groups,
   'admin/users':admin.users,
-  'dashboard':management.dashboard,
+  'dashboard':managerDashboard.dashboard,
   'conversations':management.conversations,
   'operations':management.operations,
   'reports':management.reports,
@@ -18,7 +22,10 @@ const routes={
   'system/status':systemRuntime.status,
   'telegram/register':telegramAdmin.register,
   'telegram/status':telegramAdmin.status,
-  'telegram/test':telegramAdmin.test
+  'telegram/test':telegramAdmin.test,
+  'costs':costs.costs,
+  'driver/webapp':driverWebApp.driverWebApp,
+  'resilience':resilience.resilience
 };
 
 export default async function handler(req,res){
