@@ -1,10 +1,13 @@
 import { requireAdmin } from '../auth.js';
-import { json, method, errorResponse } from '../http.js';
-import { select } from '../supabase.js';
+import { json, method, body, errorResponse } from '../http.js';
+import { select, insert, downloadObject } from '../supabase.js';
+import { sendMessage } from '../telegram.js';
 
 const label={received:'مستلم',ready:'جاهز للمراجعة',processing:'قيد الفحص',failed:'تعذر الفحص',opened_in_program:'فُتح في البرنامج',approved:'معتمد',rejected:'مرفوض'};
 const clamp=(value,min,max,fallback)=>{const n=Number(value);return Number.isFinite(n)?Math.max(min,Math.min(max,Math.trunc(n))):fallback;};
 const normalize=value=>String(value||'').trim().toLowerCase();
+const clean=(value,max=500)=>String(value??'').trim().slice(0,max);
+const telegramText=value=>String(value??'').replace(/[&<>]/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[char]));
 function params(req){return new URL(req.url||'/api/router',`https://${String(req.headers.host||'localhost')}`).searchParams;}
 
 export async function dashboard(req,res){
@@ -17,11 +20,11 @@ export async function dashboard(req,res){
       select('approvals','select=id,created_at,reference_no,entity_type,entity_id,summary,amount,status,requested_by,decided_by&order=created_at.desc&limit=30'),
       select('discrepancies','select=id,severity,status&status=in.(open,under_review)&limit=1000'),
       select('telegram_groups','select=id,chat_id,title,department,active,status,last_seen_at&order=last_seen_at.desc&limit=50'),
-      select('user_channels','select=external_id,external_username,active,user_id,app_users(full_name,role,active)&channel=eq.telegram&order=last_seen_at.desc&limit=100'),
+      select('user_channels','select=external_id,external_username,active,user_id,last_seen_at,app_users(full_name,role,active)&channel=eq.telegram&order=last_seen_at.desc&limit=1000'),
       select('telegram_messages',`select=id&created_at=gte.${today}T00:00:00Z&limit=1000`)
     ]);
-    const normalizedUsers=(users||[]).map(x=>({external_id:x.external_id,external_username:x.external_username,active:Boolean(x.active&&x.app_users?.active),full_name:x.app_users?.full_name||'',role:x.app_users?.role||'pending'}));
-    json(res,200,{ok:true,counts:{pendingImports:(imports||[]).filter(x=>!['approved','rejected','opened_in_program'].includes(x.status)).length,openApprovals:(approvals||[]).filter(x=>x.status==='pending').length,openDiscrepancies:(discrepancies||[]).length,messagesToday:(messages||[]).length},imports:(imports||[]).map(x=>({...x,status_label:label[x.status]||x.status})),approvals:approvals||[],groups:groups||[],users:normalizedUsers});
+    const normalizedUsers=(users||[]).map(x=>({external_id:x.external_id,external_username:x.external_username,active:Boolean(x.active&&x.app_users?.active),full_name:x.app_users?.full_name||'',role:x.app_users?.role||'pending',last_seen_at:x.last_seen_at||null}));
+    json(res,200,{ok:true,counts:{pendingImports:(imports||[]).filter(x=>!['approved','rejected','opened_in_program'].includes(x.status)).length,openApprovals:(approvals||[]).filter(x=>x.status==='pending').length,openDiscrepancies:(discrepancies||[]).length,messagesToday:(messages||[]).length,telegramUsers:normalizedUsers.length,activeTelegramUsers:normalizedUsers.filter(x=>x.active).length},imports:(imports||[]).map(x=>({...x,status_label:label[x.status]||x.status})),approvals:approvals||[],groups:groups||[],users:normalizedUsers});
   }catch(error){errorResponse(res,error);}
 }
 
@@ -38,30 +41,72 @@ async function fetchRows(query){
 function buildThreads(messages){
   const map=new Map();
   for(const msg of messages){
-    const key=msg.chat_id,old=map.get(key)||{chat_id:key,chat_type:msg.chat_type||'',display_name:'',external_user_id:'',role:'',last_message:'',last_message_type:'',last_at:'',message_count:0,incoming_count:0,outgoing_count:0};
+    const key=msg.chat_id,old=map.get(key)||{chat_id:key,chat_type:msg.chat_type||'',display_name:'',external_user_id:'',role:'',last_message:'',last_message_type:'',last_direction:'',last_at:'',message_count:0,incoming_count:0,outgoing_count:0,file_count:0};
     old.message_count++;if(msg.direction==='outgoing')old.outgoing_count++;else old.incoming_count++;
+    if(msg.file_path||msg.file_name||['photo','voice','document'].includes(msg.message_type))old.file_count++;
     if(!old.display_name&&msg.direction!=='outgoing')old.display_name=msg.sender_name||msg.sender_external_id||key;
     if(!old.external_user_id&&msg.direction!=='outgoing')old.external_user_id=msg.sender_external_id||'';
     if(!old.role&&msg.sender_role)old.role=msg.sender_role;
-    if(!old.last_at||String(msg.created_at)>String(old.last_at)){old.last_at=msg.created_at;old.last_message=msg.text||msg.transcription||msg.file_name||`[${msg.message_type}]`;old.last_message_type=msg.message_type;old.chat_type=msg.chat_type||old.chat_type;}
+    if(!old.last_at||String(msg.created_at)>String(old.last_at)){old.last_at=msg.created_at;old.last_message=msg.text||msg.transcription||msg.file_name||`[${msg.message_type}]`;old.last_message_type=msg.message_type;old.last_direction=msg.direction;old.chat_type=msg.chat_type||old.chat_type;}
     map.set(key,old);
   }
   return[...map.values()].sort((a,b)=>String(b.last_at).localeCompare(String(a.last_at)));
 }
+function messageQuery({chatId='',before='',direction='',messageType='',from='',to='',limit=300}={}){
+  const filters=[];
+  if(chatId)filters.push(`chat_id=eq.${encodeURIComponent(chatId)}`);
+  if(before)filters.push(`created_at=lt.${encodeURIComponent(before)}`);
+  if(direction)filters.push(`direction=eq.${encodeURIComponent(direction)}`);
+  if(messageType)filters.push(`message_type=eq.${encodeURIComponent(messageType)}`);
+  if(from)filters.push(`created_at=gte.${encodeURIComponent(`${from}T00:00:00Z`)}`);
+  if(to)filters.push(`created_at=lte.${encodeURIComponent(`${to}T23:59:59.999Z`)}`);
+  return[...filters,'order=created_at.desc',`limit=${limit}`].join('&');
+}
+async function downloadConversationFile(res,messageId){
+  const rows=await select('telegram_messages',`id=eq.${encodeURIComponent(messageId)}&select=id,file_path,file_name,mime_type,message_type&limit=1`),row=rows?.[0];
+  if(!row?.file_path)throw Object.assign(new Error('المرفق غير موجود في التخزين'),{status:404});
+  const filePath=String(row.file_path);
+  if(!filePath.startsWith('telegram/')||filePath.includes('..'))throw Object.assign(new Error('مسار المرفق غير مسموح'),{status:403});
+  const file=await downloadObject(filePath),name=clean(row.file_name,240)||`${row.message_type||'telegram-file'}-${row.id}`;
+  res.statusCode=200;
+  res.setHeader('Content-Type',row.mime_type||file.contentType||'application/octet-stream');
+  res.setHeader('Content-Disposition',`inline; filename*=UTF-8''${encodeURIComponent(name)}`);
+  res.setHeader('Cache-Control','private, no-store');
+  res.end(file.buffer);
+}
+async function sendAdminReply(req,res){
+  const actor=requireAdmin(req),input=await body(req),chatId=clean(input.chatId,100),text=clean(input.text,12000);
+  if(!chatId)throw Object.assign(new Error('رقم المحادثة مطلوب'),{status:400});
+  if(!text)throw Object.assign(new Error('نص الرد مطلوب'),{status:400});
+  const parts=[];for(let offset=0;offset<text.length;offset+=3500)parts.push(text.slice(offset,offset+3500));
+  const sent=[];
+  for(const part of parts){
+    const result=await sendMessage(chatId,telegramText(part),{action_name:'admin_reply',action_payload:{actor:actor.actor,source:'conversation_center'}});
+    sent.push(String(result.message_id));
+  }
+  await insert('audit_log',[{actor_type:'web',actor_id:actor.actor,action:'telegram_admin_reply',entity_type:'telegram_chat',entity_id:chatId,details:{message_ids:sent,parts:parts.length,text_length:text.length}}],{prefer:'return=minimal'}).catch(()=>{});
+  return json(res,200,{ok:true,chat_id:chatId,message_ids:sent,parts:parts.length});
+}
 export async function conversations(req,res){
-  if(!method(req,res,['GET']))return;
+  if(!method(req,res,['GET','POST']))return;
   try{
+    if(req.method==='POST')return await sendAdminReply(req,res);
     requireAdmin(req);
-    const p=params(req),chatId=String(p.get('chatId')||'').trim(),search=normalize(p.get('q')),limit=clamp(p.get('limit'),1,1000,300),before=String(p.get('before')||'').trim();
+    const p=params(req),downloadId=clean(p.get('download'),100);
+    if(downloadId)return await downloadConversationFile(res,downloadId);
+    const chatId=clean(p.get('chatId'),100),search=normalize(p.get('q')),limit=clamp(p.get('limit'),1,1000,300),before=clean(p.get('before'),100),direction=clean(p.get('direction'),20),messageType=clean(p.get('messageType'),30),role=clean(p.get('role'),80),chatType=clean(p.get('chatType'),30),from=clean(p.get('from'),10),to=clean(p.get('to'),10);
+    if(direction&&!['incoming','outgoing','system'].includes(direction))throw Object.assign(new Error('اتجاه الرسالة غير صحيح'),{status:400});
     if(chatId){
-      let query=`chat_id=eq.${encodeURIComponent(chatId)}&order=created_at.desc&limit=${limit}`;if(before)query+=`&created_at=lt.${encodeURIComponent(before)}`;
-      let rows=(await fetchRows(query)||[]).map(cleanMessage);if(search)rows=rows.filter(x=>normalize(`${x.text} ${x.transcription} ${x.file_name} ${x.sender_name}`).includes(search));rows.reverse();
-      return json(res,200,{ok:true,chat_id:chatId,messages:rows,next_before:rows.length?rows[0].created_at:null});
+      const raw=await fetchRows(messageQuery({chatId,before,direction,messageType,from,to,limit})),hasMore=(raw||[]).length===limit;
+      let rows=(raw||[]).map(cleanMessage);if(search)rows=rows.filter(x=>normalize(`${x.text} ${x.transcription} ${x.file_name} ${x.sender_name}`).includes(search));rows.reverse();
+      return json(res,200,{ok:true,chat_id:chatId,messages:rows,next_before:hasMore&&rows.length?rows[0].created_at:null,has_more:hasMore});
     }
-    const rows=(await fetchRows(`order=created_at.desc&limit=${limit}`)||[]).map(cleanMessage);let threads=buildThreads(rows);
+    const rows=(await fetchRows(messageQuery({direction,messageType,from,to,limit}))||[]).map(cleanMessage);let threads=buildThreads(rows);
     if(search)threads=threads.filter(x=>normalize(`${x.display_name} ${x.external_user_id} ${x.role} ${x.last_message}`).includes(search));
-    return json(res,200,{ok:true,threads,total:threads.length,source_messages:rows.length});
-  }catch(error){errorResponse(res,error);}
+    if(role)threads=threads.filter(x=>x.role===role);
+    if(chatType)threads=threads.filter(x=>x.chat_type===chatType);
+    return json(res,200,{ok:true,threads,total:threads.length,source_messages:rows.length,filters:{role,chatType,direction,messageType,from,to}});
+  }catch(error){if(!res.headersSent)errorResponse(res,error);else res.end();}
 }
 
 export async function operations(req,res){
