@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+// Vercel creates one function for every route file under api, excluding private underscore folders.
 const root=process.cwd();
 const apiRoot=path.join(root,'api');
 const limit=12;
