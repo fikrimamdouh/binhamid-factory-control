@@ -1,0 +1,257 @@
+From 8a1face955aa7fc98fbcae2217a99eb940161d01 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 16 Jul 2026 04:47:41 +0000
+Subject: [PATCH] feat: refresh brand identity and add a real login screen
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- Redesign the logo/favicon mark (industrial hexagon seal on the
+  existing navy/gold identity) and use it on the boot screen.
+- Add login.html: a per-user username/password screen for all roles,
+  built in the new identity, ready to call /api/auth/login once that
+  route exists.
+- Draft a Supabase migration (005) adding username/password_hash to
+  app_users, login verification RPCs, and an employee_dues ledger table
+  for the employee self-service view — no new Vercel function wired yet
+  so this doesn't reopen the Hobby 12-function limit PR #6 is fixing.
+---
+ assets/brand/logo-mark.svg                    |  8 ++
+ favicon.svg                                   |  8 +-
+ index.html                                    |  4 +-
+ login.html                                    | 94 +++++++++++++++++++
+ .../005_web_login_and_employee_dues.sql       | 51 ++++++++++
+ vercel.json                                   |  6 ++
+ 6 files changed, 167 insertions(+), 4 deletions(-)
+ create mode 100644 assets/brand/logo-mark.svg
+ create mode 100644 login.html
+ create mode 100644 supabase/migrations/005_web_login_and_employee_dues.sql
+
+diff --git a/assets/brand/logo-mark.svg b/assets/brand/logo-mark.svg
+new file mode 100644
+index 0000000..cc2f042
+--- /dev/null
++++ b/assets/brand/logo-mark.svg
+@@ -0,0 +1,8 @@
++<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="بن حامد">
++  <rect width="64" height="64" rx="14" fill="#0b2233"/>
++  <rect x="3" y="3" width="58" height="58" rx="11" fill="none" stroke="#e6c982" stroke-width="1.2" opacity=".35"/>
++  <polygon points="32,13 48.45,22.5 48.45,41.5 32,51 15.55,41.5 15.55,22.5" fill="#e6c982"/>
++  <rect x="20" y="30" width="6" height="14" rx="1" fill="#0b2233"/>
++  <rect x="29" y="24" width="6" height="20" rx="1" fill="#0b2233"/>
++  <rect x="38" y="30" width="6" height="14" rx="1" fill="#0b2233"/>
++</svg>
+diff --git a/favicon.svg b/favicon.svg
+index bab7951..cc2f042 100644
+--- a/favicon.svg
++++ b/favicon.svg
+@@ -1,4 +1,8 @@
+-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
++<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="بن حامد">
+   <rect width="64" height="64" rx="14" fill="#0b2233"/>
+-  <path d="M15 46V18h13c8 0 12 4 12 10 0 3-1 6-4 8 5 1 8 5 8 10 0 7-5 11-14 11H15zm9-17h5c3 0 5-1 5-4s-2-4-5-4h-5v8zm0 16h6c4 0 6-2 6-5s-2-5-6-5h-6v10z" fill="#e6c982" transform="translate(2 -5) scale(.9)"/>
++  <rect x="3" y="3" width="58" height="58" rx="11" fill="none" stroke="#e6c982" stroke-width="1.2" opacity=".35"/>
++  <polygon points="32,13 48.45,22.5 48.45,41.5 32,51 15.55,41.5 15.55,22.5" fill="#e6c982"/>
++  <rect x="20" y="30" width="6" height="14" rx="1" fill="#0b2233"/>
++  <rect x="29" y="24" width="6" height="20" rx="1" fill="#0b2233"/>
++  <rect x="38" y="30" width="6" height="14" rx="1" fill="#0b2233"/>
+ </svg>
+diff --git a/index.html b/index.html
+index 1aec31d..db87ab1 100644
+--- a/index.html
++++ b/index.html
+@@ -9,7 +9,7 @@
+     html,body{height:100%;margin:0;background:#f7f3ec;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#163746;overflow:hidden}
+     .boot{position:fixed;inset:0;z-index:2;display:grid;place-items:center;padding:24px;text-align:center;background:#f7f3ec}
+     .boot-card{width:min(520px,92vw);background:#fff;border:1px solid #e2dcd1;border-radius:16px;padding:28px;box-shadow:0 18px 50px rgba(11,34,51,.12)}
+-    .boot-mark{width:56px;height:56px;border-radius:15px;margin:0 auto 14px;background:#0b2233;color:#e6c982;display:grid;place-items:center;font-weight:900;font-size:22px}
++    .boot-mark{width:56px;height:56px;margin:0 auto 14px;display:block}
+     .boot h1{font-size:20px;margin:0 0 8px}.boot p{font-size:13px;color:#697b84;margin:0;line-height:1.8}
+     .boot-line{height:4px;background:#edf1f2;border-radius:8px;overflow:hidden;margin-top:18px}.boot-line:before{content:"";display:block;width:35%;height:100%;background:#a97926;animation:load 1s infinite alternate ease-in-out}@keyframes load{to{transform:translateX(-185%)}}
+     .boot-error{color:#922f2f;background:#fff1f1;border:1px solid #edcccc;padding:12px;border-radius:10px;margin-top:14px;display:none;white-space:pre-wrap;text-align:right}
+@@ -19,7 +19,7 @@
+ <body>
+   <main class="boot" id="bootScreen">
+     <section class="boot-card">
+-      <div class="boot-mark">BH</div>
++      <img class="boot-mark" src="/assets/brand/logo-mark.svg" alt="بن حامد" width="56" height="56">
+       <h1>نظام رقابة مصنع بن حامد</h1>
+       <p>تحميل النسخة التشغيلية وربط طبقة الحفظ السحابي ومركز الاتصال.</p>
+       <div class="boot-line"></div>
+diff --git a/login.html b/login.html
+new file mode 100644
+index 0000000..33dfef8
+--- /dev/null
++++ b/login.html
+@@ -0,0 +1,94 @@
++<!doctype html>
++<html lang="ar" dir="rtl">
++<head>
++  <meta charset="utf-8">
++  <meta name="viewport" content="width=device-width,initial-scale=1">
++  <title>تسجيل الدخول — نظام رقابة مصنع بن حامد</title>
++  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
++  <style>
++    :root{--bg:#f7f3ec;--card:#fff;--line:#e2dcd1;--ink:#163746;--muted:#697b84;--navy:#0b2233;--gold:#e6c982;--gold-ink:#a97926;--bad:#922f2f;--bad-bg:#fff1f1;--bad-line:#edcccc}
++    *{box-sizing:border-box}
++    html,body{min-height:100%;margin:0;font-family:system-ui,-apple-system,"Segoe UI",Arial,sans-serif;background:var(--bg);color:var(--ink)}
++    body{display:grid;place-items:center;padding:22px}
++    .card{width:min(420px,100%);background:var(--card);border:1px solid var(--line);border-radius:18px;padding:30px 28px;box-shadow:0 18px 50px rgba(11,34,51,.12);text-align:center}
++    .mark{width:60px;height:60px;margin:0 auto 16px;display:block}
++    h1{font-size:19px;margin:0 0 6px}
++    .sub{font-size:12.5px;color:var(--muted);margin:0 0 24px;line-height:1.8}
++    form{text-align:right;display:grid;gap:14px}
++    label{display:block;font-size:12px;font-weight:700;color:var(--ink);margin-bottom:6px}
++    input{width:100%;border:1px solid var(--line);border-radius:10px;padding:11px 13px;font-size:14px;background:#fbfaf7;color:var(--ink)}
++    input:focus{outline:2px solid var(--gold);border-color:var(--gold-ink)}
++    .btn{width:100%;border:0;border-radius:10px;padding:13px 16px;font-weight:800;font-size:14.5px;background:var(--navy);color:var(--gold);cursor:pointer}
++    .btn:disabled{opacity:.55;cursor:not-allowed}
++    .error{display:none;color:var(--bad);background:var(--bad-bg);border:1px solid var(--bad-line);padding:10px 12px;border-radius:10px;font-size:12.5px;line-height:1.8;text-align:right;white-space:pre-wrap}
++    .footer{margin-top:20px;font-size:11px;color:var(--muted);line-height:1.8}
++    @media(prefers-color-scheme:dark){
++      :root{--bg:#0e1b22;--card:#15262e;--line:#31434a;--ink:#eef5f6;--muted:#a7b5ba;--gold:#e6c982}
++      input{background:#1c3039;color:#eef5f6}
++    }
++  </style>
++</head>
++<body>
++  <main class="card">
++    <img class="mark" src="/assets/brand/logo-mark.svg" alt="بن حامد" width="60" height="60">
++    <h1>نظام رقابة مصنع بن حامد</h1>
++    <p class="sub">سجّل الدخول ببيانات حسابك للوصول إلى شاشتك الخاصة حسب دورك في المصنع.</p>
++    <form id="loginForm">
++      <div>
++        <label for="username">اسم المستخدم</label>
++        <input id="username" name="username" type="text" autocomplete="username" required>
++      </div>
++      <div>
++        <label for="password">كلمة المرور</label>
++        <input id="password" name="password" type="password" autocomplete="current-password" required>
++      </div>
++      <div id="errorBox" class="error"></div>
++      <button class="btn" id="submitBtn" type="submit">دخول</button>
++    </form>
++    <p class="footer">بيانات الدخول تُصرف من إدارة النظام لكل موظف. لا تشارك كلمة المرور مع أي شخص.</p>
++  </main>
++  <script>
++  (function () {
++    const form = document.getElementById('loginForm');
++    const errorBox = document.getElementById('errorBox');
++    const submitBtn = document.getElementById('submitBtn');
++
++    function showError(message) {
++      errorBox.textContent = message;
++      errorBox.style.display = 'block';
++    }
++
++    form.addEventListener('submit', async function (event) {
++      event.preventDefault();
++      errorBox.style.display = 'none';
++      submitBtn.disabled = true;
++      submitBtn.textContent = 'جارٍ التحقق...';
++      try {
++        const response = await fetch('/api/auth/login', {
++          method: 'POST',
++          headers: { 'Content-Type': 'application/json' },
++          body: JSON.stringify({
++            username: document.getElementById('username').value.trim(),
++            password: document.getElementById('password').value
++          })
++        });
++        if (response.status === 404) {
++          // Login endpoint lands after the Serverless Functions consolidation (PR #6)
++          // so it does not reopen the Hobby-plan function-count limit today.
++          throw new Error('ميزة تسجيل الدخول الموحّد قيد التفعيل حاليًا. تابع معنا قريبًا.');
++        }
++        const result = await response.json().catch(() => ({}));
++        if (!response.ok || !result.ok) throw new Error(result.error || 'اسم المستخدم أو كلمة المرور غير صحيحة.');
++        sessionStorage.setItem('bhSession', JSON.stringify(result.session));
++        location.href = '/index.html';
++      } catch (error) {
++        showError(error.message || 'تعذر تسجيل الدخول.');
++      } finally {
++        submitBtn.disabled = false;
++        submitBtn.textContent = 'دخول';
++      }
++    });
++  })();
++  </script>
++</body>
++</html>
+diff --git a/supabase/migrations/005_web_login_and_employee_dues.sql b/supabase/migrations/005_web_login_and_employee_dues.sql
+new file mode 100644
+index 0000000..9ebdc74
+--- /dev/null
++++ b/supabase/migrations/005_web_login_and_employee_dues.sql
+@@ -0,0 +1,51 @@
++-- Bin Hamid Factory Control — web login credentials and employee dues ledger
++-- Run once in Supabase SQL Editor after 004_operational_projection_backfill.sql.
++-- Note: no new Vercel API route consumes this yet; wiring lands after the
++-- Serverless Functions consolidation (see PR #6) so the Hobby limit is not reopened.
++
++create extension if not exists pgcrypto;
++
++alter table public.app_users add column if not exists username text;
++alter table public.app_users add column if not exists password_hash text;
++create unique index if not exists app_users_username_key on public.app_users(lower(username)) where username is not null;
++
++create or replace function public.set_user_password(p_user_id uuid, p_password text)
++returns void language plpgsql security definer set search_path=public as $$
++begin
++  if length(coalesce(p_password,'')) < 8 then raise exception 'password too short'; end if;
++  update public.app_users set password_hash=crypt(p_password, gen_salt('bf')), updated_at=now() where id=p_user_id;
++  if not found then raise exception 'user not found'; end if;
++end $$;
++
++create or replace function public.verify_user_login(p_username text, p_password text)
++returns table(user_id uuid, full_name text, role text, employee_external_id text)
++language plpgsql security definer set search_path=public as $$
++begin
++  return query
++    select u.id, u.full_name, u.role, u.employee_external_id
++    from public.app_users u
++    where lower(u.username)=lower(p_username)
++      and u.active
++      and u.password_hash is not null
++      and u.password_hash=crypt(p_password, u.password_hash);
++end $$;
++
++create table if not exists public.employee_dues (
++  id uuid primary key default gen_random_uuid(),
++  employee_id uuid not null references public.employees(id) on delete cascade,
++  kind text not null check (kind in ('salary','advance','deduction','bonus','due')),
++  period_month date not null,
++  amount numeric(18,2) not null default 0,
++  note text,
++  status text not null default 'pending' check (status in ('pending','paid','cancelled')),
++  created_by uuid references public.app_users(id) on delete set null,
++  created_at timestamptz not null default now(),
++  updated_at timestamptz not null default now()
++);
++
++create index if not exists employee_dues_employee_period_idx on public.employee_dues(employee_id, period_month desc);
++
++alter table public.employee_dues enable row level security;
++revoke all on public.employee_dues from anon, authenticated;
++revoke all on function public.set_user_password(uuid,text) from anon, authenticated;
++revoke all on function public.verify_user_login(text,text) from anon, authenticated;
+diff --git a/vercel.json b/vercel.json
+index 0c9fd38..3ba56ef 100644
+--- a/vercel.json
++++ b/vercel.json
+@@ -29,6 +29,12 @@
+         {"key":"Cache-Control","value":"no-store, no-cache, must-revalidate, max-age=0"}
+       ]
+     },
++    {
++      "source": "/login.html",
++      "headers": [
++        {"key":"Cache-Control","value":"no-store, no-cache, must-revalidate, max-age=0"}
++      ]
++    },
+     {
+       "source": "/assets/(.*)",
+       "headers": [
+-- 
+2.43.0
+
