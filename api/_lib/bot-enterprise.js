@@ -61,6 +61,7 @@ export async function continueEnterpriseSession(message,identity,session,text){
   return false;
 }
 export async function handleEnterpriseCallback(message,from,identity,action,value){
+  if(!identity?.active)return sendMessage(message.chat.id,'حسابك غير معتمد أو غير نشط.');
   if(action==='ent'){
     if(value==='help')return showRoleHome({...message,from},identity);
     if(value==='finance_menu')return sendMessage(message.chat.id,'اختر العملية المالية:',financeMenu());
@@ -72,25 +73,25 @@ export async function handleEnterpriseCallback(message,from,identity,action,valu
     if(value==='trip_menu')return sendMessage(message.chat.id,'اختر حالة الرحلة أو التوريد:',tripMenu());
     if(value==='people_menu')return sendMessage(message.chat.id,'اختر الموظفين والمهام:',peopleMenu());
     if(value==='insights_help')return sendMessage(message.chat.id,'اختر التحليل المطلوب:',insightsMenu());
-    if(value==='insight_fuel')return sendFuelAnomalies(message.chat.id);
-    if(value==='insight_inventory')return sendInventoryRisks(message.chat.id);
-    if(value==='insight_debt')return sendDebtAnalysis(message.chat.id);
-    if(value==='insight_capacity')return sendConcreteCapacity(message.chat.id);
+    if(value==='insight_fuel')return sendFuelAnomalies(message.chat.id,identity);
+    if(value==='insight_inventory')return sendInventoryRisks(message.chat.id,identity);
+    if(value==='insight_debt')return sendDebtAnalysis(message.chat.id,identity);
+    if(value==='insight_capacity')return sendConcreteCapacity(message.chat.id,identity);
     if(value==='priorities')return canManage(identity.role)?sendEnterprisePriorities(message.chat.id):sendMessage(message.chat.id,'هذا الملخص مخصص للإدارة.');
     if(value==='approvals')return sendEnterpriseApprovals(message.chat.id,identity);
-    if(value==='operations')return sendEnterpriseOperations(message.chat.id);
+    if(value==='operations')return sendEnterpriseOperations(message.chat.id,identity);
     if(value==='search')return startEnterpriseSearch({...message,from},identity);
     if(value==='my_tasks')return sendEnterpriseTasks(message.chat.id,identity,'mine');
     if(value==='team_tasks')return sendEnterpriseTasks(message.chat.id,identity,'team');
-    if(value==='daily_reports')return sendEnterpriseDailyReports(message.chat.id);
+    if(value==='daily_reports')return sendEnterpriseDailyReports(message.chat.id,identity);
     if(value==='documents')return sendMessage(message.chat.id,'اختر التقرير المطلوب. سيصدر PDF عند تفعيل خدمة التحويل، وإلا يرسل نسخة HTML قابلة للطباعة.',documentsMenu());
-    if(value==='alerts')return sendEnterpriseAlerts(message.chat.id);
-    if(value==='finance_summary')return sendEnterpriseCategorySummary(message.chat.id,'finance','ملخص المالية');
-    if(value==='collection_summary')return sendEnterpriseCategorySummary(message.chat.id,'collection','ملخص التحصيل');
-    if(value==='inventory_summary')return sendEnterpriseCategorySummary(message.chat.id,'inventory','ملخص المخزون');
-    if(value==='fuel_summary')return sendEnterpriseCategorySummary(message.chat.id,'fuel','ملخص الديزل');
-    if(value==='hr_summary')return sendEnterpriseCategorySummary(message.chat.id,'hr','ملخص الموارد البشرية');
-    if(value==='quality_summary')return sendEnterpriseCategorySummary(message.chat.id,'quality','ملخص الجودة والرقابة');
+    if(value==='alerts')return sendEnterpriseAlerts(message.chat.id,identity);
+    if(value==='finance_summary')return sendEnterpriseCategorySummary(message.chat.id,identity,'finance','ملخص المالية');
+    if(value==='collection_summary')return sendEnterpriseCategorySummary(message.chat.id,identity,'collection','ملخص التحصيل');
+    if(value==='inventory_summary')return sendEnterpriseCategorySummary(message.chat.id,identity,'inventory','ملخص المخزون');
+    if(value==='fuel_summary')return sendEnterpriseCategorySummary(message.chat.id,identity,'fuel','ملخص الديزل');
+    if(value==='hr_summary')return sendEnterpriseCategorySummary(message.chat.id,identity,'hr','ملخص الموارد البشرية');
+    if(value==='quality_summary')return sendEnterpriseCategorySummary(message.chat.id,identity,'quality','ملخص الجودة والرقابة');
     return startEnterpriseForm({...message,from},identity,value);
   }
   if(action==='entopt'){

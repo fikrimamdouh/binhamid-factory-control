@@ -1,0 +1,103 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+
+const read=path=>readFile(new URL(`../${path}`,import.meta.url),'utf8');
+
+test('runtime migrations complete direct operational storage',async()=>{
+  const m5=await read('supabase/migrations/005_enterprise_runtime_completion.sql');
+  const m6=await read('supabase/migrations/006_runtime_replay_and_integrity.sql');
+  const m7=await read('supabase/migrations/007_procurement_projection_and_permissions.sql');
+  for(const table of ['finance_events','hr_requests','employee_daily_reports','operation_status_history','document_registry'])assert.match(m5,new RegExp(`create table if not exists public\\.${table}`));
+  for(const table of ['inventory_movements','purchase_requests','collection_events','quality_cases','operational_tasks','driver_events'])assert.match(m5,new RegExp(`alter table public\\.${table} add column if not exists source_audit_id`));
+  assert.match(m5,/project_enterprise_structured_audit/);
+  assert.match(m5,/daily_attendance_summary/);
+  assert.match(m5,/driver_daily_summary/);
+  assert.match(m6,/audit_enterprise_structured_replay_trigger/);
+  assert.match(m6,/flag_negative_inventory/);
+  assert.match(m6,/queue_approval_notification/);
+  assert.match(m6,/queue_missing_daily_reports/);
+  assert.match(m7,/project_supplier_quote_request/);
+  assert.match(m7,/source_event_type/);
+  assert.match(m7,/supplier_quote_request_projection_trigger/);
+});
+
+test('operations API supports management actions and pending approvals',async()=>{
+  const management=await read('api/_lib/routes/management.js');
+  for(const marker of ["action==='set_status'","action==='create_task'","action==='approval_decision'","action==='enqueue_notification'",'approvals_pending','notifyOperationSource'])assert.match(management,new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
+  assert.match(management,/enterprise_operation_status/);
+  assert.match(management,/next_document_no/);
+});
+
+test('operations action UI is injected without adding a function',async()=>{
+  const index=await read('index.html');
+  const ui=await read('assets/cloud-operations-actions.js');
+  assert.match(index,/cloud-operations-actions\.js/);
+  for(const marker of ['bhOpsNewTask','create_task','set_status','approval_decision','bhOperationNotify'])assert.match(ui,new RegExp(marker));
+});
+
+test('reports center covers every operational department',async()=>{
+  const index=await read('index.html');
+  const ui=await read('assets/cloud-reports.js');
+  const management=await read('api/_lib/routes/management.js');
+  assert.match(index,/cloud-reports\.js/);
+  assert.match(management,/export async function reports/);
+  assert.match(management,/daily_attendance_summary/);
+  assert.match(management,/driver_daily_summary/);
+  for(const section of ['sales','maintenance','inventory','collections','finance','purchases','quality','attendance','fleet','tasks','dailyReports'])assert.match(ui,new RegExp(section));
+  assert.match(ui,/exportCsv/);
+  assert.match(ui,/printReport/);
+});
+
+test('documents are registered and publicly verifiable by code',async()=>{
+  const documents=await read('api/_lib/bot-documents.js');
+  const verify=await read('verify-document.html');
+  const management=await read('api/_lib/routes/management.js');
+  assert.match(documents,/document_registry/);
+  assert.match(documents,/createHash\('sha256'\)/);
+  assert.match(documents,/verify-document\.html\?code=/);
+  assert.match(management,/export async function documentVerification/);
+  assert.match(verify,/\/api\/documents\/verify\?code=/);
+  assert.doesNotMatch(documents,/quickchart\.io/);
+});
+
+test('notification outbox and scheduler are secured and operational',async()=>{
+  const notifications=await read('api/_lib/bot-notifications.js');
+  const cron=await read('api/cron/manager-brief.js');
+  const workflow=await read('.github/workflows/operational-schedule.yml');
+  for(const marker of ['processNotificationOutbox','retryFailedNotifications','queueDailyReportReminders','notification_outbox'])assert.match(notifications,new RegExp(marker));
+  assert.match(cron,/CRON_SECRET غير مضبوط/);
+  assert.match(cron,/mode==='all'/);
+  assert.match(workflow,/BINHAMID_CRON_URL/);
+  assert.match(workflow,/BINHAMID_CRON_SECRET/);
+  assert.match(workflow,/cron: '12 \* \* \* \*'/);
+});
+
+test('runtime readiness requires schema version seven',async()=>{
+  const runtime=await read('api/_lib/routes/system-runtime.js');
+  const router=await read('api/router.js');
+  for(const table of ['finance_events','hr_requests','employee_daily_reports','operation_status_history','document_registry'])assert.match(runtime,new RegExp(table));
+  assert.match(runtime,/purchase_requests\.rfq_projection/);
+  assert.match(runtime,/schemaVersion:7/);
+  assert.match(runtime,/directOperationsSchema:7/);
+  assert.match(router,/systemRuntime\.databaseReadiness/);
+  assert.match(router,/systemRuntime\.status/);
+});
+
+test('new routes preserve public URLs through the central router',async()=>{
+  const config=JSON.parse(await read('vercel.json'));
+  const rewrites=new Map(config.rewrites.map(x=>[x.source,x.destination]));
+  assert.equal(rewrites.get('/api/reports'),'/api/router?route=reports');
+  assert.equal(rewrites.get('/api/documents/verify'),'/api/router?route=documents/verify');
+  const router=await read('api/router.js');
+  assert.match(router,/'reports':management\.reports/);
+  assert.match(router,/'documents\/verify':management\.documentVerification/);
+});
+
+test('activation documents cover schema seven and external activation steps',async()=>{
+  const guide=await read('docs/PHASE_TWO_ACTIVATION.md');
+  const v7=await read('docs/RUNTIME_SCHEMA_7.md');
+  for(let n=1;n<=6;n++)assert.match(guide,new RegExp(`00${n}_`));
+  for(const marker of ['BINHAMID_CRON_SECRET','BINHAMID_CRON_URL','PUBLIC_APP_URL','webhook-v3','ready=true'])assert.match(guide,new RegExp(marker));
+  for(const marker of ['007_procurement_projection_and_permissions.sql','schemaVersion=7','directOperationsSchema=7','purchase_requests'])assert.match(v7,new RegExp(marker));
+});

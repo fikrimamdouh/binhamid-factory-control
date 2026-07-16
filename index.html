@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ar" dir="rtl">  
+<html lang="ar" dir="rtl"> 
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -27,7 +27,7 @@
     </section>
   </main>
 
-  <iframe id="appFrame" title="نظام رقابة مصنع بن حامد" allow="unload; geolocation" src="/legacy.html?v=20260716-enterprise-phase-one"></iframe>
+  <iframe id="appFrame" title="نظام رقابة مصنع بن حامد" allow="unload; geolocation" src="/legacy.html?v=20260716-enterprise-runtime"></iframe>
 
   <script>
   (function boot(){
@@ -53,7 +53,7 @@
           const link=doc.createElement('link');
           link.id='binhamid-cloud-style';
           link.rel='stylesheet';
-          link.href='/assets/cloud-control.css?v=20260716-enterprise-phase-one';
+          link.href='/assets/cloud-control.css?v=20260716-enterprise-runtime';
           doc.head.appendChild(link);
         }
 
@@ -69,13 +69,16 @@
         function injectExtensions(){
           injectScript('binhamid-cloud-navigation-fix','/assets/cloud-control-navigation-fix.js?v=20260716-4',function(){console.error('[BinHamid] تعذر تحميل إصلاح تنقل مركز الاتصال.');});
           injectScript('binhamid-attendance-control','/assets/attendance-control.js?v=20260716-2',function(){console.error('[BinHamid] تعذر تحميل إدارة الحضور والسائقين.');});
-          injectScript('binhamid-conversation-control','/assets/cloud-conversations.js?v=20260716-1',function(){console.error('[BinHamid] تعذر تحميل سجل المحادثات.');});
+          injectScript('binhamid-conversation-control','/assets/cloud-conversations.js?v=20260716-2',function(){console.error('[BinHamid] تعذر تحميل سجل المحادثات.');});
+          injectScript('binhamid-operations-control','/assets/cloud-operations.js?v=20260716-2',function(){console.error('[BinHamid] تعذر تحميل مركز العمليات.');});
+          injectScript('binhamid-operations-actions','/assets/cloud-operations-actions.js?v=20260716-1',function(){console.error('[BinHamid] تعذر تحميل إجراءات مركز العمليات.');});
+          injectScript('binhamid-reports-control','/assets/cloud-reports.js?v=20260716-1',function(){console.error('[BinHamid] تعذر تحميل مركز التقارير.');});
         }
 
         if(!doc.getElementById('binhamid-cloud-script')){
           const script=doc.createElement('script');
           script.id='binhamid-cloud-script';
-          script.src='/assets/cloud-control.js?v=20260716-enterprise-phase-one';
+          script.src='/assets/cloud-control.js?v=20260716-enterprise-runtime';
           script.async=false;
           script.onload=injectExtensions;
           script.onerror=function(){fail(new Error('تعذر تحميل مركز الاتصال، بينما النسخة الأساسية ما زالت متاحة.'));};

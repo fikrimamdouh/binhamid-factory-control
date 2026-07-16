@@ -5,6 +5,43 @@ import { clearMaintenanceSession } from './bot-maintenance.js';
 import { SIMPLE_DEFS, optionsKeyboard, statusKeyboard } from './bot-enterprise-defs.js';
 import { canFinance, esc, getEnterpriseSession, logEnterpriseEvent, nextEnterpriseReference, numberFrom, setEnterpriseSession, STATUS_LABEL } from './bot-enterprise-store.js';
 
+const ACTIVE_ROLES=new Set(['admin','manager','accountant','mechanic','block_sales','concrete_sales','collector','driver','employee','warehouse','fuel_operator','hr','procurement','quality']);
+const COLLECTION_ROLES=new Set(['admin','manager','accountant','collector','block_sales','concrete_sales']);
+const INVENTORY_ROLES=new Set(['admin','manager','accountant','mechanic','warehouse','procurement','fuel_operator']);
+const PURCHASE_ROLES=new Set(['admin','manager','accountant','mechanic','warehouse','procurement','fuel_operator','quality']);
+const FUEL_ROLES=new Set(['admin','manager','accountant','mechanic','driver','fuel_operator']);
+const TRIP_ROLES=new Set(['admin','manager','mechanic','driver','fuel_operator','block_sales','concrete_sales','collector']);
+const CUSTOMER_ROLES=new Set(['admin','manager','accountant','block_sales','concrete_sales','collector']);
+const HR_ADMIN_ACTIONS=new Set(['hr_expiry','hr_payroll']);
+const HR_ADMIN_ROLES=new Set(['admin','manager','accountant','hr']);
+const HR_SELF_ROLES=new Set([...ACTIVE_ROLES]);
+const QUALITY_ADMIN_ACTIONS=new Set(['quality_check','quality_corrective']);
+const QUALITY_ROLES=new Set(['admin','manager','mechanic','quality']);
+const TASK_CREATE_ROLES=new Set(['admin','manager','accountant','hr']);
+
+function permission(identity,action,def){
+  const role=identity?.role||'';
+  if(!identity?.active||!ACTIVE_ROLES.has(role))return'حسابك غير معتمد أو غير نشط.';
+  if(def.category==='finance'&&!canFinance(role))return'هذه العملية متاحة للمدير والمحاسب ومدير النظام.';
+  if(def.category==='collection'&&!COLLECTION_ROLES.has(role))return'لا تملك صلاحية تسجيل عمليات التحصيل.';
+  if(def.category==='inventory'&&!INVENTORY_ROLES.has(role))return'حركات المخزون متاحة للمخزن والمشتريات والورشة والإدارة.';
+  if(def.category==='purchase'&&!PURCHASE_ROLES.has(role))return'طلبات الشراء متاحة للأقسام التشغيلية المخولة.';
+  if(def.category==='fuel'&&!FUEL_ROLES.has(role))return'تسجيل الديزل والعداد متاح للسائق ومسؤول الديزل والورشة والإدارة.';
+  if(def.category==='trip'&&!TRIP_ROLES.has(role))return'تسجيل الرحلات متاح للسائق والأقسام المرتبطة بالتوريد.';
+  if(def.category==='customer'&&!CUSTOMER_ROLES.has(role))return'إضافة العملاء متاحة للمبيعات والتحصيل والإدارة.';
+  if(def.category==='hr'){
+    if(HR_ADMIN_ACTIONS.has(action)&&!HR_ADMIN_ROLES.has(role))return'هذه المعاملة من اختصاص الموارد البشرية والإدارة والمحاسب.';
+    if(!HR_SELF_ROLES.has(role))return'لا تملك صلاحية خدمة الموظفين.';
+  }
+  if(def.category==='quality'){
+    if(action==='quality_issue'&&!ACTIVE_ROLES.has(role))return'لا تملك صلاحية تسجيل البلاغ.';
+    if(QUALITY_ADMIN_ACTIONS.has(action)&&!QUALITY_ROLES.has(role))return'الفحص والإجراء التصحيحي متاحان لمسؤول الجودة والورشة والإدارة.';
+  }
+  if(def.category==='task'&&!TASK_CREATE_ROLES.has(role))return'إنشاء المهام متاح للإدارة والموارد البشرية والمحاسب.';
+  if(def.category==='incident'&&action!=='daily_report')return'نوع التقرير غير مسموح.';
+  return'';
+}
+
 function mapMethod(value){return({cash:'نقدي',transfer:'تحويل',cheque:'شيك'}[value]||value);}
 function mapPriority(value){return({normal:'عادي',urgent:'عاجل',critical:'حرج'}[value]||value);}
 function summaryLine(key,value){
@@ -14,37 +51,36 @@ function summaryLine(key,value){
 }
 export async function startEnterpriseForm(message,identity,action){
   const def=SIMPLE_DEFS[action];if(!def)return false;
-  const role=identity?.role||'';
-  if(def.category==='finance'&&!canFinance(role))return sendMessage(message.chat.id,'هذه العملية متاحة للمدير والمحاسب ومدير النظام.');
-  if(def.category==='hr'&&!canFinance(role)&&!['collector','block_sales','concrete_sales','mechanic'].includes(role))return sendMessage(message.chat.id,'لا تملك صلاحية هذه العملية.');
-  if(def.category==='quality'&&!['admin','manager','mechanic'].includes(role))return sendMessage(message.chat.id,'تسجيل الجودة والسلامة متاح للمدير ومسؤول الورشة ومدير النظام.');
-  await setEnterpriseSession(message.chat.id,identity.external_id||message.from.id,`enterprise_form:${action}:0`,{action,data:{},startedAt:new Date().toISOString()});
+  const denied=permission(identity,action,def);if(denied)return sendMessage(message.chat.id,denied);
+  await setEnterpriseSession(message.chat.id,identity.external_id||message.from.id,`enterprise_form:${action}:0`,{action,data:{},startedAt:new Date().toISOString(),roleAtStart:identity.role});
   const field=def.fields[0];
   if(field[2])return sendMessage(message.chat.id,field[1],optionsKeyboard(action,field[2]));
   return sendMessage(message.chat.id,`${def.title}\n\n${field[1]}\n\nاكتب «إلغاء» للخروج.`);
 }
 export async function advanceEnterpriseForm(message,identity,session,value){
   const action=session.context?.action||String(session.state||'').split(':')[1],def=SIMPLE_DEFS[action];if(!def)return false;
+  const denied=permission(identity,action,def);if(denied){await clearMaintenanceSession(message.chat.id,identity.external_id||message.from.id);return sendMessage(message.chat.id,denied).then(()=>true);}
   const index=Number(String(session.state).split(':')[2]||0),field=def.fields[index],key=field?.[0];if(!key)return false;
   let normalized=String(value||'').trim();
   if(['amount','quantity','expected','odometer'].includes(key)){const n=numberFrom(normalized);if(!n&&normalized!=='0')return sendMessage(message.chat.id,'اكتب قيمة رقمية صحيحة.').then(()=>true);normalized=n;}
   const data={...(session.context?.data||{}),[key]:normalized},nextIndex=index+1;
   if(nextIndex<def.fields.length){
     const nextField=def.fields[nextIndex];
-    await setEnterpriseSession(message.chat.id,identity.external_id||message.from.id,`enterprise_form:${action}:${nextIndex}`,{action,data,startedAt:session.context?.startedAt||new Date().toISOString()});
+    await setEnterpriseSession(message.chat.id,identity.external_id||message.from.id,`enterprise_form:${action}:${nextIndex}`,{action,data,startedAt:session.context?.startedAt||new Date().toISOString(),roleAtStart:session.context?.roleAtStart||identity.role});
     if(nextField[2])await sendMessage(message.chat.id,nextField[1],optionsKeyboard(action,nextField[2]));else await sendMessage(message.chat.id,nextField[1]);
     return true;
   }
   const reference=await nextEnterpriseReference(def.prefix),status=def.category==='task'?'assigned':def.category==='quality'&&data.priority==='critical'?'under_review':'open';
   const details={reference_no:reference,category:def.category,subtype:def.subtype,title:def.title,status,priority:data.priority||'normal',created_by_user_id:String(identity.user_id||''),created_by_name:displayName(identity,message.from),assigned_to:data.party||displayName(identity,message.from),...data};
-  await setEnterpriseSession(message.chat.id,identity.external_id||message.from.id,'enterprise_confirm',{action,reference,details,startedAt:new Date().toISOString()});
-  const lines=Object.entries(data).map(([k,v])=>summaryLine(k,v)).join('\n');
+  await setEnterpriseSession(message.chat.id,identity.external_id||message.from.id,'enterprise_confirm',{action,reference,details,startedAt:new Date().toISOString(),roleAtStart:session.context?.roleAtStart||identity.role});
+  const lines=Object.entries(data).map(([keyName,fieldValue])=>summaryLine(keyName,fieldValue)).join('\n');
   await sendMessage(message.chat.id,`<b>مراجعة ${esc(def.title)}</b>\n\nالمرجع: <b>${esc(reference)}</b>\n${lines}\n\nلم يتم الحفظ النهائي بعد.`,keyboard([[{text:'تأكيد وحفظ',callback_data:`entconfirm:${reference}`},{text:'إلغاء',callback_data:`entcancel:${reference}`}]]));
   return true;
 }
 export async function confirmEnterpriseForm(message,from,identity,reference){
-  const session=await getEnterpriseSession(message.chat.id,identity.external_id||from.id),details=session?.context?.details;
-  if(session?.state!=='enterprise_confirm'||!details||String(details.reference_no)!==String(reference))return sendMessage(message.chat.id,'انتهت جلسة التأكيد. ابدأ العملية من جديد.');
+  const session=await getEnterpriseSession(message.chat.id,identity.external_id||from.id),details=session?.context?.details,action=session?.context?.action,def=SIMPLE_DEFS[action];
+  if(session?.state!=='enterprise_confirm'||!details||!def||String(details.reference_no)!==String(reference))return sendMessage(message.chat.id,'انتهت جلسة التأكيد. ابدأ العملية من جديد.');
+  const denied=permission(identity,action,def);if(denied){await clearMaintenanceSession(message.chat.id,identity.external_id||from.id);return sendMessage(message.chat.id,denied);}
   await logEnterpriseEvent({identity,message:{...message,from},action:'enterprise_operation_created',entityType:details.category,entityId:reference,details});
   if(details.category==='quality'&&details.priority==='critical')await insert('discrepancies',[{reference_no:reference,source_type:'telegram_quality',discrepancy_type:details.subtype,severity:'critical',title:details.title,actual_value:details,status:'open',reason:details.note||'',assigned_to:null}]);
   await clearMaintenanceSession(message.chat.id,identity.external_id||from.id);

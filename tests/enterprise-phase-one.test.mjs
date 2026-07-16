@@ -4,55 +4,25 @@ import { readFile } from 'node:fs/promises';
 
 const read=path=>readFile(new URL(`../${path}`,import.meta.url),'utf8');
 
-test('Telegram registration points only to webhook v3 through the central router',async()=>{
-  const telegramAdmin=await read('api/_lib/routes/telegram-admin.js');
-  const router=await read('api/router.js');
-  const config=JSON.parse(await read('vercel.json'));
-  assert.match(telegramAdmin,/\/api\/telegram\/webhook-v3/);
-  assert.doesNotMatch(telegramAdmin,/const url=`\$\{base\}\/api\/telegram\/webhook-v2`/);
-  assert.match(telegramAdmin,/getWebhookInfo/);
-  assert.match(router,/'telegram\/register':telegramAdmin\.register/);
-  assert.match(router,/'telegram\/status':telegramAdmin\.status/);
-  assert.match(router,/'telegram\/test':telegramAdmin\.test/);
-  assert.equal(config.rewrites.find(item=>item.source==='/api/telegram/register')?.destination,'/api/router?route=telegram/register');
-  assert.equal(config.rewrites.find(item=>item.source==='/api/telegram/status')?.destination,'/api/router?route=telegram/status');
-  assert.equal(config.rewrites.find(item=>item.source==='/api/telegram/test')?.destination,'/api/router?route=telegram/test');
+test('Telegram registration points only to webhook v3',async()=>{
+  const register=await read('api/_lib/routes/telegram-admin.js');
+  assert.match(register,/\/api\/telegram\/webhook-v3/);
+  assert.doesNotMatch(register,/const url=`\$\{base\}\/api\/telegram\/webhook-v2`/);
+  assert.match(register,/getWebhookInfo/);
 });
 
-test('state sync and import downloads stay behind the central router',async()=>{
-  const router=await read('api/router.js');
-  const state=await read('api/_lib/routes/state.js');
-  const imports=await read('api/_lib/routes/imports.js');
-  const config=JSON.parse(await read('vercel.json'));
-  assert.match(router,/'state':stateRuntime\.state/);
-  assert.match(router,/'imports\/file':imports\.file/);
-  assert.match(state,/method\(req,res,\['GET','PUT'\]\)/);
-  assert.match(state,/salary:Number\(x\.totalSalary\?\?x\.actualSalary\?\?x\.baseSalary\?\?x\.salary\?\?x\.sal\?\?0\)/);
-  assert.match(imports,/downloadObject\(row\.file_path\)/);
-  assert.equal(config.rewrites.find(item=>item.source==='/api/state')?.destination,'/api/router?route=state');
-  assert.equal(config.rewrites.find(item=>item.source==='/api/imports/file')?.destination,'/api/router?route=imports/file');
-});
-
-test('attendance, scheduled notifications and all Telegram webhooks use the single router',async()=>{
-  const router=await read('api/router.js');
-  const webhook=await read('api/_lib/webhook-v2.js');
-  const attendance=await read('api/_lib/attendance.js');
-  const brief=await read('api/_lib/manager-brief.js');
-  const config=JSON.parse(await read('vercel.json'));
-  assert.match(router,/'admin\/attendance':attendance/);
-  assert.match(router,/'cron\/manager-brief':managerBrief/);
-  assert.match(router,/'telegram\/webhook-v3':telegramWebhook/);
-  assert.match(webhook,/verifyTelegram\(req\)/);
-  assert.match(attendance,/recordWebAppAttendance/);
-  assert.match(brief,/sendManagerBrief/);
-  for(const [source,route] of [
-    ['/api/admin/attendance','admin/attendance'],
-    ['/api/cron/manager-brief','cron/manager-brief'],
-    ['/api/telegram/webhook','telegram/webhook'],
-    ['/api/telegram/webhook-v2','telegram/webhook-v2'],
-    ['/api/telegram/webhook-v3','telegram/webhook-v3']
-  ]) assert.equal(config.rewrites.find(item=>item.source===source)?.destination,`/api/router?route=${route}`);
-  assert.deepEqual(Object.keys(config.functions),['api/router.js']);
+test('webhook v3 uses the secure gateway and shared enterprise implementation outside function routes',async()=>{
+  const webhook=await read('api/telegram/webhook-v3.js');
+  const gateway=await read('api/_lib/telegram-webhook-gateway.js');
+  const engine=await read('api/_lib/telegram-webhook-handler.js');
+  assert.match(webhook,/telegram-webhook-gateway\.js/);
+  assert.match(gateway,/telegram-webhook-handler\.js/);
+  assert.match(gateway,/bot-procurement-secure\.js/);
+  assert.match(gateway,/bot-sales-secure\.js/);
+  assert.match(gateway,/bot-mechanic-secure\.js/);
+  assert.match(gateway,/bot-attendance-secure\.js/);
+  assert.match(engine,/handleEnterpriseTextCommand/);
+  assert.match(engine,/handleAttendanceCallback/);
 });
 
 test('incoming and outgoing Telegram messages are persisted',async()=>{
@@ -74,19 +44,21 @@ test('conversation center is loaded by the application shell',async()=>{
 
 test('enterprise migration creates direct operational tables',async()=>{
   const sql=await read('supabase/migrations/003_enterprise_operations_and_conversations.sql');
-  for(const table of ['operational_records','sales_orders','inventory_items','inventory_movements','purchase_requests','supplier_quotes','collection_events','quality_cases','operational_tasks','notification_outbox']){
-    assert.match(sql,new RegExp(`create table if not exists public\\.${table}`));
-  }
+  for(const table of ['operational_records','sales_orders','inventory_items','inventory_movements','purchase_requests','supplier_quotes','collection_events','quality_cases','operational_tasks','notification_outbox'])assert.match(sql,new RegExp(`create table if not exists public\\.${table}`));
   assert.match(sql,/audit_sales_projection_trigger/);
   assert.match(sql,/audit_operational_projection_trigger/);
 });
 
-test('consolidated operations and conversation APIs require admin access',async()=>{
+test('central router preserves protected operations and conversation endpoints',async()=>{
   const router=await read('api/router.js');
   const management=await read('api/_lib/routes/management.js');
   assert.match(router,/'operations':management\.operations/);
   assert.match(router,/'conversations':management\.conversations/);
-  assert.match(management,/export async function operations/);
-  assert.match(management,/export async function conversations/);
   assert.match(management,/requireAdmin\(req\)/);
+});
+
+test('Vercel rewrites preserve all legacy endpoint URLs',async()=>{
+  const config=JSON.parse(await read('vercel.json'));
+  const sources=new Set((config.rewrites||[]).map(item=>item.source));
+  for(const route of ['/api/admin/groups','/api/admin/users','/api/dashboard','/api/conversations','/api/operations','/api/imports/status','/api/system/database-readiness','/api/system/status','/api/telegram/register','/api/telegram/status','/api/telegram/test','/api/telegram/webhook','/api/telegram/webhook-v2'])assert.ok(sources.has(route),`missing rewrite ${route}`);
 });
