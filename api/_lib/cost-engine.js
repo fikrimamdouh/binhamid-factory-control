@@ -29,14 +29,15 @@ export function calculateUnitEconomics(rows=[]){
 
 export async function getCostReport(periodValue){
   const periodStart=normalizePeriod(periodValue||new Date().toISOString().slice(0,7));
-  const [rows,periods,runs,unclassified]=await Promise.all([
+  const [rows,periods,unclassified]=await Promise.all([
     select('cost_unit_monthly_report',`period_start=eq.${periodStart}&select=*&order=cost_center.asc`),
     select('cost_periods',`period_start=eq.${periodStart}&select=*&limit=1`),
-    select('cost_calculation_runs',`period_id=eq.${encodeURIComponent(periods?.[0]?.id||'00000000-0000-0000-0000-000000000000')}&select=*&order=run_no.desc&limit=20`).catch(()=>[]),
     select('cost_ledger',`period_start=eq.${periodStart}&metadata->>unclassified=eq.true&select=id,entry_type,cost_center,source_type,source_reference,amount,quantity,unit,metadata,occurred_at&order=occurred_at.desc&limit=1000`).catch(()=>[])
   ]);
+  const period=periods?.[0]||null;
+  const runs=period?await select('cost_calculation_runs',`period_id=eq.${encodeURIComponent(period.id)}&select=*&order=run_no.desc&limit=20`).catch(()=>[]):[];
   const economics=calculateUnitEconomics(rows||[]);
-  return{periodStart,period:periods?.[0]||null,runs:runs||[],rows:rows||[],economics,unclassified:unclassified||[],complete:Object.values(economics).every(item=>item.reliable)};
+  return{periodStart,period,runs:runs||[],rows:rows||[],economics,unclassified:unclassified||[],complete:Object.values(economics).length>0&&Object.values(economics).every(item=>item.reliable)};
 }
 
 export async function runCostCalculation(periodValue,actor,dryRun=false){
