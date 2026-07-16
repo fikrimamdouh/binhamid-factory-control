@@ -5,10 +5,15 @@ import * as imports from './_lib/routes/imports.js';
 import * as systemRuntime from './_lib/routes/system-runtime.js';
 import * as telegramAdmin from './_lib/routes/telegram-admin.js';
 import * as stateRuntime from './_lib/routes/state.js';
+import attendance from './_lib/attendance.js';
+import managerBrief from './_lib/manager-brief.js';
+import telegramWebhook from './_lib/webhook-v2.js';
 
 const routes={
   'admin/groups':admin.groups,
   'admin/users':admin.users,
+  'admin/attendance':attendance,
+  'cron/manager-brief':managerBrief,
   'dashboard':management.dashboard,
   'conversations':management.conversations,
   'operations':management.operations,
@@ -21,6 +26,9 @@ const routes={
   'telegram/register':telegramAdmin.register,
   'telegram/status':telegramAdmin.status,
   'telegram/test':telegramAdmin.test,
+  'telegram/webhook':telegramWebhook,
+  'telegram/webhook-v2':telegramWebhook,
+  'telegram/webhook-v3':telegramWebhook,
   'state':stateRuntime.state
 };
 
