@@ -3,15 +3,16 @@
   const VERSION='2026.07.16-existing-daily-import-v1';
   let installed=false,lastDailyPlan=null,lastMovementPlan=null;
   const num=value=>{const parsed=Number(String(value??0).replace(/,/g,''));return Number.isFinite(parsed)?parsed:0;};
+  const fixed=(value,digits)=>num(value).toFixed(digits);
   const norm=value=>String(value??'').trim().toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/ـ/g,'').replace(/\s+/g,' ');
   const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
   const money=value=>num(value).toLocaleString('ar-SA',{minimumFractionDigits:2,maximumFractionDigits:2});
   const merge=(first,second,keyFn)=>{const result=[],seen=new Set();for(const row of [...(first||[]),...(second||[])]){const key=keyFn(row);if(seen.has(key))continue;seen.add(key);result.push(row);}return result;};
-  const rowSaleKey=row=>[row.sheet||'',row.row||'',String(row.invoice||''),String(row.customerCode||''),norm(row.item),num(row.quantity),num(row.amount)].join('|');
-  const rowCollectionKey=row=>[row.sheet||'',row.row||'',String(row.treasuryCode||''),String(row.customerCode||''),String(row.receipt||''),num(row.amount)].join('|');
+  const rowSaleKey=row=>[row.sheet||'',row.row||'',String(row.invoice||''),String(row.customerCode||''),norm(row.item),fixed(row.quantity,3),fixed(row.amount,2)].join('|');
+  const rowCollectionKey=row=>[row.sheet||'',row.row||'',String(row.treasuryCode||''),String(row.customerCode||''),String(row.receipt||''),fixed(row.amount,2)].join('|');
   const clientCode=id=>{const client=(window.D?.cli||[]).find(row=>row.id===id);return String(client?.code||'');};
-  const canonicalSale=(row,date)=>[String(date||row.date||'').slice(0,10),String(row.invoice||row.clientOrder||'').trim(),String(row.customerCode||clientCode(row.clientId)||'').trim(),norm(row.item||row.product),num(row.quantity),num(row.amount)].join('|');
-  const canonicalCollection=(row,date)=>[String(row.date||date||'').slice(0,10),String(row.customerCode||clientCode(row.clientId)||'').trim(),String(row.receipt||row.no||'').trim(),num(row.amount),norm(row.method)].join('|');
+  const canonicalSale=(row,date)=>[String(date||row.date||'').slice(0,10),String(row.invoice||row.clientOrder||'').trim(),String(row.customerCode||clientCode(row.clientId)||'').trim(),norm(row.item||row.product),fixed(row.quantity,3),fixed(row.amount,2)].join('|');
+  const canonicalCollection=(row,date)=>[String(row.date||date||'').slice(0,10),String(row.customerCode||clientCode(row.clientId)||'').trim(),String(row.receipt||row.no||'').trim(),fixed(row.amount,2),norm(row.method)].join('|');
 
   async function fingerprint(file){
     try{
@@ -46,7 +47,7 @@
       const row={...source,date:source.date||reportDate};
       const resolved=typeof window.bh12ResolveClient==='function'?window.bh12ResolveClient(row.customerCode,row.customer,''):{client:window.opsFindOrCreateClient?.(row.customer,row.customerCode),created:false};
       const client=resolved?.client;if(!client)continue;
-      const key=typeof window.bh12CollectionKey==='function'?window.bh12CollectionKey(row,reportDate):`daily-collection|${row.date}|${row.customerCode}|${row.receipt||row.row}|${num(row.amount)}|${norm(row.method)}`;
+      const key=typeof window.bh12CollectionKey==='function'?window.bh12CollectionKey(row,reportDate):`daily-collection|${row.date}|${row.customerCode}|${row.receipt||row.row}|${fixed(row.amount,2)}|${norm(row.method)}`;
       const collection={id:window.opsUid('col'),no:window.opsNextNo('COL'),clientId:client.id,customerCode:row.customerCode||client.code||'',date:row.date,amount:num(row.amount),method:row.method||'غير محدد',receipt:row.receipt||'',employeeId:'',invoiceId:'',paymentType:'debt',isAdvance:false,allocationMode:'fifo',notes:[row.notes,row.treasuryCode?`خزينة ${row.treasuryCode}`:''].filter(Boolean).join(' — '),attachments:[],sourceDailyKey:key,sourceImportId:batch?.id||'',createdAt:new Date().toISOString()};
       window.OPS.collections.unshift(collection);
       window.opsAddMovementRecord?.('COLLECTION',{date:row.date+'T12:00',entityKind:'client',entityId:collection.clientId,amount:collection.amount,reference:collection.receipt||collection.no,notes:`تحصيل مستورد — ${collection.method}`,module:'daily-movement-collections',moduleId:collection.id});
