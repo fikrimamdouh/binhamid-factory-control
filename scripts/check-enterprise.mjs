@@ -41,6 +41,7 @@ const files=[
   'api/_lib/bot-documents.js',
   'api/_lib/bot-gps.js',
   'api/_lib/bot-notifications.js',
+  'api/_lib/bot-notifications-safe.js',
   'api/_lib/bot-insights.js',
   'api/_lib/bot-insights-fleet.js',
   'api/_lib/bot-insights-ops.js'
