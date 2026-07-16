@@ -80,3 +80,11 @@ jobs:
       - name: Enforce local Vercel build
         if: steps.vercel-build.outcome != 'success'
         run: cat vercel-build-output.txt && exit 1
+      - name: Package verified source
+        if: success()
+        run: tar --exclude=.git --exclude=node_modules --exclude=.vercel -czf enterprise-source.tar.gz .
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: enterprise-source
+          path: enterprise-source.tar.gz
