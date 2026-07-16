@@ -1,6 +1,6 @@
 import { createDecipheriv, createHash } from 'node:crypto';
-import { existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { basename, dirname, resolve } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { basename, resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { spawnSync } from 'node:child_process';
 
@@ -30,9 +30,9 @@ function main(){
   if(input.endsWith('.enc')){decrypt(input,compressed,required('BACKUP_ENCRYPTION_KEY'));compressedSource=compressed;}
   const compressedBuffer=readFileSync(compressedSource),plain=gunzipSync(compressedBuffer);writeFileSync(sql,plain,{mode:0o600});
   const restore=spawnSync('psql',[target,'-X','-v','ON_ERROR_STOP=1','-f',sql],{encoding:'utf8',env:process.env,stdio:['ignore','pipe','pipe']});if(restore.error)throw new Error(`psql unavailable: ${restore.error.message}`);if(restore.status!==0)throw new Error(`Restore failed: ${String(restore.stderr||'').trim().slice(0,2000)}`);
-  const schemaVersion=Number(query(target,'select coalesce(max(version),0) from public.migration_history;'))||0,tableCount=Number(query(target,"select count(*) from information_schema.tables where table_schema='public' and table_type='BASE TABLE';"))||0,criticalCounts={dailyReportBatches:Number(query(target,'select count(*) from public.daily_report_batches;'))||0,salesOrders:Number(query(target,'select count(*) from public.sales_orders;'))||0,collectionEvents:Number(query(target,'select count(*) from public.collection_events;'))||0,costLedger:Number(query(target,'select count(*) from public.cost_ledger;'))||0,auditLog:Number(query(target,'select count(*) from public.audit_log;'))||0};
-  const missing=String(query(target,"with required(name) as (values ('app_state'),('daily_report_batches'),('daily_report_sales_lines'),('daily_report_cash_movements'),('cost_ledger'),('cost_centers'),('cost_periods'),('operational_alerts'),('backup_runs')) select coalesce(string_agg(name,','),'') from required where to_regclass('public.'||name) is null;"));
-  if(schemaVersion<11||missing)throw new Error(`Restore readiness failed: schema=${schemaVersion}, missing=${missing||'none'}`);
+  const schemaVersion=Number(query(target,'select coalesce(max(version),0) from public.migration_history;'))||0,tableCount=Number(query(target,"select count(*) from information_schema.tables where table_schema='public' and table_type='BASE TABLE';"))||0,criticalCounts={dailyReportBatches:Number(query(target,'select count(*) from public.daily_report_batches;'))||0,salesOrders:Number(query(target,'select count(*) from public.sales_orders;'))||0,collectionEvents:Number(query(target,'select count(*) from public.collection_events;'))||0,costLedger:Number(query(target,'select count(*) from public.cost_ledger;'))||0,fifoRebuildRuns:Number(query(target,'select count(*) from public.fifo_rebuild_runs;'))||0,auditLog:Number(query(target,'select count(*) from public.audit_log;'))||0};
+  const missing=String(query(target,"with required(name) as (values ('app_state'),('daily_report_batches'),('daily_report_sales_lines'),('daily_report_cash_movements'),('daily_report_import_attempts'),('cost_ledger'),('cost_centers'),('cost_periods'),('operational_alerts'),('backup_runs'),('fifo_rebuild_runs')) select coalesce(string_agg(name,','),'') from required where to_regclass('public.'||name) is null;"));
+  if(schemaVersion<14||missing)throw new Error(`Restore readiness failed: schema=${schemaVersion}, missing=${missing||'none'}`);
   const result={ok:true,source:input,targetEnvironment:String(process.env.RESTORE_ENVIRONMENT||'test'),schemaVersion,tableCount,criticalCounts,checksumSha256:actualChecksum,manifestSchemaVersion:manifest?.schemaVersion??null,verifiedAt:new Date().toISOString()};
   writeFileSync(resolve(workDir,'restore-result.json'),JSON.stringify(result,null,2),{mode:0o600});if(process.env.KEEP_RESTORE_SQL!=='true'){rmSync(sql,{force:true});if(compressedSource===compressed)rmSync(compressed,{force:true});}
   process.stdout.write(`${JSON.stringify(result)}\n`);
