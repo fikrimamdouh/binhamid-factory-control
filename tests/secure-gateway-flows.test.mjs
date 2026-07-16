@@ -20,7 +20,7 @@ test('procurement wrapper includes specialist roles and direct RFQ visibility',a
   assert.match(secure,/continueProcurementSession/);
   assert.match(secure,/handleProcurementCallback/);
   assert.match(migration,/project_supplier_quote_request/);
-  assert.match(migration,/request_type,'rfq'/);
+  assert.match(migration,/ref,'rfq'/);
   assert.match(migration,/supplier_quote_request_projection_trigger/);
   assert.match(migration,/update public\.audit_log set details=details where action='supplier_quote_request'/);
 });
