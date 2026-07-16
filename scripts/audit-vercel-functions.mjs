@@ -1,10 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+// Vercel creates one function for every route file under api, excluding private underscore folders.
 const root=process.cwd();
 const apiRoot=path.join(root,'api');
-const hobbyLimit=12;
-const projectTarget=1;
+const limit=12;
 
 function walk(dir){
   if(!fs.existsSync(dir))return[];
@@ -24,7 +24,7 @@ console.log('VERCEL_FUNCTION_INVENTORY_START');
 for(const file of files)console.log(file);
 console.log('VERCEL_FUNCTION_INVENTORY_END');
 console.log(`VERCEL_FUNCTION_COUNT=${files.length}`);
-if(process.argv.includes('--assert')&&files.length>projectTarget){
-  console.error(`Vercel function budget exceeded: ${files.length}; project target ${projectTarget}, Hobby hard limit ${hobbyLimit}.`);
+if(process.argv.includes('--assert')&&files.length>limit){
+  console.error(`Vercel Hobby limit exceeded: ${files.length} functions; maximum ${limit}.`);
   process.exit(1);
 }

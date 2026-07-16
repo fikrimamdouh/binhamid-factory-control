@@ -2,6 +2,20 @@ import { select } from './supabase.js';
 import { sendMessage, keyboard } from './telegram.js';
 import { ACTIVE_STATUS, canFinance, canManage, enterpriseEvents, esc, formatAmount, logEnterpriseEvent, norm, operationLine, reduceEnterpriseOperations, STATUS_LABEL } from './bot-enterprise-store.js';
 
+const TEAM_ROLES=new Set(['admin','manager','hr']);
+const OPERATIONS_ROLES=new Set(['admin','manager','accountant']);
+const ALERT_ROLES=new Set(['admin','manager']);
+const DAILY_REPORT_ROLES=new Set(['admin','manager','hr']);
+const CATEGORY_ROLES={
+  finance:new Set(['admin','manager','accountant']),
+  collection:new Set(['admin','manager','accountant','collector']),
+  inventory:new Set(['admin','manager','accountant','warehouse','procurement','mechanic']),
+  fuel:new Set(['admin','manager','accountant','fuel_operator','mechanic']),
+  hr:new Set(['admin','manager','accountant','hr']),
+  quality:new Set(['admin','manager','quality'])
+};
+function allowed(identity,set){return Boolean(identity?.active&&set.has(identity.role));}
+
 export async function setEnterpriseOperationStatus(message,from,identity,payload){
   const [reference,status]=String(payload||'').split('|');
   if(!reference||!status)return sendMessage(message.chat.id,'بيانات الحالة غير صحيحة.');
@@ -14,10 +28,10 @@ export async function setEnterpriseOperationStatus(message,from,identity,payload
 }
 export async function sendEnterpriseTasks(chatId,identity,scope='mine'){
   const ops=reduceEnterpriseOperations(await enterpriseEvents()).filter(item=>item.category==='task'&&ACTIVE_STATUS.has(item.status));
-  const name=String(identity.full_name||'').trim(),id=String(identity.user_id||'');
-  const filtered=scope==='team'&&canManage(identity.role)?ops:ops.filter(item=>String(item.created_by_user_id||'')===id||norm(item.assigned_to||'')===norm(name)||norm(item.assigned_to||'')==='نفسي');
-  if(!filtered.length)return sendMessage(chatId,scope==='team'?'لا توجد مهام فريق مفتوحة.':'لا توجد مهام مفتوحة مرتبطة بك.');
-  return sendMessage(chatId,`<b>${scope==='team'?'مهام الفريق':'مهامي المفتوحة'}</b>\n\n${filtered.slice(0,20).map(operationLine).join('\n\n')}`.slice(0,3900));
+  const name=String(identity.full_name||'').trim(),id=String(identity.user_id||''),teamAccess=TEAM_ROLES.has(identity.role);
+  const filtered=scope==='team'&&teamAccess?ops:ops.filter(item=>String(item.created_by_user_id||'')===id||norm(item.assigned_to||'')===norm(name)||norm(item.assigned_to||'')==='نفسي');
+  if(!filtered.length)return sendMessage(chatId,scope==='team'&&teamAccess?'لا توجد مهام فريق مفتوحة.':'لا توجد مهام مفتوحة مرتبطة بك.');
+  return sendMessage(chatId,`<b>${scope==='team'&&teamAccess?'مهام الفريق':'مهامي المفتوحة'}</b>\n\n${filtered.slice(0,20).map(operationLine).join('\n\n')}`.slice(0,3900));
 }
 export async function sendEnterpriseApprovals(chatId,identity){
   if(!canFinance(identity.role)&&!canManage(identity.role))return sendMessage(chatId,'ليست لديك صلاحية عرض الاعتمادات.');
@@ -25,25 +39,32 @@ export async function sendEnterpriseApprovals(chatId,identity){
   if(!rows?.length)return sendMessage(chatId,'لا توجد اعتمادات معلقة.');
   for(const row of rows.slice(0,10))await sendMessage(chatId,`<b>${esc(row.reference_no)}</b> — ${esc(row.entity_type)}\n${esc(row.summary||'بدون ملخص')}\nالمبلغ: <b>${formatAmount(row.amount)} ر.س</b>`,keyboard([[{text:'اعتماد',callback_data:`approve:${row.id}`},{text:'رفض',callback_data:`reject:${row.id}`}]]));
 }
-export async function sendEnterpriseCategorySummary(chatId,category,title){
+export async function sendEnterpriseCategorySummary(chatId,identity,category,title){
+  const roles=CATEGORY_ROLES[category]||OPERATIONS_ROLES;if(!allowed(identity,roles))return sendMessage(chatId,'ليست لديك صلاحية عرض هذا الملخص.');
   const ops=reduceEnterpriseOperations(await enterpriseEvents()).filter(item=>item.category===category),open=ops.filter(item=>ACTIVE_STATUS.has(item.status)),today=new Date().toISOString().slice(0,10),todayOps=ops.filter(item=>String(item.created_at||'').slice(0,10)===today),total=todayOps.reduce((sum,item)=>sum+Number(item.amount||0),0);
   let text=`<b>${esc(title)}</b>\n\nمسجل اليوم: <b>${todayOps.length}</b>\nمفتوح حاليًا: <b>${open.length}</b>${total?`\nإجمالي مبالغ اليوم: <b>${formatAmount(total)} ر.س</b>`:''}`;
   if(open.length)text+=`\n\n<b>أهم العمليات المفتوحة</b>\n${open.slice(0,8).map(operationLine).join('\n\n')}`;
   return sendMessage(chatId,text.slice(0,3900));
 }
-export async function sendEnterpriseOperations(chatId){
+export async function sendEnterpriseOperations(chatId,identity){
+  if(!allowed(identity,OPERATIONS_ROLES))return sendMessage(chatId,'لوحة التشغيل المركزية متاحة للإدارة والمحاسب.');
   const ops=reduceEnterpriseOperations(await enterpriseEvents()),counts={};
   for(const item of ops.filter(row=>ACTIVE_STATUS.has(row.status)))counts[item.category]=(counts[item.category]||0)+1;
   const lines=Object.entries(counts).sort((a,b)=>b[1]-a[1]).map(([key,value])=>`• ${esc(key)}: <b>${value}</b>`);
   return sendMessage(chatId,`<b>لوحة التشغيل المركزية</b>\n\n${lines.length?lines.join('\n'):'لا توجد عمليات تشغيلية مفتوحة.'}\n\nاستخدم «بحث شامل» للوصول إلى مرجع أو عميل أو مركبة.`);
 }
-export async function sendEnterpriseAlerts(chatId){
+export async function sendEnterpriseAlerts(chatId,identity){
+  if(!allowed(identity,ALERT_ROLES))return sendMessage(chatId,'التنبيهات المركزية متاحة للإدارة فقط.');
   const ops=reduceEnterpriseOperations(await enterpriseEvents()),alerts=ops.filter(item=>ACTIVE_STATUS.has(item.status)&&(item.priority==='critical'||item.priority==='urgent'||(item.due_date&&new Date(item.due_date)<new Date())));
   if(!alerts.length)return sendMessage(chatId,'لا توجد تنبيهات تشغيلية عاجلة حاليًا.');
   return sendMessage(chatId,`<b>التنبيهات التشغيلية</b>\n\n${alerts.slice(0,20).map(operationLine).join('\n\n')}`.slice(0,3900));
 }
-export async function sendEnterpriseDailyReports(chatId){
-  const ops=reduceEnterpriseOperations(await enterpriseEvents()),today=new Date().toISOString().slice(0,10),reports=ops.filter(item=>item.subtype==='daily_report'&&String(item.created_at||'').slice(0,10)===today);
-  if(!reports.length)return sendMessage(chatId,'لم يسجل أي موظف تقريرًا يوميًا حتى الآن.');
-  return sendMessage(chatId,`<b>تقارير الموظفين اليوم</b>\n\n${reports.slice(0,20).map(item=>`• <b>${esc(item.created_by_name||'موظف')}</b>\n  ${esc(String(item.note||'').slice(0,220))}`).join('\n\n')}`.slice(0,3900));
+export async function sendEnterpriseDailyReports(chatId,identity){
+  if(!allowed(identity,DAILY_REPORT_ROLES))return sendMessage(chatId,'تقارير الموظفين متاحة للإدارة والموارد البشرية.');
+  let reports=[];
+  try{reports=await select('employee_daily_reports',`report_date=eq.${new Date().toISOString().slice(0,10)}&select=reference_no,employee_name,department,report_text,created_at&order=created_at.desc&limit=100`);}catch{
+    const ops=reduceEnterpriseOperations(await enterpriseEvents()),today=new Date().toISOString().slice(0,10);reports=ops.filter(item=>item.subtype==='daily_report'&&String(item.created_at||'').slice(0,10)===today).map(item=>({employee_name:item.created_by_name,report_text:item.note}));
+  }
+  if(!reports?.length)return sendMessage(chatId,'لم يسجل أي موظف تقريرًا يوميًا حتى الآن.');
+  return sendMessage(chatId,`<b>تقارير الموظفين اليوم</b>\n\n${reports.slice(0,20).map(item=>`• <b>${esc(item.employee_name||'موظف')}</b>${item.department?` — ${esc(item.department)}`:''}\n  ${esc(String(item.report_text||'').slice(0,220))}`).join('\n\n')}`.slice(0,3900));
 }

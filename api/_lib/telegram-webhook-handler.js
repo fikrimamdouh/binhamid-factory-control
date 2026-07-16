@@ -1,26 +1,26 @@
-import { verifyTelegram } from '../_lib/auth.js';
-import { json, method, body, errorResponse } from '../_lib/http.js';
-import { patch, rpc, uploadObject } from '../_lib/supabase.js';
-import { sendMessage, answerCallback, downloadTelegramFile } from '../_lib/telegram.js';
-import { sha256, extractPlate, isFaultMessage, allowed } from '../_lib/domain.js';
-import { displayName } from '../_lib/bot-profile.js';
-import { interpretMessage } from '../_lib/bot-routing.js';
-import { reportKeyboard, sendReport } from '../_lib/bot-reports.js';
-import { handleExcel, handleAttachment } from '../_lib/bot-files.js';
-import { getBotSession, createMaintenanceDraft, continueWaitingPlate, confirmMaintenance, cancelMaintenance, chooseVehicle } from '../_lib/bot-maintenance.js';
-import { handleBuiltInCommand } from '../_lib/bot-commands.js';
-import { transcribeTelegramVoice, voiceFailureMessage } from '../_lib/bot-voice.js';
-import { handleMechanicTextCommand, continueMechanicSession, startMechanicAction, confirmSparePartsRequest, showMechanicMenu } from '../_lib/bot-mechanic.js';
-import { sendExecutiveWorkshopStatus } from '../_lib/bot-workshop-dashboard.js';
-import { handleSalesTextCommand, continueSalesSession, startSalesAction, confirmSalesOrder, cancelSalesDraft, showSalesMenu } from '../_lib/bot-sales.js';
-import { startGuidedSales, continueGuidedSales, handleGuidedSalesCallback } from '../_lib/bot-sales-guided.js';
-import { handleProcurementTextCommand, continueProcurementSession, handleProcurementCallback, showProcurementMenu } from '../_lib/bot-procurement.js';
-import { handleEnterpriseTextCommand, continueEnterpriseSession, handleEnterpriseCallback, showRoleHome } from '../_lib/bot-enterprise.js';
-import { ensureTelegramGroup, ensureTelegramIdentity, storeTelegramMessage } from '../_lib/bot-webhook-core.js';
-import { sendOperationalDocument } from '../_lib/bot-documents.js';
-import { sendGpsFleetStatus } from '../_lib/bot-gps.js';
-import { handleInsightCommand } from '../_lib/bot-insights.js';
-import { showAttendanceMenu, continueAttendanceSession, handleAttendanceLocation, handleAttendancePhoto, handleAttendanceCallback } from '../_lib/bot-attendance.js';
+import { verifyTelegram } from './auth.js';
+import { json, method, body, errorResponse } from './http.js';
+import { patch, rpc, uploadObject } from './supabase.js';
+import { sendMessage, answerCallback, downloadTelegramFile } from './telegram.js';
+import { sha256, extractPlate, isFaultMessage, allowed } from './domain.js';
+import { displayName } from './bot-profile.js';
+import { interpretMessage } from './bot-routing.js';
+import { reportKeyboard, sendReport } from './bot-reports.js';
+import { handleExcel, handleAttachment } from './bot-files.js';
+import { getBotSession, createMaintenanceDraft, continueWaitingPlate, confirmMaintenance, cancelMaintenance, chooseVehicle } from './bot-maintenance.js';
+import { handleBuiltInCommand } from './bot-commands.js';
+import { transcribeTelegramVoice, voiceFailureMessage } from './bot-voice.js';
+import { handleMechanicTextCommand, continueMechanicSession, startMechanicAction, confirmSparePartsRequest, showMechanicMenu } from './bot-mechanic.js';
+import { sendExecutiveWorkshopStatus } from './bot-workshop-dashboard.js';
+import { handleSalesTextCommand, continueSalesSession, startSalesAction, confirmSalesOrder, cancelSalesDraft, showSalesMenu } from './bot-sales.js';
+import { startGuidedSales, continueGuidedSales, handleGuidedSalesCallback } from './bot-sales-guided.js';
+import { handleProcurementTextCommand, continueProcurementSession, handleProcurementCallback, showProcurementMenu } from './bot-procurement.js';
+import { handleEnterpriseTextCommand, continueEnterpriseSession, handleEnterpriseCallback, showRoleHome } from './bot-enterprise.js';
+import { ensureTelegramGroup, ensureTelegramIdentity, storeTelegramMessage } from './bot-webhook-core.js';
+import { sendOperationalDocument } from './bot-documents.js';
+import { sendGpsFleetStatus } from './bot-gps.js';
+import { handleInsightCommand } from './bot-insights.js';
+import { showAttendanceMenu, continueAttendanceSession, handleAttendanceLocation, handleAttendancePhoto, handleAttendanceCallback } from './bot-attendance.js';
 
 const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const norm=value=>String(value||'').toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ًٌٍَُِّْـ]/g,'').replace(/[؟?!.,،؛:]+/g,'').replace(/\s+/g,' ').trim();
@@ -28,10 +28,7 @@ const norm=value=>String(value||'').toLowerCase().replace(/[أإآ]/g,'ا').repl
 async function handleText(message,group,identity,text,voicePath='',stored=null){
   const chatId=message.chat.id,role=identity.role||'pending',active=Boolean(identity.active),raw=String(text||'').trim(),normalized=norm(raw),name=displayName(identity,message.from);
   const builtIn=await handleBuiltInCommand({message,identity,text:raw});
-  if(builtIn){
-    if(/^\/start(?:@\w+)?(?:\s+\w+)?$/i.test(raw)&&active)await showRoleHome(message,identity);
-    return;
-  }
+  if(builtIn){if(/^\/start(?:@\w+)?(?:\s+\w+)?$/i.test(raw)&&active)await showRoleHome(message,identity);return;}
   if(!active)return sendMessage(chatId,`مرحبًا ${esc(name)}. فهمت رسالتك وسجلتها، لكن حسابك غير معتمد لتنفيذ الإجراءات. أرسل رقمك من /whoami إلى مدير النظام.`);
   if(['group','supergroup'].includes(message.chat.type)&&!group.active)return sendMessage(chatId,'فهمت الرسالة وسجلتها، لكن المجموعة لم تعتمد بعد. يجب تحديد قسمها قبل التوجيه النهائي.');
 
@@ -55,10 +52,7 @@ async function handleText(message,group,identity,text,voicePath='',stored=null){
   if(session?.state?.startsWith('guided_sales_')){if(await continueGuidedSales(message,identity,session,raw))return;}
   if(session?.state?.startsWith('sales_')){if(await continueSalesSession(message,identity,session,raw))return;}
   if(session?.state?.startsWith('mechanic_')){if(await continueMechanicSession(message,identity,session,raw))return;}
-  if(session?.state==='waiting_plate'){
-    const waiting=await continueWaitingPlate(message,identity,session,raw,voicePath);
-    if(waiting?.handled)return;
-  }
+  if(session?.state==='waiting_plate'){const waiting=await continueWaitingPlate(message,identity,session,raw,voicePath);if(waiting?.handled)return;}
 
   if(await handleEnterpriseTextCommand(message,identity,raw))return;
   if(await handleInsightCommand(message,identity,raw))return;
@@ -95,7 +89,7 @@ async function handleCallback(update){
   const query=update.callback_query,message=query.message,identity=await ensureTelegramIdentity(query.from),role=identity.role||'pending';
   await answerCallback(query.id);
   if(!identity.active)return sendMessage(message.chat.id,'حسابك غير معتمد لتنفيذ هذا الإجراء.');
-  const [action,value]=String(query.data||'').split(':');
+  const[action,value]=String(query.data||'').split(':');
   if(action==='home'){
     if(value==='workshop')return showMechanicMenu({...message,from:query.from},identity);
     if(value==='sales')return showSalesMenu({...message,from:query.from},identity);
@@ -107,10 +101,7 @@ async function handleCallback(update){
   if(['ent','entopt','entconfirm','entcancel','entstatus'].includes(action))return handleEnterpriseCallback(message,query.from,identity,action,value);
   if(action==='doc')return sendOperationalDocument({...message,from:query.from},identity,value);
   if(action==='gps')return sendGpsFleetStatus(message.chat.id,value==='fleet'?'':value);
-  if(action==='report'){
-    if(!allowed(role,'report'))return sendMessage(message.chat.id,'ليست لديك صلاحية طلب التقرير.');
-    return sendReport(message.chat.id,value);
-  }
+  if(action==='report'){if(!allowed(role,'report'))return sendMessage(message.chat.id,'ليست لديك صلاحية طلب التقرير.');return sendReport(message.chat.id,value);}
   if(action==='sales'){
     if(value==='new_block')return startGuidedSales({...message,from:query.from},identity,'block');
     if(value==='new_concrete')return startGuidedSales({...message,from:query.from},identity,'concrete');
@@ -140,19 +131,10 @@ async function handleCallback(update){
 async function handleMessage(update){
   const message=update.message||update.edited_message;
   if(!message?.from||message.from.is_bot)return;
-  const [group,identity]=await Promise.all([ensureTelegramGroup(message.chat),ensureTelegramIdentity(message.from)]),stored=await storeTelegramMessage(update.update_id,message,group,identity),session=await getBotSession(message.chat.id,message.from.id);
-  if(message.location){
-    if(await handleAttendanceLocation(message,identity,session))return;
-    return handleText(message,group,identity,`الموقع ${message.location.latitude},${message.location.longitude}`,'',stored);
-  }
-  if(message.document){
-    const name=message.document.file_name||'';
-    return /\.(xlsx|xls)$/i.test(name)||/spreadsheet|excel/i.test(message.document.mime_type||'')?handleExcel(message,group,identity,stored):handleAttachment(message,group,identity,stored);
-  }
-  if(message.photo?.length){
-    if(await handleAttendancePhoto(message,identity,session))return;
-    return handleAttachment(message,group,identity,stored);
-  }
+  const[group,identity]=await Promise.all([ensureTelegramGroup(message.chat),ensureTelegramIdentity(message.from)]),stored=await storeTelegramMessage(update.update_id,message,group,identity),session=await getBotSession(message.chat.id,message.from.id);
+  if(message.location){if(await handleAttendanceLocation(message,identity,session))return;return handleText(message,group,identity,`الموقع ${message.location.latitude},${message.location.longitude}`,'',stored);}
+  if(message.document){const name=message.document.file_name||'';return /\.(xlsx|xls)$/i.test(name)||/spreadsheet|excel/i.test(message.document.mime_type||'')?handleExcel(message,group,identity,stored):handleAttachment(message,group,identity,stored);}
+  if(message.photo?.length){if(await handleAttendancePhoto(message,identity,session))return;return handleAttachment(message,group,identity,stored);}
   if(message.voice){
     const downloaded=await downloadTelegramFile(message.voice.file_id),hash=sha256(downloaded.buffer),path=`telegram/${group.department||'unassigned'}/${new Date().toISOString().slice(0,10)}/voice-${hash.slice(0,16)}.ogg`;
     await uploadObject(path,downloaded.buffer,message.voice.mime_type||downloaded.contentType);
@@ -168,9 +150,6 @@ export default async function handler(req,res){
   if(!method(req,res,['POST']))return;
   let update;
   try{verifyTelegram(req);update=await body(req,2_000_000);}catch(error){return errorResponse(res,error);}
-  try{
-    if(update.callback_query)await handleCallback(update);
-    else if(update.message||update.edited_message)await handleMessage(update);
-  }catch(error){console.error('[telegram webhook enterprise]',error);}
+  try{if(update.callback_query)await handleCallback(update);else if(update.message||update.edited_message)await handleMessage(update);}catch(error){console.error('[telegram webhook enterprise]',error);}
   json(res,200,{ok:true});
 }
