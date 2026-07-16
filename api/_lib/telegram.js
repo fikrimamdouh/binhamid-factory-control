@@ -64,8 +64,9 @@ async function recordOutgoing(result, method, fallback = {}) {
 }
 
 export async function sendMessage(chatId, text, extra = {}) {
-  const result = await telegram('sendMessage', { chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true, ...extra });
-  await recordOutgoing(result, 'sendMessage', { text, actionName: extra.action_name, actionPayload: extra.action_payload });
+  const { action_name: actionName, action_payload: actionPayload, ...telegramExtra } = extra || {};
+  const result = await telegram('sendMessage', { chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true, ...telegramExtra });
+  await recordOutgoing(result, 'sendMessage', { text, actionName, actionPayload });
   return result;
 }
 
