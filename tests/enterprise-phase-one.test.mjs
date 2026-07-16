@@ -42,9 +42,12 @@ test('enterprise migration creates direct operational tables',async()=>{
   assert.match(sql,/audit_operational_projection_trigger/);
 });
 
-test('direct operations API and conversation API require admin access',async()=>{
-  for(const file of ['api/operations.js','api/conversations.js']){
-    const source=await read(file);
-    assert.match(source,/requireAdmin\(req\)/);
-  }
+test('consolidated operations and conversation APIs require admin access',async()=>{
+  const router=await read('api/router.js');
+  const management=await read('api/_lib/routes/management.js');
+  assert.match(router,/'operations':management\.operations/);
+  assert.match(router,/'conversations':management\.conversations/);
+  assert.match(management,/export async function operations/);
+  assert.match(management,/export async function conversations/);
+  assert.match(management,/requireAdmin\(req\)/);
 });
