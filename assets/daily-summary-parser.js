@@ -32,8 +32,9 @@
   const isSalesTitle=text=>text==='المبيعات'||text==='مبيعات'||text.startsWith('المبيعات ');
   const isSectionStop=text=>includes(text,'منتجات تامه','منتجات تامة','خامات','حركه الخزن','حركة الخزن','ما تم فرزه','ماتم فرزه','تحصيلات العملاء');
   const headerIndex=(row,aliases)=>{
-    const normalized=(row||[]).map(norm);
-    for(let i=0;i<normalized.length;i++)if(aliases.some(alias=>normalized[i]===norm(alias)||normalized[i].includes(norm(alias))))return i;
+    const normalized=(row||[]).map(norm),terms=aliases.map(norm);
+    for(let i=0;i<normalized.length;i++)if(terms.some(term=>normalized[i]===term))return i;
+    for(let i=0;i<normalized.length;i++)if(terms.some(term=>normalized[i].includes(term)))return i;
     return -1;
   };
   const SALES_ALIASES={
