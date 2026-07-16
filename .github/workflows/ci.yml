@@ -38,7 +38,7 @@ jobs:
         continue-on-error: true
         env:
           VERCEL_TELEMETRY_DISABLED: '1'
-        run: npx --yes vercel@56.2.0 build --yes > vercel-build-output.txt 2>&1
+        run: env -u VERCEL_TOKEN -u NOW_TOKEN npx --yes vercel@56.2.0 build --yes > vercel-build-output.txt 2>&1
       - name: Count Vercel output functions
         if: always()
         run: |
