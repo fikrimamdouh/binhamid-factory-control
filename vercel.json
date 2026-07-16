@@ -4,6 +4,21 @@
       "maxDuration": 30
     }
   },
+  "rewrites": [
+    {"source":"/api/admin/groups","destination":"/api/router?route=admin/groups"},
+    {"source":"/api/admin/users","destination":"/api/router?route=admin/users"},
+    {"source":"/api/dashboard","destination":"/api/router?route=dashboard"},
+    {"source":"/api/conversations","destination":"/api/router?route=conversations"},
+    {"source":"/api/operations","destination":"/api/router?route=operations"},
+    {"source":"/api/imports/status","destination":"/api/router?route=imports/status"},
+    {"source":"/api/system/database-readiness","destination":"/api/router?route=system/database-readiness"},
+    {"source":"/api/system/status","destination":"/api/router?route=system/status"},
+    {"source":"/api/telegram/register","destination":"/api/router?route=telegram/register"},
+    {"source":"/api/telegram/status","destination":"/api/router?route=telegram/status"},
+    {"source":"/api/telegram/test","destination":"/api/router?route=telegram/test"},
+    {"source":"/api/telegram/webhook","destination":"/api/telegram/webhook-v3"},
+    {"source":"/api/telegram/webhook-v2","destination":"/api/telegram/webhook-v3"}
+  ],
   "headers": [
     {
       "source": "/(.*)",
