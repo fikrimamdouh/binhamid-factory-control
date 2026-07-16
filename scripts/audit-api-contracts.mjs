@@ -7,8 +7,9 @@ const textExtensions=new Set(['.js','.mjs','.cjs','.ts','.tsx','.jsx','.html','.
 const externalPaths=new Set(['/api/devices','/api/positions']);
 const required=[
   '/api/admin/attendance','/api/admin/groups','/api/admin/users','/api/conversations','/api/cron/manager-brief','/api/dashboard',
-  '/api/imports/file','/api/imports/status','/api/operations','/api/state','/api/system/database-readiness','/api/system/status',
-  '/api/telegram/register','/api/telegram/status','/api/telegram/test','/api/telegram/webhook','/api/telegram/webhook-v2','/api/telegram/webhook-v3'
+  '/api/documents/verify','/api/imports/file','/api/imports/status','/api/operations','/api/reports','/api/state',
+  '/api/system/database-readiness','/api/system/status','/api/telegram/register','/api/telegram/status','/api/telegram/test',
+  '/api/telegram/webhook','/api/telegram/webhook-v2','/api/telegram/webhook-v3'
 ];
 
 function walk(dir){
