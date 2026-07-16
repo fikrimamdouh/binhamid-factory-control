@@ -36,9 +36,10 @@ jobs:
       - name: Run local Vercel build
         id: vercel-build
         continue-on-error: true
-        env:
-          VERCEL_TELEMETRY_DISABLED: '1'
-        run: env -u VERCEL_TOKEN -u NOW_TOKEN npx --yes vercel@56.2.0 build --yes > vercel-build-output.txt 2>&1
+        run: |
+          mkdir -p "$RUNNER_TEMP/vercel-home"
+          env | cut -d= -f1 | grep -E '^(VERCEL|NOW)' | sort > vercel-env-names.txt || true
+          HOME="$RUNNER_TEMP/vercel-home" env -u VERCEL_TOKEN -u NOW_TOKEN -u VERCEL_OIDC_TOKEN -u VERCEL_ARTIFACTS_TOKEN VERCEL_TELEMETRY_DISABLED=1 npx --yes vercel@56.2.0 build --yes > vercel-build-output.txt 2>&1
       - name: Count Vercel output functions
         if: always()
         run: |
@@ -55,6 +56,7 @@ jobs:
           path: |
             vercel-build-output.txt
             vercel-output-functions.txt
+            vercel-env-names.txt
       - name: Enforce local Vercel build
         if: steps.vercel-build.outcome != 'success'
         run: cat vercel-build-output.txt && exit 1
