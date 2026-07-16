@@ -5,11 +5,10 @@ import path from 'node:path';
 const root=path.resolve(new URL('..',import.meta.url).pathname);
 const source=fs.readFileSync(path.join(root,'legacy.html'),'utf8');
 
-function extractFrom(marker){
-  const start=source.indexOf(marker);
+function extractAt(start){
   if(start<0)return '';
   const brace=source.indexOf('{',start);
-  if(brace<0)return source.slice(start,start+2000);
+  if(brace<0)return source.slice(start,start+2500);
   let depth=0,quote='',escaped=false,templateDepth=0;
   for(let i=brace;i<source.length;i++){
     const ch=source[i],next=source[i+1];
@@ -25,24 +24,25 @@ function extractFrom(marker){
     if(ch==='{')depth++;
     else if(ch==='}'&&--depth===0)return source.slice(start,i+1);
   }
-  return source.slice(start,start+12000);
+  return source.slice(start,start+30000);
 }
+function first(marker){return extractAt(source.indexOf(marker));}
+function last(marker){return extractAt(source.lastIndexOf(marker));}
+function context(marker,radius=3000){const i=source.lastIndexOf(marker);return i<0?'':source.slice(Math.max(0,i-radius),Math.min(source.length,i+marker.length+radius));}
 
 test('inspect existing daily summary and movement report importers',()=>{
-  const markers=[
-    'function bh12ParseSales',
-    'function bh12ParseCollections',
-    'function bh12ParseDailyWorkbook',
-    'window.opsImportDailySummary=async function',
-    'function opsParseMovementWorkbook',
-    'async function opsImportDailyMovement'
+  const entries=[
+    ['bh12ParseSales',first('function bh12ParseSales')],
+    ['bh12ParseCollections',first('function bh12ParseCollections')],
+    ['bh12ParseDailyWorkbook',first('function bh12ParseDailyWorkbook')],
+    ['active opsImportDailySummary',last('window.opsImportDailySummary=async function')],
+    ['opsParseMovementWorkbook',first('function opsParseMovementWorkbook')],
+    ['active opsImportDailyMovement',last('async function opsImportDailyMovement')],
+    ['bh12ResolveClient',first('function bh12ResolveClient')],
+    ['collection save context',context('freshCollections.forEach')],
+    ['collection key context',context('function bh12CollectionKey')]
   ];
   console.log('LEGACY_IMPORT_FUNCTIONS_START');
-  for(const marker of markers){
-    const text=extractFrom(marker);
-    console.log(`FUNCTION_MARKER ${marker} FOUND ${Boolean(text)} LENGTH ${text.length}`);
-    console.log(text);
-    console.log('END_FUNCTION_MARKER');
-  }
+  for(const [label,text] of entries){console.log(`FUNCTION_MARKER ${label} FOUND ${Boolean(text)} LENGTH ${text.length}`);console.log(text);console.log('END_FUNCTION_MARKER');}
   console.log('LEGACY_IMPORT_FUNCTIONS_END');
 });
