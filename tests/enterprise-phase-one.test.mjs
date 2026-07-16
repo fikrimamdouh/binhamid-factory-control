@@ -19,6 +19,20 @@ test('Telegram registration points only to webhook v3 through the central router
   assert.equal(config.rewrites.find(item=>item.source==='/api/telegram/test')?.destination,'/api/router?route=telegram/test');
 });
 
+test('state sync and import downloads stay behind the central router',async()=>{
+  const router=await read('api/router.js');
+  const state=await read('api/_lib/routes/state.js');
+  const imports=await read('api/_lib/routes/imports.js');
+  const config=JSON.parse(await read('vercel.json'));
+  assert.match(router,/'state':stateRuntime\.state/);
+  assert.match(router,/'imports\/file':imports\.file/);
+  assert.match(state,/method\(req,res,\['GET','PUT'\]\)/);
+  assert.match(state,/salary:Number\(x\.totalSalary\?\?x\.actualSalary\?\?x\.baseSalary\?\?x\.salary\?\?x\.sal\?\?0\)/);
+  assert.match(imports,/downloadObject\(row\.file_path\)/);
+  assert.equal(config.rewrites.find(item=>item.source==='/api/state')?.destination,'/api/router?route=state');
+  assert.equal(config.rewrites.find(item=>item.source==='/api/imports/file')?.destination,'/api/router?route=imports/file');
+});
+
 test('webhook v3 uses the unified enterprise implementation',async()=>{
   const webhook=await read('api/telegram/webhook-v3.js');
   assert.match(webhook,/webhook-v2\.js/);
