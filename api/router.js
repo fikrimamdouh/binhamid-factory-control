@@ -3,6 +3,8 @@ import * as admin from './_lib/routes/admin.js';
 import * as management from './_lib/routes/management.js';
 import * as imports from './_lib/routes/imports.js';
 import * as systemRuntime from './_lib/routes/system-runtime.js';
+import * as telegramAdmin from './_lib/routes/telegram-admin.js';
+import * as stateRuntime from './_lib/routes/state.js';
 
 const routes={
   'admin/groups':admin.groups,
@@ -13,8 +15,13 @@ const routes={
   'reports':management.reports,
   'documents/verify':management.documentVerification,
   'imports/status':imports.status,
+  'imports/file':imports.file,
   'system/database-readiness':systemRuntime.databaseReadiness,
-  'system/status':systemRuntime.status
+  'system/status':systemRuntime.status,
+  'telegram/register':telegramAdmin.register,
+  'telegram/status':telegramAdmin.status,
+  'telegram/test':telegramAdmin.test,
+  'state':stateRuntime.state
 };
 
 export default async function handler(req,res){

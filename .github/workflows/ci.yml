@@ -15,4 +15,12 @@ jobs:
         with:
           node-version: '24'
       - run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Capture Vercel function inventory
+        run: node scripts/audit-vercel-functions.mjs > vercel-functions.txt
+      - name: Upload Vercel function inventory
+        uses: actions/upload-artifact@v4
+        with:
+          name: vercel-function-inventory
+          path: vercel-functions.txt
+          if-no-files-found: error
       - run: npm run check
