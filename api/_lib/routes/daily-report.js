@@ -15,6 +15,14 @@ function stable(value){if(Array.isArray(value))return`[${value.map(stable).join(
 function saleIdentity(row){return sha([row.invoiceNo,row.customerCode,row.salesType,qty(row.quantity),money(row.amount)].join('|'));}
 function cashIdentity(row){return sha([row.treasuryCode,row.accountCode,row.voucherNo,row.movementType,money(row.debit),money(row.credit),row.movementDate].join('|'));}
 function ensureArray(value,name,max){if(!Array.isArray(value))throw Object.assign(new Error(`${name} يجب أن يكون قائمة`),{status:400});if(value.length>max)throw Object.assign(new Error(`${name} يتجاوز الحد المسموح`),{status:413});return value;}
+function optionalBase64(value){
+  const encoded=String(value??'').trim();
+  if(!encoded)return'';
+  const maxEncoded=Math.ceil(config.maxImportFileBytes*4/3)+16;
+  if(encoded.length>maxEncoded)throw Object.assign(new Error('حجم ملف التقرير يتجاوز الحد المسموح'),{status:413});
+  if(!/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)||encoded.length%4===1)throw Object.assign(new Error('ترميز ملف التقرير غير صحيح'),{status:400});
+  return encoded;
+}
 
 function normalizePayload(raw={}){
   const sales=ensureArray(raw.sales||[],'سطور المبيعات',10000).map((row,index)=>({sourceRowNo:Number.isInteger(Number(row.sourceRowNo))?Number(row.sourceRowNo):index+1,invoiceNo:clean(row.invoiceNo??row.invoice,120),salesType:clean(row.salesType,20),customerCode:clean(row.customerCode,120),customerName:clean(row.customerName??row.customer,500),item:clean(row.item,500),quantity:qty(row.quantity),unit:clean(row.unit,50)||null,amount:money(row.amount),paymentTerms:clean(row.paymentTerms,100)||null,issues:Array.isArray(row.issues)?row.issues.slice(0,20):[]}));
@@ -72,7 +80,7 @@ async function validatePayload(reportDate,payload){
 }
 
 async function storeOriginal(input,reportDate,fileHash){
-  const encoded=clean(input.fileBase64,Math.ceil(config.maxImportFileBytes*1.4)+100);if(!encoded)return null;
+  const encoded=optionalBase64(input.fileBase64);if(!encoded)return null;
   const buffer=Buffer.from(encoded,'base64');if(!buffer.length||buffer.length>config.maxImportFileBytes)throw Object.assign(new Error('حجم ملف التقرير يتجاوز الحد المسموح'),{status:413});
   if(buffer[0]!==0x50||buffer[1]!==0x4b)throw Object.assign(new Error('ملف التقرير ليس XLSX صالحًا'),{status:415});
   const name=clean(input.originalName,240).replace(/[^\p{L}\p{N}_. -]/gu,'-')||'daily-report.xlsx',path=`daily-reports/${reportDate}/${fileHash}-${name}`;await uploadObject(path,buffer,'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');return path;
@@ -80,7 +88,7 @@ async function storeOriginal(input,reportDate,fileHash){
 async function registerAttempt(values){try{const result=await rpc('register_daily_report_attempt',values);return Array.isArray(result)?result[0]:result;}catch{return null;}}
 
 async function previewOrCommit(req,res,input){
-  const action=clean(input.action,30)||'preview',identity=await requireCapability(req,action==='commit'?'daily_report.approve':'daily_report.import'),actor=identity.appUserId||identity.actor,reportDate=date(input.reportDate),originalName=clean(input.originalName,240)||'daily-report.xlsx',payload=normalizePayload(input.payload||{}),contentHash=clean(input.contentHash,64)||sha(stable(payload)),providedFile=clean(input.fileBase64,Math.ceil(config.maxImportFileBytes*1.4)+100),fileHash=clean(input.fileHash,64)||(providedFile?sha(Buffer.from(providedFile,'base64')):contentHash),idempotencyKey=clean(input.idempotencyKey,200)||sha(`${reportDate}|${contentHash}`);
+  const action=clean(input.action,30)||'preview',identity=await requireCapability(req,action==='commit'?'daily_report.approve':'daily_report.import'),actor=identity.appUserId||identity.actor,reportDate=date(input.reportDate),originalName=clean(input.originalName,240)||'daily-report.xlsx',payload=normalizePayload(input.payload||{}),contentHash=clean(input.contentHash,64)||sha(stable(payload)),providedFile=optionalBase64(input.fileBase64),fileHash=clean(input.fileHash,64)||(providedFile?sha(Buffer.from(providedFile,'base64')):contentHash),idempotencyKey=clean(input.idempotencyKey,200)||sha(`${reportDate}|${contentHash}`);
   const existing=(await select('daily_report_batches',`report_date=eq.${reportDate}&select=id,report_date,file_hash,content_hash,status,summary,committed_at&limit=1`))?.[0]||null;
   if(existing){const duplicate=existing.content_hash===contentHash||existing.file_hash===fileHash;await registerAttempt({p_report_date:reportDate,p_original_name:originalName,p_file_hash:fileHash,p_content_hash:contentHash,p_idempotency_key:idempotencyKey,p_status:duplicate?'duplicate':'rejected',p_existing_batch_id:existing.id,p_summary:existing.summary||{},p_errors:duplicate?[]:[{code:'DATE_ALREADY_COMMITTED'}],p_warnings:[],p_actor:actor});return json(res,duplicate?200:409,{ok:duplicate,duplicate,reason:duplicate?'نفس التقرير معتمد سابقًا':'يوجد تقرير مختلف معتمد لنفس التاريخ',existingImportId:existing.id,status:existing.status,committedAt:existing.committed_at});}
   const validation=await validatePayload(reportDate,payload),attemptStatus=validation.errors.length?'rejected':'previewed';
