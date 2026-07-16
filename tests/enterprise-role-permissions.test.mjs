@@ -25,3 +25,34 @@ test('employee self service and specialist controls are separated',async()=>{
   assert.match(forms,/action==='quality_issue'/);
   assert.match(forms,/def\.category==='incident'&&action!=='daily_report'/);
 });
+
+test('reports validate identity inside execution functions',async()=>{
+  const status=await read('api/_lib/bot-enterprise-status.js');
+  for(const marker of ['TEAM_ROLES','OPERATIONS_ROLES','ALERT_ROLES','DAILY_REPORT_ROLES','CATEGORY_ROLES'])assert.match(status,new RegExp(marker));
+  assert.match(status,/sendEnterpriseOperations\(chatId,identity\)/);
+  assert.match(status,/sendEnterpriseAlerts\(chatId,identity\)/);
+  assert.match(status,/sendEnterpriseDailyReports\(chatId,identity\)/);
+  assert.match(status,/sendEnterpriseCategorySummary\(chatId,identity,category,title\)/);
+  assert.match(status,/teamAccess=TEAM_ROLES\.has\(identity\.role\)/);
+});
+
+test('callbacks pass identity to protected reports and insights',async()=>{
+  const enterprise=await read('api/_lib/bot-enterprise.js');
+  for(const call of ['sendEnterpriseOperations(message.chat.id,identity)','sendEnterpriseDailyReports(message.chat.id,identity)','sendEnterpriseAlerts(message.chat.id,identity)','sendFuelAnomalies(message.chat.id,identity)','sendInventoryRisks(message.chat.id,identity)','sendDebtAnalysis(message.chat.id,identity)','sendConcreteCapacity(message.chat.id,identity)'])assert.ok(enterprise.includes(call),`missing protected call ${call}`);
+  assert.match(enterprise,/if\(!identity\?\.active\)return sendMessage/);
+});
+
+test('search results and operational insights are role scoped',async()=>{
+  const search=await read('api/_lib/bot-enterprise-search.js');
+  const fleet=await read('api/_lib/bot-insights-fleet.js');
+  const ops=await read('api/_lib/bot-insights-ops.js');
+  for(const marker of ['CUSTOMER_ROLES','VEHICLE_ROLES','MAINTENANCE_ROLES','INVENTORY_ROLES','CATEGORY_SCOPE','operationAllowed'])assert.match(search,new RegExp(marker));
+  assert.match(search,/operations المسموحة لدورك|العمليات المسموحة لدورك/);
+  assert.match(fleet,/FUEL_ROLES/);
+  assert.match(fleet,/driver_events/);
+  assert.match(ops,/INVENTORY_ROLES/);
+  assert.match(ops,/DEBT_ROLES/);
+  assert.match(ops,/CAPACITY_ROLES/);
+  assert.match(ops,/sales_orders/);
+  assert.match(ops,/inventory_items/);
+});
