@@ -7,6 +7,7 @@
     {"source":"/api/conversations","destination":"/api/router?route=conversations"},
     {"source":"/api/operations","destination":"/api/router?route=operations"},
     {"source":"/api/reports","destination":"/api/router?route=reports"},
+    {"source":"/api/daily-report","destination":"/api/router?route=daily-report"},
     {"source":"/api/costs","destination":"/api/router?route=costs"},
     {"source":"/api/driver/webapp","destination":"/api/router?route=driver/webapp"},
     {"source":"/api/resilience","destination":"/api/router?route=resilience"},
