@@ -42,7 +42,7 @@ for(const file of walk(root)){
   const text=fs.readFileSync(file,'utf8');
   for(const match of text.matchAll(/\/api\/[A-Za-z0-9_.\/-]+/g)){
     const route=match[0].replace(/[).,;:'"`]+$/,'');
-    if(externalPaths.has(route))continue;
+    if(externalPaths.has(route)||route.startsWith('/api/_lib/'))continue;
     const rows=references.get(route)||new Set();rows.add(relative);references.set(route,rows);
   }
 }
