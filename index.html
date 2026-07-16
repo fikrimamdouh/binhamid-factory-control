@@ -26,46 +26,19 @@
       <div id="bootError" class="boot-error"></div>
     </section>
   </main>
-
-  <iframe id="appFrame" title="نظام رقابة مصنع بن حامد" allow="unload; geolocation" src="/legacy.html?v=20260716-enterprise-runtime"></iframe>
-
+  <iframe id="appFrame" title="نظام رقابة مصنع بن حامد" allow="unload; geolocation" src="/legacy.html?v=20260716-factory-os-10"></iframe>
   <script>
   (function boot(){
     const frame=document.getElementById('appFrame');
     const screen=document.getElementById('bootScreen');
     const errorBox=document.getElementById('bootError');
     let completed=false;
-
-    function fail(error){
-      if(completed)return;
-      const message=String(error&&error.message||error||'تعذر تحميل البرنامج.');
-      errorBox.style.display='block';
-      errorBox.textContent=message+'\nأعد تحميل الصفحة. بيانات المتصفح المحلية لم تُحذف.';
-      console.error('[BinHamid boot]',error);
-    }
-
+    function fail(error){if(completed)return;const message=String(error&&error.message||error||'تعذر تحميل البرنامج.');errorBox.style.display='block';errorBox.textContent=message+'\nأعد تحميل الصفحة. بيانات المتصفح المحلية لم تُحذف.';console.error('[BinHamid boot]',error);}
     frame.addEventListener('load',function(){
       try{
-        const doc=frame.contentDocument;
-        if(!doc||!doc.head||!doc.body)throw new Error('تعذر الوصول إلى النسخة التشغيلية.');
-
-        if(!doc.getElementById('binhamid-cloud-style')){
-          const link=doc.createElement('link');
-          link.id='binhamid-cloud-style';
-          link.rel='stylesheet';
-          link.href='/assets/cloud-control.css?v=20260716-enterprise-runtime';
-          doc.head.appendChild(link);
-        }
-
-        function injectScript(id,src,onerror){
-          if(doc.getElementById(id))return;
-          const script=doc.createElement('script');
-          script.id=id;
-          script.src=src;
-          script.async=false;
-          if(onerror)script.onerror=onerror;
-          doc.body.appendChild(script);
-        }
+        const doc=frame.contentDocument;if(!doc||!doc.head||!doc.body)throw new Error('تعذر الوصول إلى النسخة التشغيلية.');
+        if(!doc.getElementById('binhamid-cloud-style')){const link=doc.createElement('link');link.id='binhamid-cloud-style';link.rel='stylesheet';link.href='/assets/cloud-control.css?v=20260716-factory-os-10';doc.head.appendChild(link);}
+        function injectScript(id,src,onerror){if(doc.getElementById(id))return;const script=doc.createElement('script');script.id=id;script.src=src;script.async=false;if(onerror)script.onerror=onerror;doc.body.appendChild(script);}
         function injectExtensions(){
           injectScript('binhamid-cloud-navigation-fix','/assets/cloud-control-navigation-fix.js?v=20260716-4',function(){console.error('[BinHamid] تعذر تحميل إصلاح تنقل مركز الاتصال.');});
           injectScript('binhamid-attendance-control','/assets/attendance-control.js?v=20260716-2',function(){console.error('[BinHamid] تعذر تحميل إدارة الحضور والسائقين.');});
@@ -73,26 +46,13 @@
           injectScript('binhamid-operations-control','/assets/cloud-operations.js?v=20260716-2',function(){console.error('[BinHamid] تعذر تحميل مركز العمليات.');});
           injectScript('binhamid-operations-actions','/assets/cloud-operations-actions.js?v=20260716-1',function(){console.error('[BinHamid] تعذر تحميل إجراءات مركز العمليات.');});
           injectScript('binhamid-reports-control','/assets/cloud-reports.js?v=20260716-1',function(){console.error('[BinHamid] تعذر تحميل مركز التقارير.');});
+          injectScript('binhamid-user-roles','/assets/cloud-user-roles.js?v=20260716-1',function(){console.error('[BinHamid] تعذر تحميل إدارة أدوار المستخدمين.');});
+          injectScript('binhamid-daily-report-import','/assets/daily-report-import.js?v=20260716-1',function(){console.error('[BinHamid] تعذر تحميل مستورد التقرير اليومي.');});
         }
-
-        if(!doc.getElementById('binhamid-cloud-script')){
-          const script=doc.createElement('script');
-          script.id='binhamid-cloud-script';
-          script.src='/assets/cloud-control.js?v=20260716-enterprise-runtime';
-          script.async=false;
-          script.onload=injectExtensions;
-          script.onerror=function(){fail(new Error('تعذر تحميل مركز الاتصال، بينما النسخة الأساسية ما زالت متاحة.'));};
-          doc.body.appendChild(script);
-        }else{
-          injectExtensions();
-        }
-
-        completed=true;
-        frame.style.visibility='visible';
-        screen.remove();
+        if(!doc.getElementById('binhamid-cloud-script')){const script=doc.createElement('script');script.id='binhamid-cloud-script';script.src='/assets/cloud-control.js?v=20260716-factory-os-10';script.async=false;script.onload=injectExtensions;script.onerror=function(){fail(new Error('تعذر تحميل مركز الاتصال، بينما النسخة الأساسية ما زالت متاحة.'));};doc.body.appendChild(script);}else{injectExtensions();}
+        completed=true;frame.style.visibility='visible';screen.remove();
       }catch(error){fail(error);}
     });
-
     frame.addEventListener('error',function(){fail(new Error('تعذر تحميل النسخة التشغيلية.'));});
     setTimeout(function(){if(!completed)fail(new Error('استغرق التحميل وقتًا أطول من المتوقع.'));},15000);
   })();
