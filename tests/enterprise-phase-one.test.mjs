@@ -4,11 +4,19 @@ import { readFile } from 'node:fs/promises';
 
 const read=path=>readFile(new URL(`../${path}`,import.meta.url),'utf8');
 
-test('Telegram registration points only to webhook v3',async()=>{
-  const register=await read('api/telegram/register.js');
-  assert.match(register,/\/api\/telegram\/webhook-v3/);
-  assert.doesNotMatch(register,/const url=`\$\{base\}\/api\/telegram\/webhook-v2`/);
-  assert.match(register,/getWebhookInfo/);
+test('Telegram registration points only to webhook v3 through the central router',async()=>{
+  const telegramAdmin=await read('api/_lib/routes/telegram-admin.js');
+  const router=await read('api/router.js');
+  const config=JSON.parse(await read('vercel.json'));
+  assert.match(telegramAdmin,/\/api\/telegram\/webhook-v3/);
+  assert.doesNotMatch(telegramAdmin,/const url=`\$\{base\}\/api\/telegram\/webhook-v2`/);
+  assert.match(telegramAdmin,/getWebhookInfo/);
+  assert.match(router,/'telegram\/register':telegramAdmin\.register/);
+  assert.match(router,/'telegram\/status':telegramAdmin\.status/);
+  assert.match(router,/'telegram\/test':telegramAdmin\.test/);
+  assert.equal(config.rewrites.find(item=>item.source==='/api/telegram/register')?.destination,'/api/router?route=telegram/register');
+  assert.equal(config.rewrites.find(item=>item.source==='/api/telegram/status')?.destination,'/api/router?route=telegram/status');
+  assert.equal(config.rewrites.find(item=>item.source==='/api/telegram/test')?.destination,'/api/router?route=telegram/test');
 });
 
 test('webhook v3 uses the unified enterprise implementation',async()=>{
