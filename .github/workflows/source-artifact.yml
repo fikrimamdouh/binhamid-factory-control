@@ -2,6 +2,8 @@ name: Source Artifact
 on:
   push:
     branches: [agent/enterprise-phase-one]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
