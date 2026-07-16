@@ -8,6 +8,7 @@ import * as managerDashboard from './_lib/routes/manager-dashboard.js';
 import * as costs from './_lib/routes/costs.js';
 import * as driverWebApp from './_lib/routes/driver-webapp.js';
 import * as resilience from './_lib/routes/resilience.js';
+import * as dailyReport from './_lib/routes/daily-report.js';
 
 const routes={
   'admin/groups':admin.groups,
@@ -18,6 +19,7 @@ const routes={
   'reports':management.reports,
   'documents/verify':management.documentVerification,
   'imports/status':imports.status,
+  'daily-report':dailyReport.dailyReport,
   'system/database-readiness':systemRuntime.databaseReadiness,
   'system/status':systemRuntime.status,
   'telegram/register':telegramAdmin.register,
