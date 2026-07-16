@@ -59,23 +59,26 @@ test('GPS adapter normalizes events and compares consumption without production 
   assert.equal(comparison[0].litersPer100Km,20);
 });
 
-test('migrations 011 and 012 contain idempotent operational foundations',async()=>{
-  const cost=await read('supabase/migrations/011_cost_centers_and_operational_resilience.sql'),daily=await read('supabase/migrations/012_daily_report_idempotency_and_validation.sql');
+test('migrations 011 through 014 contain non-destructive operational foundations',async()=>{
+  const cost=await read('supabase/migrations/011_cost_centers_and_operational_resilience.sql'),daily=await read('supabase/migrations/012_daily_report_idempotency_and_validation.sql'),fifo=await read('supabase/migrations/013_fifo_rebuild_and_cost_reversals.sql'),guard=await read('supabase/migrations/014_fifo_replay_and_maintenance_trigger_guard.sql');
   for(const marker of ['cost_centers','cost_periods','run_cost_period','cost_unit_monthly_report','project_driver_fuel_cost','project_maintenance_cost','role_capabilities','backup_runs','gps_provider_events'])assert.match(cost,new RegExp(marker));
   for(const marker of ['daily_report_import_attempts','line_identity','daily_report_sales_identity_uidx','daily_report_cash_identity_uidx','DAILY_REPORT_UNKNOWN_CUSTOMER_CODE','register_daily_report_attempt'])assert.match(daily,new RegExp(marker));
-  assert.doesNotMatch(`${cost}\n${daily}`,/truncate\s+table/i);
+  for(const marker of ['fifo_rebuild_runs','rebuild_customer_fifo','preview_customer_fifo_rebuild','maintenance_order_reversal','active=false','sales_order_backdated_fifo_trigger'])assert.match(fifo,new RegExp(marker));
+  for(const marker of ['allocate_collection_fifo_core',"tg_op='UPDATE'",'greatest\(0,coalesce\(paid_amount,0\)-v_existing.amount\)'])assert.match(guard,new RegExp(marker));
+  assert.doesNotMatch(`${cost}\n${daily}\n${fifo}\n${guard}`,/truncate\s+table/i);
+  assert.doesNotMatch(`${fifo}\n${guard}`,/delete\s+from\s+public\.sales_payment_allocations/i);
 });
 
 test('router keeps new features consolidated under one Vercel function',async()=>{
   const router=await read('api/router.js'),vercel=JSON.parse(await read('vercel.json'));
-  for(const route of ["'daily-report'","'costs'","'driver/webapp'","'resilience'","'dashboard'"])assert.ok(router.includes(route));
-  for(const source of ['/api/daily-report','/api/costs','/api/driver/webapp','/api/resilience'])assert.ok(vercel.rewrites.some(item=>item.source===source));
+  for(const route of ["'daily-report'","'daily-report/fifo'","'costs'","'driver/webapp'","'resilience'","'dashboard'"])assert.ok(router.includes(route));
+  for(const source of ['/api/daily-report','/api/daily-report/fifo','/api/costs','/api/driver/webapp','/api/resilience'])assert.ok(vercel.rewrites.some(item=>item.source===source));
   assert.equal(Object.keys(vercel.functions).length,1);
 });
 
 test('sync conflict and Telegram WebApp validation remain server-side',async()=>{
   const state=await read('api/state.js'),initial=await read('supabase/migrations/001_initial_schema.sql'),webapp=await read('api/_lib/telegram-webapp.js'),driver=await read('api/_lib/routes/driver-webapp.js');
-  assert.match(state,/p_base_revision/);assert.match(state,/revision conflict/i);assert.match(state,/status = 409/);
+  assert.match(state,/p_base_revision/);assert.match(state,/revision conflict/i);assert.match(state,/status\s*=\s*409/);
   assert.match(initial,/save_app_state/);assert.match(initial,/revision conflict/);
   assert.match(webapp,/timingSafeEqual/);assert.match(webapp,/WebAppData/);assert.match(webapp,/auth_date/);
   assert.match(driver,/vehicleFor/);assert.match(driver,/client_event_id/);assert.match(driver,/receiptDataUrl/);assert.match(driver,/مركبة مسندة/);
@@ -83,7 +86,7 @@ test('sync conflict and Telegram WebApp validation remain server-side',async()=>
 
 test('readiness reports missing migrations and columns instead of fixed true',async()=>{
   const readiness=await read('api/_lib/routes/system-runtime.js');
-  assert.match(readiness,/LATEST_REQUIRED_VERSION=12/);
-  for(const marker of ['missingTables','missingColumns','missingMigrations','migration_history.sequence','collectDatabaseReadiness'])assert.match(readiness,new RegExp(marker));
+  assert.match(readiness,/LATEST_REQUIRED_VERSION=14/);
+  for(const marker of ['missingTables','missingColumns','missingMigrations','migration_history.sequence','collectDatabaseReadiness','fifo_rebuild_runs','reversed_entry_id'])assert.match(readiness,new RegExp(marker));
   assert.doesNotMatch(readiness,/ready:\s*true,\s*schemaVersion/);
 });
