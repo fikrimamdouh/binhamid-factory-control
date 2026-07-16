@@ -14,10 +14,7 @@ async function syncMasters(payload){
     full_name:clean(x.name),
     phone:clean(x.tel,80),
     role:clean(x.role,120),
-    salary:Number(x.baseSalary??x.salary??x.sal??0),
-    housing_allowance:Number(x.housingAllowance??0),
-    transport_allowance:Number(x.transportAllowance??0),
-    total_salary:Number(x.totalSalary??x.actualSalary??x.baseSalary??x.salary??x.sal??0),
+    salary:Number(x.totalSalary??x.actualSalary??x.baseSalary??x.salary??x.sal??0),
     active:x.act!==false,
     source_updated_at:now
   })).filter(x=>x.external_id);
