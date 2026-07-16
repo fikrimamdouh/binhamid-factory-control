@@ -9,7 +9,6 @@
     {"source":"/api/reports","destination":"/api/router?route=reports"},
     {"source":"/api/documents/verify","destination":"/api/router?route=documents/verify"},
     {"source":"/api/imports/status","destination":"/api/router?route=imports/status"},
-    {"source":"/api/imports/daily-report","destination":"/api/router?route=imports/daily-report"},
     {"source":"/api/system/database-readiness","destination":"/api/router?route=system/database-readiness"},
     {"source":"/api/system/status","destination":"/api/router?route=system/status"},
     {"source":"/api/telegram/register","destination":"/api/router?route=telegram/register"},
