@@ -26,7 +26,7 @@
       <div id="bootError" class="boot-error"></div>
     </section>
   </main>
-  <iframe id="appFrame" title="نظام رقابة مصنع بن حامد" allow="unload; geolocation" src="/legacy.html?v=20260716-factory-os-10"></iframe>
+  <iframe id="appFrame" title="نظام رقابة مصنع بن حامد" allow="unload; geolocation" src="/legacy.html?v=20260716-existing-daily-import-1"></iframe>
   <script>
   (function boot(){
     const frame=document.getElementById('appFrame');
@@ -37,7 +37,7 @@
     frame.addEventListener('load',function(){
       try{
         const doc=frame.contentDocument;if(!doc||!doc.head||!doc.body)throw new Error('تعذر الوصول إلى النسخة التشغيلية.');
-        if(!doc.getElementById('binhamid-cloud-style')){const link=doc.createElement('link');link.id='binhamid-cloud-style';link.rel='stylesheet';link.href='/assets/cloud-control.css?v=20260716-factory-os-10';doc.head.appendChild(link);}
+        if(!doc.getElementById('binhamid-cloud-style')){const link=doc.createElement('link');link.id='binhamid-cloud-style';link.rel='stylesheet';link.href='/assets/cloud-control.css?v=20260716-existing-daily-import-1';doc.head.appendChild(link);}
         function injectScript(id,src,onerror){if(doc.getElementById(id))return;const script=doc.createElement('script');script.id=id;script.src=src;script.async=false;if(onerror)script.onerror=onerror;doc.body.appendChild(script);}
         function injectExtensions(){
           injectScript('binhamid-cloud-navigation-fix','/assets/cloud-control-navigation-fix.js?v=20260716-4',function(){console.error('[BinHamid] تعذر تحميل إصلاح تنقل مركز الاتصال.');});
@@ -47,9 +47,10 @@
           injectScript('binhamid-operations-actions','/assets/cloud-operations-actions.js?v=20260716-1',function(){console.error('[BinHamid] تعذر تحميل إجراءات مركز العمليات.');});
           injectScript('binhamid-reports-control','/assets/cloud-reports.js?v=20260716-1',function(){console.error('[BinHamid] تعذر تحميل مركز التقارير.');});
           injectScript('binhamid-user-roles','/assets/cloud-user-roles.js?v=20260716-1',function(){console.error('[BinHamid] تعذر تحميل إدارة أدوار المستخدمين.');});
-          injectScript('binhamid-daily-report-import','/assets/daily-report-import.js?v=20260716-1',function(){console.error('[BinHamid] تعذر تحميل مستورد التقرير اليومي.');});
+          injectScript('binhamid-daily-summary-parser','/assets/daily-summary-parser.js?v=20260716-1',function(){console.error('[BinHamid] تعذر تحميل قارئ ملخص اليوم المشترك.');});
+          injectScript('binhamid-existing-daily-import-fix','/assets/existing-daily-import-fix.js?v=20260716-1',function(){console.error('[BinHamid] تعذر تحميل إصلاح استيراد ملخص اليوم وتقرير الحركة.');});
         }
-        if(!doc.getElementById('binhamid-cloud-script')){const script=doc.createElement('script');script.id='binhamid-cloud-script';script.src='/assets/cloud-control.js?v=20260716-factory-os-10';script.async=false;script.onload=injectExtensions;script.onerror=function(){fail(new Error('تعذر تحميل مركز الاتصال، بينما النسخة الأساسية ما زالت متاحة.'));};doc.body.appendChild(script);}else{injectExtensions();}
+        if(!doc.getElementById('binhamid-cloud-script')){const script=doc.createElement('script');script.id='binhamid-cloud-script';script.src='/assets/cloud-control.js?v=20260716-existing-daily-import-1';script.async=false;script.onload=injectExtensions;script.onerror=function(){fail(new Error('تعذر تحميل مركز الاتصال، بينما النسخة الأساسية ما زالت متاحة.'));};doc.body.appendChild(script);}else{injectExtensions();}
         completed=true;frame.style.visibility='visible';screen.remove();
       }catch(error){fail(error);}
     });
