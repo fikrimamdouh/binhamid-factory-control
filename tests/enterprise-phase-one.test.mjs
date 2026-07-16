@@ -5,15 +5,18 @@ import { readFile } from 'node:fs/promises';
 const read=path=>readFile(new URL(`../${path}`,import.meta.url),'utf8');
 
 test('Telegram registration points only to webhook v3',async()=>{
-  const register=await read('api/telegram/register.js');
+  const register=await read('api/_lib/routes/telegram-admin.js');
   assert.match(register,/\/api\/telegram\/webhook-v3/);
   assert.doesNotMatch(register,/const url=`\$\{base\}\/api\/telegram\/webhook-v2`/);
   assert.match(register,/getWebhookInfo/);
 });
 
-test('webhook v3 uses the unified enterprise implementation',async()=>{
+test('webhook v3 uses the shared enterprise implementation outside function routes',async()=>{
   const webhook=await read('api/telegram/webhook-v3.js');
-  assert.match(webhook,/webhook-v2\.js/);
+  const engine=await read('api/_lib/telegram-webhook-handler.js');
+  assert.match(webhook,/telegram-webhook-handler\.js/);
+  assert.match(engine,/handleEnterpriseTextCommand/);
+  assert.match(engine,/handleAttendanceCallback/);
 });
 
 test('incoming and outgoing Telegram messages are persisted',async()=>{
@@ -35,16 +38,21 @@ test('conversation center is loaded by the application shell',async()=>{
 
 test('enterprise migration creates direct operational tables',async()=>{
   const sql=await read('supabase/migrations/003_enterprise_operations_and_conversations.sql');
-  for(const table of ['operational_records','sales_orders','inventory_items','inventory_movements','purchase_requests','supplier_quotes','collection_events','quality_cases','operational_tasks','notification_outbox']){
-    assert.match(sql,new RegExp(`create table if not exists public\\.${table}`));
-  }
+  for(const table of ['operational_records','sales_orders','inventory_items','inventory_movements','purchase_requests','supplier_quotes','collection_events','quality_cases','operational_tasks','notification_outbox'])assert.match(sql,new RegExp(`create table if not exists public\\.${table}`));
   assert.match(sql,/audit_sales_projection_trigger/);
   assert.match(sql,/audit_operational_projection_trigger/);
 });
 
-test('direct operations API and conversation API require admin access',async()=>{
-  for(const file of ['api/operations.js','api/conversations.js']){
-    const source=await read(file);
-    assert.match(source,/requireAdmin\(req\)/);
-  }
+test('central router preserves protected operations and conversation endpoints',async()=>{
+  const router=await read('api/router.js');
+  const management=await read('api/_lib/routes/management.js');
+  assert.match(router,/'operations':management\.operations/);
+  assert.match(router,/'conversations':management\.conversations/);
+  assert.match(management,/requireAdmin\(req\)/);
+});
+
+test('Vercel rewrites preserve all legacy endpoint URLs',async()=>{
+  const config=JSON.parse(await read('vercel.json'));
+  const sources=new Set((config.rewrites||[]).map(item=>item.source));
+  for(const route of ['/api/admin/groups','/api/admin/users','/api/dashboard','/api/conversations','/api/operations','/api/imports/status','/api/system/database-readiness','/api/system/status','/api/telegram/register','/api/telegram/status','/api/telegram/test','/api/telegram/webhook','/api/telegram/webhook-v2'])assert.ok(sources.has(route),`missing rewrite ${route}`);
 });
