@@ -11,6 +11,8 @@ const routes={
   'dashboard':management.dashboard,
   'conversations':management.conversations,
   'operations':management.operations,
+  'reports':management.reports,
+  'documents/verify':management.documentVerification,
   'imports/status':imports.status,
   'system/database-readiness':system.databaseReadiness,
   'system/status':system.status,
