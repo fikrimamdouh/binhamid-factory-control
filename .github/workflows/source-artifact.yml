@@ -1,0 +1,17 @@
+name: Source Artifact
+on:
+  push:
+    branches: [agent/enterprise-phase-one]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: tar --exclude=.git -czf enterprise-source.tar.gz .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: enterprise-source
+          path: enterprise-source.tar.gz
