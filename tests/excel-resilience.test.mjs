@@ -51,8 +51,8 @@ test('supports points-of-sale treasury 104 and textual dates',()=>{
 test('ignores invalid negative and empty sales without crashing',()=>{
   const rows=[['المبيعات'],['رقم الفاتورة','الكمية','كود العميل','اسم العميل','الصنف','المديونية'],['1',-5,'C1','عميل','بلوك',100],['2',5,'C2','','خرسانة',500],['3','غير رقمي','C3','عميل','بلوك',500],[],['خامات']];
   const result=parser().parseWorkbook(workbookFrom({غير_صالح:rows}),XLSX);
-  assert.deepEqual(result.sales,[]);
-  assert.deepEqual(result.collections,[]);
+  assert.equal(result.sales.length,0);
+  assert.equal(result.collections.length,0);
 });
 
 test('normalizes Arabic digits and Excel serial dates deterministically',()=>{
