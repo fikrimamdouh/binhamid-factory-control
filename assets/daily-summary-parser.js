@@ -1,8 +1,7 @@
 (function(root,factory){
-  const api=factory();
-  if(typeof module==='object'&&module.exports)module.exports=api;
+  const api=factory(root);
   root.BinHamidDailySummaryParser=api;
-})(typeof globalThis!=='undefined'?globalThis:this,function(){
+})(typeof globalThis!=='undefined'?globalThis:this,function(root){
   'use strict';
   const round=(value,digits=2)=>{const factor=10**digits;return Math.round((Number(value)+Number.EPSILON)*factor)/factor;};
   const clean=(value,max=1000)=>String(value??'').replace(/\s+/g,' ').trim().slice(0,max);
