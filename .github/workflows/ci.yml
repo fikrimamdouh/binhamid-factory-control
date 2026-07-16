@@ -33,13 +33,33 @@ jobs:
       - name: Enforce project checks
         if: steps.project-checks.outcome != 'success'
         run: cat check-output.txt && exit 1
+      - name: Prepare local Vercel project settings
+        run: |
+          mkdir -p .vercel "$RUNNER_TEMP/vercel-global"
+          cat > .vercel/project.json <<'JSON'
+          {
+            "projectId": "prj_local_binhamid",
+            "orgId": "team_local_binhamid",
+            "projectName": "binhamid-factory-control",
+            "settings": {
+              "createdAt": 0,
+              "framework": null,
+              "devCommand": null,
+              "installCommand": null,
+              "buildCommand": null,
+              "outputDirectory": null,
+              "rootDirectory": null,
+              "directoryListing": false,
+              "nodeVersion": "20.x"
+            }
+          }
+          JSON
       - name: Run local Vercel build
         id: vercel-build
         continue-on-error: true
         run: |
-          mkdir -p "$RUNNER_TEMP/vercel-home"
           env | cut -d= -f1 | grep -E '^(VERCEL|NOW)' | sort > vercel-env-names.txt || true
-          HOME="$RUNNER_TEMP/vercel-home" env -u VERCEL_TOKEN -u NOW_TOKEN -u VERCEL_OIDC_TOKEN -u VERCEL_ARTIFACTS_TOKEN VERCEL_TELEMETRY_DISABLED=1 npx --yes vercel@56.2.0 build --yes > vercel-build-output.txt 2>&1
+          env -u VERCEL_TOKEN -u NOW_TOKEN -u VERCEL_OIDC_TOKEN -u VERCEL_ARTIFACTS_TOKEN VERCEL_TELEMETRY_DISABLED=1 npx --yes vercel@56.2.0 build --yes --global-config "$RUNNER_TEMP/vercel-global" > vercel-build-output.txt 2>&1
       - name: Count Vercel output functions
         if: always()
         run: |
