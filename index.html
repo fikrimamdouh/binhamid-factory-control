@@ -27,7 +27,7 @@
     </section>
   </main>
 
-  <iframe id="appFrame" title="نظام رقابة مصنع بن حامد" allow="unload; geolocation" src="/legacy.html?v=20260716-enterprise-attendance-1"></iframe>
+  <iframe id="appFrame" title="نظام رقابة مصنع بن حامد" allow="unload; geolocation" src="/legacy.html?v=20260716-enterprise-phase-one"></iframe>
 
   <script>
   (function boot(){
@@ -53,7 +53,7 @@
           const link=doc.createElement('link');
           link.id='binhamid-cloud-style';
           link.rel='stylesheet';
-          link.href='/assets/cloud-control.css?v=20260716-enterprise-attendance-1';
+          link.href='/assets/cloud-control.css?v=20260716-enterprise-phase-one';
           doc.head.appendChild(link);
         }
 
@@ -67,14 +67,15 @@
           doc.body.appendChild(script);
         }
         function injectExtensions(){
-          injectScript('binhamid-cloud-navigation-fix','/assets/cloud-control-navigation-fix.js?v=20260716-3',function(){console.error('[BinHamid] تعذر تحميل إصلاح تنقل مركز الاتصال.');});
-          injectScript('binhamid-attendance-control','/assets/attendance-control.js?v=20260716-1',function(){console.error('[BinHamid] تعذر تحميل إدارة الحضور والسائقين.');});
+          injectScript('binhamid-cloud-navigation-fix','/assets/cloud-control-navigation-fix.js?v=20260716-4',function(){console.error('[BinHamid] تعذر تحميل إصلاح تنقل مركز الاتصال.');});
+          injectScript('binhamid-attendance-control','/assets/attendance-control.js?v=20260716-2',function(){console.error('[BinHamid] تعذر تحميل إدارة الحضور والسائقين.');});
+          injectScript('binhamid-conversation-control','/assets/cloud-conversations.js?v=20260716-1',function(){console.error('[BinHamid] تعذر تحميل سجل المحادثات.');});
         }
 
         if(!doc.getElementById('binhamid-cloud-script')){
           const script=doc.createElement('script');
           script.id='binhamid-cloud-script';
-          script.src='/assets/cloud-control.js?v=20260716-enterprise-attendance-1';
+          script.src='/assets/cloud-control.js?v=20260716-enterprise-phase-one';
           script.async=false;
           script.onload=injectExtensions;
           script.onerror=function(){fail(new Error('تعذر تحميل مركز الاتصال، بينما النسخة الأساسية ما زالت متاحة.'));};

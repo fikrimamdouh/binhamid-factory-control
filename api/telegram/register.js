@@ -50,7 +50,7 @@ const commands={
     {command:'tasks',description:'আপনার খোলা কাজ দেখুন'},
     {command:'reports',description:'ব্যবস্থাপনা রিপোর্ট'},
     {command:'sales',description:'ব্লক ও কংক্রিট বিক্রয় আদেশ'},
-    {command:'workshop',description:'ওয়ার্কশপ ও মেকানিক মেনু'},
+    {command:'workshop',description:'ওয়ার্কশপ এবং মেকানিক মেনু'},
     {command:'suppliers',description:'সরবরাহকারী খুঁজুন ও কোটেশন চান'},
     {command:'gps',description:'বহরের GPS অবস্থা'},
     {command:'status',description:'সিস্টেম সংযোগ ও সর্বশেষ সিঙ্ক'},
@@ -77,10 +77,12 @@ export default async function handler(req,res){
     requireAdmin(req);
     const input=await body(req),proto=String(req.headers['x-forwarded-proto']||'https').split(',')[0],host=String(req.headers['x-forwarded-host']||req.headers.host||''),base=String(input.baseUrl||`${proto}://${host}`).replace(/\/$/,'');
     if(!/^https:\/\//.test(base))throw Object.assign(new Error('رابط HTTPS صحيح مطلوب'),{status:400});
-    const url=`${base}/api/telegram/webhook-v2`;
+    const url=`${base}/api/telegram/webhook-v3`;
     await telegram('setWebhook',{url,secret_token:config.telegramSecret,allowed_updates:['message','edited_message','callback_query','my_chat_member'],drop_pending_updates:false,max_connections:20});
     await telegram('setMyCommands',{commands:commands.en});
     for(const language of ['ar','hi','bn','ur'])await telegram('setMyCommands',{commands:commands[language],language_code:language});
-    json(res,200,{ok:true,url,commandsRegistered:true,languages:['en','ar','hi','bn','ur'],enterpriseWebhook:true,version:4});
+    const webhook=await telegram('getWebhookInfo');
+    if(String(webhook?.url||'')!==url)throw Object.assign(new Error('Telegram لم يثبت رابط Webhook الجديد'),{status:502});
+    json(res,200,{ok:true,url,commandsRegistered:true,languages:['en','ar','hi','bn','ur'],enterpriseWebhook:true,version:5,webhook:{url:webhook.url,pending_update_count:webhook.pending_update_count||0,last_error_message:webhook.last_error_message||''}});
   }catch(error){errorResponse(res,error);}
 }

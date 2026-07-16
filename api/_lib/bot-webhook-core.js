@@ -17,6 +17,19 @@ export async function ensureTelegramIdentity(from){
 export async function storeTelegramMessage(updateId,message,group,identity){
   const type=message.voice?'voice':message.document?'document':message.photo?'photo':message.location?'location':message.contact?'contact':message.text?'text':'other';
   const text=message.text||message.caption||(message.location?`${message.location.latitude},${message.location.longitude}`:'');
-  const row={update_id:String(updateId),chat_id:String(message.chat.id),message_id:String(message.message_id),group_id:group?.id||null,sender_user_id:identity?.user_id||null,sender_external_id:String(message.from?.id||''),message_type:type,text,file_id:message.voice?.file_id||message.document?.file_id||message.photo?.at(-1)?.file_id||null,file_name:message.document?.file_name||null,mime_type:message.document?.mime_type||message.voice?.mime_type||null,raw:{message},created_at:new Date((message.date||Date.now()/1000)*1000).toISOString()};
-  return(await upsert('telegram_messages',[row],'chat_id,message_id'))?.[0]||row;
+  const senderName=[message.from?.first_name,message.from?.last_name].filter(Boolean).join(' ')||identity?.full_name||String(message.from?.id||'');
+  const row={
+    update_id:String(updateId),chat_id:String(message.chat.id),message_id:String(message.message_id),group_id:group?.id||null,
+    sender_user_id:identity?.user_id||null,sender_external_id:String(message.from?.id||''),sender_name:senderName,chat_type:String(message.chat?.type||''),
+    message_type:type,text,transcription:null,file_id:message.voice?.file_id||message.document?.file_id||message.photo?.at(-1)?.file_id||null,
+    file_name:message.document?.file_name||null,mime_type:message.document?.mime_type||message.voice?.mime_type||null,file_path:null,
+    related_entity_type:null,related_entity_id:null,direction:'incoming',delivery_status:'received',reply_to_message_id:message.reply_to_message?.message_id?String(message.reply_to_message.message_id):null,
+    bot_method:null,action_name:null,action_payload:{},raw:{message},created_at:new Date((message.date||Date.now()/1000)*1000).toISOString()
+  };
+  try{return(await upsert('telegram_messages',[row],'chat_id,message_id'))?.[0]||row;}
+  catch(error){
+    // Compatibility before migration 003: save the original columns only.
+    const legacy={update_id:row.update_id,chat_id:row.chat_id,message_id:row.message_id,group_id:row.group_id,sender_user_id:row.sender_user_id,sender_external_id:row.sender_external_id,message_type:row.message_type,text:row.text,file_id:row.file_id,file_name:row.file_name,mime_type:row.mime_type,raw:row.raw,created_at:row.created_at};
+    return(await upsert('telegram_messages',[legacy],'chat_id,message_id'))?.[0]||legacy;
+  }
 }
