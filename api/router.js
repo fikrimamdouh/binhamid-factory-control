@@ -9,6 +9,7 @@ import * as costs from './_lib/routes/costs.js';
 import * as driverWebApp from './_lib/routes/driver-webapp.js';
 import * as resilience from './_lib/routes/resilience.js';
 import * as dailyReport from './_lib/routes/daily-report.js';
+import * as fifo from './_lib/routes/fifo.js';
 
 const routes={
   'admin/groups':admin.groups,
@@ -20,6 +21,7 @@ const routes={
   'documents/verify':management.documentVerification,
   'imports/status':imports.status,
   'daily-report':dailyReport.dailyReport,
+  'daily-report/fifo':fifo.fifo,
   'system/database-readiness':systemRuntime.databaseReadiness,
   'system/status':systemRuntime.status,
   'telegram/register':telegramAdmin.register,
