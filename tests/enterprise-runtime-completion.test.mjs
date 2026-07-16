@@ -7,6 +7,7 @@ const read=path=>readFile(new URL(`../${path}`,import.meta.url),'utf8');
 test('runtime migrations complete direct operational storage',async()=>{
   const m5=await read('supabase/migrations/005_enterprise_runtime_completion.sql');
   const m6=await read('supabase/migrations/006_runtime_replay_and_integrity.sql');
+  const m7=await read('supabase/migrations/007_procurement_projection_and_permissions.sql');
   for(const table of ['finance_events','hr_requests','employee_daily_reports','operation_status_history','document_registry'])assert.match(m5,new RegExp(`create table if not exists public\\.${table}`));
   for(const table of ['inventory_movements','purchase_requests','collection_events','quality_cases','operational_tasks','driver_events'])assert.match(m5,new RegExp(`alter table public\\.${table} add column if not exists source_audit_id`));
   assert.match(m5,/project_enterprise_structured_audit/);
@@ -16,6 +17,9 @@ test('runtime migrations complete direct operational storage',async()=>{
   assert.match(m6,/flag_negative_inventory/);
   assert.match(m6,/queue_approval_notification/);
   assert.match(m6,/queue_missing_daily_reports/);
+  assert.match(m7,/project_supplier_quote_request/);
+  assert.match(m7,/source_event_type/);
+  assert.match(m7,/supplier_quote_request_projection_trigger/);
 });
 
 test('operations API supports management actions and pending approvals',async()=>{
@@ -69,12 +73,13 @@ test('notification outbox and scheduler are secured and operational',async()=>{
   assert.match(workflow,/cron: '12 \* \* \* \*'/);
 });
 
-test('runtime readiness requires schema version six',async()=>{
+test('runtime readiness requires schema version seven',async()=>{
   const runtime=await read('api/_lib/routes/system-runtime.js');
   const router=await read('api/router.js');
   for(const table of ['finance_events','hr_requests','employee_daily_reports','operation_status_history','document_registry'])assert.match(runtime,new RegExp(table));
-  assert.match(runtime,/schemaVersion:6/);
-  assert.match(runtime,/directOperationsSchema:6/);
+  assert.match(runtime,/purchase_requests\.rfq_projection/);
+  assert.match(runtime,/schemaVersion:7/);
+  assert.match(runtime,/directOperationsSchema:7/);
   assert.match(router,/systemRuntime\.databaseReadiness/);
   assert.match(router,/systemRuntime\.status/);
 });
@@ -89,8 +94,10 @@ test('new routes preserve public URLs through the central router',async()=>{
   assert.match(router,/'documents\/verify':management\.documentVerification/);
 });
 
-test('activation guide covers all six migrations and external activation steps',async()=>{
+test('activation documents cover schema seven and external activation steps',async()=>{
   const guide=await read('docs/PHASE_TWO_ACTIVATION.md');
+  const v7=await read('docs/RUNTIME_SCHEMA_7.md');
   for(let n=1;n<=6;n++)assert.match(guide,new RegExp(`00${n}_`));
-  for(const marker of ['BINHAMID_CRON_SECRET','BINHAMID_CRON_URL','PUBLIC_APP_URL','webhook-v3','ready=true','schemaVersion=6'])assert.match(guide,new RegExp(marker));
+  for(const marker of ['BINHAMID_CRON_SECRET','BINHAMID_CRON_URL','PUBLIC_APP_URL','webhook-v3','ready=true'])assert.match(guide,new RegExp(marker));
+  for(const marker of ['007_procurement_projection_and_permissions.sql','schemaVersion=7','directOperationsSchema=7','purchase_requests'])assert.match(v7,new RegExp(marker));
 });
