@@ -2,6 +2,7 @@ import { json } from './_lib/http.js';
 import * as admin from './_lib/routes/admin.js';
 import * as management from './_lib/routes/management.js';
 import * as imports from './_lib/routes/imports.js';
+import { dailyReport } from './_lib/routes/daily-report.js';
 import * as systemRuntime from './_lib/routes/system-runtime.js';
 import * as telegramAdmin from './_lib/routes/telegram-admin.js';
 
@@ -14,6 +15,7 @@ const routes={
   'reports':management.reports,
   'documents/verify':management.documentVerification,
   'imports/status':imports.status,
+  'imports/daily-report':dailyReport,
   'system/database-readiness':systemRuntime.databaseReadiness,
   'system/status':systemRuntime.status,
   'telegram/register':telegramAdmin.register,
