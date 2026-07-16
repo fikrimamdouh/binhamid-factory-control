@@ -5,6 +5,7 @@ const files=[
   'assets/cloud-control-navigation-fix.js',
   'assets/attendance-control.js',
   'assets/cloud-conversations.js',
+  'assets/cloud-operations.js',
   'api/router.js',
   'api/telegram/webhook-v3.js',
   'api/admin/attendance.js',
