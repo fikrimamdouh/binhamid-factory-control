@@ -7,7 +7,8 @@
     "test": "node --test tests/*.test.mjs",
     "audit:functions": "node scripts/audit-vercel-functions.mjs",
     "check:functions": "node scripts/audit-vercel-functions.mjs --assert",
-    "check": "node scripts/check-enterprise.mjs && node --test tests/*.test.mjs && npm run check:functions"
+    "check:api": "node scripts/audit-api-contracts.mjs",
+    "check": "node scripts/check-enterprise.mjs && node --test tests/*.test.mjs && npm run check:api && npm run check:functions"
   },
   "dependencies": {
     "xlsx": "^0.18.5"
