@@ -26,7 +26,7 @@ test('reads shifted sales columns, repeated headers, formulas and Arabic numbers
   assert.equal(result.collections.length,1);
   assert.equal(result.collections[0].treasuryCode,'101');
   assert.equal(result.collections[0].method,'نقدي');
-  assert.equal(result.collections[0].date,'2024-07-28');
+  assert.equal(result.collections[0].date,'2024-07-27');
 });
 
 test('keeps the current invoice-quantity-code-customer-item-amount order compatible',()=>{
@@ -59,7 +59,7 @@ test('normalizes Arabic digits and Excel serial dates deterministically',()=>{
   const api=parser();
   assert.equal(api.number('١٢٬٣٤٥٫٦٧'),12345.67);
   assert.equal(api.isoDate('١٦/٠٧/٢٠٢٦'),'2026-07-16');
-  assert.equal(api.isoDate(45500),'2024-07-28');
+  assert.equal(api.isoDate(45500),'2024-07-27');
   assert.equal(api.kind('خرسانة جاهزة'),'خرسانة');
   assert.equal(api.kind('بلك اسود'),'بلوك');
 });
