@@ -8,12 +8,12 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '20.x'
       - run: npm install --ignore-scripts --no-audit --no-fund
       - name: Capture Vercel function inventory
         run: npm run audit:functions > function-inventory.txt
@@ -33,3 +33,28 @@ jobs:
       - name: Enforce project checks
         if: steps.project-checks.outcome != 'success'
         run: cat check-output.txt && exit 1
+      - name: Run local Vercel build
+        id: vercel-build
+        continue-on-error: true
+        env:
+          VERCEL_TELEMETRY_DISABLED: '1'
+        run: npx --yes vercel@56.2.0 build --yes > vercel-build-output.txt 2>&1
+      - name: Count Vercel output functions
+        if: always()
+        run: |
+          if [ -d .vercel/output/functions ]; then
+            find .vercel/output/functions -type d -name '*.func' | sort > vercel-output-functions.txt
+            echo "VERCEL_OUTPUT_FUNCTION_COUNT=$(wc -l < vercel-output-functions.txt | tr -d ' ')" >> vercel-output-functions.txt
+          else
+            echo "VERCEL_OUTPUT_FUNCTION_COUNT=0" > vercel-output-functions.txt
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: vercel-local-build
+          path: |
+            vercel-build-output.txt
+            vercel-output-functions.txt
+      - name: Enforce local Vercel build
+        if: steps.vercel-build.outcome != 'success'
+        run: cat vercel-build-output.txt && exit 1
