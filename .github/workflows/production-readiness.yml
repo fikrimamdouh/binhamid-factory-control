@@ -10,11 +10,13 @@ on:
       - 'api/_lib/routes/system-runtime.js'
       - 'api/_lib/routes/daily-report.js'
       - 'api/_lib/daily-report-customers.js'
+      - 'api/_lib/daily-summary-parser.js'
       - 'supabase/migrations/015_daily_report_customer_master.sql'
       - 'scripts/production-db-readiness.mjs'
       - 'scripts/production-data-integrity.mjs'
       - 'scripts/customer-schema-report.mjs'
       - 'scripts/production-customer-sources.mjs'
+      - 'scripts/analyze-public-stored-import.mjs'
       - 'scripts/resolve-supabase-connection.mjs'
 
 permissions:
@@ -41,6 +43,7 @@ jobs:
           node --check scripts/production-data-integrity.mjs
           node --check scripts/customer-schema-report.mjs
           node --check scripts/production-customer-sources.mjs
+          node --check scripts/analyze-public-stored-import.mjs
           npm test
           npm run check:api
           npm run check:functions
@@ -102,6 +105,11 @@ jobs:
       - name: Audit customer source metadata
         run: node scripts/production-customer-sources.mjs
 
+      - name: Analyze stored workbook when publicly readable
+        env:
+          SUPABASE_STORAGE_BUCKET: ${{ vars.SUPABASE_STORAGE_BUCKET || 'factory-documents' }}
+        run: node scripts/analyze-public-stored-import.mjs
+
       - name: Upload readiness evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -113,6 +121,7 @@ jobs:
             production-data-integrity.json
             customer-schema-report.json
             production-customer-sources.json
+            stored-import-analysis.json
             readiness-connection-diagnostic.json
           if-no-files-found: warn
           retention-days: 14
