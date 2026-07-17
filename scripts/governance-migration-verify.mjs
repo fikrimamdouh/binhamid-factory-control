@@ -10,7 +10,7 @@ if(!databaseUrl)fail('DATABASE_URL_EMPTY','The resolved database connection is e
 let preflight;try{preflight=JSON.parse(readFileSync(preflightPath,'utf8'));}catch{fail('PREFLIGHT_RESULT_INVALID','The migration preflight result is unavailable.');}
 const state=JSON.parse(query(`select json_build_object(
 'currentVersion',(select coalesce(max(version),0) from public.migration_history),
-'versions',(select json_agg(version order by version) from public.migration_history where version between 16 and 20),
+'versions',(select json_agg(version order by version) from public.migration_history where version between 16 and 21),
 'objects',json_build_object(
 'financialPeriods',to_regclass('public.financial_periods') is not null,
 'creditOverrides',to_regclass('public.credit_override_requests') is not null,
@@ -37,7 +37,8 @@ const state=JSON.parse(query(`select json_build_object(
 'entriesWithoutLines',(select entries_without_lines from public.accounting_integrity_report),
 'totalDebit',(select total_debit from public.accounting_integrity_report),
 'totalCredit',(select total_credit from public.accounting_integrity_report),
-'approvedBatchesWithoutJournal',(select count(*) from public.daily_report_batches b where b.status='approved' and exists(select 1 from public.daily_report_sales_lines s where s.batch_id=b.id) and not exists(select 1 from public.journal_entries j where j.source_batch_id=b.id))),
+'approvedBatchesWithoutJournal',(select count(*) from public.daily_report_batches b where b.status='approved' and (exists(select 1 from public.daily_report_sales_lines s where s.batch_id=b.id) or exists(select 1 from public.daily_report_cash_movements c where c.batch_id=b.id and c.is_customer_collection=true)) and not exists(select 1 from public.journal_entries j where j.source_batch_id=b.id)),
+'reversedEntriesWithoutPostedReversal',(select count(*) from public.journal_entries e where e.status='reversed' and not exists(select 1 from public.journal_entries r where r.reversal_of=e.id and r.status='posted'))),
 'counts',json_build_object(
 'customers',(select count(*) from public.customers),
 'employees',(select count(*) from public.employees),
@@ -50,12 +51,11 @@ const state=JSON.parse(query(`select json_build_object(
 'imports',(select count(*) from public.imports),
 'auditLog',(select count(*) from public.audit_log))
 )::text;`));
-if(Number(state.currentVersion)!==20)fail('TARGET_VERSION_NOT_REACHED','Production did not reach schema version 20.',{currentVersion:Number(state.currentVersion)});
-const versions=(state.versions||[]).map(Number);if([16,17,18,19,20].some(version=>!versions.includes(version)))fail('MIGRATION_HISTORY_INCOMPLETE','Migration history is incomplete.',{versions});
-const missing=Object.entries(state.objects||{}).filter(([,value])=>!value).map(([name])=>name);if(missing.length)fail('DATABASE_OBJECTS_MISSING','Required schema-20 objects are missing.',{missing});
-if(Number(state.accounting?.unbalanced||0)!==0||Number(state.accounting?.entriesWithoutLines||0)!==0||Number(state.accounting?.approvedBatchesWithoutJournal||0)!==0||Number(state.accounting?.totalDebit||0)!==Number(state.accounting?.totalCredit||0))fail('ACCOUNTING_INTEGRITY_FAILED','Accounting entries are missing or unbalanced.',{accounting:state.accounting});
+if(Number(state.currentVersion)!==21)fail('TARGET_VERSION_NOT_REACHED','Production did not reach schema version 21.',{currentVersion:Number(state.currentVersion)});
+const versions=(state.versions||[]).map(Number);if([16,17,18,19,20,21].some(version=>!versions.includes(version)))fail('MIGRATION_HISTORY_INCOMPLETE','Migration history is incomplete.',{versions});
+const missing=Object.entries(state.objects||{}).filter(([,value])=>!value).map(([name])=>name);if(missing.length)fail('DATABASE_OBJECTS_MISSING','Required schema-21 objects are missing.',{missing});
+if(Number(state.accounting?.unbalanced||0)!==0||Number(state.accounting?.entriesWithoutLines||0)!==0||Number(state.accounting?.approvedBatchesWithoutJournal||0)!==0||Number(state.accounting?.reversedEntriesWithoutPostedReversal||0)!==0||Number(state.accounting?.totalDebit||0)!==Number(state.accounting?.totalCredit||0))fail('ACCOUNTING_INTEGRITY_FAILED','Accounting entries are missing, incomplete or unbalanced.',{accounting:state.accounting});
 const changed=Object.keys(preflight.counts||{}).filter(key=>Number(preflight.counts[key])!==Number(state.counts?.[key]));
-// Migration 019 legitimately appends journal and audit evidence only. Protected operational rows must remain unchanged.
 if(changed.some(key=>key!=='auditLog'))fail('PROTECTED_ROW_COUNT_CHANGED','Protected operational row counts changed during schema migration.',{changed,before:preflight.counts,after:state.counts});
-const migrationResult={ok:true,code:'SCHEMA_20_APPLIED_AND_VERIFIED',fromVersion:Number(preflight.currentVersion),toVersion:20,appliedMigrations:Array.from({length:Math.max(0,20-Number(preflight.currentVersion))},(_,index)=>Number(preflight.currentVersion)+index+1),transactionAtomic:true,preMigrationBackup:preflight.backup,beforeCounts:preflight.counts,afterCounts:state.counts,verification:state};
-writeFileSync(resultPath,`${JSON.stringify(migrationResult,null,2)}\n`,{mode:0o600});console.log(`[governance-verify] SUCCESS ${migrationResult.fromVersion}->20`);
+const migrationResult={ok:true,code:'SCHEMA_21_APPLIED_AND_VERIFIED',fromVersion:Number(preflight.currentVersion),toVersion:21,appliedMigrations:Array.from({length:Math.max(0,21-Number(preflight.currentVersion))},(_,index)=>Number(preflight.currentVersion)+index+1),transactionAtomic:true,preMigrationBackup:preflight.backup,beforeCounts:preflight.counts,afterCounts:state.counts,verification:state};
+writeFileSync(resultPath,`${JSON.stringify(migrationResult,null,2)}\n`,{mode:0o600});console.log(`[governance-verify] SUCCESS ${migrationResult.fromVersion}->21`);
