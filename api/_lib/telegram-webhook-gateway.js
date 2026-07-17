@@ -8,6 +8,7 @@ import { showSalesMenu, startSalesAction, continueSalesSession, confirmSalesOrde
 import { showMechanicMenu, startMechanicAction, continueMechanicSession, confirmSparePartsRequest, handleMechanicTextCommand } from './bot-mechanic-secure.js';
 import { showAttendanceMenu, continueAttendanceSession, handleAttendanceLocation, handleAttendancePhoto, handleAttendanceCallback } from './bot-attendance-secure.js';
 import { sendGpsFleetStatus } from './bot-gps.js';
+import { continueRegistrationSession, handleRegistrationCallback, handleRegistrationTextCommand, isRegistrationCommand } from './bot-registration.js';
 import enterpriseHandler from './telegram-webhook-handler.js';
 
 const GPS_ROLES=new Set(['admin','manager','mechanic','driver','fuel_operator']);
@@ -45,6 +46,11 @@ async function logIntercepted(update,message,identity){const group=await ensureT
 async function interceptCallback(update){
   const query=update.callback_query,message=query?.message;if(!query||!message)return false;
   const [action,value]=String(query.data||'').split(':'),home=action==='home';
+  if(action==='reg'){
+    const identity=await ensureTelegramIdentity(query.from);await answerCallback(query.id);
+    if(message.chat.type!=='private'){await sendMessage(message.chat.id,'تسجيل الموظف يتم من المحادثة الخاصة مع البوت.');return true;}
+    await handleRegistrationCallback(message,query.from,identity,value);return true;
+  }
   const handledHome=home&&['suppliers','sales','workshop','attendance'].includes(value);
   const handled=handledHome||procurementActions.has(action)||action==='gps'||action==='sales'||guidedSalesActions.has(action)||['sales_confirm','sales_cancel','mech','parts_confirm','att','fuelconfirm','fuelcancel'].includes(action);
   if(!handled)return false;
@@ -76,7 +82,13 @@ async function interceptMessage(update){
   if(message.location&&(state.startsWith('driver_')||state.startsWith('attendance_')||message.location.live_period||message.edit_date)){if(!await logIntercepted(update,message,identity))return true;await handleAttendanceLocation(message,identity,session);return true;}
   if(message.photo?.length&&state==='driver_fuel_photo'){if(!await logIntercepted(update,message,identity))return true;await handleAttendancePhoto(message,identity,session);return true;}
   if(message.voice||message.document||message.photo?.length)return false;
-  const raw=String(message.text||message.caption||'').trim(),normalized=norm(raw);
+  const raw=String(message.text||message.caption||'').trim(),normalized=norm(raw),registrationSession=state.startsWith('registration_')&&state!=='registration_submitted',registrationCommand=isRegistrationCommand(raw)||/^(الوظائف|الوظائف المتاحه|الوظائف المتاحة|حاله التسجيل|حالة التسجيل|حاله طلبي|حالة طلبي)$/.test(normalized);
+  if(registrationSession||registrationCommand){
+    if(message.chat.type!=='private'){await sendMessage(message.chat.id,'تسجيل الموظف يتم من المحادثة الخاصة مع البوت.');return true;}
+    if(!await logIntercepted(update,message,identity))return true;
+    if(registrationSession&&await continueRegistrationSession(message,identity,session,raw))return true;
+    if(await handleRegistrationTextCommand(message,identity,raw))return true;
+  }
   const procurementSession=state.startsWith('supplier_')||state.startsWith('rfq_'),salesSession=state.startsWith('sales_')||state.startsWith('guided_sales_'),mechanicSession=state.startsWith('mechanic_'),attendanceSession=state.startsWith('driver_')||state.startsWith('attendance_');
   const procurementCommand=/^\/suppliers(?:@\w+)?$/i.test(raw)||procurementText.test(normalized),salesCommand=/^\/sales(?:@\w+)?$/i.test(raw)||salesText.test(normalized),mechanicCommand=/^\/workshop(?:@\w+)?$/i.test(raw)||mechanicText.test(normalized),attendanceCommand=/^\/attendance(?:@\w+)?$/i.test(raw)||attendanceText.test(normalized),gpsCommand=/^\/gps(?:@\w+)?$/i.test(raw)||gpsText.test(normalized);
   if(!procurementSession&&!salesSession&&!mechanicSession&&!attendanceSession&&!procurementCommand&&!salesCommand&&!mechanicCommand&&!attendanceCommand&&!gpsCommand)return false;
