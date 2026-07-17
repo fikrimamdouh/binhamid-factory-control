@@ -26,6 +26,7 @@ const state=JSON.parse(query(`select json_build_object(
 'ensure_daily_report_customer',to_regprocedure('public.ensure_daily_report_customer(text,text)') is not null,
 'daily_sale_trigger',exists(select 1 from pg_trigger where tgname='daily_report_sale_validation_trigger' and not tgisinternal),
 'daily_cash_trigger',exists(select 1 from pg_trigger where tgname='daily_report_cash_validation_trigger' and not tgisinternal),
+'daily_cash_customer_deferred_trigger',exists(select 1 from pg_trigger where tgname='daily_report_cash_customer_deferred_trigger' and not tgisinternal and tgdeferrable and tginitdeferred),
 'fifo_trigger',exists(select 1 from pg_trigger where tgname='sales_order_backdated_fifo_trigger' and not tgisinternal),
 'maintenance_trigger',exists(select 1 from pg_trigger where tgname='maintenance_cost_projection_v2_trigger' and not tgisinternal)),
 'identityCheck',length(public.daily_sale_identity('TEST','TEST','block',1,1))=64,
