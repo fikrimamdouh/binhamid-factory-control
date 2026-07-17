@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { config } from './config.js';
 
 export const DEVICE_COOKIE='bh_device_session';
-export const DEVICE_CAPABILITIES=Object.freeze(['state.read','state.write','dashboard.manager','daily_report.view','daily_report.import','daily_report.approve']);
+export const DEVICE_CAPABILITIES=Object.freeze(['state.read','state.write','dashboard.manager','governance.view','daily_report.view','daily_report.import','daily_report.approve']);
 const MAX_AGE_SECONDS=180*24*60*60;
 const clean=(value,max=160)=>String(value??'').trim().slice(0,max);
 const signingKey=()=>{
