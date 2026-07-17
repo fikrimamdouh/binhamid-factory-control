@@ -1,0 +1,2 @@
+D: cfg, cli, emp, length, seq, txt, veh
+OPS: assets, audit, collections, counts, custodies, deliveries, documents, driverTransfers, equipmentCosts, fuel, fuelImports, imports, incidents, items, locations, maintenance, meta, movements, production, rfqs, salaryRecords, settings, stockMoves, suppliers, trips, visits
