@@ -30,13 +30,13 @@ const state=JSON.parse(query(`select json_build_object(
 'dailyCashMovements',(select count(*) from public.daily_report_cash_movements))
 )::text;`));
 const version=Number(state.currentVersion||0);
-if(version<10||version>14)stop('SCHEMA_VERSION_OUT_OF_RANGE','Production schema must be between versions 10 and 14.',{currentVersion:version});
+if(version<10||version>15)stop('SCHEMA_VERSION_OUT_OF_RANGE','Production schema must be between versions 10 and 15.',{currentVersion:version});
 const missing=Object.entries(state.dependencies||{}).filter(([,v])=>!v).map(([k])=>k);
 if(missing.length)stop('BASE_SCHEMA_INCOMPLETE','Required base schema objects are missing.',{currentVersion:version,missing});
 const manifestPath=String(process.env.PRE_MIGRATION_MANIFEST||'').trim();
 if(!manifestPath||!existsSync(manifestPath))stop('BACKUP_MANIFEST_MISSING','The pre-migration backup manifest is missing.');
 let manifest;try{manifest=JSON.parse(readFileSync(manifestPath,'utf8'));}catch{stop('BACKUP_MANIFEST_INVALID','The pre-migration backup manifest is invalid.');}
 if(manifest.format!=='binhamid-backup-v1'||manifest.encrypted!==true||Number(manifest.schemaVersion)!==version||!/^[a-f0-9]{64}$/i.test(String(manifest.checksumSha256||'')))stop('BACKUP_GATE_FAILED','The pre-migration backup did not pass the schema and encryption gate.',{currentVersion:version,backupSchemaVersion:Number(manifest.schemaVersion)});
-const result={ok:true,currentVersion:version,targetVersion:14,counts:state.counts,backup:{fileName:manifest.fileName,checksumSha256:manifest.checksumSha256,schemaVersion:Number(manifest.schemaVersion),encrypted:true}};
+const result={ok:true,currentVersion:version,targetVersion:15,counts:state.counts,backup:{fileName:manifest.fileName,checksumSha256:manifest.checksumSha256,schemaVersion:Number(manifest.schemaVersion),encrypted:true}};
 writeFileSync(output,`${JSON.stringify(result,null,2)}\n`,{mode:0o600});
-console.log(`[migration-preflight] READY ${version}->14`);
+console.log(`[migration-preflight] READY ${version}->15`);

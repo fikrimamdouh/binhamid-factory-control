@@ -1,4 +1,4 @@
-name: Apply Database Migrations 011-014
+name: Apply Database Migrations
 
 on:
   workflow_dispatch:
@@ -16,6 +16,7 @@ on:
       - 'supabase/migrations/012_daily_report_idempotency_and_validation.sql'
       - 'supabase/migrations/013_fifo_rebuild_and_cost_reversals.sql'
       - 'supabase/migrations/014_fifo_replay_and_maintenance_trigger_guard.sql'
+      - 'supabase/migrations/015_daily_report_customer_master.sql'
 
 permissions:
   contents: read
@@ -43,6 +44,7 @@ jobs:
           node --check scripts/migration-preflight.mjs
           node --check scripts/migration-verify.mjs
           node --check scripts/verify-backup-files.mjs
+          node --check api/_lib/daily-report-customers.js
           npm run audit:migrations
           npm test
 
@@ -122,12 +124,12 @@ jobs:
         run: |
           set -euo pipefail
           current_version="$(node -e "const x=require('./migration-preflight.json');process.stdout.write(String(x.currentVersion))")"
-          if [ "$current_version" -ge 14 ]; then
-            echo 'Database is already at schema version 14.'
+          if [ "$current_version" -ge 15 ]; then
+            echo 'Database is already at schema version 15.'
             exit 0
           fi
           : > pending-migrations.sql
-          for version in $(seq $((current_version + 1)) 14); do
+          for version in $(seq $((current_version + 1)) 15); do
             file="$(find supabase/migrations -maxdepth 1 -type f -name "$(printf '%03d' "$version")_*.sql" -print -quit)"
             test -n "$file"
             printf '\n-- BEGIN %s\n' "$file" >> pending-migrations.sql
@@ -158,7 +160,7 @@ jobs:
           BACKUP_OUTPUT_DIR=post-migration-backup \
           BACKUP_VERIFICATION_FILE=post-migration-backup-verification.json \
           BACKUP_MANIFEST_ENV_NAME=POST_MIGRATION_MANIFEST \
-          EXPECTED_SCHEMA_VERSION=14 \
+          EXPECTED_SCHEMA_VERSION=15 \
           node scripts/verify-backup-files.mjs
 
       - name: Upload migration evidence
@@ -212,7 +214,7 @@ jobs:
           const response=await fetch(`https://api.github.com/repos/${process.env.REPOSITORY}/statuses/${process.env.HEAD_SHA}`,{
             method:'POST',
             headers:{Accept:'application/vnd.github+json',Authorization:`Bearer ${process.env.GITHUB_TOKEN}`,'X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'},
-            body:JSON.stringify({state:success?'success':'failure',context:'database-migrations',target_url:process.env.RUN_URL,description:success?'Schema 14 applied and verified with encrypted backups.':'Migration failed; production transaction was rolled back or stopped by a guard.'})
+            body:JSON.stringify({state:success?'success':'failure',context:'database-migrations',target_url:process.env.RUN_URL,description:success?'Schema 15 applied and verified with encrypted backups.':'Migration failed; production transaction was rolled back or stopped by a guard.'})
           });
           if(!response.ok)throw new Error(`Status publication failed with HTTP ${response.status}`);
           NODE
