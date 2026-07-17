@@ -55,7 +55,7 @@
           injectScript('binhamid-daily-summary-parser','/assets/daily-summary-parser.js?v=20260717-3',function(){console.error('[BinHamid] تعذر تحميل قارئ ملخص اليوم المشترك.');});
           injectScript('binhamid-existing-daily-import-fix','/assets/existing-daily-import-fix.js?v=20260717-2',function(){console.error('[BinHamid] تعذر تحميل إصلاح استيراد ملخص اليوم وتقرير الحركة.');});
           injectScript('binhamid-declarations-customer-ledger-fix','/assets/declarations-customer-ledger-fix.js?v=20260717-1',function(){console.error('[BinHamid] تعذر تحميل تصحيح إقرارات المبيعات وكشف العملاء.');});
-          injectScript('binhamid-daily-report-source','/assets/daily-report-source-of-truth.js?v=20260717-2',function(){console.error('[BinHamid] تعذر تحميل حارس الاعتماد السحابي للتقرير اليومي.');});
+          injectScript('binhamid-daily-report-source','/assets/daily-report-source-of-truth.js?v=20260717-3',function(){console.error('[BinHamid] تعذر تحميل حارس الاعتماد السحابي للتقرير اليومي.');});
         }
         if(!doc.getElementById('binhamid-cloud-script')){const script=doc.createElement('script');script.id='binhamid-cloud-script';script.src='/assets/cloud-control.js?v=20260717-declarations-ledger-fix';script.async=false;script.onload=injectExtensions;script.onerror=function(){fail(new Error('تعذر تحميل مركز الاتصال، بينما النسخة الأساسية ما زالت متاحة.'));};doc.body.appendChild(script);}else{injectExtensions();}
         completed=true;frame.style.visibility='visible';screen.remove();
