@@ -39,7 +39,7 @@ export async function accounting(req,res){
     const filters=['select=id,reference_no,entry_date,description,source_type,source_id,source_batch_id,currency,status,posted_by,posted_at,created_at,journal_entry_lines(line_no,debit,credit,customer_external_id,cost_center_code,memo,chart_of_accounts(account_code,account_name_ar))'];
     if(from)filters.push(`entry_date=gte.${from}`);if(to)filters.push(`entry_date=lte.${to}`);
     const entries=await select('journal_entries',query(filters,'order=entry_date.desc,created_at.desc',limit));
-    const summary=(entries||[]).reduce((out,entry)=>{out.entries++;for(const line of entry.journal_entry_lines||[]){out.debit+=Number(line.debit||0);out.credit+=Number(line.credit||0);}if(entry.status!=='posted')out.unposted++;return out;},{entries:0,debit:0,credit:0,unposted:0});
+    const summary=(entries||[]).reduce((out,entry)=>{out.entries++;for(const line of entry.journal_entry_lines||[]){out.debit+=Number(line.debit||0);out.credit+=Number(line.credit||0);}if(entry.status==='draft')out.unposted++;return out;},{entries:0,debit:0,credit:0,unposted:0});
     summary.debit=Number(summary.debit.toFixed(2));summary.credit=Number(summary.credit.toFixed(2));summary.balanced=summary.unposted===0&&summary.debit===summary.credit;
     return json(res,200,{ok:true,mode:'entries',entries:entries||[],summary,filters:{from,to},limit});
   }catch(error){errorResponse(res,error);}
