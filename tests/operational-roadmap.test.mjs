@@ -64,7 +64,8 @@ test('migrations 011 through 014 contain non-destructive operational foundations
   for(const marker of ['cost_centers','cost_periods','run_cost_period','cost_unit_monthly_report','project_driver_fuel_cost','project_maintenance_cost','role_capabilities','backup_runs','gps_provider_events'])assert.match(cost,new RegExp(marker));
   for(const marker of ['daily_report_import_attempts','line_identity','daily_report_sales_identity_uidx','daily_report_cash_identity_uidx','DAILY_REPORT_UNKNOWN_CUSTOMER_CODE','register_daily_report_attempt'])assert.match(daily,new RegExp(marker));
   for(const marker of ['fifo_rebuild_runs','rebuild_customer_fifo','preview_customer_fifo_rebuild','maintenance_order_reversal','active=false','sales_order_backdated_fifo_trigger'])assert.match(fifo,new RegExp(marker));
-  for(const marker of ['allocate_collection_fifo_core',"tg_op='UPDATE'",'greatest\(0,coalesce\(paid_amount,0\)-v_existing.amount\)'])assert.match(guard,new RegExp(marker));
+  for(const marker of ['allocate_collection_fifo_core',"tg_op='UPDATE'"])assert.match(guard,new RegExp(marker));
+  assert.ok(guard.includes('greatest(0,coalesce(paid_amount,0)-v_existing.amount)'));
   assert.doesNotMatch(`${cost}\n${daily}\n${fifo}\n${guard}`,/truncate\s+table/i);
   assert.doesNotMatch(`${fifo}\n${guard}`,/delete\s+from\s+public\.sales_payment_allocations/i);
 });
