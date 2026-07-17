@@ -5,6 +5,7 @@ import * as imports from './_lib/routes/imports.js';
 import * as systemRuntime from './_lib/routes/system-runtime.js';
 import * as telegramAdmin from './_lib/routes/telegram-admin.js';
 import * as managerDashboard from './_lib/routes/manager-dashboard.js';
+import * as controlCenter from './_lib/routes/control-center.js';
 import * as costs from './_lib/routes/costs.js';
 import * as driverWebApp from './_lib/routes/driver-webapp.js';
 import * as resilience from './_lib/routes/resilience.js';
@@ -15,6 +16,7 @@ const routes={
   'admin/groups':admin.groups,
   'admin/users':admin.users,
   'dashboard':managerDashboard.dashboard,
+  'control-center':controlCenter.controlCenter,
   'conversations':management.conversations,
   'operations':management.operations,
   'reports':management.reports,
