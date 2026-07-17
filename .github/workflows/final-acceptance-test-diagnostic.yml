@@ -1,0 +1,39 @@
+name: Final Acceptance Test Diagnostic
+
+on:
+  push:
+    branches: [fix/final-acceptance-hardening]
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+      - run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Run tests one by one
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p diagnostic
+          for file in $(find tests -maxdepth 1 -name '*.test.mjs' -print | sort); do
+            echo "Running $file"
+            if ! node --test "$file"; then
+              printf '%s\n' "$file" > diagnostic/failing-test.txt
+              exit 1
+            fi
+          done
+      - name: Upload failing test name
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-acceptance-test-diagnostic-${{ github.run_id }}
+          path: diagnostic/failing-test.txt
+          if-no-files-found: warn
+          retention-days: 1
