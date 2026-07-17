@@ -9,6 +9,7 @@ on:
 permissions:
   contents: read
   actions: read
+  statuses: write
 
 jobs:
   acceptance:
@@ -127,3 +128,22 @@ jobs:
             acceptance-database-result.json
           if-no-files-found: warn
           retention-days: 7
+
+      - name: Publish isolated acceptance status
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          node <<'NODE'
+          const success=process.env.JOB_STATUS==='success';
+          const response=await fetch(`https://api.github.com/repos/${process.env.REPOSITORY}/statuses/${process.env.HEAD_SHA}`,{
+            method:'POST',
+            headers:{Accept:'application/vnd.github+json',Authorization:`Bearer ${process.env.GITHUB_TOKEN}`,'X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'},
+            body:JSON.stringify({state:success?'success':'failure',context:'final-acceptance-branch',target_url:process.env.RUN_URL,description:success?'Encrypted-backup restore, schema 20 and transactional accounting acceptance passed.':'Isolated final acceptance failed; no production migration was run.'})
+          });
+          if(!response.ok)throw new Error(`Status publication failed with HTTP ${response.status}`);
+          NODE
