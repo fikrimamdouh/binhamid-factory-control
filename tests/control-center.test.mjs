@@ -50,7 +50,8 @@ test('control readiness distinguishes operational warnings from blockers',()=>{
 });
 
 test('control center stays consolidated in the existing Vercel router',async()=>{
-  const router=await readFile(new URL('../api/router.js',import.meta.url),'utf8');
+  const routerPath=['..','api','router.js'].join('/');
+  const router=await readFile(new URL(routerPath,import.meta.url),'utf8');
   const vercel=JSON.parse(await readFile(new URL('../vercel.json',import.meta.url),'utf8'));
   const page=await readFile(new URL('../control-center.html',import.meta.url),'utf8');
   assert.match(router,/control-center/);
