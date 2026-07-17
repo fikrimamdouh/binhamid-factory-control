@@ -4,6 +4,12 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '17 23 * * *'
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/database-backup.yml'
+      - 'scripts/backup-supabase.mjs'
 
 permissions:
   contents: read
@@ -26,9 +32,21 @@ jobs:
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+        shell: bash
         run: |
+          set -euo pipefail
           test -n "$SUPABASE_DB_URL"
           test -n "$BACKUP_ENCRYPTION_KEY"
+          node <<'NODE'
+          const raw=String(process.env.SUPABASE_DB_URL||'').trim();
+          let url;
+          try{url=new URL(raw);}catch{console.error('SUPABASE_DB_URL is not a valid PostgreSQL connection URL.');process.exit(1);}
+          if(!['postgres:','postgresql:'].includes(url.protocol)){console.error('SUPABASE_DB_URL must start with postgresql:// or postgres://');process.exit(1);}
+          if(!url.username||!url.password||url.password.includes('YOUR-PASSWORD')){console.error('SUPABASE_DB_URL must contain the real database user and password.');process.exit(1);}
+          if(url.hostname.startsWith('db.')){console.error('SUPABASE_DB_URL is a Direct connection URL. GitHub runners require the Supabase Session pooler URL.');process.exit(1);}
+          console.log(`Database connection target validated: ${url.hostname}:${url.port||'5432'}`);
+          NODE
+          pg_isready --dbname "$SUPABASE_DB_URL" --timeout=15
       - name: Create and upload backup
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
@@ -40,7 +58,13 @@ jobs:
           BACKUP_STORAGE_PREFIX: backups
           BACKUP_ENVIRONMENT: production
           BACKUP_OUTPUT_DIR: backup-output
-        run: node scripts/backup-supabase.mjs | tee backup-result.jsonl
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/backup-supabase.mjs 2> >(tee backup-error.log >&2) | tee backup-result.jsonl
+          test -s backup-result.jsonl
+          test -n "$(find backup-output -maxdepth 1 -type f -name '*.enc' -size +64c -print -quit)"
+          test -n "$(find backup-output -maxdepth 1 -type f -name '*.manifest.json' -size +32c -print -quit)"
       - name: Upload encrypted recovery artifact
         uses: actions/upload-artifact@v4
         with:
