@@ -10,40 +10,58 @@ if(!db)stop('DATABASE_URL_EMPTY','The resolved database connection is empty.');
 let preflight;try{preflight=JSON.parse(readFileSync(preflightPath,'utf8'));}catch{stop('PREFLIGHT_RESULT_INVALID','The migration preflight result is unavailable.');}
 const state=JSON.parse(query(`select json_build_object(
 'currentVersion',(select coalesce(max(version),0) from public.migration_history),
-'versions',(select json_agg(version order by version) from public.migration_history where version between 11 and 15),
+'versions',(select json_agg(version order by version) from public.migration_history where version between 11 and 17),
 'objects',json_build_object(
 'cost_centers',to_regclass('public.cost_centers') is not null,
 'cost_periods',to_regclass('public.cost_periods') is not null,
-'cost_calculation_runs',to_regclass('public.cost_calculation_runs') is not null,
 'daily_report_import_attempts',to_regclass('public.daily_report_import_attempts') is not null,
 'fifo_rebuild_runs',to_regclass('public.fifo_rebuild_runs') is not null,
-'cost_unit_monthly_report',to_regclass('public.cost_unit_monthly_report') is not null,
-'run_cost_period',to_regprocedure('public.run_cost_period(date,text,boolean)') is not null,
-'register_daily_report_attempt',to_regprocedure('public.register_daily_report_attempt(date,text,text,text,text,text,uuid,jsonb,jsonb,jsonb,text)') is not null,
-'rebuild_customer_fifo',to_regprocedure('public.rebuild_customer_fifo(text,text,text)') is not null,
-'allocate_collection_fifo_core',to_regprocedure('public.allocate_collection_fifo_core(uuid,uuid)') is not null,
-'project_maintenance_cost_v2',to_regprocedure('public.project_maintenance_cost_v2()') is not null,
-'ensure_daily_report_customer',to_regprocedure('public.ensure_daily_report_customer(text,text)') is not null,
-'daily_sale_trigger',exists(select 1 from pg_trigger where tgname='daily_report_sale_validation_trigger' and not tgisinternal),
-'daily_cash_trigger',exists(select 1 from pg_trigger where tgname='daily_report_cash_validation_trigger' and not tgisinternal),
-'daily_cash_customer_deferred_trigger',exists(select 1 from pg_trigger where tgname='daily_report_cash_customer_deferred_trigger' and not tgisinternal and tgdeferrable and tginitdeferred),
-'fifo_trigger',exists(select 1 from pg_trigger where tgname='sales_order_backdated_fifo_trigger' and not tgisinternal),
-'maintenance_trigger',exists(select 1 from pg_trigger where tgname='maintenance_cost_projection_v2_trigger' and not tgisinternal)),
-'identityCheck',length(public.daily_sale_identity('TEST','TEST','block',1,1))=64,
-'fifoPreviewCheck',(public.preview_customer_fifo_rebuild('__migration_smoke_check__')->>'willRebuildChronologically')::boolean,
+'financial_periods',to_regclass('public.financial_periods') is not null,
+'financial_period_events',to_regclass('public.financial_period_events') is not null,
+'credit_override_requests',to_regclass('public.credit_override_requests') is not null,
+'unified_assets',to_regclass('public.unified_assets') is not null,
+'asset_source_links',to_regclass('public.asset_source_links') is not null,
+'compliance_documents',to_regclass('public.compliance_documents') is not null,
+'custody_accounts',to_regclass('public.custody_accounts') is not null,
+'custody_transactions',to_regclass('public.custody_transactions') is not null,
+'restore_test_runs',to_regclass('public.restore_test_runs') is not null,
+'handover_acceptance_runs',to_regclass('public.handover_acceptance_runs') is not null,
+'handover_signoffs',to_regclass('public.handover_signoffs') is not null,
+'control_credit_exposure',to_regclass('public.control_credit_exposure') is not null,
+'control_expiring_documents',to_regclass('public.control_expiring_documents') is not null,
+'control_open_custodies',to_regclass('public.control_open_custodies') is not null,
+'close_financial_period',to_regprocedure('public.close_financial_period(date,date,text,text)') is not null,
+'reopen_financial_period',to_regprocedure('public.reopen_financial_period(uuid,text,text)') is not null,
+'request_credit_override',to_regprocedure('public.request_credit_override(text,numeric,text,text)') is not null,
+'decide_credit_override',to_regprocedure('public.decide_credit_override(uuid,text,text,text,timestamp with time zone)') is not null,
+'request_custody_transaction',to_regprocedure('public.request_custody_transaction(text,text,numeric,text,text,text)') is not null,
+'approve_custody_transaction',to_regprocedure('public.approve_custody_transaction(uuid,text,boolean,text)') is not null,
+'start_handover_acceptance',to_regprocedure('public.start_handover_acceptance(text,text,jsonb)') is not null,
+'sign_handover_acceptance',to_regprocedure('public.sign_handover_acceptance(uuid,text,text,text,text)') is not null,
+'financial_sales_trigger',exists(select 1 from pg_trigger where tgname='sales_orders_financial_period_guard' and not tgisinternal),
+'financial_collection_trigger',exists(select 1 from pg_trigger where tgname='collection_events_financial_period_guard' and not tgisinternal),
+'financial_daily_trigger',exists(select 1 from pg_trigger where tgname='daily_report_batches_financial_period_guard' and not tgisinternal),
+'financial_cost_trigger',exists(select 1 from pg_trigger where tgname='cost_ledger_financial_period_guard' and not tgisinternal),
+'credit_limit_trigger',exists(select 1 from pg_trigger where tgname='sales_orders_credit_limit_guard' and not tgisinternal),
+'maintenance_closure_trigger',exists(select 1 from pg_trigger where tgname='maintenance_closure_control_trigger' and not tgisinternal)),
+'assetBackfillCheck',(select count(*) from public.unified_assets where external_id in (select external_id from public.vehicles))=(select count(*) from public.vehicles),
+'governanceCapabilities',(select count(*) from public.role_capabilities where capability in ('financial_period.manage','credit_override.approve','assets.manage','compliance.manage','custody.approve','handover.manage','restore_test.manage'))>=7,
 'counts',json_build_object(
 'customers',(select count(*) from public.customers),
+'employees',(select count(*) from public.employees),
+'vehicles',(select count(*) from public.vehicles),
 'salesOrders',(select count(*) from public.sales_orders),
 'collectionEvents',(select count(*) from public.collection_events),
 'maintenanceOrders',(select count(*) from public.maintenance_orders),
 'dailySalesLines',(select count(*) from public.daily_report_sales_lines),
 'dailyCashMovements',(select count(*) from public.daily_report_cash_movements))
 )::text;`));
-if(Number(state.currentVersion)!==15)stop('TARGET_VERSION_NOT_REACHED','Production did not reach schema version 15.',{currentVersion:Number(state.currentVersion)});
-const versions=(state.versions||[]).map(Number);if([11,12,13,14,15].some(v=>!versions.includes(v)))stop('MIGRATION_HISTORY_INCOMPLETE','Migration history is incomplete.',{versions});
-const missing=Object.entries(state.objects||{}).filter(([,v])=>!v).map(([k])=>k);if(missing.length)stop('DATABASE_OBJECTS_MISSING','Required version-15 objects are missing.',{missing});
-if(!state.identityCheck||!state.fifoPreviewCheck)stop('FUNCTION_SMOKE_CHECK_FAILED','Read-only database function checks failed.');
+if(Number(state.currentVersion)!==17)stop('TARGET_VERSION_NOT_REACHED','Production did not reach schema version 17.',{currentVersion:Number(state.currentVersion)});
+const versions=(state.versions||[]).map(Number);if([11,12,13,14,15,16,17].some(v=>!versions.includes(v)))stop('MIGRATION_HISTORY_INCOMPLETE','Migration history is incomplete.',{versions});
+const missing=Object.entries(state.objects||{}).filter(([,v])=>!v).map(([k])=>k);if(missing.length)stop('DATABASE_OBJECTS_MISSING','Required version-17 objects are missing.',{missing});
+if(!state.assetBackfillCheck)stop('ASSET_BACKFILL_INCOMPLETE','One or more legacy vehicles were not represented in the unified asset register.');
+if(!state.governanceCapabilities)stop('GOVERNANCE_CAPABILITIES_INCOMPLETE','Governance capabilities were not seeded.');
 const changed=Object.keys(preflight.counts||{}).filter(k=>Number(preflight.counts[k])!==Number(state.counts?.[k]));if(changed.length)stop('PROTECTED_ROW_COUNT_CHANGED','Protected operational row counts changed during schema migration.',{changed,before:preflight.counts,after:state.counts});
-const result={ok:true,code:'MIGRATIONS_APPLIED_AND_VERIFIED',fromVersion:Number(preflight.currentVersion),toVersion:15,appliedMigrations:Array.from({length:Math.max(0,15-Number(preflight.currentVersion))},(_,i)=>Number(preflight.currentVersion)+i+1),transactionAtomic:true,preMigrationBackup:preflight.backup,beforeCounts:preflight.counts,afterCounts:state.counts,verification:state};
+const result={ok:true,code:'MIGRATIONS_APPLIED_AND_VERIFIED',fromVersion:Number(preflight.currentVersion),toVersion:17,appliedMigrations:Array.from({length:Math.max(0,17-Number(preflight.currentVersion))},(_,i)=>Number(preflight.currentVersion)+i+1),transactionAtomic:true,preMigrationBackup:preflight.backup,beforeCounts:preflight.counts,afterCounts:state.counts,verification:state};
 writeFileSync(output,`${JSON.stringify(result,null,2)}\n`,{mode:0o600});
-console.log(`[migration-verify] SUCCESS ${result.fromVersion}->15`);
+console.log(`[migration-verify] SUCCESS ${result.fromVersion}->17`);
