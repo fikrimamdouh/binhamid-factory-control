@@ -20,6 +20,7 @@ const routes={
   'reports':management.reports,
   'documents/verify':management.documentVerification,
   'imports/status':imports.status,
+  'imports/file':imports.download,
   'daily-report':dailyReport.dailyReport,
   'daily-report/fifo':fifo.fifo,
   'system/database-readiness':systemRuntime.databaseReadiness,
