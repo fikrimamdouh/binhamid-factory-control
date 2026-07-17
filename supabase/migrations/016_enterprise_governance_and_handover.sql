@@ -76,7 +76,7 @@ create table if not exists public.unified_assets (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
-create unique index if not exists unified_assets_plate_uidx on public.unified_assets(lower(plate_no)) where nullif(trim(plate_no),'') is not null and active;
+create index if not exists unified_assets_plate_idx on public.unified_assets(lower(plate_no)) where nullif(trim(plate_no),'') is not null and active;
 create index if not exists unified_assets_status_idx on public.unified_assets(active,operational_status,asset_type);
 
 create table if not exists public.asset_source_links (
