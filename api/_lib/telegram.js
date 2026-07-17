@@ -16,12 +16,13 @@ async function fetchRetry(url, options = {}, tries = 3) {
   }
   throw lastError;
 }
+const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
 export async function telegram(method, payload = {}) {
   ensure();
   const response = await fetchRetry(`https://api.telegram.org/bot${config.telegramToken}/${method}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
   const data = await response.json();
-  if (!data.ok) throw Object.assign(new Error(data.description || 'Telegram API error'), { status: 502, data });
+  if (!data.ok) throw Object.assign(new Error(data.description || 'Telegram API error'), { status: 502, upstreamStatus: response.status, telegramErrorCode: data.error_code, data });
   return data.result;
 }
 
@@ -72,11 +73,39 @@ export async function sendMessage(chatId, text, extra = {}) {
 
 export const answerCallback = (id, text = '') => telegram('answerCallbackQuery', { callback_query_id: id, text, show_alert: false });
 export async function getFile(fileId) { return telegram('getFile', { file_id: fileId }); }
-export async function downloadTelegramFile(fileId) {
-  const info = await getFile(fileId);
-  const response = await fetchRetry(`https://api.telegram.org/file/bot${config.telegramToken}/${info.file_path}`);
-  if (!response.ok) throw Object.assign(new Error('تعذر تنزيل ملف Telegram'), { status: 502 });
-  return { buffer: Buffer.from(await response.arrayBuffer()), filePath: info.file_path, contentType: response.headers.get('content-type') || 'application/octet-stream' };
+async function getFileWithRetry(fileId,tries=3){
+  let lastError;
+  for(let attempt=1;attempt<=tries;attempt++){
+    try{return await getFile(fileId);}
+    catch(error){
+      lastError=error;
+      const permanent=/file is too big|wrong file identifier|bad request: file/i.test(String(error?.message||''));
+      if(permanent||attempt===tries)throw error;
+      await wait(400*attempt);
+    }
+  }
+  throw lastError;
+}
+export async function downloadTelegramFile(fileId,options={}) {
+  const maxBytes=Number(options.maxBytes||config.maxImportFileBytes||0),expectedSize=Number(options.expectedSize||0);
+  if(maxBytes&&expectedSize>maxBytes)throw Object.assign(new Error('file is too big'),{status:413,code:'TELEGRAM_FILE_TOO_LARGE'});
+  const info=await getFileWithRetry(fileId),reportedSize=Number(info?.file_size||expectedSize||0);
+  if(!info?.file_path)throw Object.assign(new Error('Telegram file path is missing'),{status:502,code:'TELEGRAM_FILE_PATH_MISSING'});
+  if(maxBytes&&reportedSize>maxBytes)throw Object.assign(new Error('file is too big'),{status:413,code:'TELEGRAM_FILE_TOO_LARGE'});
+  let response,lastStatus=0;
+  for(let attempt=1;attempt<=3;attempt++){
+    response=await fetchRetry(`https://api.telegram.org/file/bot${config.telegramToken}/${info.file_path}`);
+    lastStatus=response.status;
+    if(response.ok)break;
+    if(![408,425,429,500,502,503,504].includes(response.status)||attempt===3)break;
+    await response.arrayBuffer().catch(()=>null);
+    await wait(450*attempt);
+  }
+  if (!response?.ok) throw Object.assign(new Error('تعذر تنزيل ملف Telegram'), { status: 502, upstreamStatus:lastStatus,code:'TELEGRAM_FILE_DOWNLOAD_FAILED' });
+  const buffer=Buffer.from(await response.arrayBuffer());
+  if(!buffer.length)throw Object.assign(new Error('Telegram file is empty'),{status:502,code:'TELEGRAM_FILE_EMPTY'});
+  if(maxBytes&&buffer.length>maxBytes)throw Object.assign(new Error('file is too big'),{status:413,code:'TELEGRAM_FILE_TOO_LARGE'});
+  return { buffer, filePath: info.file_path, contentType: response.headers.get('content-type') || 'application/octet-stream' };
 }
 export function keyboard(rows) { return { reply_markup: { inline_keyboard: rows } }; }
 export function replyKeyboard(rows, options = {}) { return { reply_markup: { keyboard: rows, resize_keyboard: true, one_time_keyboard: Boolean(options.oneTime), selective: true } }; }
