@@ -1,0 +1,63 @@
+name: Temporary Legacy Finance Scan
+
+on:
+  push:
+    branches:
+      - feat/complete-operational-roadmap
+
+permissions:
+  contents: write
+
+jobs:
+  scan:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/complete-operational-roadmap
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Extract relevant legacy excerpts
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          source = Path('legacy.html').read_text(encoding='utf-8').splitlines()
+          patterns = [
+              r'إقرار', r'اقرار', r'البلوك', r'بلك', r'بلوك', r'عميل', r'العملاء',
+              r'مبيعات', r'سداد', r'تحصيل', r'collection', r'payment', r'sales',
+              r'client', r'customer', r'ack', r'debt', r'balance', r'worker', r'employee'
+          ]
+          rx = re.compile('|'.join(patterns), re.I)
+          hits = [i for i, line in enumerate(source) if rx.search(line)]
+          windows = []
+          for i in hits:
+              windows.append((max(0, i-8), min(len(source), i+9)))
+          windows.sort()
+          merged=[]
+          for start,end in windows:
+              if not merged or start > merged[-1][1] + 2:
+                  merged.append([start,end])
+              else:
+                  merged[-1][1] = max(merged[-1][1],end)
+          out=[]
+          for start,end in merged:
+              out.append(f'\n===== LINES {start+1}-{end} =====')
+              for idx in range(start,end):
+                  out.append(f'{idx+1:05d}: {source[idx]}')
+          Path('debug').mkdir(exist_ok=True)
+          Path('debug/legacy-finance-excerpts.txt').write_text('\n'.join(out),encoding='utf-8')
+          print('hits',len(hits),'windows',len(merged),'lines',len(out))
+          PY
+      - name: Commit scan output
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add debug/legacy-finance-excerpts.txt
+          git diff --cached --quiet && exit 0
+          git commit -m 'chore: add temporary legacy finance excerpts'
+          git push origin HEAD:feat/complete-operational-roadmap
