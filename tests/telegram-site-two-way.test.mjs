@@ -1,0 +1,60 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+
+const read=path=>fs.readFileSync(new URL(`../${path}`,import.meta.url),'utf8');
+
+test('device session has inbox capabilities without admin capabilities',()=>{
+  const source=read('api/_lib/device-session.js');
+  assert.match(source,/imports\.read/);
+  assert.match(source,/imports\.manage/);
+  assert.doesNotMatch(source,/admin\/users/);
+  assert.doesNotMatch(source,/telegram\/register/);
+});
+
+test('dashboard returns Telegram inbox data used by cloud control',()=>{
+  const source=read('api/_lib/routes/manager-dashboard.js');
+  assert.match(source,/safeSelect\('imports'/);
+  assert.match(source,/safeSelect\('telegram_groups'/);
+  assert.match(source,/safeSelect\('user_channels'/);
+  assert.match(source,/imports,groups,users/);
+  assert.match(source,/twoWay:true/);
+});
+
+test('import status transitions are returned to the source Telegram chat',()=>{
+  const source=read('api/_lib/routes/imports.js');
+  assert.match(source,/requireAdminOrDevice\(req,'imports\.manage'\)/);
+  assert.match(source,/source_chat_id/);
+  assert.match(source,/import_status_changed/);
+  assert.match(source,/opened_in_program/);
+  assert.match(source,/approved/);
+});
+
+test('Telegram uploads are stored for the site and relayed to the owner',()=>{
+  const source=read('api/_lib/bot-files.js');
+  assert.match(source,/insert\('imports'/);
+  assert.match(source,/relayToOwner/);
+  assert.match(source,/sendDocumentBuffer/);
+  assert.match(source,/file_hash/);
+});
+
+test('website approval sends summary and original file to Telegram',()=>{
+  const source=read('api/_lib/routes/telegram-admin.js');
+  assert.match(source,/findApprovedBatch/);
+  assert.match(source,/linkedImport/);
+  assert.match(source,/downloadObject/);
+  assert.match(source,/sendDocumentBuffer/);
+  assert.match(source,/source_import_approved/);
+  assert.match(source,/status:'approved'/);
+});
+
+test('browser polls and stages recognized Telegram reports automatically',()=>{
+  const source=read('assets/telegram-site-two-way.js'),index=read('index.html');
+  assert.match(index,/telegram-site-two-way\.js/);
+  assert.match(source,/POLL_MS=15000/);
+  assert.match(source,/bhCloudApplyImport/);
+  assert.match(source,/\/api\/dashboard/);
+  assert.match(source,/\/api\/imports\/status/);
+  assert.match(source,/opened_in_program/);
+  assert.match(source,/binhamid_cloud_auto_import/);
+});

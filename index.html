@@ -56,6 +56,7 @@
           injectScript('binhamid-existing-daily-import-fix','/assets/existing-daily-import-fix.js?v=20260717-2',function(){console.error('[BinHamid] تعذر تحميل إصلاح استيراد ملخص اليوم وتقرير الحركة.');});
           injectScript('binhamid-declarations-customer-ledger-fix','/assets/declarations-customer-ledger-fix.js?v=20260717-1',function(){console.error('[BinHamid] تعذر تحميل تصحيح إقرارات المبيعات وكشف العملاء.');});
           injectScript('binhamid-daily-report-source','/assets/daily-report-source-of-truth.js?v=20260717-3',function(){console.error('[BinHamid] تعذر تحميل حارس الاعتماد السحابي للتقرير اليومي.');});
+          injectScript('binhamid-telegram-site-two-way','/assets/telegram-site-two-way.js?v=20260717-1',function(){console.error('[BinHamid] تعذر تحميل الأتمتة الثنائية بين Telegram والموقع.');});
           injectScript('binhamid-governance-entry','/assets/governance-entry.js?v=20260717-1',function(){console.error('[BinHamid] تعذر تحميل روابط مركز الرقابة والحوكمة.');});
         }
         function loadCloudControl(){injectScript('binhamid-cloud-script','/assets/cloud-control.js?v=20260717-auto-device-session-1',function(){fail(new Error('تعذر تحميل مركز الاتصال، بينما النسخة الأساسية ما زالت متاحة.'));},injectExtensions);}
