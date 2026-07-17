@@ -19,11 +19,12 @@ async function pagedSelect(table,query,maxPages=50){
 function customerKey(code,name){const c=norm(code);return c?`code:${c}`:`name:${norm(name)||'unknown'}`;}
 function saleType(row){const raw=String(row?.sales_type||row?.kind||'').toLowerCase();if(raw==='block'||raw==='بلوك')return'block';if(raw==='concrete'||raw==='خرسانة'||raw==='خرسانه')return'concrete';return'other';}
 function dailySale(row,index,reportDate){
-  return{id:`daily:${index}`,customerCode:String(row.customerCode||''),customerName:String(row.customer||'عميل غير مسمى'),type:saleType(row),item:String(row.item||''),quantity:n(row.quantity),total:n(row.amount),paid:0,outstanding:n(row.amount),date:reportDate,current:true,invoice:String(row.invoice||index+1)};
+  const total=Math.max(0,n(row.amount));
+  return{id:`daily:${index}`,customerCode:String(row.customerCode||''),customerName:String(row.customer||'عميل غير مسمى'),type:saleType(row),item:String(row.item||''),quantity:n(row.quantity),total,paid:0,outstanding:total,openingOutstanding:0,date:reportDate,current:true,invoice:String(row.invoice||index+1)};
 }
 function storedSale(row){
-  const total=Math.max(0,n(row.total_amount)),paid=Math.min(total,Math.max(0,n(row.paid_amount)));
-  return{id:String(row.reference_no||row.id||''),customerCode:String(row.customer_external_id||''),customerName:String(row.customer_name||'عميل غير مسمى'),type:saleType(row),item:String(row.item||''),quantity:n(row.quantity),total,paid,outstanding:Math.max(0,total-paid),date:date(row.delivery_date||row.created_at),current:false,invoice:String(row.reference_no||'')};
+  const total=Math.max(0,n(row.total_amount)),paid=Math.min(total,Math.max(0,n(row.paid_amount))),outstanding=Math.max(0,total-paid);
+  return{id:String(row.reference_no||row.id||''),customerCode:String(row.customer_external_id||''),customerName:String(row.customer_name||'عميل غير مسمى'),type:saleType(row),item:String(row.item||''),quantity:n(row.quantity),total,paid,outstanding,openingOutstanding:outstanding,date:date(row.delivery_date||row.created_at),current:false,invoice:String(row.reference_no||'')};
 }
 function blankCustomer(key,code,name){return{key,code:String(code||''),name:String(name||code||'عميل غير مسمى'),invoices:[],currentCollections:0,currentUnallocated:0,applied:{block:0,concrete:0,other:0}};}
 
@@ -43,14 +44,12 @@ export function projectCumulativeDailyReport({storedSales=[],dailySales=[],daily
   for(const customer of customers.values())for(const type of ['block','concrete']){
     const invoices=customer.invoices.filter(row=>row.type===type),historical=invoices.filter(row=>!row.current),current=invoices.filter(row=>row.current);
     if(!invoices.length&&!customer.applied[type])continue;
-    const openingBalance=historical.reduce((sum,row)=>sum+(row.total-row.paid+(row.current?0:0)),0)-0;
-    const storedClosingBeforeFile=historical.reduce((sum,row)=>sum+Math.max(0,row.total-(row.paid-(customer.applied[type]||0))),0);
-    const currentSales=current.reduce((sum,row)=>sum+row.total,0),currentQuantity=current.reduce((sum,row)=>sum+row.quantity,0),currentApplied=customer.applied[type]||0;
+    const openingBalance=historical.reduce((sum,row)=>sum+row.openingOutstanding,0),currentSales=current.reduce((sum,row)=>sum+row.total,0),currentQuantity=current.reduce((sum,row)=>sum+row.quantity,0),currentApplied=customer.applied[type]||0;
     const closingBalance=invoices.reduce((sum,row)=>sum+Math.max(0,row.outstanding),0),cumulativeSales=invoices.reduce((sum,row)=>sum+row.total,0),cumulativePaid=cumulativeSales-closingBalance;
-    departments[type].push({key:customer.key,code:customer.code,name:customer.name,openingBalance:Math.max(0,storedClosingBeforeFile),currentSales,currentQuantity,currentApplied,closingBalance,cumulativeSales,cumulativePaid,currentCollections:customer.currentCollections,currentUnallocated:customer.currentUnallocated,invoices:current,invoiceCount:invoices.length});
+    departments[type].push({key:customer.key,code:customer.code,name:customer.name,openingBalance,currentSales,currentQuantity,currentApplied,closingBalance,cumulativeSales,cumulativePaid,currentCollections:customer.currentCollections,currentUnallocated:customer.currentUnallocated,invoices:current,invoiceCount:invoices.length});
   }
   for(const type of ['block','concrete'])departments[type].sort((a,b)=>b.closingBalance-a.closingBalance||b.currentSales-a.currentSales||a.name.localeCompare(b.name,'ar'));
-  const summarize=rows=>rows.reduce((out,row)=>{out.customers+=1;out.openingBalance+=row.openingBalance;out.currentSales+=row.currentSales;out.currentQuantity+=row.currentQuantity;out.currentApplied+=row.currentApplied;out.closingBalance+=row.closingBalance;out.cumulativeSales+=row.cumulativeSales;out.cumulativePaid+=row.cumulativePaid;out.unallocated=Math.max(out.unallocated,row.currentUnallocated);return out;},{customers:0,openingBalance:0,currentSales:0,currentQuantity:0,currentApplied:0,closingBalance:0,cumulativeSales:0,cumulativePaid:0,unallocated:0});
+  const summarize=rows=>rows.reduce((out,row)=>{out.customers+=1;out.openingBalance+=row.openingBalance;out.currentSales+=row.currentSales;out.currentQuantity+=row.currentQuantity;out.currentApplied+=row.currentApplied;out.closingBalance+=row.closingBalance;out.cumulativeSales+=row.cumulativeSales;out.cumulativePaid+=row.cumulativePaid;out.unallocated+=row.currentUnallocated;return out;},{customers:0,openingBalance:0,currentSales:0,currentQuantity:0,currentApplied:0,closingBalance:0,cumulativeSales:0,cumulativePaid:0,unallocated:0});
   return{reportDate,latestApprovedDate,departments:{block:{rows:departments.block,totals:summarize(departments.block)},concrete:{rows:departments.concrete,totals:summarize(departments.concrete)}}};
 }
 
