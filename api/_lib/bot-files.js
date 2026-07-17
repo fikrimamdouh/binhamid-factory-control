@@ -4,6 +4,7 @@ import { select, insert, patch, uploadObject } from './supabase.js';
 import { sendMessage, sendDocumentBuffer, downloadTelegramFile } from './telegram.js';
 import { classifyFile, sha256 } from './domain.js';
 import { parseDailyWorkbook } from './daily-summary-parser.js';
+import { generateCumulativeDailyPdfs } from './daily-cumulative-pdf.js';
 import { reportTypeLabel, reportDestination } from './bot-profile.js';
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const plain=v=>String(v??'').replace(/<[^>]+>/g,'');
@@ -44,10 +45,24 @@ async function relayToOwner(sourceChatId,buffer,name,contentType,caption,actionP
   try{return await sendDocumentBuffer(owner,buffer,name,contentType,plain(caption).slice(0,900));}
   catch(error){console.warn('[telegram owner file relay]',{name,status:Number(error?.status||0),message:String(error?.message||'').slice(0,300),actionPayload});return null;}
 }
+async function sendCumulativeDailyReports(chatId,analysis,name){
+  try{
+    await sendMessage(chatId,'جارٍ إعداد تقرير البلوك وتقرير الخرسانة من الأرصدة السابقة وحركة الملف الحالي.');
+    const reports=await generateCumulativeDailyPdfs(analysis||{},name);
+    for(const report of reports)await sendDocumentBuffer(chatId,report.pdf,report.filename,'application/pdf',report.caption);
+    await sendMessage(chatId,'تم إرسال التقريرين كمسودة تراكميّة. بعد اعتماد الملف تصبح الحركة جزءًا من الرصيد الرسمي لليوم التالي.');
+    return reports;
+  }catch(error){
+    console.error('[telegram daily cumulative pdf]',{code:error?.code||null,status:Number(error?.status||error?.upstreamStatus||0),message:String(error?.message||'').slice(0,500)});
+    const reason=error?.code==='PDF_SERVICE_NOT_CONFIGURED'?'خدمة PDF غير مضبوطة. يلزم ضبط PDF_PROVIDER وPDF_API_URL في Vercel.':String(error?.message||'تعذر إنشاء ملفات PDF').slice(0,300);
+    await sendMessage(chatId,`تم حفظ ملف Excel وقراءته، لكن تعذر إنشاء تقريري PDF.\nالسبب: ${esc(reason)}`).catch(()=>null);
+    return[];
+  }
+}
 export async function handleExcel(message,group,identity,stored){
   const document=message.document,chatId=message.chat.id,name=document.file_name||'report.xlsx';
   await sendMessage(chatId,`تم استلام ملف <b>${esc(name)}</b>. جارٍ تنزيله وفحصه وحفظه في مركز الوارد.`);
-  let resultText='',result=null,relay=null;
+  let resultText='',result=null,relay=null,dailyAnalysis=null;
   try{
     const downloaded=await excelStep('download',()=>downloadTelegramFile(document.file_id,{expectedSize:document.file_size,maxBytes:config.maxImportFileBytes}));
     relay={buffer:downloaded.buffer,contentType:document.mime_type||downloaded.contentType};
@@ -55,11 +70,12 @@ export async function handleExcel(message,group,identity,stored){
     const duplicate=(await excelStep('lookup',()=>select('imports',`file_hash=eq.${hash}&select=id,status,original_name,report_type,summary,file_path&limit=1`)))?.[0];
     const recheck=Boolean(duplicate&&(duplicate.report_type==='unknown_excel'||duplicate.status==='failed'||!duplicate.report_type));
     if(duplicate&&!recheck){
+      const recognizedDaily=dailyType(duplicate.report_type);
       resultText=`هذا الملف سبق استلامه.\nالملف: <b>${esc(duplicate.original_name)}</b>\nالنوع: <b>${esc(reportTypeLabel(duplicate.report_type))}</b>\nالحالة: <b>${esc(duplicate.status)}</b>${dailySummaryText(duplicate.summary?.daily||duplicate.summary||{})}`;
-      result={duplicate:true,import:duplicate};
+      result={duplicate:true,import:duplicate,reportType:duplicate.report_type,status:duplicate.status,recognizedDaily};
     }else{
       let sheetNames=[],rowCount=0,summary={},contentText='',status='ready',errorCount=0;
-      try{const workbook=XLSX.read(downloaded.buffer,{type:'buffer',cellDates:true}),analysis=parseDailyWorkbook(workbook,XLSX);sheetNames=workbook.SheetNames;rowCount=analysis.rowCount;contentText=analysis.contentText;summary={sheetNames,daily:analysis.summary};}
+      try{const workbook=XLSX.read(downloaded.buffer,{type:'buffer',cellDates:true});dailyAnalysis=parseDailyWorkbook(workbook,XLSX);sheetNames=workbook.SheetNames;rowCount=dailyAnalysis.rowCount;contentText=dailyAnalysis.contentText;summary={sheetNames,daily:dailyAnalysis.summary};}
       catch(error){status='failed';errorCount=1;summary={error:String(error?.message||'تعذر قراءة المصنف').slice(0,500)};}
       const reportType=classifyFile(name,group.department,sheetNames,contentText),path=duplicate?.file_path||`telegram/${group.department||'unassigned'}/${new Date().toISOString().slice(0,10)}/${hash.slice(0,16)}-${safeFile(name)}`,values={department:group.department||'unassigned',report_type:reportType,status,original_name:name,mime_type:document.mime_type||downloaded.contentType,file_path:path,file_hash:hash,row_count:rowCount,error_count:errorCount,warning_count:reportType==='unknown_excel'?1:0,summary,submitted_by:identity.user_id,source_chat_id:String(chatId),source_message_id:String(message.message_id),updated_at:new Date().toISOString()};
       if(!duplicate?.file_path)await excelStep('storage',()=>uploadObject(path,downloaded.buffer,document.mime_type||downloaded.contentType));
@@ -68,7 +84,7 @@ export async function handleExcel(message,group,identity,stored){
       if(stored?.id&&imp?.id)await patch('telegram_messages',`id=eq.${stored.id}`,{file_path:path,related_entity_type:'import',related_entity_id:imp.id,transcription:null}).catch(error=>console.warn('[telegram excel message link]',error?.message||error));
       const recognizedDaily=dailyType(reportType),state=status!=='ready'?'حُفظ لكن تعذر الفحص الآلي':recognizedDaily?'محفوظ وجاهز للمراجعة والاعتماد من شاشة التقرير اليومي':'جاهز للمراجعة',footer=recognizedDaily?'لم يتم اعتماد التقرير أو إنشاء أي قيود تلقائيًا؛ الاعتماد يتم من البرنامج بعد المراجعة.':'لم تُرحّل البيانات نهائيًا.',resultTitle=recheck?'تمت إعادة فحص الملف القديم وتحديث تصنيفه بنجاح.':status==='ready'?'تم فحص الملف وحفظه بنجاح.':'تم حفظ الملف، لكن تعذر فحص محتواه آليًا.';
       resultText=`${resultTitle}\n\nالاسم: ${esc(name)}\nالنوع: <b>${esc(reportTypeLabel(reportType))}</b>\nالمسار: <b>${esc(reportDestination(reportType,group.department))}</b>\nالأوراق: ${esc(sheetNames.join('، ')||'تعذر القراءة')}\nالصفوف: <b>${rowCount}</b>${recognizedDaily?dailySummaryText(summary.daily):''}\nالحالة: <b>${state}</b>\n\n${footer}`;
-      result={duplicate:false,import:imp,reportType,status,path};
+      result={duplicate:false,import:imp,reportType,status,path,recognizedDaily};
     }
   }catch(error){
     console.error('[telegram excel import]',{stage:error?.excelStage||'unknown',status:Number(error?.status||error?.upstreamStatus||0),message:String(error?.message||'').slice(0,500)});
@@ -77,6 +93,7 @@ export async function handleExcel(message,group,identity,stored){
   }
   await relayToOwner(chatId,relay?.buffer,name,relay?.contentType,`ملف وارد من Telegram\n\n${resultText}`,{importId:result?.import?.id});
   await sendProcessingResult(chatId,resultText,name);
+  if(result?.recognizedDaily&&result?.status!=='failed')result.pdfReports=await sendCumulativeDailyReports(chatId,result.duplicate?{}:dailyAnalysis,name);
   return result;
 }
 export async function handleAttachment(message,group,identity,stored){
