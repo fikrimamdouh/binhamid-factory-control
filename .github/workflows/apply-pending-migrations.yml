@@ -1,4 +1,4 @@
-name: Apply Database Migrations
+name: Apply Final Acceptance Migrations
 
 on:
   workflow_dispatch:
@@ -10,11 +10,14 @@ on:
       - 'scripts/resolve-supabase-connection.mjs'
       - 'scripts/governance-migration-preflight.mjs'
       - 'scripts/governance-migration-verify.mjs'
+      - 'scripts/final-acceptance-database.mjs'
+      - 'scripts/accounting-production-integrity.mjs'
+      - 'scripts/restore-drill.mjs'
       - 'scripts/verify-backup-files.mjs'
       - 'scripts/backup-supabase.mjs'
-      - 'supabase/migrations/016_enterprise_governance_and_handover.sql'
-      - 'supabase/migrations/017_governance_control_rpcs.sql'
-      - 'supabase/migrations/018_governance_safety_refinements.sql'
+      - 'scripts/record-backup-evidence.mjs'
+      - 'supabase/migrations/019_accounting_import_and_telegram_integrity.sql'
+      - 'supabase/migrations/020_accounting_reversal_and_projection_safety.sql'
 
 permissions:
   contents: read
@@ -23,10 +26,26 @@ permissions:
 jobs:
   migrate:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 55
     concurrency:
       group: binhamid-production-database-migrations
       cancel-in-progress: false
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: migration_clone
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d migration_clone"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      LOCAL_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/migration_clone
     steps:
       - uses: actions/checkout@v4
 
@@ -34,17 +53,23 @@ jobs:
         with:
           node-version: '24.x'
 
-      - name: Validate repository and governance migrations
+      - name: Validate repository and final acceptance migrations
         run: |
           set -euo pipefail
           npm install --ignore-scripts --no-audit --no-fund
           node --check scripts/resolve-supabase-connection.mjs
           node --check scripts/governance-migration-preflight.mjs
           node --check scripts/governance-migration-verify.mjs
-          node --check scripts/verify-backup-files.mjs
-          node --check api/_lib/routes/governance.js
+          node --check scripts/final-acceptance-database.mjs
+          node --check scripts/accounting-production-integrity.mjs
+          node --check scripts/restore-drill.mjs
+          node --check api/_lib/routes/daily-report.js
+          node --check api/_lib/routes/accounting.js
+          node --check api/_lib/telegram-webhook-gateway.js
           npm run audit:migrations
           npm test
+          npm run check:api
+          npm run check:functions
 
       - name: Install PostgreSQL 17 client
         shell: bash
@@ -83,51 +108,80 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Create encrypted pre-migration backup
+      - name: Create and verify encrypted pre-migration backup
         env:
           BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
-          BACKUP_ENVIRONMENT: production-pre-governance
+          BACKUP_ENVIRONMENT: production-pre-final-acceptance
           BACKUP_OUTPUT_DIR: pre-migration-backup
         shell: bash
         run: |
           set -euo pipefail
           rm -rf pre-migration-backup
           mkdir -p pre-migration-backup
+          : > pre-migration-backup-result.jsonl
           node scripts/backup-supabase.mjs | tee pre-migration-backup-result.jsonl
+          test "${PIPESTATUS[0]}" -eq 0
           BACKUP_RESULT_FILE=pre-migration-backup-result.jsonl \
           BACKUP_OUTPUT_DIR=pre-migration-backup \
           BACKUP_VERIFICATION_FILE=pre-migration-backup-verification.json \
           BACKUP_MANIFEST_ENV_NAME=PRE_MIGRATION_MANIFEST \
           node scripts/verify-backup-files.mjs
 
-      - name: Upload encrypted pre-migration backup
-        uses: actions/upload-artifact@v4
-        with:
-          name: encrypted-pre-migration-backup-${{ github.run_id }}
-          path: |
-            pre-migration-backup/*.enc
-            pre-migration-backup/*.manifest.json
-            pre-migration-backup-result.jsonl
-            pre-migration-backup-verification.json
-          if-no-files-found: error
-          retention-days: 14
-
-      - name: Run governance migration preflight
+      - name: Run production migration preflight
         env:
           MIGRATION_PREFLIGHT_PATH: migration-preflight.json
         run: node scripts/governance-migration-preflight.mjs
 
-      - name: Apply pending governance migrations atomically
+      - name: Restore production backup to isolated PostgreSQL 17
+        env:
+          BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+          RESTORE_ARTIFACT_DIR: pre-migration-backup
+          RESTORE_DRILL_RESULT: isolated-restore-before.json
+          SUPABASE_DB_URL: ''
+        run: node scripts/restore-drill.mjs
+
+      - name: Apply pending migrations to isolated clone atomically
+        shell: bash
+        run: |
+          set -euo pipefail
+          current_version="$(node -e "const x=require('./isolated-restore-before.json');process.stdout.write(String(x.schemaVersion))")"
+          if [ "$current_version" -lt 20 ]; then
+            : > isolated-pending-migrations.sql
+            for version in $(seq $((current_version + 1)) 20); do
+              file="$(find supabase/migrations -maxdepth 1 -type f -name "$(printf '%03d' "$version")_*.sql" -print -quit)"
+              test -n "$file"
+              printf '\n-- BEGIN %s\n' "$file" >> isolated-pending-migrations.sql
+              cat "$file" >> isolated-pending-migrations.sql
+              printf '\n-- END %s\n' "$file" >> isolated-pending-migrations.sql
+            done
+            psql "$LOCAL_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction --file isolated-pending-migrations.sql
+            rm -f isolated-pending-migrations.sql
+          fi
+
+      - name: Verify isolated schema and protected row counts
+        env:
+          SUPABASE_DB_URL: ${{ env.LOCAL_DATABASE_URL }}
+          MIGRATION_PREFLIGHT_PATH: migration-preflight.json
+          MIGRATION_RESULT_PATH: isolated-migration-result.json
+        run: node scripts/governance-migration-verify.mjs
+
+      - name: Run transactional accounting and duplicate acceptance on clone
+        env:
+          TEST_DATABASE_URL: ${{ env.LOCAL_DATABASE_URL }}
+          FINAL_ACCEPTANCE_DB_RESULT: isolated-final-acceptance.json
+        run: node scripts/final-acceptance-database.mjs
+
+      - name: Apply pending migrations to production atomically
         shell: bash
         run: |
           set -euo pipefail
           current_version="$(node -e "const x=require('./migration-preflight.json');process.stdout.write(String(x.currentVersion))")"
-          if [ "$current_version" -ge 18 ]; then
-            echo 'Database is already at schema version 18.'
+          if [ "$current_version" -ge 20 ]; then
+            echo 'Database is already at schema version 20.'
             exit 0
           fi
           : > pending-migrations.sql
-          for version in $(seq $((current_version + 1)) 18); do
+          for version in $(seq $((current_version + 1)) 20); do
             file="$(find supabase/migrations -maxdepth 1 -type f -name "$(printf '%03d' "$version")_*.sql" -print -quit)"
             test -n "$file"
             printf '\n-- BEGIN %s\n' "$file" >> pending-migrations.sql
@@ -137,51 +191,76 @@ jobs:
           psql "$SUPABASE_DB_URL" -X -v ON_ERROR_STOP=1 --single-transaction --file pending-migrations.sql
           rm -f pending-migrations.sql
 
-      - name: Verify governance schema and protected row counts
+      - name: Verify production schema, rows and accounting integrity
         env:
           MIGRATION_PREFLIGHT_PATH: migration-preflight.json
           MIGRATION_RESULT_PATH: migration-result.json
-        run: node scripts/governance-migration-verify.mjs
+          ACCOUNTING_INTEGRITY_PATH: production-accounting-integrity.json
+        run: |
+          set -euo pipefail
+          node scripts/governance-migration-verify.mjs
+          node scripts/accounting-production-integrity.mjs
 
-      - name: Create encrypted post-migration backup
+      - name: Create and verify encrypted post-migration backup
         env:
           BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
-          BACKUP_ENVIRONMENT: production-post-governance
+          BACKUP_ENVIRONMENT: production-post-final-acceptance
           BACKUP_OUTPUT_DIR: post-migration-backup
         shell: bash
         run: |
           set -euo pipefail
           rm -rf post-migration-backup
           mkdir -p post-migration-backup
+          : > post-migration-backup-result.jsonl
           node scripts/backup-supabase.mjs | tee post-migration-backup-result.jsonl
+          test "${PIPESTATUS[0]}" -eq 0
           BACKUP_RESULT_FILE=post-migration-backup-result.jsonl \
           BACKUP_OUTPUT_DIR=post-migration-backup \
           BACKUP_VERIFICATION_FILE=post-migration-backup-verification.json \
           BACKUP_MANIFEST_ENV_NAME=POST_MIGRATION_MANIFEST \
-          EXPECTED_SCHEMA_VERSION=18 \
+          EXPECTED_SCHEMA_VERSION=20 \
           node scripts/verify-backup-files.mjs
 
-      - name: Upload migration evidence
-        uses: actions/upload-artifact@v4
-        with:
-          name: governance-migration-evidence-${{ github.run_id }}
-          path: |
-            migration-preflight.json
-            migration-result.json
-            post-migration-backup-verification.json
-            post-migration-backup-result.jsonl
-          if-no-files-found: error
-          retention-days: 14
+      - name: Restore post-migration backup to second isolated database
+        env:
+          BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+          RESTORE_ARTIFACT_DIR: post-migration-backup
+          RESTORE_DRILL_RESULT: isolated-restore-after.json
+          LOCAL_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/post_migration_restore
+          SUPABASE_DB_URL: ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql 'postgresql://postgres:postgres@127.0.0.1:5432/postgres' -X -v ON_ERROR_STOP=1 -c 'create database post_migration_restore;'
+          node scripts/restore-drill.mjs
 
-      - name: Upload encrypted post-migration backup
+      - name: Record verified post-migration backup metadata
+        env:
+          BACKUP_OUTPUT_DIR: post-migration-backup
+          BACKUP_RESULT_FILE: post-migration-backup-result.jsonl
+        run: node scripts/record-backup-evidence.mjs
+
+      - name: Upload successful migration evidence
         uses: actions/upload-artifact@v4
         with:
-          name: encrypted-post-migration-backup-${{ github.run_id }}
+          name: final-acceptance-migration-evidence-${{ github.run_id }}
           path: |
+            migration-connection-diagnostic.json
+            migration-preflight.json
+            isolated-restore-before.json
+            isolated-migration-result.json
+            isolated-final-acceptance.json
+            migration-result.json
+            production-accounting-integrity.json
+            pre-migration-backup-verification.json
+            post-migration-backup-verification.json
+            isolated-restore-after.json
+            pre-migration-backup/*.enc
+            pre-migration-backup/*.manifest.json
+            pre-migration-backup-result.jsonl
             post-migration-backup/*.enc
             post-migration-backup/*.manifest.json
             post-migration-backup-result.jsonl
-            post-migration-backup-verification.json
           if-no-files-found: error
           retention-days: 14
 
@@ -189,12 +268,18 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: governance-migration-failure-${{ github.run_id }}
+          name: final-acceptance-migration-failure-${{ github.run_id }}
           path: |
             migration-connection-diagnostic.json
             pre-migration-backup-verification.json
             migration-preflight.json
+            isolated-restore-before.json
+            isolated-migration-result.json
+            isolated-final-acceptance.json
             migration-result.json
+            production-accounting-integrity.json
+            post-migration-backup-verification.json
+            isolated-restore-after.json
           if-no-files-found: warn
           retention-days: 14
 
@@ -212,7 +297,7 @@ jobs:
           const response=await fetch(`https://api.github.com/repos/${process.env.REPOSITORY}/statuses/${process.env.HEAD_SHA}`,{
             method:'POST',
             headers:{Accept:'application/vnd.github+json',Authorization:`Bearer ${process.env.GITHUB_TOKEN}`,'X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'},
-            body:JSON.stringify({state:success?'success':'failure',context:'database-migrations',target_url:process.env.RUN_URL,description:success?'Schema 18 governance controls applied and verified with encrypted backups.':'Governance migration failed; the production transaction was rolled back or stopped by a guard.'})
+            body:JSON.stringify({state:success?'success':'failure',context:'final-acceptance-migrations',target_url:process.env.RUN_URL,description:success?'Schema 20 tested on isolated restore, applied atomically and backed up.':'Migration stopped before unsafe completion; inspect evidence.'})
           });
           if(!response.ok)throw new Error(`Status publication failed with HTTP ${response.status}`);
           NODE
