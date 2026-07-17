@@ -10,6 +10,8 @@ const commands={
   bn:[{command:'start',description:'স্মার্ট কর্মচারী সহকারী চালু করুন'},{command:'menu',description:'আপনার কাজের মেনু খুলুন'},{command:'attendance',description:'উপস্থিতি, প্রস্থান ও চালকের চলাচল'},{command:'tasks',description:'আপনার খোলা কাজ দেখুন'},{command:'reports',description:'ব্যবস্থাপনা রিপোর্ট'},{command:'sales',description:'ব্লক ও কংক্রিট বিক্রয় আদেশ'},{command:'workshop',description:'ওয়ার্কশপ এবং মেকানিক মেনু'},{command:'suppliers',description:'সরবরাহকারী খুঁজুন ও কোটেশন চান'},{command:'gps',description:'বহরের GPS অবস্থা'},{command:'status',description:'সিস্টেম সংযোগ ও সর্বশেষ সিঙ্ক'},{command:'whoami',description:'আপনার ভূমিকা ও অবস্থা দেখুন'}],
   ur:[{command:'start',description:'سمارٹ ملازم معاون شروع کریں'},{command:'menu',description:'اپنا کام کا مینو کھولیں'},{command:'attendance',description:'حاضری، روانگی اور ڈرائیور حرکت'},{command:'tasks',description:'اپنے کھلے کام دیکھیں'},{command:'reports',description:'انتظامی رپورٹس'},{command:'sales',description:'بلاک اور کنکریٹ سیلز آرڈر'},{command:'workshop',description:'ورکشاپ اور مکینک مینو'},{command:'suppliers',description:'سپلائر تلاش کریں اور کوٹیشن مانگیں'},{command:'gps',description:'فلیٹ GPS حالت'},{command:'status',description:'سسٹم رابطہ اور آخری ہم وقت سازی'},{command:'whoami',description:'اپنا کردار اور حالت دیکھیں'}]
 };
+const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+const number=value=>Number(value||0).toLocaleString('en-US',{maximumFractionDigits:2});
 
 export async function register(req,res){
   if(!method(req,res,['POST']))return;
@@ -43,6 +45,20 @@ export async function test(req,res){
     const input=await body(req);
     if(!input.chatId)throw Object.assign(new Error('Chat ID مطلوب'),{status:400});
     const result=await sendMessage(String(input.chatId),'تم ربط <b>مساعد مصنع بن حامد</b> بالخادم بنجاح.\n\nأرسل /whoami لعرض رقم حسابك، أو اكتب <b>تقارير</b> لفتح قائمة التقارير.');
+    json(res,200,{ok:true,messageId:result.message_id});
+  }catch(error){errorResponse(res,error);}
+}
+
+export async function notify(req,res){
+  if(!method(req,res,['POST']))return;
+  try{
+    requireAdmin(req);
+    const input=await body(req);
+    if(input.event!=='daily_report_approved')throw Object.assign(new Error('نوع الإشعار غير صحيح'),{status:400});
+    if(!config.telegramOwnerId)throw Object.assign(new Error('TELEGRAM_OWNER_ID غير مضبوط'),{status:503});
+    const preview=input.preview&&typeof input.preview==='object'?input.preview:{},reportDate=String(input.reportDate||'').slice(0,10),originalName=String(input.originalName||'daily-report.xlsx').slice(0,240),importId=String(input.importId||'').slice(0,120);
+    const text=`تم اعتماد <b>التقرير اليومي</b> من الموقع.\n\nالتاريخ: <b>${esc(reportDate||'—')}</b>\nالملف: ${esc(originalName)}\nعدد الفواتير: <b>${number(preview.invoiceCount)}</b>\nإجمالي المبيعات: <b>${number(preview.salesTotal)} ر.س</b>\nالبلوك: <b>${number(preview.blockSales)} ر.س</b>\nالخرسانة: <b>${number(preview.concreteSales)} ر.س</b>\nالتحصيلات: <b>${number(preview.collectionTotal)} ر.س</b>${importId?`\nمرجع الاعتماد: <code>${esc(importId)}</code>`:''}`;
+    const result=await sendMessage(config.telegramOwnerId,text,{action_name:'daily_report_approved',action_payload:{reportDate,importId}});
     json(res,200,{ok:true,messageId:result.message_id});
   }catch(error){errorResponse(res,error);}
 }

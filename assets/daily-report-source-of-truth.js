@@ -1,6 +1,6 @@
 (function(){
   'use strict';
-  const VERSION='2026.07.17-daily-report-source-v2',TOKEN_KEY='binhamid_cloud_access_token';
+  const VERSION='2026.07.17-daily-report-source-v3',TOKEN_KEY='binhamid_cloud_access_token';
   let installed=false,activeContext=null;
   const clean=value=>String(value??'').trim();
   const num=value=>{const parsed=Number(String(value??0).replace(/[٬,]/g,'').replace(/٫/g,'.'));return Number.isFinite(parsed)?parsed:0;};
@@ -37,6 +37,14 @@
     return data;
   }
 
+  async function notifyTelegram(context,reportDate,cloud){
+    const access=token(),preview=cloud?.preview||payloadFromPlan(context.plan).summary;
+    const response=await fetch('/api/telegram/notify',{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${access}`},body:JSON.stringify({event:'daily_report_approved',reportDate,originalName:context.file.name,importId:cloud?.importId||cloud?.existingImportId||'',preview})});
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok)throw new Error(data?.error||data?.message||`تعذر إشعار Telegram (${response.status})`);
+    return data;
+  }
+
   async function makeContext(file,mode){
     const bytes=new Uint8Array(await file.arrayBuffer()),workbook=window.XLSX.read(bytes,{type:'array',cellDates:false});
     let plan;
@@ -51,7 +59,9 @@
     const payload=payloadFromPlan(context.plan),base={reportDate,originalName:context.file.name,fileHash:context.fileHash,idempotencyKey:`daily:${reportDate}:${context.fileHash}`,payload};
     const preview=await request({...base,action:'preview'});if(preview.duplicate)throw new Error(`هذا التقرير معتمد سابقًا برقم ${preview.existingImportId||'غير متاح'}.`);if(preview.valid===false)throw new Error(preview.errors?.[0]?.message||'فشل تحقق التقرير اليومي.');
     const encoded=await context.fileBase64Promise,committed=await request({...base,action:'commit',fileBase64:encoded||undefined});
-    if(!committed.ok)throw new Error('لم يؤكد الخادم اعتماد التقرير.');return committed;
+    if(!committed.ok)throw new Error('لم يؤكد الخادم اعتماد التقرير.');
+    try{await notifyTelegram(context,reportDate,committed);committed.telegramNotified=true;}catch(error){committed.telegramNotified=false;committed.telegramNotificationError=error.message;console.warn('[BinHamid daily report Telegram notification]',error);}
+    return committed;
   }
 
   function install(){
@@ -70,8 +80,8 @@
         }
         const cloud=await cloudApprove(context,reportDate),result=await onSave.apply(this,arguments);if(result===false)return false;
         const batch=(window.OPS?.imports||[]).find(row=>String(row.reportDate||'').slice(0,10)===reportDate&&row.sourceFileFingerprint===context.fileHash)||(window.OPS?.imports||[])[0];
-        if(batch){batch.cloudImportId=cloud.importId||cloud.existingImportId||'';batch.cloudApprovedAt=new Date().toISOString();batch.cloudSchemaVersion=12;}
-        window.save?.();await window.opsPersist?.(`تأكيد اعتماد سحابي للتقرير ${context.file.name}`);window.opsToast?.('تم اعتماد التقرير سحابيًا ومحليًا دون ترحيل مكرر.');return result;
+        if(batch){batch.cloudImportId=cloud.importId||cloud.existingImportId||'';batch.cloudApprovedAt=new Date().toISOString();batch.cloudSchemaVersion=12;batch.telegramNotified=cloud.telegramNotified!==false;}
+        window.save?.();await window.opsPersist?.(`تأكيد اعتماد سحابي للتقرير ${context.file.name}`);window.opsToast?.(cloud.telegramNotified===false?'تم اعتماد التقرير سحابيًا ومحليًا، لكن تعذر إرسال إشعار Telegram.':'تم اعتماد التقرير وإرسال إشعار Telegram دون ترحيل مكرر.',cloud.telegramNotified===false?'err':undefined);return result;
       };
       return baseOpen.call(this,title,html,guardedSave,label);
     };
