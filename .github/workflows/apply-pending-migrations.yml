@@ -8,15 +8,13 @@ on:
     paths:
       - '.github/workflows/apply-pending-migrations.yml'
       - 'scripts/resolve-supabase-connection.mjs'
-      - 'scripts/migration-preflight.mjs'
-      - 'scripts/migration-verify.mjs'
+      - 'scripts/governance-migration-preflight.mjs'
+      - 'scripts/governance-migration-verify.mjs'
       - 'scripts/verify-backup-files.mjs'
       - 'scripts/backup-supabase.mjs'
-      - 'supabase/migrations/011_cost_centers_and_operational_resilience.sql'
-      - 'supabase/migrations/012_daily_report_idempotency_and_validation.sql'
-      - 'supabase/migrations/013_fifo_rebuild_and_cost_reversals.sql'
-      - 'supabase/migrations/014_fifo_replay_and_maintenance_trigger_guard.sql'
-      - 'supabase/migrations/015_daily_report_customer_master.sql'
+      - 'supabase/migrations/016_enterprise_governance_and_handover.sql'
+      - 'supabase/migrations/017_governance_control_rpcs.sql'
+      - 'supabase/migrations/018_governance_safety_refinements.sql'
 
 permissions:
   contents: read
@@ -36,15 +34,15 @@ jobs:
         with:
           node-version: '24.x'
 
-      - name: Validate repository and migrations
+      - name: Validate repository and governance migrations
         run: |
           set -euo pipefail
           npm install --ignore-scripts --no-audit --no-fund
           node --check scripts/resolve-supabase-connection.mjs
-          node --check scripts/migration-preflight.mjs
-          node --check scripts/migration-verify.mjs
+          node --check scripts/governance-migration-preflight.mjs
+          node --check scripts/governance-migration-verify.mjs
           node --check scripts/verify-backup-files.mjs
-          node --check api/_lib/daily-report-customers.js
+          node --check api/_lib/routes/governance.js
           npm run audit:migrations
           npm test
 
@@ -88,7 +86,7 @@ jobs:
       - name: Create encrypted pre-migration backup
         env:
           BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
-          BACKUP_ENVIRONMENT: production-pre-migration
+          BACKUP_ENVIRONMENT: production-pre-governance
           BACKUP_OUTPUT_DIR: pre-migration-backup
         shell: bash
         run: |
@@ -114,22 +112,22 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Run migration preflight
+      - name: Run governance migration preflight
         env:
           MIGRATION_PREFLIGHT_PATH: migration-preflight.json
-        run: node scripts/migration-preflight.mjs
+        run: node scripts/governance-migration-preflight.mjs
 
-      - name: Apply pending migrations atomically
+      - name: Apply pending governance migrations atomically
         shell: bash
         run: |
           set -euo pipefail
           current_version="$(node -e "const x=require('./migration-preflight.json');process.stdout.write(String(x.currentVersion))")"
-          if [ "$current_version" -ge 15 ]; then
-            echo 'Database is already at schema version 15.'
+          if [ "$current_version" -ge 18 ]; then
+            echo 'Database is already at schema version 18.'
             exit 0
           fi
           : > pending-migrations.sql
-          for version in $(seq $((current_version + 1)) 15); do
+          for version in $(seq $((current_version + 1)) 18); do
             file="$(find supabase/migrations -maxdepth 1 -type f -name "$(printf '%03d' "$version")_*.sql" -print -quit)"
             test -n "$file"
             printf '\n-- BEGIN %s\n' "$file" >> pending-migrations.sql
@@ -139,16 +137,16 @@ jobs:
           psql "$SUPABASE_DB_URL" -X -v ON_ERROR_STOP=1 --single-transaction --file pending-migrations.sql
           rm -f pending-migrations.sql
 
-      - name: Verify schema and protected row counts
+      - name: Verify governance schema and protected row counts
         env:
           MIGRATION_PREFLIGHT_PATH: migration-preflight.json
           MIGRATION_RESULT_PATH: migration-result.json
-        run: node scripts/migration-verify.mjs
+        run: node scripts/governance-migration-verify.mjs
 
       - name: Create encrypted post-migration backup
         env:
           BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
-          BACKUP_ENVIRONMENT: production-post-migration
+          BACKUP_ENVIRONMENT: production-post-governance
           BACKUP_OUTPUT_DIR: post-migration-backup
         shell: bash
         run: |
@@ -160,13 +158,13 @@ jobs:
           BACKUP_OUTPUT_DIR=post-migration-backup \
           BACKUP_VERIFICATION_FILE=post-migration-backup-verification.json \
           BACKUP_MANIFEST_ENV_NAME=POST_MIGRATION_MANIFEST \
-          EXPECTED_SCHEMA_VERSION=15 \
+          EXPECTED_SCHEMA_VERSION=18 \
           node scripts/verify-backup-files.mjs
 
       - name: Upload migration evidence
         uses: actions/upload-artifact@v4
         with:
-          name: database-migration-evidence-${{ github.run_id }}
+          name: governance-migration-evidence-${{ github.run_id }}
           path: |
             migration-preflight.json
             migration-result.json
@@ -191,7 +189,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: database-migration-failure-${{ github.run_id }}
+          name: governance-migration-failure-${{ github.run_id }}
           path: |
             migration-connection-diagnostic.json
             pre-migration-backup-verification.json
@@ -214,7 +212,7 @@ jobs:
           const response=await fetch(`https://api.github.com/repos/${process.env.REPOSITORY}/statuses/${process.env.HEAD_SHA}`,{
             method:'POST',
             headers:{Accept:'application/vnd.github+json',Authorization:`Bearer ${process.env.GITHUB_TOKEN}`,'X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'},
-            body:JSON.stringify({state:success?'success':'failure',context:'database-migrations',target_url:process.env.RUN_URL,description:success?'Schema 15 applied and verified with encrypted backups.':'Migration failed; production transaction was rolled back or stopped by a guard.'})
+            body:JSON.stringify({state:success?'success':'failure',context:'database-migrations',target_url:process.env.RUN_URL,description:success?'Schema 18 governance controls applied and verified with encrypted backups.':'Governance migration failed; the production transaction was rolled back or stopped by a guard.'})
           });
           if(!response.ok)throw new Error(`Status publication failed with HTTP ${response.status}`);
           NODE

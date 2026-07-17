@@ -3,14 +3,14 @@ import { select } from './supabase.js';
 
 export const ROLE_CAPABILITIES=Object.freeze({
   admin:['*'],
-  manager:['dashboard.manager','daily_report.view','costs.view','audit.view'],
-  accountant:['daily_report.view','daily_report.import','daily_report.approve','costs.view','costs.calculate'],
+  manager:['dashboard.manager','daily_report.view','costs.view','audit.view','governance.view','credit_override.approve','assets.view','compliance.view','handover.view'],
+  accountant:['daily_report.view','daily_report.import','daily_report.approve','costs.view','costs.calculate','governance.view','financial_period.manage','credit_override.request','custody.manage','custody.approve'],
   block_sales:['daily_report.view'],
   concrete_sales:['daily_report.view'],
-  mechanic:['maintenance.manage'],
-  fuel_operator:['fuel.import'],
-  hr:['costs.view'],
-  procurement:['maintenance.manage'],
+  mechanic:['maintenance.manage','assets.view'],
+  fuel_operator:['fuel.import','assets.view'],
+  hr:['costs.view','governance.view','compliance.manage','assets.view'],
+  procurement:['maintenance.manage','assets.view'],
   driver:[],employee:[],collector:[],warehouse:[],quality:[],pending:[]
 });
 

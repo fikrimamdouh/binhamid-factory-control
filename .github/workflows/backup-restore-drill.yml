@@ -1,0 +1,161 @@
+name: Encrypted Backup Restore Drill
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '37 2 * * 1'
+  workflow_run:
+    workflows:
+      - Apply Database Migrations
+    types:
+      - completed
+
+permissions:
+  contents: read
+  actions: read
+  statuses: write
+
+jobs:
+  restore-drill:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    concurrency:
+      group: binhamid-encrypted-restore-drill
+      cancel-in-progress: false
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: restore_drill
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d restore_drill"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+
+      - name: Install PostgreSQL 17 client
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y curl ca-certificates
+          sudo install -d -m 0755 /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          . /etc/os-release
+          printf '%s\n' \
+            'Types: deb' \
+            'URIs: https://apt.postgresql.org/pub/repos/apt' \
+            "Suites: ${VERSION_CODENAME}-pgdg" \
+            'Components: main' \
+            'Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc' \
+            | sudo tee /etc/apt/sources.list.d/pgdg.sources > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client-17
+          echo '/usr/lib/postgresql/17/bin' >> "$GITHUB_PATH"
+
+      - name: Select encrypted backup artifact
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          MIGRATION_RUN_ID: ${{ github.event.workflow_run.id }}
+          MIGRATION_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = 'workflow_run' ]; then
+            run_id="$MIGRATION_RUN_ID"
+            artifact_name="encrypted-post-migration-backup-${run_id}"
+            head_sha="$MIGRATION_HEAD_SHA"
+          else
+            run_id="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow database-backup.yml --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
+            test -n "$run_id"
+            artifact_name="encrypted-database-backup-${run_id}"
+            head_sha="$GITHUB_SHA"
+          fi
+          printf 'run_id=%s\nartifact_name=%s\nhead_sha=%s\n' "$run_id" "$artifact_name" "$head_sha" >> "$GITHUB_OUTPUT"
+          echo "Selected encrypted artifact from run ${run_id}."
+
+      - name: Download encrypted backup artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ steps.source.outputs.run_id }}
+          ARTIFACT_NAME: ${{ steps.source.outputs.artifact_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf restore-artifact
+          mkdir -p restore-artifact
+          gh run download "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$ARTIFACT_NAME" --dir restore-artifact
+          test "$(find restore-artifact -type f -name '*.enc' | wc -l)" -eq 1
+          test "$(find restore-artifact -type f -name '*.manifest.json' | wc -l)" -eq 1
+
+      - name: Resolve protected production connection for evidence recording
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          SUPABASE_POOLER_HOST: ${{ vars.SUPABASE_POOLER_HOST }}
+          CONNECTION_DIAGNOSTIC_PATH: restore-connection-diagnostic.json
+        run: node scripts/resolve-supabase-connection.mjs
+
+      - name: Restore and verify in isolated PostgreSQL
+        env:
+          BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+          RESTORE_ARTIFACT_DIR: restore-artifact
+          RESTORE_ARTIFACT_NAME: ${{ steps.source.outputs.artifact_name }}
+          RESTORE_DRILL_RESULT: restore-drill-result.json
+          LOCAL_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/restore_drill
+        run: node scripts/restore-drill.mjs
+
+      - name: Assert plaintext cleanup
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if find restore-artifact -type f \( -name '*.sql' -o -name '*.sql.gz' \) | grep -q .; then
+            echo 'Unencrypted SQL remained after restore drill.' >&2
+            exit 1
+          fi
+
+      - name: Upload restore drill evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: encrypted-restore-drill-evidence-${{ github.run_id }}
+          path: |
+            restore-drill-result.json
+            restore-connection-diagnostic.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish restore drill status
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ steps.source.outputs.head_sha || github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          node <<'NODE'
+          const success=process.env.JOB_STATUS==='success';
+          const response=await fetch(`https://api.github.com/repos/${process.env.REPOSITORY}/statuses/${process.env.HEAD_SHA}`,{
+            method:'POST',
+            headers:{Accept:'application/vnd.github+json',Authorization:`Bearer ${process.env.GITHUB_TOKEN}`,'X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'},
+            body:JSON.stringify({state:success?'success':'failure',context:'restore-drill',target_url:process.env.RUN_URL,description:success?'Encrypted backup restored and verified in isolated PostgreSQL 17.':'Encrypted backup restore drill failed; production was not restored or modified.'})
+          });
+          if(!response.ok)throw new Error(`Status publication failed with HTTP ${response.status}`);
+          NODE

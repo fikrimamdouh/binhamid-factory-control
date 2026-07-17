@@ -27,8 +27,10 @@ test('unit-cost economics distinguish reliable and incomplete results',()=>{
 test('server capabilities are explicit and admin remains wildcard',()=>{
   assert.equal(roleAllows('admin','backups.manage'),true);
   assert.equal(roleAllows('accountant','daily_report.approve'),true);
+  assert.equal(roleAllows('accountant','financial_period.manage'),true);
+  assert.equal(roleAllows('manager','credit_override.approve'),true);
   assert.equal(roleAllows('driver','daily_report.view'),false);
-  assert.ok(capabilitiesForRole('manager').includes('dashboard.manager'));
+  assert.ok(capabilitiesForRole('manager').includes('governance.view'));
 });
 
 test('manager alert keys are stable and cover operational failures',()=>{
@@ -59,22 +61,25 @@ test('GPS adapter normalizes events and compares consumption without production 
   assert.equal(comparison[0].litersPer100Km,20);
 });
 
-test('migrations 011 through 015 contain non-destructive operational foundations',async()=>{
-  const cost=await read('supabase/migrations/011_cost_centers_and_operational_resilience.sql'),daily=await read('supabase/migrations/012_daily_report_idempotency_and_validation.sql'),fifo=await read('supabase/migrations/013_fifo_rebuild_and_cost_reversals.sql'),guard=await read('supabase/migrations/014_fifo_replay_and_maintenance_trigger_guard.sql'),customers=await read('supabase/migrations/015_daily_report_customer_master.sql');
+test('migrations 011 through 018 contain non-destructive operational and governance foundations',async()=>{
+  const cost=await read('supabase/migrations/011_cost_centers_and_operational_resilience.sql'),daily=await read('supabase/migrations/012_daily_report_idempotency_and_validation.sql'),fifo=await read('supabase/migrations/013_fifo_rebuild_and_cost_reversals.sql'),guard=await read('supabase/migrations/014_fifo_replay_and_maintenance_trigger_guard.sql'),customers=await read('supabase/migrations/015_daily_report_customer_master.sql'),governance=await read('supabase/migrations/016_enterprise_governance_and_handover.sql'),controls=await read('supabase/migrations/017_governance_control_rpcs.sql'),safety=await read('supabase/migrations/018_governance_safety_refinements.sql');
   for(const marker of ['cost_centers','cost_periods','run_cost_period','cost_unit_monthly_report','project_driver_fuel_cost','project_maintenance_cost','role_capabilities','backup_runs','gps_provider_events'])assert.match(cost,new RegExp(marker));
   for(const marker of ['daily_report_import_attempts','line_identity','daily_report_sales_identity_uidx','daily_report_cash_identity_uidx','DAILY_REPORT_UNKNOWN_CUSTOMER_CODE','register_daily_report_attempt'])assert.match(daily,new RegExp(marker));
   for(const marker of ['fifo_rebuild_runs','rebuild_customer_fifo','preview_customer_fifo_rebuild','maintenance_order_reversal','active=false','sales_order_backdated_fifo_trigger'])assert.match(fifo,new RegExp(marker));
   for(const marker of ['allocate_collection_fifo_core',"tg_op='UPDATE'"])assert.match(guard,new RegExp(marker));
   for(const marker of ['ensure_daily_report_customer','new.customer_name','new.account_name','DAILY_REPORT_CUSTOMER_INACTIVE'])assert.match(customers,new RegExp(marker));
+  for(const marker of ['financial_periods','credit_override_requests','unified_assets','asset_source_links','compliance_documents','custody_accounts','restore_test_runs','handover_acceptance_runs','control_credit_exposure','unified_assets_plate_idx'])assert.match(governance,new RegExp(marker));
+  for(const marker of ['close_financial_period','request_credit_override','guard_sales_order_credit','approve_custody_transaction','guard_maintenance_closure','start_handover_acceptance','sign_handover_acceptance'])assert.match(controls,new RegExp(marker));
+  for(const marker of ['flag_daily_report_credit_breach','daily_report_credit_breach_flag','control_asset_duplicates','unified_assets_plate_idx'])assert.match(safety,new RegExp(marker));
   assert.ok(guard.includes('greatest(0,coalesce(paid_amount,0)-v_existing.amount)'));
-  assert.doesNotMatch(`${cost}\n${daily}\n${fifo}\n${guard}\n${customers}`,/truncate\s+table/i);
-  assert.doesNotMatch(`${fifo}\n${guard}`,/delete\s+from\s+public\.sales_payment_allocations/i);
+  assert.doesNotMatch([cost,daily,fifo,guard,customers,governance,controls,safety].join('\n'),/truncate\s+table/i);
+  assert.doesNotMatch(`${fifo}\n${guard}\n${governance}\n${controls}\n${safety}`,/delete\s+from\s+public\.sales_payment_allocations/i);
 });
 
-test('router keeps new features consolidated under one Vercel function',async()=>{
+test('router keeps enterprise features consolidated under one Vercel function',async()=>{
   const router=await read('api/router.js'),vercel=JSON.parse(await read('vercel.json'));
-  for(const route of ["'daily-report'","'daily-report/fifo'","'costs'","'driver/webapp'","'resilience'","'dashboard'"])assert.ok(router.includes(route));
-  for(const source of ['/api/daily-report','/api/daily-report/fifo','/api/costs','/api/driver/webapp','/api/resilience'])assert.ok(vercel.rewrites.some(item=>item.source===source));
+  for(const route of ["'daily-report'","'daily-report/fifo'","'costs'","'driver/webapp'","'resilience'","'dashboard'","'control-center'","'governance'"])assert.ok(router.includes(route));
+  for(const source of ['/api/daily-report','/api/daily-report/fifo','/api/costs','/api/driver/webapp','/api/resilience','/api/control-center','/api/governance'])assert.ok(vercel.rewrites.some(item=>item.source===source));
   assert.equal(Object.keys(vercel.functions).length,1);
 });
 
@@ -86,9 +91,9 @@ test('sync conflict and Telegram WebApp validation remain server-side',async()=>
   assert.match(driver,/vehicleFor/);assert.match(driver,/client_event_id/);assert.match(driver,/receiptDataUrl/);assert.match(driver,/مركبة مسندة/);
 });
 
-test('readiness reports missing migrations and columns instead of fixed true',async()=>{
+test('readiness requires governance schema 18 and reports missing objects',async()=>{
   const readiness=await read('api/_lib/routes/system-runtime.js');
-  assert.match(readiness,/LATEST_REQUIRED_VERSION=15/);
-  for(const marker of ['missingTables','missingColumns','missingMigrations','migration_history.sequence','collectDatabaseReadiness','fifo_rebuild_runs','reversed_entry_id','customer_name','account_name'])assert.match(readiness,new RegExp(marker));
+  assert.match(readiness,/LATEST_REQUIRED_VERSION=18/);
+  for(const marker of ['missingTables','missingColumns','missingMigrations','migration_history.sequence','collectDatabaseReadiness','financial_periods','credit_override_requests','unified_assets','compliance_documents','handover_acceptance_runs','control_asset_duplicates','credit_override_id'])assert.match(readiness,new RegExp(marker));
   assert.doesNotMatch(readiness,/ready:\s*true,\s*schemaVersion/);
 });

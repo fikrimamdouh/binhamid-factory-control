@@ -6,6 +6,7 @@ import * as systemRuntime from './_lib/routes/system-runtime.js';
 import * as telegramAdmin from './_lib/routes/telegram-admin.js';
 import * as managerDashboard from './_lib/routes/manager-dashboard.js';
 import * as controlCenter from './_lib/routes/control-center.js';
+import * as governance from './_lib/routes/governance.js';
 import * as deviceSession from './_lib/routes/device-session.js';
 import * as costs from './_lib/routes/costs.js';
 import * as driverWebApp from './_lib/routes/driver-webapp.js';
@@ -18,6 +19,7 @@ const routes={
   'admin/users':admin.users,
   'dashboard':managerDashboard.dashboard,
   'control-center':controlCenter.controlCenter,
+  'governance':governance.governance,
   'device/session':deviceSession.deviceSession,
   'conversations':management.conversations,
   'operations':management.operations,
