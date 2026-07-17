@@ -52,10 +52,32 @@ export const insert = (table, rows, options = {}) => supabase(`/rest/v1/${table}
 export const upsert = (table, rows, onConflict) => supabase(`/rest/v1/${table}${onConflict ? `?on_conflict=${encodeURIComponent(onConflict)}` : ''}`, { method: 'POST', body: JSON.stringify(rows), headers: { Prefer: 'resolution=merge-duplicates,return=representation' } });
 export const patch = (table, query, values) => supabase(`/rest/v1/${table}?${query}`, { method: 'PATCH', body: JSON.stringify(values), headers: { Prefer: 'return=representation' } });
 export const rpc = (name, args) => supabase(`/rest/v1/rpc/${name}`, { method: 'POST', body: JSON.stringify(args), headers: { Prefer: 'return=representation' } });
+
+const storageErrorCode=error=>String(error?.data?.code||error?.data?.error||error?.data?.errorCode||'').trim();
+const storageErrorText=error=>`${storageErrorCode(error)} ${String(error?.message||'')}`.trim();
+const storageBucketMissing=error=>/NoSuchBucket|Bucket not found|specified bucket does not exist|bucket does not exist/i.test(storageErrorText(error));
+const storageBucketExists=error=>Number(error?.upstreamStatus||0)===409||/BucketAlreadyExists|already exists/i.test(storageErrorText(error));
+
+async function createPrivateStorageBucket(bucket){
+  try{
+    return await supabase('/storage/v1/bucket',{method:'POST',body:JSON.stringify({id:bucket,name:bucket,public:false})});
+  }catch(error){
+    if(storageBucketExists(error))return{id:bucket,name:bucket,public:false,existing:true};
+    throw Object.assign(error,{storageBucket:bucket,storageOperation:'create_bucket',storageCode:storageErrorCode(error)||null});
+  }
+}
+
 export async function uploadObject(path, buffer, contentType = 'application/octet-stream') {
   ensure();
-  const encoded = path.split('/').map(encodeURIComponent).join('/');
-  return supabase(`/storage/v1/object/${encodeURIComponent(config.storageBucket)}/${encoded}`, { method: 'POST', body: buffer, headers: { 'Content-Type': contentType, 'x-upsert': 'true' } });
+  const bucket=String(config.storageBucket||'').trim(),encoded=path.split('/').map(encodeURIComponent).join('/');
+  const upload=()=>supabase(`/storage/v1/object/${encodeURIComponent(bucket)}/${encoded}`, { method: 'POST', body: buffer, headers: { 'Content-Type': contentType, 'x-upsert': 'true' } });
+  try{return await upload();}
+  catch(error){
+    if(!storageBucketMissing(error))throw Object.assign(error,{storageBucket:bucket,storageOperation:'upload',storageCode:storageErrorCode(error)||null});
+    await createPrivateStorageBucket(bucket);
+    try{return await upload();}
+    catch(retryError){throw Object.assign(retryError,{storageBucket:bucket,storageOperation:'upload_after_bucket_create',storageCode:storageErrorCode(retryError)||null});}
+  }
 }
 export async function downloadObject(path) {
   ensure();
@@ -64,4 +86,3 @@ export async function downloadObject(path) {
   if (!response.ok) throw Object.assign(new Error(`تعذر تنزيل المرفق: ${response.status}`), { status: 502 });
   return { buffer: Buffer.from(await response.arrayBuffer()), contentType: response.headers.get('content-type') || 'application/octet-stream' };
 }
-
