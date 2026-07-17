@@ -6,6 +6,7 @@ import { classifyFile, sha256 } from './domain.js';
 import { parseDailyWorkbook } from './daily-summary-parser.js';
 import { reportTypeLabel, reportDestination } from './bot-profile.js';
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const plain=v=>String(v??'').replace(/<[^>]+>/g,'');
 const safeFile=v=>String(v||'file').replace(/[^A-Za-z0-9._\-\u0600-\u06FF]/g,'_').slice(0,140);
 const number=value=>Number(value||0).toLocaleString('en-US',{maximumFractionDigits:3});
 const dailyType=type=>['daily_movement','block_daily_movement','concrete_daily_movement'].includes(type);
@@ -40,7 +41,7 @@ async function sendProcessingResult(chatId,text,name){
 }
 async function relayToOwner(sourceChatId,buffer,name,contentType,caption,actionPayload={}){
   const owner=String(config.telegramOwnerId||'');if(!owner||owner===String(sourceChatId)||!buffer?.length)return null;
-  try{return await sendDocumentBuffer(owner,buffer,name,contentType,String(caption||'').slice(0,900));}
+  try{return await sendDocumentBuffer(owner,buffer,name,contentType,plain(caption).slice(0,900));}
   catch(error){console.warn('[telegram owner file relay]',{name,status:Number(error?.status||0),message:String(error?.message||'').slice(0,300),actionPayload});return null;}
 }
 export async function handleExcel(message,group,identity,stored){
@@ -74,7 +75,8 @@ export async function handleExcel(message,group,identity,stored){
     await sendMessage(chatId,`تعذر إكمال معالجة ملف <b>${esc(name)}</b>.\nالسبب: ${esc(excelFailureMessage(error))}\nلم تُرحّل أي بيانات من هذا الملف.`).catch(sendError=>console.error('[telegram excel failure reply]',sendError));
     return null;
   }
-  await Promise.all([sendProcessingResult(chatId,resultText,name),relayToOwner(chatId,relay?.buffer,name,relay?.contentType,`ملف وارد من Telegram\n\n${resultText}`,{importId:result?.import?.id})]);
+  await relayToOwner(chatId,relay?.buffer,name,relay?.contentType,`ملف وارد من Telegram\n\n${resultText}`,{importId:result?.import?.id});
+  await sendProcessingResult(chatId,resultText,name);
   return result;
 }
 export async function handleAttachment(message,group,identity,stored){
