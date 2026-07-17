@@ -20,8 +20,17 @@ jobs:
           node-version: '24.x'
       - name: Install dependencies
         run: npm install --ignore-scripts --no-audit --no-fund
-      - name: Validate source and migrations
-        run: |
-          set -euo pipefail
-          npm run audit:migrations
-          npm run check
+      - name: Audit migrations
+        run: npm run audit:migrations
+      - name: Check enterprise source
+        run: node scripts/check-enterprise.mjs
+      - name: Check operational source
+        run: node scripts/check-operational-roadmap.mjs
+      - name: Audit legacy size
+        run: npm run audit:legacy
+      - name: Run tests
+        run: npm test
+      - name: Check API contracts
+        run: npm run check:api
+      - name: Check Vercel functions
+        run: npm run check:functions
