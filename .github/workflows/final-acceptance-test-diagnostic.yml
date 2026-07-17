@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: read
+  statuses: write
 
 jobs:
   diagnose:
@@ -37,3 +38,23 @@ jobs:
           path: diagnostic/failing-test.txt
           if-no-files-found: warn
           retention-days: 1
+      - name: Publish test diagnostic status
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          node <<'NODE'
+          import { existsSync,readFileSync } from 'node:fs';
+          const raw=existsSync('diagnostic/failing-test.txt')?readFileSync('diagnostic/failing-test.txt','utf8').trim():'all-tests-passed';
+          const file=raw.split('/').pop().replace(/[^A-Za-z0-9_.-]/g,'-').slice(0,70);
+          const success=process.env.JOB_STATUS==='success';
+          const response=await fetch(`https://api.github.com/repos/${process.env.REPOSITORY}/statuses/${process.env.HEAD_SHA}`,{
+            method:'POST',headers:{Accept:'application/vnd.github+json',Authorization:`Bearer ${process.env.GITHUB_TOKEN}`,'X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'},
+            body:JSON.stringify({state:success?'success':'failure',context:`test-diagnostic:${file}`,target_url:process.env.RUN_URL,description:success?'All Node test files passed.':`Failing test file: ${file}`})
+          });
+          if(!response.ok)throw new Error(`Status publication failed with HTTP ${response.status}`);
+          NODE
