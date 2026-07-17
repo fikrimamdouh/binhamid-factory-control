@@ -5,13 +5,11 @@ import fs from 'node:fs';
 const read=path=>fs.readFileSync(new URL(`../${path}`,import.meta.url),'utf8');
 const exists=path=>fs.existsSync(new URL(`../${path}`,import.meta.url));
 
-test('automatic device sessions are read-only and cannot approve or write',()=>{
+test('automatic device bootstrap grants no business-data capability',()=>{
   const source=read('api/_lib/device-session.js');
-  assert.doesNotMatch(source,/DEVICE_CAPABILITIES[^;]*state\.write/s);
-  assert.doesNotMatch(source,/DEVICE_CAPABILITIES[^;]*daily_report\.import/s);
-  assert.doesNotMatch(source,/DEVICE_CAPABILITIES[^;]*daily_report\.approve/s);
-  assert.match(source,/state\.read/);
-  assert.match(source,/daily_report\.view/);
+  assert.match(source,/DEVICE_CAPABILITIES=Object\.freeze\(\[\]\)/);
+  for(const capability of ['state.write','state.read','dashboard.manager','imports.manage','daily_report.import','daily_report.approve','accounting.view'])assert.doesNotMatch(source,new RegExp(capability.replace('.','\\.')));
+  assert.match(source,/AUTHENTICATED_USER_REQUIRED/);
 });
 
 test('production readiness follows the latest schema constant instead of schema 15 literals',()=>{
@@ -46,12 +44,14 @@ test('Telegram webhook processing is idempotent and unexpected failures are retr
   assert.match(source,/statusCode\s*=\s*503|json\(res,503/);
 });
 
-test('automatic import does not mark a file applied before successful processing and is opt-in',()=>{
-  const source=read('assets/cloud-control.js');
-  const call=source.indexOf('bhCloudApplyImport');
-  const mark=source.indexOf('bhMarkApplied',call);
-  assert.ok(call>=0&&mark>call,'file must be marked only after successful apply');
-  assert.match(source,/getItem\(AIK\)!==['"]1['"]|getItem\(AIK\)===['"]1['"]/);
+test('automatic import is disabled and import IDs are passed into daily approval',()=>{
+  const review=read('assets/import-review-guard.js');
+  const integrity=read('assets/daily-approval-integrity-guard.js');
+  assert.match(review,/localStorage\.setItem\(AUTO_KEY,'0'\)/);
+  assert.match(review,/الترحيل التلقائي موقوف رقابيًا/);
+  assert.match(review,/BinHamidActiveImportId/);
+  assert.match(integrity,/payload\.importId=importId/);
+  assert.match(integrity,/recoveryDuplicate:true/);
 });
 
 test('structured accounting API and page are present',()=>{
