@@ -36,6 +36,23 @@ jobs:
           npm run check:api
           npm run check:functions
 
+      - name: Check live application status
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          import { writeFileSync } from 'node:fs';
+          const url='https://binhamid-factory-control.vercel.app/api/system/status';
+          let report;
+          try{
+            const response=await fetch(url,{headers:{Accept:'application/json'},signal:AbortSignal.timeout(20000)});
+            const body=await response.json().catch(()=>null);
+            report={checkedAt:new Date().toISOString(),url,status:response.status,ok:response.ok&&body?.ok===true,directOperationsSchema:Number(body?.directOperationsSchema||0),version:body?.version||null,webhookVersion:Number(body?.webhookVersion||0),vercelFunctionsExpected:Number(body?.vercelFunctionsExpected||0)};
+          }catch(error){report={checkedAt:new Date().toISOString(),url,ok:false,errorCode:error?.name||'FETCH_FAILED'};}
+          writeFileSync('production-http-status.json',`${JSON.stringify(report,null,2)}\n`,{mode:0o600});
+          console.log(`[live-status] ok=${report.ok}; schema=${report.directOperationsSchema||0}; version=${report.version||'unknown'}`);
+          if(!report.ok||report.directOperationsSchema!==14)process.exit(1);
+          NODE
+
       - name: Install PostgreSQL 17 client
         shell: bash
         run: |
@@ -77,6 +94,7 @@ jobs:
         with:
           name: production-readiness-${{ github.run_id }}
           path: |
+            production-http-status.json
             production-readiness.json
             production-data-integrity.json
             readiness-connection-diagnostic.json
@@ -97,7 +115,7 @@ jobs:
           const response=await fetch(`https://api.github.com/repos/${process.env.REPOSITORY}/statuses/${process.env.HEAD_SHA}`,{
             method:'POST',
             headers:{Accept:'application/vnd.github+json',Authorization:`Bearer ${process.env.GITHUB_TOKEN}`,'X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'},
-            body:JSON.stringify({state:success?'success':'failure',context:'production-readiness',target_url:process.env.RUN_URL,description:success?'Production schema and core data relationships are ready.':'Production readiness or data-integrity checks failed.'})
+            body:JSON.stringify({state:success?'success':'failure',context:'production-readiness',target_url:process.env.RUN_URL,description:success?'Live runtime, schema, and core data checks passed.':'Live runtime or production readiness checks failed.'})
           });
           if(!response.ok)throw new Error(`Status publication failed with HTTP ${response.status}`);
           NODE
