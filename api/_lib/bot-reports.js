@@ -1,7 +1,7 @@
 import { select } from './supabase.js';
 import { sendMessage, keyboard } from './telegram.js';
 import { reportSummary } from './domain.js';
-export function reportKeyboard(){return keyboard([[{text:'ملخص اليوم',callback_data:'report:daily'},{text:'الديزل',callback_data:'report:fuel'}],[{text:'الورشة',callback_data:'report:workshop'},{text:'المبيعات والتحصيل',callback_data:'report:sales'}],[{text:'الفروقات المفتوحة',callback_data:'report:discrepancies'}]]);}
+export function reportKeyboard(){return keyboard([[{text:'أحدث تقرير خرسانة',callback_data:'report:concrete_file'},{text:'أحدث تقرير بلوك',callback_data:'report:block_file'}],[{text:'أحدث ملف تقرير يومي',callback_data:'report:daily_file'}],[{text:'ملخص اليوم',callback_data:'report:daily'},{text:'الديزل',callback_data:'report:fuel'}],[{text:'الورشة',callback_data:'report:workshop'},{text:'المبيعات والتحصيل',callback_data:'report:sales'}],[{text:'الفروقات المفتوحة',callback_data:'report:discrepancies'}]]);}
 export async function sendReport(chatId,kind){
   const row=(await select('app_state','key=eq.primary&select=payload,revision,updated_at&limit=1'))?.[0];
   if(!row?.payload)return sendMessage(chatId,'لا توجد نسخة سحابية معتمدة من البرنامج حتى الآن. افتح البرنامج واضغط <b>مزامنة الآن</b>.');

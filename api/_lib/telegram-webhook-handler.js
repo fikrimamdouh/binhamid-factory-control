@@ -6,6 +6,7 @@ import { sha256, extractPlate, isFaultMessage, allowed } from './domain.js';
 import { displayName } from './bot-profile.js';
 import { interpretMessage } from './bot-routing.js';
 import { reportKeyboard, sendReport } from './bot-reports.js';
+import { handleStoredReportTextCommand, sendStoredReportRequest, sendStoredReportFile } from './bot-report-files.js';
 import { handleExcel, handleAttachment } from './bot-files.js';
 import { getBotSession, createMaintenanceDraft, continueWaitingPlate, confirmMaintenance, cancelMaintenance, chooseVehicle } from './bot-maintenance.js';
 import { handleBuiltInCommand } from './bot-commands.js';
@@ -69,6 +70,7 @@ async function handleText(message,group,identity,text,voicePath='',stored=null){
   const mechanicAction=mechanicActions.find(item=>item.re.test(normalized));
   if(mechanicAction)return startMechanicAction(message,identity,mechanicAction.action);
   if(await handleMechanicTextCommand(message,identity,raw))return;
+  if(await handleStoredReportTextCommand(message,identity,raw))return;
 
   if(/^(تقارير|تقرير|ملخص)$/i.test(raw)||/اعرض.*تقارير/.test(raw)){
     if(!allowed(role,'report'))return sendMessage(chatId,'فهمت أنك تطلب التقارير، لكن الإجراء متاح لمدير المصنع ومدير النظام فقط.');
@@ -101,7 +103,14 @@ async function handleCallback(update){
   if(['ent','entopt','entconfirm','entcancel','entstatus'].includes(action))return handleEnterpriseCallback(message,query.from,identity,action,value);
   if(action==='doc')return sendOperationalDocument({...message,from:query.from},identity,value);
   if(action==='gps')return sendGpsFleetStatus(message.chat.id,value==='fleet'?'':value);
-  if(action==='report'){if(!allowed(role,'report'))return sendMessage(message.chat.id,'ليست لديك صلاحية طلب التقرير.');return sendReport(message.chat.id,value);}
+  if(action==='reportfile'){const[kind,id]=String(value||'').split('|');return sendStoredReportFile(message.chat.id,id,identity,kind||'daily');}
+  if(action==='report'){
+    if(value==='concrete_file')return sendStoredReportRequest(message.chat.id,identity,'concrete');
+    if(value==='block_file')return sendStoredReportRequest(message.chat.id,identity,'block');
+    if(value==='daily_file')return sendStoredReportRequest(message.chat.id,identity,'daily');
+    if(!allowed(role,'report'))return sendMessage(message.chat.id,'ليست لديك صلاحية طلب التقرير.');
+    return sendReport(message.chat.id,value);
+  }
   if(action==='sales'){
     if(value==='new_block')return startGuidedSales({...message,from:query.from},identity,'block');
     if(value==='new_concrete')return startGuidedSales({...message,from:query.from},identity,'concrete');
