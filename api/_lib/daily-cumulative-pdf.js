@@ -22,11 +22,10 @@ export function cumulativeDepartmentHtml({type,data,sourceFile,reportDate,latest
 }
 
 export async function generateCumulativeDailyPdfs(analysis={},sourceFile='daily-report.xlsx'){
-  const reportDate=riyadhDate(),projection=await loadProjectedCumulativeDailyReport(analysis,reportDate),reports=[];
-  for(const type of ['block','concrete']){
+  const reportDate=riyadhDate(),projection=await loadProjectedCumulativeDailyReport(analysis,reportDate);
+  return Promise.all(['block','concrete'].map(async type=>{
     const html=cumulativeDepartmentHtml({type,data:projection.departments[type],sourceFile,reportDate,latestApprovedDate:projection.latestApprovedDate});
     const pdf=await htmlToPdf(html,{filename:`${slug(type)}-cumulative-${reportDate}`,landscape:true});
-    reports.push({type,pdf,filename:`${slug(type)}-cumulative-${reportDate}.pdf`,caption:`${title(type)} — مسودة حتى ${reportDate}`,summary:projection.departments[type].totals});
-  }
-  return reports;
+    return{type,pdf,filename:`${slug(type)}-cumulative-${reportDate}.pdf`,caption:`${title(type)} — مسودة حتى ${reportDate}`,summary:projection.departments[type].totals};
+  }));
 }
