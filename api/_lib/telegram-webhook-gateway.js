@@ -9,6 +9,7 @@ import { showMechanicMenu, startMechanicAction, continueMechanicSession, confirm
 import { showAttendanceMenu, continueAttendanceSession, handleAttendanceLocation, handleAttendancePhoto, handleAttendanceCallback } from './bot-attendance-secure.js';
 import { sendGpsFleetStatus } from './bot-gps.js';
 import { continueRegistrationSession, handleRegistrationCallback, handleRegistrationTextCommand, isRegistrationCommand } from './bot-registration.js';
+import { handleDriverRegistrationMedia } from './bot-driver-registration.js';
 import enterpriseHandler from './telegram-webhook-handler.js';
 
 const GPS_ROLES=new Set(['admin','manager','mechanic','driver','fuel_operator']);
@@ -63,9 +64,7 @@ async function interceptCallback(update){
   if(home&&value==='attendance'){await showAttendanceMenu(callbackMessage,identity);return true;}
   if(procurementActions.has(action)){await handleProcurementCallback(message,query.from,identity,action,value);return true;}
   if(action==='gps'){if(!GPS_ROLES.has(role))await sendMessage(message.chat.id,'ليست لديك صلاحية عرض GPS.');else await sendGpsFleetStatus(message.chat.id,value==='fleet'?'':value,identity);return true;}
-  if(action==='sales'){
-    if(value==='new_block')await startGuidedSales(callbackMessage,identity,'block');else if(value==='new_concrete')await startGuidedSales(callbackMessage,identity,'concrete');else await startSalesAction(callbackMessage,identity,value);return true;
-  }
+  if(action==='sales'){if(value==='new_block')await startGuidedSales(callbackMessage,identity,'block');else if(value==='new_concrete')await startGuidedSales(callbackMessage,identity,'concrete');else await startSalesAction(callbackMessage,identity,value);return true;}
   if(guidedSalesActions.has(action)){await handleGuidedSalesCallback(message,query.from,identity,action,value);return true;}
   if(action==='sales_confirm'){await confirmSalesOrder(callbackMessage,value,identity);return true;}
   if(action==='sales_cancel'){await cancelSalesDraft(callbackMessage,identity);return true;}
@@ -79,6 +78,11 @@ async function interceptMessage(update){
   const message=update.message||update.edited_message;if(!message?.from||message.from.is_bot)return false;
   const identity=await ensureTelegramIdentity(message.from),session=await getBotSession(message.chat.id,message.from.id),state=String(session?.state||'');
   if(sensitiveSession(session)&&!sessionAllowed(identity,session)){if(!await logIntercepted(update,message,identity))return true;return rejectSession(message,identity);}
+  if((message.document||message.photo?.length)&&state.startsWith('registration_driver_')){
+    if(message.chat.type!=='private'){await sendMessage(message.chat.id,'مستندات تسجيل السائق تُرسل في المحادثة الخاصة فقط.');return true;}
+    if(!await logIntercepted(update,message,identity))return true;
+    if(await handleDriverRegistrationMedia(message,identity,session))return true;
+  }
   if(message.location&&(state.startsWith('driver_')||state.startsWith('attendance_')||message.location.live_period||message.edit_date)){if(!await logIntercepted(update,message,identity))return true;await handleAttendanceLocation(message,identity,session);return true;}
   if(message.photo?.length&&state==='driver_fuel_photo'){if(!await logIntercepted(update,message,identity))return true;await handleAttendancePhoto(message,identity,session);return true;}
   if(message.voice||message.document||message.photo?.length)return false;
