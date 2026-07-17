@@ -12,6 +12,13 @@ test('Telegram Excel uploads acknowledge receipt and report processing failures'
   assert.match(source,/if\(stored\?\.id&&imp\?\.id\)/);
 });
 
+test('unknown duplicate Excel files are re-read and updated instead of staying unclassified',()=>{
+  const source=read(['..','api','_lib','bot-files.js']);
+  assert.match(source,/duplicate\.report_type==='unknown_excel'/);
+  assert.match(source,/تمت إعادة فحص الملف القديم وتحديث تصنيفه بنجاح/);
+  assert.match(source,/await patch\('imports'/);
+});
+
 test('approved website reports call the protected Telegram owner notification route',()=>{
   const source=read(['..','assets','daily-report-source-of-truth.js']);
   assert.match(source,/\/api\/telegram\/notify/);

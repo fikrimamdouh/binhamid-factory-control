@@ -18,12 +18,15 @@ export function inferDepartment(title = '') {
   if (/خرسان|concrete/.test(t)) return 'concrete';
   return 'unassigned';
 }
-export function classifyFile(name = '', department = '', sheetNames = []) {
-  const text = `${name} ${sheetNames.join(' ')}`.toLowerCase();
+export function classifyFile(name = '', department = '', sheetNames = [], contentText = '') {
+  const metadata=normalizeText(`${name} ${sheetNames.join(' ')}`),content=normalizeText(contentText),text=`${metadata} ${content}`;
   if (/ديزل|وقود|fuel|diesel/.test(text)) return 'fuel';
   if (/راتب|رواتب|مسير|مدد|payroll|mudad/.test(text)) return 'payroll';
+  const dailySignals=[/المبيعات/,/رقم الفاتور/,/الكميه/,/كود العميل|رقم العميل/,/اسم العميل/,/الصنف|المنتج/,/المديونيه|قيمه المبيعات/,/حركه الخزن|الخزينه/,/مدين/,/دائن/].filter(pattern=>pattern.test(content)).length;
+  const dailyWorkbook=dailySignals>=5||(/المبيعات/.test(content)&&/حركه الخزن|الخزينه/.test(content))||(/رقم الفاتور/.test(content)&&/اسم العميل/.test(content)&&/الصنف|المنتج/.test(content));
+  if(dailyWorkbook)return department === 'block' ? 'block_daily_movement' : department === 'concrete' ? 'concrete_daily_movement' : 'daily_movement';
   if (/تحصيل|سند قبض|collection/.test(text)) return department === 'block' ? 'block_collections' : department === 'concrete' ? 'concrete_collections' : 'collections';
-  if (/حركة|مبيعات|invoice|sales|daily/.test(text)) return department === 'block' ? 'block_daily_movement' : department === 'concrete' ? 'concrete_daily_movement' : 'daily_movement';
+  if (/حركه|مبيعات|invoice|sales|daily/.test(text)) return department === 'block' ? 'block_daily_movement' : department === 'concrete' ? 'concrete_daily_movement' : 'daily_movement';
   return department === 'finance' ? 'financial_document' : 'unknown_excel';
 }
 export function extractPlate(text = '') {

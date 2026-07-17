@@ -2,7 +2,7 @@ import { config } from './config.js';
 import { select } from './supabase.js';
 import { DEPARTMENT_LABELS, ROLE_LABELS } from './domain.js';
 
-const REPORT_LABELS={fuel:'تقرير الديزل والوقود',payroll:'مسير الرواتب',block_collections:'تحصيلات البلوك',concrete_collections:'تحصيلات الخرسانة',collections:'التحصيلات العامة',block_daily_movement:'الحركة اليومية للبلوك',concrete_daily_movement:'الحركة اليومية للخرسانة',daily_movement:'الحركة اليومية',financial_document:'مستند مالي',unknown_excel:'ملف Excel يحتاج تحديد النوع',quotation:'عرض سعر',invoice:'فاتورة',unclassified_document:'مستند يحتاج تصنيف'};
+const REPORT_LABELS={fuel:'تقرير الديزل والوقود',payroll:'مسير الرواتب',block_collections:'تحصيلات البلوك',concrete_collections:'تحصيلات الخرسانة',collections:'التحصيلات العامة',block_daily_movement:'التقرير اليومي للبلوك',concrete_daily_movement:'التقرير اليومي للخرسانة',daily_movement:'التقرير اليومي للمبيعات والتحصيل والمخزون',financial_document:'مستند مالي',unknown_excel:'ملف Excel يحتاج تحديد النوع',quotation:'عرض سعر',invoice:'فاتورة',unclassified_document:'مستند يحتاج تصنيف'};
 export async function enrichIdentity(basic,from){
   const identity=Array.isArray(basic)?basic[0]:basic;
   if(!identity?.user_id)return {...identity,external_id:String(from?.id||''),full_name:[from?.first_name,from?.last_name].filter(Boolean).join(' ')};
@@ -25,6 +25,7 @@ export const reportTypeLabel=type=>REPORT_LABELS[type]||type;
 export function reportDestination(type,department='unassigned'){
   if(type==='fuel')return DEPARTMENT_LABELS.fuel;
   if(type==='payroll'||type==='financial_document'||type==='invoice')return DEPARTMENT_LABELS.finance;
+  if(type==='daily_movement')return 'التقرير اليومي — مراجعة واعتماد المبيعات والتحصيل والمخزون';
   if(type.startsWith('block_'))return DEPARTMENT_LABELS.block;
   if(type.startsWith('concrete_'))return DEPARTMENT_LABELS.concrete;
   if(type==='quotation'&&department==='workshop')return 'الورشة — عروض أسعار الإصلاح';
