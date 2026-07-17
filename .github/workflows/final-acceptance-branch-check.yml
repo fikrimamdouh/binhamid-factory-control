@@ -1,0 +1,129 @@
+name: Final Acceptance Branch Check
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - fix/final-acceptance-hardening
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: acceptance_clone
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d acceptance_clone"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      LOCAL_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/acceptance_clone
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+
+      - name: Install dependencies and PostgreSQL 17 client
+        run: |
+          set -euo pipefail
+          npm install --ignore-scripts --no-audit --no-fund
+          sudo apt-get update -qq
+          sudo apt-get install -y curl ca-certificates
+          sudo install -d -m 0755 /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          . /etc/os-release
+          printf '%s\n' 'Types: deb' 'URIs: https://apt.postgresql.org/pub/repos/apt' "Suites: ${VERSION_CODENAME}-pgdg" 'Components: main' 'Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc' | sudo tee /etc/apt/sources.list.d/pgdg.sources > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client-17
+          echo '/usr/lib/postgresql/17/bin' >> "$GITHUB_PATH"
+
+      - name: Run repository quality gates
+        run: |
+          set -euo pipefail
+          npm run audit:migrations
+          npm test
+          npm run check:api
+          npm run check:functions
+          node --check scripts/final-acceptance-database.mjs
+          node --check scripts/isolated-migration-preflight.mjs
+          node --check api/_lib/telegram-webhook-gateway.js
+          node --check api/_lib/routes/daily-report.js
+          node --check api/_lib/routes/accounting.js
+
+      - name: Download latest verified encrypted production backup
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run_id="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow database-backup.yml --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
+          test -n "$run_id"
+          artifact="encrypted-database-backup-${run_id}"
+          mkdir -p acceptance-backup
+          gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name "$artifact" --dir acceptance-backup
+          test "$(find acceptance-backup -type f -name '*.enc' | wc -l)" -eq 1
+          test "$(find acceptance-backup -type f -name '*.manifest.json' | wc -l)" -eq 1
+          printf '%s\n' "$run_id" > acceptance-backup-source-run.txt
+
+      - name: Restore encrypted backup to isolated database
+        env:
+          BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+          RESTORE_ARTIFACT_DIR: acceptance-backup
+          RESTORE_DRILL_RESULT: acceptance-restore.json
+          SUPABASE_DB_URL: ''
+        run: node scripts/restore-drill.mjs
+
+      - name: Capture isolated preflight and apply schema 20 atomically
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest="$(find acceptance-backup -type f -name '*.manifest.json' -print -quit)"
+          ISOLATED_BACKUP_MANIFEST="$manifest" MIGRATION_PREFLIGHT_PATH=acceptance-preflight.json node scripts/isolated-migration-preflight.mjs
+          current_version="$(node -e "const x=require('./acceptance-preflight.json');process.stdout.write(String(x.currentVersion))")"
+          : > acceptance-migrations.sql
+          for version in $(seq $((current_version + 1)) 20); do
+            file="$(find supabase/migrations -maxdepth 1 -type f -name "$(printf '%03d' "$version")_*.sql" -print -quit)"
+            test -n "$file"
+            cat "$file" >> acceptance-migrations.sql
+            printf '\n' >> acceptance-migrations.sql
+          done
+          psql "$LOCAL_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction --file acceptance-migrations.sql
+          rm -f acceptance-migrations.sql
+
+      - name: Verify schema and run transactional acceptance cycle
+        env:
+          SUPABASE_DB_URL: ${{ env.LOCAL_DATABASE_URL }}
+          MIGRATION_PREFLIGHT_PATH: acceptance-preflight.json
+          MIGRATION_RESULT_PATH: acceptance-migration-result.json
+          TEST_DATABASE_URL: ${{ env.LOCAL_DATABASE_URL }}
+          FINAL_ACCEPTANCE_DB_RESULT: acceptance-database-result.json
+        run: |
+          set -euo pipefail
+          node scripts/governance-migration-verify.mjs
+          node scripts/final-acceptance-database.mjs
+
+      - name: Upload isolated acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-acceptance-branch-evidence-${{ github.run_id }}
+          path: |
+            acceptance-backup-source-run.txt
+            acceptance-restore.json
+            acceptance-preflight.json
+            acceptance-migration-result.json
+            acceptance-database-result.json
+          if-no-files-found: warn
+          retention-days: 7
