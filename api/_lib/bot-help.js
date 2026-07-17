@@ -1,6 +1,6 @@
 import { displayName, roleLabel } from './bot-profile.js';
 
-const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#39;'}[char]));
+const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 
 export function welcomeMessage(identity,from){
   const name=esc(displayName(identity,from)),role=esc(roleLabel(identity?.role||'pending'));
