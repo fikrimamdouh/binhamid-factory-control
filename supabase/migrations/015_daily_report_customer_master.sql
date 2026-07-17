@@ -88,16 +88,35 @@ as $$
 begin
   if new.treasury_code not in ('101','104') and coalesce(new.is_customer_collection,false) then raise exception 'DAILY_REPORT_UNSUPPORTED_COLLECTION_TREASURY:%',new.treasury_code; end if;
   if coalesce(new.is_customer_collection,false) and nullif(trim(new.account_code),'') is null then raise exception 'DAILY_REPORT_COLLECTION_CUSTOMER_CODE_REQUIRED'; end if;
-  if coalesce(new.is_customer_collection,false) then
+  if coalesce(new.is_customer_collection,false) and nullif(trim(coalesce(new.account_name,'')),'') is not null then
     perform public.ensure_daily_report_customer(new.account_code,new.account_name);
-  end if;
-  if coalesce(new.is_customer_collection,false) and not exists(select 1 from public.customers c where c.active=true and (c.external_id=new.account_code or c.customer_code=new.account_code)) then
-    raise exception 'DAILY_REPORT_UNKNOWN_COLLECTION_CUSTOMER:%',new.account_code;
   end if;
   if coalesce(new.debit,0)<0 or coalesce(new.credit,0)<0 then raise exception 'DAILY_REPORT_NEGATIVE_CASH_VALUE'; end if;
   new.line_identity:=public.daily_cash_identity(new.treasury_code,new.account_code,new.voucher_no,new.movement_type,new.debit,new.credit,new.movement_date_text);
   return new;
 end $$;
+
+create or replace function public.validate_daily_report_cash_customer_deferred()
+returns trigger
+language plpgsql
+security definer
+set search_path=public
+as $$
+begin
+  if coalesce(new.is_customer_collection,false) and not exists(
+    select 1 from public.customers c
+    where c.active=true and (c.external_id=new.account_code or c.customer_code=new.account_code)
+  ) then
+    raise exception 'DAILY_REPORT_UNKNOWN_COLLECTION_CUSTOMER:%',new.account_code;
+  end if;
+  return null;
+end $$;
+
+drop trigger if exists daily_report_cash_customer_deferred_trigger on public.daily_report_cash_movements;
+create constraint trigger daily_report_cash_customer_deferred_trigger
+after insert or update of account_code,account_name,is_customer_collection on public.daily_report_cash_movements
+deferrable initially deferred
+for each row execute function public.validate_daily_report_cash_customer_deferred();
 
 insert into public.migration_history(version,migration_name)
 values(15,'015_daily_report_customer_master')
@@ -106,3 +125,4 @@ on conflict(version) do update set migration_name=excluded.migration_name;
 revoke all on function public.ensure_daily_report_customer(text,text) from anon,authenticated;
 revoke all on function public.validate_daily_report_sale_line() from anon,authenticated;
 revoke all on function public.validate_daily_report_cash_line() from anon,authenticated;
+revoke all on function public.validate_daily_report_cash_customer_deferred() from anon,authenticated;
