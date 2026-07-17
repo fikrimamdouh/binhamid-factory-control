@@ -4,6 +4,7 @@
     {"source":"/api/admin/groups","destination":"/api/router?route=admin/groups"},
     {"source":"/api/admin/users","destination":"/api/router?route=admin/users"},
     {"source":"/api/dashboard","destination":"/api/router?route=dashboard"},
+    {"source":"/api/control-center","destination":"/api/router?route=control-center"},
     {"source":"/api/conversations","destination":"/api/router?route=conversations"},
     {"source":"/api/operations","destination":"/api/router?route=operations"},
     {"source":"/api/reports","destination":"/api/router?route=reports"},
@@ -28,6 +29,7 @@
     {"source":"/","headers":[{"key":"Cache-Control","value":"no-store, no-cache, must-revalidate, max-age=0"}]},
     {"source":"/index.html","headers":[{"key":"Cache-Control","value":"no-store, no-cache, must-revalidate, max-age=0"}]},
     {"source":"/legacy.html","headers":[{"key":"Cache-Control","value":"no-store, no-cache, must-revalidate, max-age=0"}]},
+    {"source":"/control-center.html","headers":[{"key":"Cache-Control","value":"no-store, no-cache, must-revalidate, max-age=0"}]},
     {"source":"/assets/(.*)","headers":[{"key":"Cache-Control","value":"no-store, no-cache, must-revalidate, max-age=0"}]},
     {"source":"/favicon.svg","headers":[{"key":"Cache-Control","value":"public, max-age=86400"}]},
     {"source":"/api/(.*)","headers":[{"key":"Cache-Control","value":"no-store"},{"key":"X-Content-Type-Options","value":"nosniff"},{"key":"Referrer-Policy","value":"same-origin"}]}
