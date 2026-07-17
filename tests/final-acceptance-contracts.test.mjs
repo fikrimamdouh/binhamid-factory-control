@@ -12,19 +12,22 @@ test('automatic device bootstrap grants no business-data capability',()=>{
   assert.match(source,/AUTHENTICATED_USER_REQUIRED/);
 });
 
-test('production readiness follows the latest schema constant instead of schema 15 literals',()=>{
+test('production readiness follows schema 20 and never references schema 15 as current',()=>{
   const workflow=read('.github/workflows/production-readiness.yml');
+  const runtime=read('api/_lib/routes/system-runtime.js');
   assert.doesNotMatch(workflow,/directOperationsSchema\)!==15|expected schema 15|schema 15/);
-  assert.match(workflow,/EXPECTED_SCHEMA_VERSION:\s*['"]?19/);
+  assert.match(workflow,/directOperationsSchema\)!==20|directOperationsSchema\)===20|directOperationsSchema===20/);
+  assert.match(runtime,/LATEST_REQUIRED_VERSION=20/);
+  assert.match(runtime,/directOperationsSchema:20/);
 });
 
-test('accounting migration provides balanced journals, ledger and trial balance',()=>{
-  const path='supabase/migrations/019_accounting_import_and_telegram_integrity.sql';
-  assert.equal(exists(path),true,`${path} must exist`);
-  const sql=read(path);
-  for(const marker of ['chart_of_accounts','journal_entries','journal_entry_lines','general_ledger','trial_balance','post_daily_report_accounting','telegram_update_receipts','transition_import_status'])assert.match(sql,new RegExp(marker));
+test('accounting migrations provide balanced journals, ledger, reversal and trial balance',()=>{
+  const first='supabase/migrations/019_accounting_import_and_telegram_integrity.sql',second='supabase/migrations/020_accounting_reversal_and_projection_safety.sql';
+  assert.equal(exists(first),true,`${first} must exist`);assert.equal(exists(second),true,`${second} must exist`);
+  const sql=`${read(first)}\n${read(second)}`;
+  for(const marker of ['chart_of_accounts','journal_entries','journal_entry_lines','general_ledger','trial_balance','post_daily_report_accounting','reverse_journal_entry','telegram_update_receipts','transition_import_status'])assert.match(sql,new RegExp(marker));
   assert.match(sql,/debit[^;]*credit|credit[^;]*debit/s);
-  assert.match(sql,/migration_history\(version,migration_name\)[\s\S]*19/);
+  assert.match(sql,/migration_history\(version,migration_name\)[\s\S]*20/);
 });
 
 test('daily report commit requires a stored original and returns accounting evidence',()=>{
@@ -44,13 +47,15 @@ test('Telegram webhook processing is idempotent and unexpected failures are retr
   assert.match(source,/statusCode\s*=\s*503|json\(res,503/);
 });
 
-test('automatic import is disabled and import IDs are passed into daily approval',()=>{
+test('automatic import is disabled and import IDs persist until daily approval completes',()=>{
   const review=read('assets/import-review-guard.js');
   const integrity=read('assets/daily-approval-integrity-guard.js');
   assert.match(review,/localStorage\.setItem\(AUTO_KEY,'0'\)/);
   assert.match(review,/الترحيل التلقائي موقوف رقابيًا/);
-  assert.match(review,/BinHamidActiveImportId/);
+  assert.match(review,/sessionStorage\.setItem\(ACTIVE_KEY,importId\)/);
+  assert.doesNotMatch(review,/finally\s*\{[\s\S]*removeItem\(ACTIVE_KEY\)/);
   assert.match(integrity,/payload\.importId=importId/);
+  assert.match(integrity,/clearActiveImport/);
   assert.match(integrity,/recoveryDuplicate:true/);
 });
 
