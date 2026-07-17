@@ -1,0 +1,438 @@
+===== function opsSalesResponsible / ORIGINAL 5939-6083 =====
+05939:   };
+05940: }
+05941: 
+05942: function opsMergeState(raw){
+05943:   const base = opsDefaults();
+05944:   if(!raw || typeof raw !== 'object') return base;
+05945:   base.meta = {...base.meta,...(raw.meta||{}),sequences:{...base.meta.sequences,...(raw.meta?.sequences||{})}};
+05946:   base.settings = {...base.settings,...(raw.settings||{})};
+05947:   const arrays = ['locations','assets','movements','custodies','trips','fuel','fuelImports','maintenance','items','suppliers','stockMoves','counts','production','deliveries','collections','incidents','documents','visits','imports','audit'];
+05948:   arrays.forEach(k=>{ if(Array.isArray(raw[k])) base[k]=raw[k]; });
+05949:   return base;
+05950: }
+05951: 
+05952: function opsEl(id){ return document.getElementById(id); }
+05953: function opsEsc(v){ return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+05954: function opsUid(prefix){ return (prefix||'x')+'-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8); }
+05955: function opsToday(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+05956: function opsMonthStart(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`; }
+05957: function opsNowLocal(){ const d=new Date(), z=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())}T${z(d.getHours())}:${z(d.getMinutes())}`; }
+05958: function opsFmtDate(s){ if(!s) return '—'; const x=String(s).slice(0,10).split('-'); return x.length===3?`${x[2]}/${x[1]}/${x[0]}`:s; }
+05959: function opsFmtDateTime(s){ if(!s) return '—'; const [d,t]=String(s).split('T'); return opsFmtDate(d)+(t?' '+t.slice(0,5):''); }
+05960: function opsMoney(v){ const n=Number(v||0); return n.toLocaleString('en-US',{maximumFractionDigits:2}); }
+05961: function opsNum(v){ return Number(v||0).toLocaleString('en-US',{maximumFractionDigits:2}); }
+05962: function opsById(arr,id){ return (arr||[]).find(x=>x.id===id); }
+05963: function opsEmp(id){ return (D.emp||[]).find(x=>x.id===id); }
+05964: function opsSalesResponsibleRole(kind){return kind==='concrete'?'مسؤول مبيعات الخرسانة':'مسؤول مبيعات البلوك';}
+05965: function opsSalesResponsibleKey(kind){return kind==='concrete'?'concreteSalesEmployeeId':'blockSalesEmployeeId';}
+05966: function opsSalesResponsible(kind){
+05967:   const key=opsSalesResponsibleKey(kind),role=opsSalesResponsibleRole(kind),byId=opsEmp(OPS.settings[key]);
+05968:   return (byId?.act!==false?byId:null)||(D.emp||[]).find(x=>x.role===role&&x.act!==false)||null;
+05969: }
+05970: function opsUpsertSalesResponsible(kind,data){
+05971:   const key=opsSalesResponsibleKey(kind),role=opsSalesResponsibleRole(kind),old=opsSalesResponsible(kind),id=old?.id||`ops-sales-${kind}`;
+05972:   const employee={...(old||{}),id,name:String(data.name||'').trim(),nid:String(data.nid||'').trim(),no:String(data.no||'').trim(),tel:String(data.tel||'').trim(),role,act:true,nat:old?.nat||'',hire:old?.hire||'',lic:old?.lic||'',licE:old?.licE||'',cash:old?.cash||''};
+05973:   const index=(D.emp||[]).findIndex(x=>x.id===id);if(index>=0)D.emp[index]=employee;else D.emp.push(employee);
+05974:   OPS.settings[key]=id;return employee;
+05975: }
+05976: function opsVeh(id){ return (D.veh||[]).find(x=>x.id===id); }
+05977: function opsCli(id){ return (D.cli||[]).find(x=>x.id===id); }
+05978: function opsLoc(id){ return opsById(OPS.locations,id); }
+05979: function opsItem(id){ return opsById(OPS.items,id); }
+05980: function opsAsset(id){ return opsById(OPS.assets,id); }
+05981: function opsEntityLabel(kind,id){
+05982:   if(kind==='vehicle') { const x=opsVeh(id); return x ? `${x.plate||x.acct||'مركبة'} — ${x.type||''}` : 'مركبة غير موجودة'; }
+05983:   if(kind==='asset') { const x=opsAsset(id); return x ? `${x.name}${x.code?' — '+x.code:''}` : 'أصل غير موجود'; }
+05984:   if(kind==='item') { const x=opsItem(id); return x?.name||'صنف غير موجود'; }
+05985:   if(kind==='employee') return opsEmp(id)?.name||'موظف غير موجود';
+05986:   if(kind==='client') return opsCli(id)?.name||'عميل غير موجود';
+05987:   return id||'—';
+05988: }
+05989: function opsStatus(status){
+05990:   const bad=['lost','damaged','expired','cancelled'], warn=['open','out','draft'], info=['transferred','delivered'];
+05991:   const cls=bad.includes(status)?'bad':warn.includes(status)?'warn':info.includes(status)?'info':status==='reversed'?'muted':'';
+05992:   return `<span class="ops-status ${cls}">${opsEsc(OPS_STATUS_LABELS[status]||status||'مؤكدة')}</span>`;
+05993: }
+05994: function opsSelect(rows,value,placeholder){
+05995:   return `<option value="">${opsEsc(placeholder||'— اختر —')}</option>`+(rows||[]).map(x=>`<option value="${opsEsc(x.id)}" ${x.id===value?'selected':''}>${opsEsc(x.label||x.name)}</option>`).join('');
+05996: }
+05997: function opsEmployees(activeOnly){ return (D.emp||[]).filter(e=>!activeOnly||e.act!==false).map(e=>({id:e.id,label:`${e.name} — ${e.role||''}`})); }
+05998: function opsVehicles(){ return (D.veh||[]).map(v=>({id:v.id,label:`${v.plate||v.acct||'—'} — ${v.type||''} ${v.make||''}`})); }
+05999: function opsClients(){ return (D.cli||[]).map(c=>({id:c.id,label:c.name})); }
+06000: function opsLocations(){ return OPS.locations.filter(x=>x.active!==false).map(x=>({id:x.id,label:`${x.name} — ${x.type}`})); }
+06001: function opsAssetsList(){
+06002:   return [
+06003:     ...(D.veh||[]).map(v=>({id:'vehicle:'+v.id,label:`مركبة: ${v.plate||v.acct||'—'} — ${v.type||''}`})),
+06004:     ...OPS.assets.filter(a=>a.active!==false).map(a=>({id:'asset:'+a.id,label:`${a.category||'أصل'}: ${a.name}${a.code?' — '+a.code:''}`}))
+06005:   ];
+06006: }
+06007: function opsAssetParts(key){ const [kind,id]=String(key||'').split(':'); return {kind,id}; }
+06008: 
+06009: function opsNextNo(key){
+06010:   const n=OPS.meta.sequences[key]||1;
+06011:   OPS.meta.sequences[key]=n+1;
+06012:   return `BH-${key}-${new Date().getFullYear()}-${String(n).padStart(5,'0')}`;
+06013: }
+06014: 
+06015: function opsToast(message,kind){ if(typeof toast==='function') toast(message,kind); }
+06016: function opsSetSave(message,kind){ const e=opsEl('opsSaveState'); if(!e)return; e.textContent=message; e.className='ops-save '+(kind||''); }
+06017: 
+06018: /* --------------------------- IndexedDB --------------------------- */
+06019: function opsOpenDB(){
+06020:   return new Promise((resolve,reject)=>{
+06021:     if(!window.indexedDB){ resolve(null); return; }
+06022:     const q=indexedDB.open(OPS_DB_NAME,OPS_DB_VERSION);
+06023:     q.onupgradeneeded=()=>{
+06024:       const db=q.result;
+06025:       if(!db.objectStoreNames.contains('state')) db.createObjectStore('state',{keyPath:'key'});
+06026:       if(!db.objectStoreNames.contains('files')) db.createObjectStore('files',{keyPath:'id'});
+06027:       if(!db.objectStoreNames.contains('snapshots')) db.createObjectStore('snapshots',{keyPath:'id'});
+06028:     };
+06029:     q.onsuccess=()=>resolve(q.result); q.onerror=()=>reject(q.error);
+06030:   });
+06031: }
+06032: function opsDbGet(store,key){
+06033:   return new Promise((resolve,reject)=>{ if(!OPS_DB){resolve(null);return;} const q=OPS_DB.transaction(store,'readonly').objectStore(store).get(key); q.onsuccess=()=>resolve(q.result||null); q.onerror=()=>reject(q.error); });
+06034: }
+06035: function opsDbPut(store,value){
+06036:   return new Promise((resolve,reject)=>{ if(!OPS_DB){resolve(value);return;} const q=OPS_DB.transaction(store,'readwrite').objectStore(store).put(value); q.onsuccess=()=>resolve(value); q.onerror=()=>reject(q.error); });
+06037: }
+06038: function opsDbDelete(store,key){
+06039:   return new Promise((resolve,reject)=>{ if(!OPS_DB){resolve();return;} const q=OPS_DB.transaction(store,'readwrite').objectStore(store).delete(key); q.onsuccess=()=>resolve(); q.onerror=()=>reject(q.error); });
+06040: }
+06041: function opsDbAll(store){
+06042:   return new Promise((resolve,reject)=>{ if(!OPS_DB){resolve([]);return;} const q=OPS_DB.transaction(store,'readonly').objectStore(store).getAll(); q.onsuccess=()=>resolve(q.result||[]); q.onerror=()=>reject(q.error); });
+06043: }
+06044: 
+06045: async function opsPersist(label){
+06046:   OPS.meta.updatedAt=new Date().toISOString();
+06047:   if(label) opsAudit(label);
+06048:   opsSetSave('جاري الحفظ');
+06049:   try{
+06050:     localStorage.setItem(OPS_KEY,JSON.stringify(OPS));
+06051:     if(OPS_DB) await opsDbPut('state',{key:'current',updatedAt:OPS.meta.updatedAt,data:OPS});
+06052:     const snapped=await opsMaybeSnapshot();
+06053:     if(snapped){
+06054:       localStorage.setItem(OPS_KEY,JSON.stringify(OPS));
+06055:       if(OPS_DB) await opsDbPut('state',{key:'current',updatedAt:OPS.meta.updatedAt,data:OPS});
+06056:     }
+06057:     opsSetSave('محفوظ تلقائيًا','ok');
+06058:   }catch(e){ console.error(e); opsSetSave('تعذر الحفظ','err'); opsToast('تعذر حفظ الحركة — تحقق من مساحة الجهاز','err'); throw e; }
+06059: }
+06060: function opsAudit(action,details){
+06061:   OPS.audit.unshift({id:opsUid('aud'),at:new Date().toISOString(),action,details:details||''});
+06062:   if(OPS.audit.length>1000) OPS.audit.length=1000;
+06063: }
+06064: async function opsSnapshot(label){
+06065:   if(!OPS_DB) return;
+06066:   const id=opsUid('snap');
+06067:   const data=JSON.stringify({legacy:D,ops:OPS});
+06068:   await opsDbPut('snapshots',{id,createdAt:new Date().toISOString(),label:label||'نسخة تلقائية',data});
+06069:   const all=(await opsDbAll('snapshots')).sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
+06070:   const lim=Number(OPS.settings.backupLimit||10);
+06071:   for(const x of all.slice(lim)) await opsDbDelete('snapshots',x.id);
+06072:   OPS.meta.lastSnapshot=new Date().toISOString();
+06073: }
+06074: async function opsMaybeSnapshot(){
+06075:   const last=OPS.meta.lastSnapshot?new Date(OPS.meta.lastSnapshot).getTime():0;
+06076:   if(Date.now()-last>60*60*1000){ await opsSnapshot('نسخة تلقائية دورية'); return true; }
+06077:   return false;
+06078: }
+06079: 
+06080: async function opsSaveFiles(fileList){
+06081:   const out=[];
+06082:   for(const file of Array.from(fileList||[])){
+06083:     if(!file || !file.size) continue;
+===== function opsSalesResponsible / ORIGINAL 5940-6084 =====
+05940: }
+05941: 
+05942: function opsMergeState(raw){
+05943:   const base = opsDefaults();
+05944:   if(!raw || typeof raw !== 'object') return base;
+05945:   base.meta = {...base.meta,...(raw.meta||{}),sequences:{...base.meta.sequences,...(raw.meta?.sequences||{})}};
+05946:   base.settings = {...base.settings,...(raw.settings||{})};
+05947:   const arrays = ['locations','assets','movements','custodies','trips','fuel','fuelImports','maintenance','items','suppliers','stockMoves','counts','production','deliveries','collections','incidents','documents','visits','imports','audit'];
+05948:   arrays.forEach(k=>{ if(Array.isArray(raw[k])) base[k]=raw[k]; });
+05949:   return base;
+05950: }
+05951: 
+05952: function opsEl(id){ return document.getElementById(id); }
+05953: function opsEsc(v){ return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+05954: function opsUid(prefix){ return (prefix||'x')+'-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8); }
+05955: function opsToday(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+05956: function opsMonthStart(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`; }
+05957: function opsNowLocal(){ const d=new Date(), z=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())}T${z(d.getHours())}:${z(d.getMinutes())}`; }
+05958: function opsFmtDate(s){ if(!s) return '—'; const x=String(s).slice(0,10).split('-'); return x.length===3?`${x[2]}/${x[1]}/${x[0]}`:s; }
+05959: function opsFmtDateTime(s){ if(!s) return '—'; const [d,t]=String(s).split('T'); return opsFmtDate(d)+(t?' '+t.slice(0,5):''); }
+05960: function opsMoney(v){ const n=Number(v||0); return n.toLocaleString('en-US',{maximumFractionDigits:2}); }
+05961: function opsNum(v){ return Number(v||0).toLocaleString('en-US',{maximumFractionDigits:2}); }
+05962: function opsById(arr,id){ return (arr||[]).find(x=>x.id===id); }
+05963: function opsEmp(id){ return (D.emp||[]).find(x=>x.id===id); }
+05964: function opsSalesResponsibleRole(kind){return kind==='concrete'?'مسؤول مبيعات الخرسانة':'مسؤول مبيعات البلوك';}
+05965: function opsSalesResponsibleKey(kind){return kind==='concrete'?'concreteSalesEmployeeId':'blockSalesEmployeeId';}
+05966: function opsSalesResponsible(kind){
+05967:   const key=opsSalesResponsibleKey(kind),role=opsSalesResponsibleRole(kind),byId=opsEmp(OPS.settings[key]);
+05968:   return (byId?.act!==false?byId:null)||(D.emp||[]).find(x=>x.role===role&&x.act!==false)||null;
+05969: }
+05970: function opsUpsertSalesResponsible(kind,data){
+05971:   const key=opsSalesResponsibleKey(kind),role=opsSalesResponsibleRole(kind),old=opsSalesResponsible(kind),id=old?.id||`ops-sales-${kind}`;
+05972:   const employee={...(old||{}),id,name:String(data.name||'').trim(),nid:String(data.nid||'').trim(),no:String(data.no||'').trim(),tel:String(data.tel||'').trim(),role,act:true,nat:old?.nat||'',hire:old?.hire||'',lic:old?.lic||'',licE:old?.licE||'',cash:old?.cash||''};
+05973:   const index=(D.emp||[]).findIndex(x=>x.id===id);if(index>=0)D.emp[index]=employee;else D.emp.push(employee);
+05974:   OPS.settings[key]=id;return employee;
+05975: }
+05976: function opsVeh(id){ return (D.veh||[]).find(x=>x.id===id); }
+05977: function opsCli(id){ return (D.cli||[]).find(x=>x.id===id); }
+05978: function opsLoc(id){ return opsById(OPS.locations,id); }
+05979: function opsItem(id){ return opsById(OPS.items,id); }
+05980: function opsAsset(id){ return opsById(OPS.assets,id); }
+05981: function opsEntityLabel(kind,id){
+05982:   if(kind==='vehicle') { const x=opsVeh(id); return x ? `${x.plate||x.acct||'مركبة'} — ${x.type||''}` : 'مركبة غير موجودة'; }
+05983:   if(kind==='asset') { const x=opsAsset(id); return x ? `${x.name}${x.code?' — '+x.code:''}` : 'أصل غير موجود'; }
+05984:   if(kind==='item') { const x=opsItem(id); return x?.name||'صنف غير موجود'; }
+05985:   if(kind==='employee') return opsEmp(id)?.name||'موظف غير موجود';
+05986:   if(kind==='client') return opsCli(id)?.name||'عميل غير موجود';
+05987:   return id||'—';
+05988: }
+05989: function opsStatus(status){
+05990:   const bad=['lost','damaged','expired','cancelled'], warn=['open','out','draft'], info=['transferred','delivered'];
+05991:   const cls=bad.includes(status)?'bad':warn.includes(status)?'warn':info.includes(status)?'info':status==='reversed'?'muted':'';
+05992:   return `<span class="ops-status ${cls}">${opsEsc(OPS_STATUS_LABELS[status]||status||'مؤكدة')}</span>`;
+05993: }
+05994: function opsSelect(rows,value,placeholder){
+05995:   return `<option value="">${opsEsc(placeholder||'— اختر —')}</option>`+(rows||[]).map(x=>`<option value="${opsEsc(x.id)}" ${x.id===value?'selected':''}>${opsEsc(x.label||x.name)}</option>`).join('');
+05996: }
+05997: function opsEmployees(activeOnly){ return (D.emp||[]).filter(e=>!activeOnly||e.act!==false).map(e=>({id:e.id,label:`${e.name} — ${e.role||''}`})); }
+05998: function opsVehicles(){ return (D.veh||[]).map(v=>({id:v.id,label:`${v.plate||v.acct||'—'} — ${v.type||''} ${v.make||''}`})); }
+05999: function opsClients(){ return (D.cli||[]).map(c=>({id:c.id,label:c.name})); }
+06000: function opsLocations(){ return OPS.locations.filter(x=>x.active!==false).map(x=>({id:x.id,label:`${x.name} — ${x.type}`})); }
+06001: function opsAssetsList(){
+06002:   return [
+06003:     ...(D.veh||[]).map(v=>({id:'vehicle:'+v.id,label:`مركبة: ${v.plate||v.acct||'—'} — ${v.type||''}`})),
+06004:     ...OPS.assets.filter(a=>a.active!==false).map(a=>({id:'asset:'+a.id,label:`${a.category||'أصل'}: ${a.name}${a.code?' — '+a.code:''}`}))
+06005:   ];
+06006: }
+06007: function opsAssetParts(key){ const [kind,id]=String(key||'').split(':'); return {kind,id}; }
+06008: 
+06009: function opsNextNo(key){
+06010:   const n=OPS.meta.sequences[key]||1;
+06011:   OPS.meta.sequences[key]=n+1;
+06012:   return `BH-${key}-${new Date().getFullYear()}-${String(n).padStart(5,'0')}`;
+06013: }
+06014: 
+06015: function opsToast(message,kind){ if(typeof toast==='function') toast(message,kind); }
+06016: function opsSetSave(message,kind){ const e=opsEl('opsSaveState'); if(!e)return; e.textContent=message; e.className='ops-save '+(kind||''); }
+06017: 
+06018: /* --------------------------- IndexedDB --------------------------- */
+06019: function opsOpenDB(){
+06020:   return new Promise((resolve,reject)=>{
+06021:     if(!window.indexedDB){ resolve(null); return; }
+06022:     const q=indexedDB.open(OPS_DB_NAME,OPS_DB_VERSION);
+06023:     q.onupgradeneeded=()=>{
+06024:       const db=q.result;
+06025:       if(!db.objectStoreNames.contains('state')) db.createObjectStore('state',{keyPath:'key'});
+06026:       if(!db.objectStoreNames.contains('files')) db.createObjectStore('files',{keyPath:'id'});
+06027:       if(!db.objectStoreNames.contains('snapshots')) db.createObjectStore('snapshots',{keyPath:'id'});
+06028:     };
+06029:     q.onsuccess=()=>resolve(q.result); q.onerror=()=>reject(q.error);
+06030:   });
+06031: }
+06032: function opsDbGet(store,key){
+06033:   return new Promise((resolve,reject)=>{ if(!OPS_DB){resolve(null);return;} const q=OPS_DB.transaction(store,'readonly').objectStore(store).get(key); q.onsuccess=()=>resolve(q.result||null); q.onerror=()=>reject(q.error); });
+06034: }
+06035: function opsDbPut(store,value){
+06036:   return new Promise((resolve,reject)=>{ if(!OPS_DB){resolve(value);return;} const q=OPS_DB.transaction(store,'readwrite').objectStore(store).put(value); q.onsuccess=()=>resolve(value); q.onerror=()=>reject(q.error); });
+06037: }
+06038: function opsDbDelete(store,key){
+06039:   return new Promise((resolve,reject)=>{ if(!OPS_DB){resolve();return;} const q=OPS_DB.transaction(store,'readwrite').objectStore(store).delete(key); q.onsuccess=()=>resolve(); q.onerror=()=>reject(q.error); });
+06040: }
+06041: function opsDbAll(store){
+06042:   return new Promise((resolve,reject)=>{ if(!OPS_DB){resolve([]);return;} const q=OPS_DB.transaction(store,'readonly').objectStore(store).getAll(); q.onsuccess=()=>resolve(q.result||[]); q.onerror=()=>reject(q.error); });
+06043: }
+06044: 
+06045: async function opsPersist(label){
+06046:   OPS.meta.updatedAt=new Date().toISOString();
+06047:   if(label) opsAudit(label);
+06048:   opsSetSave('جاري الحفظ');
+06049:   try{
+06050:     localStorage.setItem(OPS_KEY,JSON.stringify(OPS));
+06051:     if(OPS_DB) await opsDbPut('state',{key:'current',updatedAt:OPS.meta.updatedAt,data:OPS});
+06052:     const snapped=await opsMaybeSnapshot();
+06053:     if(snapped){
+06054:       localStorage.setItem(OPS_KEY,JSON.stringify(OPS));
+06055:       if(OPS_DB) await opsDbPut('state',{key:'current',updatedAt:OPS.meta.updatedAt,data:OPS});
+06056:     }
+06057:     opsSetSave('محفوظ تلقائيًا','ok');
+06058:   }catch(e){ console.error(e); opsSetSave('تعذر الحفظ','err'); opsToast('تعذر حفظ الحركة — تحقق من مساحة الجهاز','err'); throw e; }
+06059: }
+06060: function opsAudit(action,details){
+06061:   OPS.audit.unshift({id:opsUid('aud'),at:new Date().toISOString(),action,details:details||''});
+06062:   if(OPS.audit.length>1000) OPS.audit.length=1000;
+06063: }
+06064: async function opsSnapshot(label){
+06065:   if(!OPS_DB) return;
+06066:   const id=opsUid('snap');
+06067:   const data=JSON.stringify({legacy:D,ops:OPS});
+06068:   await opsDbPut('snapshots',{id,createdAt:new Date().toISOString(),label:label||'نسخة تلقائية',data});
+06069:   const all=(await opsDbAll('snapshots')).sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
+06070:   const lim=Number(OPS.settings.backupLimit||10);
+06071:   for(const x of all.slice(lim)) await opsDbDelete('snapshots',x.id);
+06072:   OPS.meta.lastSnapshot=new Date().toISOString();
+06073: }
+06074: async function opsMaybeSnapshot(){
+06075:   const last=OPS.meta.lastSnapshot?new Date(OPS.meta.lastSnapshot).getTime():0;
+06076:   if(Date.now()-last>60*60*1000){ await opsSnapshot('نسخة تلقائية دورية'); return true; }
+06077:   return false;
+06078: }
+06079: 
+06080: async function opsSaveFiles(fileList){
+06081:   const out=[];
+06082:   for(const file of Array.from(fileList||[])){
+06083:     if(!file || !file.size) continue;
+06084:     if(file.size>12*1024*1024) throw new Error(`الملف ${file.name} أكبر من 12MB`);
+===== function opsSalesResponsible / ORIGINAL 5941-6085 =====
+05941: 
+05942: function opsMergeState(raw){
+05943:   const base = opsDefaults();
+05944:   if(!raw || typeof raw !== 'object') return base;
+05945:   base.meta = {...base.meta,...(raw.meta||{}),sequences:{...base.meta.sequences,...(raw.meta?.sequences||{})}};
+05946:   base.settings = {...base.settings,...(raw.settings||{})};
+05947:   const arrays = ['locations','assets','movements','custodies','trips','fuel','fuelImports','maintenance','items','suppliers','stockMoves','counts','production','deliveries','collections','incidents','documents','visits','imports','audit'];
+05948:   arrays.forEach(k=>{ if(Array.isArray(raw[k])) base[k]=raw[k]; });
+05949:   return base;
+05950: }
+05951: 
+05952: function opsEl(id){ return document.getElementById(id); }
+05953: function opsEsc(v){ return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+05954: function opsUid(prefix){ return (prefix||'x')+'-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8); }
+05955: function opsToday(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+05956: function opsMonthStart(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`; }
+05957: function opsNowLocal(){ const d=new Date(), z=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())}T${z(d.getHours())}:${z(d.getMinutes())}`; }
+05958: function opsFmtDate(s){ if(!s) return '—'; const x=String(s).slice(0,10).split('-'); return x.length===3?`${x[2]}/${x[1]}/${x[0]}`:s; }
+05959: function opsFmtDateTime(s){ if(!s) return '—'; const [d,t]=String(s).split('T'); return opsFmtDate(d)+(t?' '+t.slice(0,5):''); }
+05960: function opsMoney(v){ const n=Number(v||0); return n.toLocaleString('en-US',{maximumFractionDigits:2}); }
+05961: function opsNum(v){ return Number(v||0).toLocaleString('en-US',{maximumFractionDigits:2}); }
+05962: function opsById(arr,id){ return (arr||[]).find(x=>x.id===id); }
+05963: function opsEmp(id){ return (D.emp||[]).find(x=>x.id===id); }
+05964: function opsSalesResponsibleRole(kind){return kind==='concrete'?'مسؤول مبيعات الخرسانة':'مسؤول مبيعات البلوك';}
+05965: function opsSalesResponsibleKey(kind){return kind==='concrete'?'concreteSalesEmployeeId':'blockSalesEmployeeId';}
+05966: function opsSalesResponsible(kind){
+05967:   const key=opsSalesResponsibleKey(kind),role=opsSalesResponsibleRole(kind),byId=opsEmp(OPS.settings[key]);
+05968:   return (byId?.act!==false?byId:null)||(D.emp||[]).find(x=>x.role===role&&x.act!==false)||null;
+05969: }
+05970: function opsUpsertSalesResponsible(kind,data){
+05971:   const key=opsSalesResponsibleKey(kind),role=opsSalesResponsibleRole(kind),old=opsSalesResponsible(kind),id=old?.id||`ops-sales-${kind}`;
+05972:   const employee={...(old||{}),id,name:String(data.name||'').trim(),nid:String(data.nid||'').trim(),no:String(data.no||'').trim(),tel:String(data.tel||'').trim(),role,act:true,nat:old?.nat||'',hire:old?.hire||'',lic:old?.lic||'',licE:old?.licE||'',cash:old?.cash||''};
+05973:   const index=(D.emp||[]).findIndex(x=>x.id===id);if(index>=0)D.emp[index]=employee;else D.emp.push(employee);
+05974:   OPS.settings[key]=id;return employee;
+05975: }
+05976: function opsVeh(id){ return (D.veh||[]).find(x=>x.id===id); }
+05977: function opsCli(id){ return (D.cli||[]).find(x=>x.id===id); }
+05978: function opsLoc(id){ return opsById(OPS.locations,id); }
+05979: function opsItem(id){ return opsById(OPS.items,id); }
+05980: function opsAsset(id){ return opsById(OPS.assets,id); }
+05981: function opsEntityLabel(kind,id){
+05982:   if(kind==='vehicle') { const x=opsVeh(id); return x ? `${x.plate||x.acct||'مركبة'} — ${x.type||''}` : 'مركبة غير موجودة'; }
+05983:   if(kind==='asset') { const x=opsAsset(id); return x ? `${x.name}${x.code?' — '+x.code:''}` : 'أصل غير موجود'; }
+05984:   if(kind==='item') { const x=opsItem(id); return x?.name||'صنف غير موجود'; }
+05985:   if(kind==='employee') return opsEmp(id)?.name||'موظف غير موجود';
+05986:   if(kind==='client') return opsCli(id)?.name||'عميل غير موجود';
+05987:   return id||'—';
+05988: }
+05989: function opsStatus(status){
+05990:   const bad=['lost','damaged','expired','cancelled'], warn=['open','out','draft'], info=['transferred','delivered'];
+05991:   const cls=bad.includes(status)?'bad':warn.includes(status)?'warn':info.includes(status)?'info':status==='reversed'?'muted':'';
+05992:   return `<span class="ops-status ${cls}">${opsEsc(OPS_STATUS_LABELS[status]||status||'مؤكدة')}</span>`;
+05993: }
+05994: function opsSelect(rows,value,placeholder){
+05995:   return `<option value="">${opsEsc(placeholder||'— اختر —')}</option>`+(rows||[]).map(x=>`<option value="${opsEsc(x.id)}" ${x.id===value?'selected':''}>${opsEsc(x.label||x.name)}</option>`).join('');
+05996: }
+05997: function opsEmployees(activeOnly){ return (D.emp||[]).filter(e=>!activeOnly||e.act!==false).map(e=>({id:e.id,label:`${e.name} — ${e.role||''}`})); }
+05998: function opsVehicles(){ return (D.veh||[]).map(v=>({id:v.id,label:`${v.plate||v.acct||'—'} — ${v.type||''} ${v.make||''}`})); }
+05999: function opsClients(){ return (D.cli||[]).map(c=>({id:c.id,label:c.name})); }
+06000: function opsLocations(){ return OPS.locations.filter(x=>x.active!==false).map(x=>({id:x.id,label:`${x.name} — ${x.type}`})); }
+06001: function opsAssetsList(){
+06002:   return [
+06003:     ...(D.veh||[]).map(v=>({id:'vehicle:'+v.id,label:`مركبة: ${v.plate||v.acct||'—'} — ${v.type||''}`})),
+06004:     ...OPS.assets.filter(a=>a.active!==false).map(a=>({id:'asset:'+a.id,label:`${a.category||'أصل'}: ${a.name}${a.code?' — '+a.code:''}`}))
+06005:   ];
+06006: }
+06007: function opsAssetParts(key){ const [kind,id]=String(key||'').split(':'); return {kind,id}; }
+06008: 
+06009: function opsNextNo(key){
+06010:   const n=OPS.meta.sequences[key]||1;
+06011:   OPS.meta.sequences[key]=n+1;
+06012:   return `BH-${key}-${new Date().getFullYear()}-${String(n).padStart(5,'0')}`;
+06013: }
+06014: 
+06015: function opsToast(message,kind){ if(typeof toast==='function') toast(message,kind); }
+06016: function opsSetSave(message,kind){ const e=opsEl('opsSaveState'); if(!e)return; e.textContent=message; e.className='ops-save '+(kind||''); }
+06017: 
+06018: /* --------------------------- IndexedDB --------------------------- */
+06019: function opsOpenDB(){
+06020:   return new Promise((resolve,reject)=>{
+06021:     if(!window.indexedDB){ resolve(null); return; }
+06022:     const q=indexedDB.open(OPS_DB_NAME,OPS_DB_VERSION);
+06023:     q.onupgradeneeded=()=>{
+06024:       const db=q.result;
+06025:       if(!db.objectStoreNames.contains('state')) db.createObjectStore('state',{keyPath:'key'});
+06026:       if(!db.objectStoreNames.contains('files')) db.createObjectStore('files',{keyPath:'id'});
+06027:       if(!db.objectStoreNames.contains('snapshots')) db.createObjectStore('snapshots',{keyPath:'id'});
+06028:     };
+06029:     q.onsuccess=()=>resolve(q.result); q.onerror=()=>reject(q.error);
+06030:   });
+06031: }
+06032: function opsDbGet(store,key){
+06033:   return new Promise((resolve,reject)=>{ if(!OPS_DB){resolve(null);return;} const q=OPS_DB.transaction(store,'readonly').objectStore(store).get(key); q.onsuccess=()=>resolve(q.result||null); q.onerror=()=>reject(q.error); });
+06034: }
+06035: function opsDbPut(store,value){
+06036:   return new Promise((resolve,reject)=>{ if(!OPS_DB){resolve(value);return;} const q=OPS_DB.transaction(store,'readwrite').objectStore(store).put(value); q.onsuccess=()=>resolve(value); q.onerror=()=>reject(q.error); });
+06037: }
+06038: function opsDbDelete(store,key){
+06039:   return new Promise((resolve,reject)=>{ if(!OPS_DB){resolve();return;} const q=OPS_DB.transaction(store,'readwrite').objectStore(store).delete(key); q.onsuccess=()=>resolve(); q.onerror=()=>reject(q.error); });
+06040: }
+06041: function opsDbAll(store){
+06042:   return new Promise((resolve,reject)=>{ if(!OPS_DB){resolve([]);return;} const q=OPS_DB.transaction(store,'readonly').objectStore(store).getAll(); q.onsuccess=()=>resolve(q.result||[]); q.onerror=()=>reject(q.error); });
+06043: }
+06044: 
+06045: async function opsPersist(label){
+06046:   OPS.meta.updatedAt=new Date().toISOString();
+06047:   if(label) opsAudit(label);
+06048:   opsSetSave('جاري الحفظ');
+06049:   try{
+06050:     localStorage.setItem(OPS_KEY,JSON.stringify(OPS));
+06051:     if(OPS_DB) await opsDbPut('state',{key:'current',updatedAt:OPS.meta.updatedAt,data:OPS});
+06052:     const snapped=await opsMaybeSnapshot();
+06053:     if(snapped){
+06054:       localStorage.setItem(OPS_KEY,JSON.stringify(OPS));
+06055:       if(OPS_DB) await opsDbPut('state',{key:'current',updatedAt:OPS.meta.updatedAt,data:OPS});
+06056:     }
+06057:     opsSetSave('محفوظ تلقائيًا','ok');
+06058:   }catch(e){ console.error(e); opsSetSave('تعذر الحفظ','err'); opsToast('تعذر حفظ الحركة — تحقق من مساحة الجهاز','err'); throw e; }
+06059: }
+06060: function opsAudit(action,details){
+06061:   OPS.audit.unshift({id:opsUid('aud'),at:new Date().toISOString(),action,details:details||''});
+06062:   if(OPS.audit.length>1000) OPS.audit.length=1000;
+06063: }
+06064: async function opsSnapshot(label){
+06065:   if(!OPS_DB) return;
+06066:   const id=opsUid('snap');
+06067:   const data=JSON.stringify({legacy:D,ops:OPS});
+06068:   await opsDbPut('snapshots',{id,createdAt:new Date().toISOString(),label:label||'نسخة تلقائية',data});
+06069:   const all=(await opsDbAll('snapshots')).sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
+06070:   const lim=Number(OPS.settings.backupLimit||10);
+06071:   for(const x of all.slice(lim)) await opsDbDelete('snapshots',x.id);
+06072:   OPS.meta.lastSnapshot=new Date().toISOString();
+06073: }
+06074: async function opsMaybeSnapshot(){
+06075:   const last=OPS.meta.lastSnapshot?new Date(OPS.meta.lastSnapshot).getTime():0;
+06076:   if(Date.now()-last>60*60*1000){ await opsSnapshot('نسخة تلقائية دورية'); return true; }
+06077:   return false;
+06078: }
+06079: 
+06080: async function opsSaveFiles(fileList){
+06081:   const out=[];
+06082:   for(const file of Array.from(fileList||[])){
+06083:     if(!file || !file.size) continue;
+06084:     if(file.size>12*1024*1024) throw new Error(`الملف ${file.name} أكبر من 12MB`);
+06085:     const rec={id:opsUid('file'),name:file.name,type:file.type||'application/octet-stream',size:file.size,createdAt:new Date().toISOString(),blob:file};
