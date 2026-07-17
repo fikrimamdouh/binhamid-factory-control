@@ -48,10 +48,10 @@ function canRead(identity,kind){
   return allowed(role,'report');
 }
 function caption(row,kind){
-  const s=summaryOf(row),lines=[`<b>${kindLabel(kind)}</b>`,`التاريخ: <b>${esc(row.report_date||'—')}</b>`,`الملف: ${esc(row.original_name||'daily-report.xlsx')}`];
-  if(kind==='concrete'||kind==='daily')lines.push(`الخرسانة: <b>${number(s.concreteQuantity||s.concrete_quantity)} م³ — ${number(s.concreteSales||s.concrete_sales)} ر.س</b>`);
-  if(kind==='block'||kind==='daily')lines.push(`البلوك: <b>${number(s.blockQuantity||s.block_quantity)} قطعة — ${number(s.blockSales||s.block_sales)} ر.س</b>`);
-  if(kind==='daily')lines.push(`التحصيلات: <b>${number(s.collectionTotal||s.collection_total)} ر.س</b>`);
+  const s=summaryOf(row),lines=[kindLabel(kind),`التاريخ: ${row.report_date||'—'}`,`الملف: ${row.original_name||'daily-report.xlsx'}`];
+  if(kind==='concrete'||kind==='daily')lines.push(`الخرسانة: ${number(s.concreteQuantity||s.concrete_quantity)} م³ — ${number(s.concreteSales||s.concrete_sales)} ر.س`);
+  if(kind==='block'||kind==='daily')lines.push(`البلوك: ${number(s.blockQuantity||s.block_quantity)} قطعة — ${number(s.blockSales||s.block_sales)} ر.س`);
+  if(kind==='daily')lines.push(`التحصيلات: ${number(s.collectionTotal||s.collection_total)} ر.س`);
   return lines.join('\n');
 }
 
@@ -91,5 +91,3 @@ export async function handleStoredReportTextCommand(message,identity,text){
   const dates=datesFromText(text),options=dates.length>=2?{from:dates[0]<=dates[1]?dates[0]:dates[1],to:dates[0]<=dates[1]?dates[1]:dates[0]}:dates.length===1?{date:dates[0]}:{};
   await sendStoredReportRequest(message.chat.id,identity,kind,options);return true;
 }
-
-export function storedReportKeyboard(){return keyboard([[{text:'أحدث تقرير خرسانة',callback_data:'report:concrete_file'},{text:'أحدث تقرير بلوك',callback_data:'report:block_file'}],[{text:'ملفات التقارير اليومية',callback_data:'report:daily_files'}]]);}
