@@ -10,6 +10,7 @@ import { sendEnterpriseAlerts, sendEnterpriseApprovals, sendEnterpriseCategorySu
 import { sendFuelAnomalies } from './bot-insights-fleet.js';
 import { sendInventoryRisks, sendDebtAnalysis, sendConcreteCapacity } from './bot-insights-ops.js';
 import { handleEmployeeRegistrationAction, handleEmployeeRegistrationTextCommand } from './bot-employee-approvals.js';
+import { handleCostCallback, handleCostTextCommand } from './bot-costs.js';
 
 function addBeforeHelp(rows,row){rows.splice(Math.max(0,rows.length-1),0,row);}
 export async function showRoleHome(message,identity){
@@ -19,6 +20,7 @@ export async function showRoleHome(message,identity){
   if(['admin','manager'].includes(role)){
     addBeforeHelp(rows,[{text:'📍 الحضور والمواقع',callback_data:'home:attendance'},{text:'📡 GPS الأسطول',callback_data:'gps:fleet'}]);
     addBeforeHelp(rows,[{text:'📈 التحليلات الرقابية',callback_data:'ent:insights_help'}]);
+    addBeforeHelp(rows,[{text:'💹 التكاليف والربحية',callback_data:'ent:cost_menu'}]);
     if(role==='admin')addBeforeHelp(rows,[{text:'طلبات تسجيل الموظفين',callback_data:'ent:er|list'}]);
   }else if(role==='driver'){
     rows.splice(0,0,[{text:'📍 الحضور وحركة السائق',callback_data:'home:attendance'}],[{text:'📡 GPS الأسطول',callback_data:'gps:fleet'},{text:'📋 مهامي',callback_data:'ent:my_tasks'}]);
@@ -31,13 +33,14 @@ export async function showRoleHome(message,identity){
   }else if(role==='fuel_operator'){
     rows.splice(0,0,[{text:'⛽ الديزل والعدادات',callback_data:'ent:fuel_menu'},{text:'📡 GPS الأسطول',callback_data:'gps:fleet'}],[{text:'📍 الحضور',callback_data:'home:attendance'}]);
   }else if(role==='hr'){
-    rows.splice(0,0,[{text:'👥 الحضور والموظفون',callback_data:'home:attendance'},{text:'📑 الموارد البشرية',callback_data:'ent:hr_menu'}],[{text:'📋 مهام الفريق',callback_data:'ent:team_tasks'}]);
+    rows.splice(0,0,[{text:'👥 الحضور والموظفون',callback_data:'home:attendance'},{text:'📑 الموارد البشرية',callback_data:'ent:hr_menu'}],[{text:'💹 تكلفة العامل',callback_data:'ent:cost_workers'},{text:'📋 مهام الفريق',callback_data:'ent:team_tasks'}]);
   }else if(role==='procurement'){
     rows.splice(0,0,[{text:'🛒 المشتريات',callback_data:'ent:purchase'},{text:'🔎 الموردون والأسعار',callback_data:'home:suppliers'}],[{text:'📦 المخزون',callback_data:'ent:inventory_menu'},{text:'📍 الحضور',callback_data:'home:attendance'}]);
   }else if(role==='quality'){
     rows.splice(0,0,[{text:'🧪 الجودة والرقابة',callback_data:'ent:quality_menu'},{text:'📍 الحضور',callback_data:'home:attendance'}]);
   }else if(['accountant','block_sales','concrete_sales','collector'].includes(role)){
     addBeforeHelp(rows,[{text:'📍 الحضور والمواقع',callback_data:'home:attendance'}]);
+    if(role==='accountant')addBeforeHelp(rows,[{text:'💹 التكاليف والربحية',callback_data:'ent:cost_menu'}]);
   }
   return sendMessage(message.chat.id,`<b>لوحة الموظف الذكي</b>\nمرحبًا ${name} — ${roleLabel(role)}.\nاختر العملية المطلوبة؛ كل مسار يعمل خطوة بخطوة مع مراجعة قبل الحفظ.`,markup);
 }
@@ -46,6 +49,7 @@ function insightsMenu(){return keyboard([[{text:'تحليل الديزل',callba
 export async function handleEnterpriseTextCommand(message,identity,text){
   const raw=String(text||'').trim(),value=norm(raw);
   if(await handleEmployeeRegistrationTextCommand(message,identity,raw))return true;
+  if(await handleCostTextCommand(message,identity,raw))return true;
   if(/^\/(menu|home)(?:@\w+)?$/i.test(raw)||/^(القائمه الرئيسيه|القائمة الرئيسية|لوحه التحكم|لوحة التحكم|العمليات)$/.test(value)){await showRoleHome(message,identity);return true;}
   if(/^\/tasks(?:@\w+)?$/i.test(raw)||/^(مهامي|المهام المفتوحه|المهام المفتوحة)$/.test(value)){await sendEnterpriseTasks(message.chat.id,identity,'mine');return true;}
   if(/^(مهام الفريق|المتاخر في مهامه|المتأخر في مهامه)$/.test(value)){await sendEnterpriseTasks(message.chat.id,identity,'team');return true;}
@@ -67,6 +71,7 @@ export async function handleEnterpriseCallback(message,from,identity,action,valu
   if(!identity?.active)return sendMessage(message.chat.id,'حسابك غير معتمد أو غير نشط.');
   if(action==='ent'){
     if(String(value||'').startsWith('er|'))return handleEmployeeRegistrationAction(message,from,identity,value);
+    if(String(value||'').startsWith('cost_'))return handleCostCallback(message,from,identity,value);
     if(value==='help')return showRoleHome({...message,from},identity);
     if(value==='finance_menu')return sendMessage(message.chat.id,'اختر العملية المالية:',financeMenu());
     if(value==='collection_menu')return sendMessage(message.chat.id,'اختر عملية التحصيل:',collectionMenu());
