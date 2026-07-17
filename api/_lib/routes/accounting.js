@@ -1,16 +1,25 @@
-import { errorResponse, json, method } from '../http.js';
+import { body, errorResponse, json, method } from '../http.js';
 import { requireCapability } from '../permissions.js';
-import { select } from '../supabase.js';
+import { rpc, select } from '../supabase.js';
 
-const clean=(value,max=200)=>String(value??'').trim().slice(0,max);
+const clean=(value,max=1000)=>String(value??'').trim().slice(0,max);
 const clamp=(value,min,max,fallback)=>{const parsed=Number(value);return Number.isFinite(parsed)?Math.max(min,Math.min(max,Math.trunc(parsed))):fallback;};
 function params(req){return new URL(req.url||'/api/router',`https://${String(req.headers.host||'localhost')}`).searchParams;}
 function date(value){const text=clean(value,10);return /^\d{4}-\d{2}-\d{2}$/.test(text)?text:'';}
 function query(filters,order,limit){return[...filters,order,`limit=${limit}`].filter(Boolean).join('&');}
+const one=value=>Array.isArray(value)?value[0]:value;
 
 export async function accounting(req,res){
-  if(!method(req,res,['GET']))return;
+  if(!method(req,res,['GET','POST']))return;
   try{
+    if(req.method==='POST'){
+      const actor=await requireCapability(req,'accounting.post'),input=await body(req),action=clean(input.action,30);
+      if(action!=='reverse')throw Object.assign(new Error('عملية المحاسبة غير مدعومة'),{status:400,code:'ACCOUNTING_ACTION_INVALID'});
+      const entryId=clean(input.entryId,80),reason=clean(input.reason,1000);
+      if(!entryId||!reason)throw Object.assign(new Error('رقم القيد وسبب العكس مطلوبان'),{status:400,code:'REVERSAL_INPUT_REQUIRED'});
+      const result=one(await rpc('reverse_journal_entry',{p_entry_id:entryId,p_actor:actor.appUserId||actor.actor,p_reason:reason}));
+      return json(res,200,{ok:true,action:'reverse',result});
+    }
     const actor=await requireCapability(req,'accounting.view'),p=params(req),mode=clean(p.get('mode'),30)||'summary',from=date(p.get('from')),to=date(p.get('to')),customer=clean(p.get('customer'),120),limit=clamp(p.get('limit'),1,2000,300);
     if(mode==='integrity'){
       const rows=await select('accounting_integrity_report','select=*');
