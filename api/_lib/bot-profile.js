@@ -17,9 +17,7 @@ export function displayName(identity,from){
 export const roleLabel=role=>ROLE_LABELS[role]||role||ROLE_LABELS.pending;
 export function welcomeMessage(identity,from){
   const name=displayName(identity,from),role=identity?.role||'pending';
-  const intro=role==='admin'?`مرحبًا ${name}، أنا مساعدك الشخصي في مصنع بن حامد.`:role==='manager'?`مرحبًا ${name}، مدير المصنع. أنا مساعدك الذكي لمتابعة التشغيل.`:`مرحبًا ${name}، أنا مساعد مصنع بن حامد الذكي.`;
-  const status=identity?.active?'حسابك معتمد ويمكنني تنفيذ المهام المسموحة لدورك.':'حسابك مسجل وينتظر اعتماد مدير النظام. استخدم /whoami لمعرفة رقمك.';
-  return `${intro}\n\nأفهم كلامك الطبيعي وأوضح أين ستذهب الرسالة قبل الترحيل. أستطيع:\n• عرض ملخصات المدير وتقارير الديزل والورشة والمبيعات والتحصيل.\n• استقبال Excel وتصنيفه وتحديد القسم المستهدف.\n• استقبال بلاغات الأعطال وتحديد المركبة وطلب التأكيد.\n• فهم الفواتير وعروض الأسعار والرواتب والتحصيلات.\n• متابعة سياق حديثك والرد عليك بصورة طبيعية.\n\nدورك الحالي: ${roleLabel(role)}. ${status}\nاكتب طلبك كما تقوله لموظف أمامك.`;
+  return identity?.active?`<b>مساعد مصنع بن حامد</b>\nمرحبًا ${name}.\n\nالدور: <b>${roleLabel(role)}</b>\nالحالة: <b>معتمد</b>\n\nاكتب طلبك مباشرة أو استخدم /menu.`:`<b>مساعد مصنع بن حامد</b>\nمرحبًا ${name}.\n\nأكمل تسجيل بياناتك، ثم ينتظر الحساب اعتماد مدير النظام. استخدم /register للبدء.`;
 }
 export const reportTypeLabel=type=>REPORT_LABELS[type]||type;
 export function reportDestination(type,department='unassigned'){
