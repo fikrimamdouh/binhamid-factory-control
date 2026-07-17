@@ -1,7 +1,8 @@
 import { requireAdmin, requireAdminOrDevice } from '../auth.js';
 import { config } from '../config.js';
 import { json, method, body, errorResponse } from '../http.js';
-import { telegram, sendMessage } from '../telegram.js';
+import { select, patch, downloadObject } from '../supabase.js';
+import { telegram, sendMessage, sendDocumentBuffer } from '../telegram.js';
 
 const commands={
   en:[{command:'start',description:'Open the Bin Hamid Factory assistant'},{command:'menu',description:'Open your role-based operations menu'},{command:'help',description:'Show jobs, services and usage examples'},{command:'register',description:'Register or update employee details'},{command:'attendance',description:'Check in, check out and driver movement'},{command:'tasks',description:'Show your open tasks'},{command:'reports',description:'Management reports'},{command:'sales',description:'Block and concrete sales orders'},{command:'workshop',description:'Workshop and mechanic menu'},{command:'suppliers',description:'Search suppliers and request quotations'},{command:'gps',description:'Fleet GPS status'},{command:'status',description:'System link and last synchronization'},{command:'whoami',description:'Show your account role and status'}],
@@ -12,6 +13,23 @@ const commands={
 };
 const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const number=value=>Number(value||0).toLocaleString('en-US',{maximumFractionDigits:2});
+const clean=(value,max=240)=>String(value??'').trim().slice(0,max);
+
+async function findApprovedBatch(importId,reportDate,originalName){
+  if(importId){const byId=(await select('daily_report_batches',`id=eq.${encodeURIComponent(importId)}&select=id,report_date,original_name,file_hash,file_storage_path,status,preview_summary,summary,approved_at,committed_at&limit=1`))?.[0];if(byId)return byId;}
+  const clauses=[reportDate?`report_date=eq.${encodeURIComponent(reportDate)}`:'',originalName?`original_name=eq.${encodeURIComponent(originalName)}`:''].filter(Boolean).join('&');
+  return(await select('daily_report_batches',`${clauses?`${clauses}&`:''}select=id,report_date,original_name,file_hash,file_storage_path,status,preview_summary,summary,approved_at,committed_at&order=committed_at.desc&limit=1`))?.[0]||null;
+}
+async function linkedImport(batch,originalName){
+  if(batch?.file_hash){const row=(await select('imports',`file_hash=eq.${encodeURIComponent(batch.file_hash)}&select=id,source,source_chat_id,source_message_id,original_name,report_type,status,file_hash,file_path,summary&order=created_at.desc&limit=1`))?.[0];if(row)return row;}
+  if(originalName)return(await select('imports',`original_name=eq.${encodeURIComponent(originalName)}&select=id,source,source_chat_id,source_message_id,original_name,report_type,status,file_hash,file_path,summary&order=created_at.desc&limit=1`))?.[0]||null;
+  return null;
+}
+async function sendApprovedFile(chatId,path,filename,caption){
+  if(!chatId||!path)return{sent:false,reason:'FILE_PATH_MISSING'};
+  try{const object=await downloadObject(path);await sendDocumentBuffer(String(chatId),object.buffer,filename||'daily-report.xlsx',object.contentType,caption.slice(0,900));return{sent:true};}
+  catch(error){console.warn('[approved report Telegram file]',{chatId,path,message:error?.message||error});return{sent:false,reason:String(error?.message||'SEND_FAILED').slice(0,300)};}
+}
 
 export async function register(req,res){
   if(!method(req,res,['POST']))return;
@@ -24,7 +42,16 @@ export async function notify(req,res){
   try{
     requireAdminOrDevice(req,'daily_report.approve');
     const input=await body(req);if(input.event!=='daily_report_approved')throw Object.assign(new Error('نوع الإشعار غير صحيح'),{status:400});if(!config.telegramOwnerId)throw Object.assign(new Error('TELEGRAM_OWNER_ID غير مضبوط'),{status:503});
-    const preview=input.preview&&typeof input.preview==='object'?input.preview:{},reportDate=String(input.reportDate||'').slice(0,10),originalName=String(input.originalName||'daily-report.xlsx').slice(0,240),importId=String(input.importId||'').slice(0,120),text=`تم اعتماد <b>التقرير اليومي</b> من الموقع.\n\nالتاريخ: <b>${esc(reportDate||'—')}</b>\nالملف: ${esc(originalName)}\nعدد الفواتير: <b>${number(preview.invoiceCount)}</b>\nإجمالي المبيعات: <b>${number(preview.salesTotal)} ر.س</b>\nالبلوك: <b>${number(preview.blockSales)} ر.س</b>\nالخرسانة: <b>${number(preview.concreteSales)} ر.س</b>\nالتحصيلات: <b>${number(preview.collectionTotal)} ر.س</b>${importId?`\nمرجع الاعتماد: <code>${esc(importId)}</code>`:''}`;
-    const result=await sendMessage(config.telegramOwnerId,text,{action_name:'daily_report_approved',action_payload:{reportDate,importId}});json(res,200,{ok:true,messageId:result.message_id});
+    const preview=input.preview&&typeof input.preview==='object'?input.preview:{},reportDate=clean(input.reportDate,10),originalName=clean(input.originalName)||'daily-report.xlsx',importId=clean(input.importId,120),batch=await findApprovedBatch(importId,reportDate,originalName),source=await linkedImport(batch,originalName),summary=batch?.preview_summary||batch?.summary||preview;
+    const text=`تم اعتماد <b>التقرير اليومي</b> من الموقع.\n\nالتاريخ: <b>${esc(reportDate||batch?.report_date||'—')}</b>\nالملف: ${esc(originalName||batch?.original_name)}\nعدد الفواتير: <b>${number(summary.invoiceCount)}</b>\nإجمالي المبيعات: <b>${number(summary.salesTotal)} ر.س</b>\nالبلوك: <b>${number(summary.blockSales)} ر.س</b>\nالخرسانة: <b>${number(summary.concreteSales)} ر.س</b>\nالتحصيلات: <b>${number(summary.collectionTotal)} ر.س</b>${(importId||batch?.id)?`\nمرجع الاعتماد: <code>${esc(importId||batch.id)}</code>`:''}`;
+    const ownerMessage=await sendMessage(config.telegramOwnerId,text,{action_name:'daily_report_approved',action_payload:{reportDate:reportDate||batch?.report_date,importId:importId||batch?.id,sourceImportId:source?.id||null}});
+    const filePath=batch?.file_storage_path||source?.file_path||'',filename=batch?.original_name||source?.original_name||originalName,ownerFile=await sendApprovedFile(config.telegramOwnerId,filePath,filename,`التقرير المعتمد\n${text.replace(/<[^>]+>/g,'')}`);
+    let sourceChatNotified=false,sourceFileSent=false;
+    if(source?.id){await patch('imports',`id=eq.${encodeURIComponent(source.id)}`,{status:'approved',summary:{...(source.summary||{}),approvedBatchId:batch?.id||importId||null,approvedReportDate:reportDate||batch?.report_date||null,telegramApprovalNotifiedAt:new Date().toISOString()},updated_at:new Date().toISOString()}).catch(error=>console.warn('[linked import approval]',error?.message||error));}
+    if(source?.source_chat_id&&String(source.source_chat_id)!==String(config.telegramOwnerId)){
+      try{await sendMessage(source.source_chat_id,`تم اعتماد الملف الذي أرسلته وربطه بالنظام.\n\n${text}`,{action_name:'source_import_approved',action_payload:{importId:source.id,batchId:batch?.id||importId}});sourceChatNotified=true;}catch(error){console.warn('[source import approval notify]',error?.message||error);}
+      const sourceFile=await sendApprovedFile(source.source_chat_id,filePath,filename,`نسخة التقرير بعد الاعتماد\nالتاريخ: ${reportDate||batch?.report_date||'—'}`);sourceFileSent=sourceFile.sent;
+    }
+    json(res,200,{ok:true,messageId:ownerMessage.message_id,fileSent:ownerFile.sent,fileError:ownerFile.reason||null,sourceChatNotified,sourceFileSent,sourceImportId:source?.id||null,batchId:batch?.id||importId||null});
   }catch(error){errorResponse(res,error);}
 }
