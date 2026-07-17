@@ -2,7 +2,8 @@ import { select } from './supabase.js';
 import { sendMessage } from './telegram.js';
 import { allowed, reportSummary } from './domain.js';
 import { displayName, roleLabel } from './bot-profile.js';
-import { welcomeMessage, helpMessage } from './bot-help.js';
+import { welcomeMessage, helpMessage, jobCatalogMessage } from './bot-help.js';
+import { registrationKeyboard, startRegistration, registrationStatus } from './bot-registration.js';
 import { reportKeyboard, sendReport } from './bot-reports.js';
 import { showAttendanceMenu } from './bot-attendance.js';
 
@@ -82,26 +83,29 @@ async function salesCollectionGap(chatId){
 export async function handleBuiltInCommand({message,identity,text}){
   const chatId=message.chat.id,raw=String(text||'').trim(),t=norm(text),role=identity?.role||'pending',active=Boolean(identity?.active),name=displayName(identity,message.from);
   if(/^\/start(?:@\w+)?\s+attendance$/i.test(raw)){
-    if(!active)await sendMessage(chatId,welcomeMessage(identity,message.from));else await showAttendanceMenu(message,identity);
+    if(!active)await sendMessage(chatId,welcomeMessage(identity,message.from),registrationKeyboard());else await showAttendanceMenu(message,identity);
     return true;
   }
-  if(/^\/start(?:@\w+)?$/i.test(raw)){await sendMessage(chatId,welcomeMessage(identity,message.from));return true;}
+  if(/^\/start(?:@\w+)?$/i.test(raw)){await sendMessage(chatId,welcomeMessage(identity,message.from),active?{}:registrationKeyboard());return true;}
+  if(/^\/(register|signup)(?:@\w+)?$/i.test(raw)||/^(تسجيل|تسجيل حساب|تسجيل موظف|تسجيل بياناتي|تحديث بيانات التسجيل)$/.test(t)){await startRegistration(message,identity);return true;}
   if(/^\/attendance(?:@\w+)?$/i.test(raw)){
-    if(!active)await sendMessage(chatId,'Your account must be approved before attendance can be recorded. Use /whoami.');else await showAttendanceMenu(message,identity);
+    if(!active)await sendMessage(chatId,'أكمل التسجيل وانتظر اعتماد مدير النظام قبل تسجيل الحضور.',registrationKeyboard());else await showAttendanceMenu(message,identity);
     return true;
   }
-  if(/^\/help(?:@\w+)?$/i.test(raw)||/^(مساعده|الاوامر|اوامر|المميزات|ماذا تستطيع|تقدر تعمل ايه)$/.test(t)){await sendMessage(chatId,helpMessage(identity,message.from));return true;}
+  if(/^\/help(?:@\w+)?$/i.test(raw)||/^(مساعده|الاوامر|اوامر|المميزات|ماذا تستطيع|تقدر تعمل ايه)$/.test(t)){await sendMessage(chatId,helpMessage(identity,message.from),active?{}:registrationKeyboard());return true;}
+  if(/^(الوظائف|الوظائف المتاحه|الوظائف المتاحة|وظائف البوت|الخدمات المتاحه|الخدمات المتاحة)$/.test(t)){await sendMessage(chatId,jobCatalogMessage(identity,message.from),active?{}:registrationKeyboard());return true;}
+  if(/^(حاله التسجيل|حالة التسجيل|حاله طلبي|حالة طلبي)$/.test(t)){await registrationStatus(message,identity);return true;}
   if(/^\/whoami(?:@\w+)?$/i.test(raw)||/^(من انا|مين انا)$/.test(t)){
-    await sendMessage(chatId,`رقم Telegram: ${message.from.id}\nالاسم: ${name}\nالدور: ${roleLabel(role)}\nالحالة: ${active?'معتمد':'ينتظر اعتماد مدير النظام'}\nالمحادثة: ${message.chat.id}`);return true;
+    await sendMessage(chatId,`رقم Telegram: ${message.from.id}\nالاسم: ${name}\nالدور: ${roleLabel(role)}\nالحالة: ${active?'معتمد':'ينتظر إكمال التسجيل أو اعتماد مدير النظام'}\nالمحادثة: ${message.chat.id}`,active?{}:registrationKeyboard());return true;
   }
   if(/^(انت مين|من انت|اسمك ايه|عرف نفسك|ايه شغلك|بتعمل ايه|ما وظيفتك)$/.test(t)){
-    await sendMessage(chatId,`أنا الموظف الذكي والمساعد التنفيذي لمصنع بن حامد يا ${name}. أقرأ آخر بيانات البرنامج السحابية، أعرض التقارير المسموحة لدورك، أستقبل ملفات Excel والمستندات، وأفتح بلاغات الصيانة بعد مطابقة المركبة والتأكيد. اكتب «مساعدة» لعرض جميع الأوامر.`);return true;
+    await sendMessage(chatId,`أنا مساعد مصنع بن حامد للتشغيل والمتابعة. أربط الموظفين والسائقين والورشة والمبيعات والحسابات والمخزن والديزل والتقارير بمنظومة المصنع، وفق صلاحية كل مستخدم. اكتب «مساعدة» لعرض الخدمات.`);return true;
   }
   if(/^(مرحبا|اهلا|السلام عليكم|صباح الخير|مساء الخير)$/.test(t)){
-    await sendMessage(chatId,`أهلًا يا ${name}. أنا جاهز لمساعدتك في تقارير المصنع والديزل والصيانة والمبيعات والتحصيل. اكتب طلبك مباشرة أو اكتب «مساعدة».`);return true;
+    await sendMessage(chatId,active?`مرحبًا ${name}. اكتب طلبك مباشرة أو استخدم /menu.`:welcomeMessage(identity,message.from),active?{}:registrationKeyboard());return true;
   }
   if(/^\/status(?:@\w+)?$/i.test(raw)||/^(حاله النظام|حاله الربط|اخر مزامنه|البرنامج متصل|بيانات البرنامج)$/.test(t)){
-    if(!active){await sendMessage(chatId,'حسابك مسجل، لكنه يحتاج اعتمادًا قبل عرض حالة بيانات البرنامج. استخدم /whoami.');return true;}
+    if(!active){await sendMessage(chatId,'حسابك يحتاج اعتمادًا قبل عرض بيانات البرنامج.',registrationKeyboard());return true;}
     await programStatus(chatId,identity);return true;
   }
   if(/^\/reports(?:@\w+)?$/i.test(raw)){
