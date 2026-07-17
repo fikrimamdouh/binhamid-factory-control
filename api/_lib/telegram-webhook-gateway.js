@@ -13,6 +13,7 @@ import { handleDriverRegistrationMedia } from './bot-driver-registration.js';
 import enterpriseHandler from './telegram-webhook-handler.js';
 
 const GPS_ROLES=new Set(['admin','manager','mechanic','driver','fuel_operator']);
+const PROCUREMENT_USE=new Set(['admin','manager','accountant','mechanic','procurement','warehouse']);
 const PROCUREMENT_CREATE=new Set(['admin','manager','mechanic','procurement','warehouse']);
 const SALES_CREATE=new Set(['admin','block_sales','concrete_sales']);
 const SALES_UPDATE=new Set(['admin','manager','block_sales','concrete_sales']);
@@ -22,17 +23,19 @@ const DRIVER_ROLES=new Set(['admin','manager','driver','mechanic','fuel_operator
 const norm=value=>String(value||'').toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ًٌٍَُِّْـ]/g,'').replace(/[؟?!.,،؛:]+/g,'').replace(/\s+/g,' ').trim();
 const procurementActions=new Set(['proc','supplier_city','supplier_rfq','rfq_qty','rfq_urgency']);
 const guidedSalesActions=new Set(['gs_item','gs_qty','gs_price','gs_date','gs_pay']);
-const procurementText=/^(بحث مورد|بحث عن مورد|بحث عن قطعه|بحث عن قطعة|ابحث عن قطعه|ابحث عن قطعة|قائمه الموردين|قائمة الموردين|طلب عرض سعر|طلب اسعار|طلب أسعار|طلبات الاسعار المفتوحه|طلبات الأسعار المفتوحة)$/;
+const procurementText=/^(بحث مورد|بحث عن مورد|بحث عن قطعه|بحث عن قطعة|ابحث عن قطعه|ابحث عن قطعة|قائمه الموردين|قائمة الموردين|طلب عرض سعر|طلب اسعار|طلب أسعار|طلبات الاسعار المفتوحه|طلبات الأسعار المفتوحة|مساعد المنتجات|مساعد الاسعار|مساعد الأسعار|بحث المنتجات|اسعار المنتجات|أسعار المنتجات)$/;
+const productPriceText=/^(سعر|اسعار|أسعار|ابحث عن سعر|بحث سعر|قارن اسعار|قارن أسعار|سعر السوق)\s+.{2,}$/i;
 const salesText=/^(قائمه المبيعات|قائمة المبيعات|اوامر البيع|أوامر البيع|امر بيع جديد|أمر بيع جديد|تحديث امر بيع|تحديث أمر بيع|طلبات البيع المفتوحه|طلبات البيع المفتوحة|حاله المبيعات|حالة المبيعات)$/;
 const mechanicText=/^(قائمه الورشه|قائمة الورشة|تقرير يومي للورشه|تقرير يومي للورشة|فحص معده|فحص معدات|طلب قطع غيار|اصل بدون لوحه|أصل بدون لوحة|تحديث امر اصلاح|تحديث أمر إصلاح|سجل الورشه|سجل الورشة|مهام الورشه|مهام الورشة|طلبات التسعير)$/;
 const attendanceText=/^(الحضور والمواقع|تسجيل حضور|تسجيل انصراف|قائمه الحضور|قائمة الحضور|لوحه السائق|لوحة السائق)$/;
 const gpsText=/^(حاله gps|حالة gps|حاله الاسطول|حالة الأسطول|موقع السيارات|السيارات الان|السيارات الآن)$/;
 const roleType=role=>role==='block_sales'?'block':role==='concrete_sales'?'concrete':'';
 
-function sensitiveSession(session){const state=String(session?.state||'');return /^(supplier_|rfq_|sales_|guided_sales_|mechanic_|driver_|attendance_)/.test(state);}
+function sensitiveSession(session){const state=String(session?.state||'');return state==='product_market_query'||/^(supplier_|rfq_|sales_|guided_sales_|mechanic_|driver_|attendance_)/.test(state);}
 function sessionAllowed(identity,session){
   if(!identity?.active)return false;
   const state=String(session?.state||''),role=identity.role||'';
+  if(state==='product_market_query')return PROCUREMENT_USE.has(role);
   if(state.startsWith('supplier_')||state.startsWith('rfq_'))return PROCUREMENT_CREATE.has(role);
   if(state==='sales_update_order')return SALES_UPDATE.has(role);
   if(state.startsWith('sales_')||state.startsWith('guided_sales_')){const own=roleType(role),type=session?.context?.salesType||session?.context?.draft?.sales_type||'';return SALES_CREATE.has(role)&&(!own||!type||own===type);}
@@ -93,8 +96,8 @@ async function interceptMessage(update){
     if(registrationSession&&await continueRegistrationSession(message,identity,session,raw))return true;
     if(await handleRegistrationTextCommand(message,identity,raw))return true;
   }
-  const procurementSession=state.startsWith('supplier_')||state.startsWith('rfq_'),salesSession=state.startsWith('sales_')||state.startsWith('guided_sales_'),mechanicSession=state.startsWith('mechanic_'),attendanceSession=state.startsWith('driver_')||state.startsWith('attendance_');
-  const procurementCommand=/^\/suppliers(?:@\w+)?$/i.test(raw)||procurementText.test(normalized),salesCommand=/^\/sales(?:@\w+)?$/i.test(raw)||salesText.test(normalized),mechanicCommand=/^\/workshop(?:@\w+)?$/i.test(raw)||mechanicText.test(normalized),attendanceCommand=/^\/attendance(?:@\w+)?$/i.test(raw)||attendanceText.test(normalized),gpsCommand=/^\/gps(?:@\w+)?$/i.test(raw)||gpsText.test(normalized);
+  const procurementSession=state==='product_market_query'||state.startsWith('supplier_')||state.startsWith('rfq_'),salesSession=state.startsWith('sales_')||state.startsWith('guided_sales_'),mechanicSession=state.startsWith('mechanic_'),attendanceSession=state.startsWith('driver_')||state.startsWith('attendance_');
+  const procurementCommand=/^\/(suppliers|products)(?:@\w+)?$/i.test(raw)||procurementText.test(normalized)||productPriceText.test(raw),salesCommand=/^\/sales(?:@\w+)?$/i.test(raw)||salesText.test(normalized),mechanicCommand=/^\/workshop(?:@\w+)?$/i.test(raw)||mechanicText.test(normalized),attendanceCommand=/^\/attendance(?:@\w+)?$/i.test(raw)||attendanceText.test(normalized),gpsCommand=/^\/gps(?:@\w+)?$/i.test(raw)||gpsText.test(normalized);
   if(!procurementSession&&!salesSession&&!mechanicSession&&!attendanceSession&&!procurementCommand&&!salesCommand&&!mechanicCommand&&!attendanceCommand&&!gpsCommand)return false;
   if(!await logIntercepted(update,message,identity))return true;
   if(!identity.active){await sendMessage(message.chat.id,'حسابك غير معتمد لتنفيذ هذا الإجراء.');return true;}
@@ -106,7 +109,7 @@ async function interceptMessage(update){
   if(attendanceCommand){await showAttendanceMenu(message,identity);return true;}
   if(/^\/sales(?:@\w+)?$/i.test(raw)){await showSalesMenu(message,identity);return true;}
   if(/^\/workshop(?:@\w+)?$/i.test(raw)){await showMechanicMenu(message,identity);return true;}
-  if(/^\/suppliers(?:@\w+)?$/i.test(raw)){await showProcurementMenu(message,identity);return true;}
+  if(/^\/(suppliers|products)(?:@\w+)?$/i.test(raw)){await showProcurementMenu(message,identity);return true;}
   if(await handleSalesTextCommand(message,identity,raw))return true;
   if(await handleMechanicTextCommand(message,identity,raw))return true;
   if(await handleProcurementTextCommand(message,identity,raw))return true;

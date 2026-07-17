@@ -1,7 +1,8 @@
 import { select } from './supabase.js';
-import { sendMessage } from './telegram.js';
+import { sendMessage, keyboard } from './telegram.js';
 import { clearMaintenanceSession } from './bot-maintenance.js';
 import * as legacy from './bot-procurement.js';
+import { canUseProductAssistant, continueProductAssistant, handleProductTextCommand, startProductAssistant } from './bot-product-assistant.js';
 
 const USE_ROLES=new Set(['admin','manager','accountant','mechanic','procurement','warehouse']);
 const CREATE_ROLES=new Set(['admin','manager','mechanic','procurement','warehouse']);
@@ -15,23 +16,33 @@ async function deny(message,identity,create=false){
   return sendMessage(message.chat.id,create?'إنشاء البحث وطلبات عرض السعر متاح للمشتريات والمخزن والورشة والإدارة.':'عرض الموردين وطلبات الأسعار متاح للمشتريات والمخزن والورشة والإدارة والمحاسب.');
 }
 
-export const procurementMenu=legacy.procurementMenu;
+export function procurementMenu(){return keyboard([
+  [{text:'مساعد المنتجات والأسعار',callback_data:'proc:product'}],
+  [{text:'بحث عن قطعة أو مورد',callback_data:'proc:search'},{text:'طلب عرض سعر',callback_data:'proc:rfq'}],
+  [{text:'طلبات الأسعار المفتوحة',callback_data:'proc:open'}]
+]);}
 export async function showProcurementMenu(message,identity){
   if(!canUse(identity))return deny(message,identity,false);
-  return legacy.showProcurementMenu(message,adaptedIdentity(identity));
+  return sendMessage(message.chat.id,'اختر العملية المطلوبة. مساعد المنتجات يبحث عن أسعار منشورة حاليًا مع مصادرها، بينما دليل الموردين يبحث عن جهات يمكن التواصل معها.',procurementMenu());
 }
 export async function startProcurementAction(message,identity,action){
+  if(action==='product')return startProductAssistant(message,identity);
   if(action==='open')return sendOpenQuoteRequests(message.chat.id,identity);
   if(!canCreate(identity))return deny(message,identity,true);
   return legacy.startProcurementAction(message,adaptedIdentity(identity),action);
 }
 export async function continueProcurementSession(message,identity,session,text){
+  if(session?.state==='product_market_query'){
+    if(!canUseProductAssistant(identity))return deny(message,identity,false).then(()=>true);
+    return continueProductAssistant(message,identity,session,text);
+  }
   if(!canCreate(identity))return deny(message,identity,true).then(()=>true);
   if(session?.context?.actualRoleAtStart&&session.context.actualRoleAtStart!==identity.role)return deny(message,identity,true).then(()=>true);
   return legacy.continueProcurementSession(message,adaptedIdentity(identity),session,text);
 }
 export async function handleProcurementCallback(message,from,identity,action,value){
   const callbackMessage={...message,from};
+  if(action==='proc'&&value==='product')return startProductAssistant(callbackMessage,identity);
   if(action==='proc'&&value==='open')return canUse(identity)?sendOpenQuoteRequests(message.chat.id,identity):deny(callbackMessage,identity,false);
   if(!canCreate(identity))return deny(callbackMessage,identity,true);
   return legacy.handleProcurementCallback(message,from,adaptedIdentity(identity),action,value);
@@ -49,6 +60,7 @@ export async function sendOpenQuoteRequests(chatId,identity){
   return legacy.sendOpenQuoteRequests(chatId,adaptedIdentity(identity));
 }
 export async function handleProcurementTextCommand(message,identity,text){
+  if(await handleProductTextCommand(message,identity,text))return true;
   const normalized=String(text||'').toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[؟?!.,،؛:]+/g,'').replace(/\s+/g,' ').trim();
   if(/^(طلبات الاسعار المفتوحه|طلبات الأسعار المفتوحة)$/.test(normalized)){await sendOpenQuoteRequests(message.chat.id,identity);return true;}
   const isCreate=/^(بحث مورد|بحث عن مورد|بحث عن قطعه|بحث عن قطعة|ابحث عن قطعه|ابحث عن قطعة|قائمه الموردين|قائمة الموردين|طلب عرض سعر|طلب اسعار|طلب أسعار)$/.test(normalized);
