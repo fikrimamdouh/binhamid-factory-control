@@ -10,7 +10,7 @@ if(!db)stop('DATABASE_URL_EMPTY','The resolved database connection is empty.');
 let preflight;try{preflight=JSON.parse(readFileSync(preflightPath,'utf8'));}catch{stop('PREFLIGHT_RESULT_INVALID','The migration preflight result is unavailable.');}
 const state=JSON.parse(query(`select json_build_object(
 'currentVersion',(select coalesce(max(version),0) from public.migration_history),
-'versions',(select json_agg(version order by version) from public.migration_history where version between 11 and 14),
+'versions',(select json_agg(version order by version) from public.migration_history where version between 11 and 15),
 'objects',json_build_object(
 'cost_centers',to_regclass('public.cost_centers') is not null,
 'cost_periods',to_regclass('public.cost_periods') is not null,
@@ -23,6 +23,7 @@ const state=JSON.parse(query(`select json_build_object(
 'rebuild_customer_fifo',to_regprocedure('public.rebuild_customer_fifo(text,text,text)') is not null,
 'allocate_collection_fifo_core',to_regprocedure('public.allocate_collection_fifo_core(uuid,uuid)') is not null,
 'project_maintenance_cost_v2',to_regprocedure('public.project_maintenance_cost_v2()') is not null,
+'ensure_daily_report_customer',to_regprocedure('public.ensure_daily_report_customer(text,text)') is not null,
 'daily_sale_trigger',exists(select 1 from pg_trigger where tgname='daily_report_sale_validation_trigger' and not tgisinternal),
 'daily_cash_trigger',exists(select 1 from pg_trigger where tgname='daily_report_cash_validation_trigger' and not tgisinternal),
 'fifo_trigger',exists(select 1 from pg_trigger where tgname='sales_order_backdated_fifo_trigger' and not tgisinternal),
@@ -37,11 +38,11 @@ const state=JSON.parse(query(`select json_build_object(
 'dailySalesLines',(select count(*) from public.daily_report_sales_lines),
 'dailyCashMovements',(select count(*) from public.daily_report_cash_movements))
 )::text;`));
-if(Number(state.currentVersion)!==14)stop('TARGET_VERSION_NOT_REACHED','Production did not reach schema version 14.',{currentVersion:Number(state.currentVersion)});
-const versions=(state.versions||[]).map(Number);if([11,12,13,14].some(v=>!versions.includes(v)))stop('MIGRATION_HISTORY_INCOMPLETE','Migration history is incomplete.',{versions});
-const missing=Object.entries(state.objects||{}).filter(([,v])=>!v).map(([k])=>k);if(missing.length)stop('DATABASE_OBJECTS_MISSING','Required version-14 objects are missing.',{missing});
+if(Number(state.currentVersion)!==15)stop('TARGET_VERSION_NOT_REACHED','Production did not reach schema version 15.',{currentVersion:Number(state.currentVersion)});
+const versions=(state.versions||[]).map(Number);if([11,12,13,14,15].some(v=>!versions.includes(v)))stop('MIGRATION_HISTORY_INCOMPLETE','Migration history is incomplete.',{versions});
+const missing=Object.entries(state.objects||{}).filter(([,v])=>!v).map(([k])=>k);if(missing.length)stop('DATABASE_OBJECTS_MISSING','Required version-15 objects are missing.',{missing});
 if(!state.identityCheck||!state.fifoPreviewCheck)stop('FUNCTION_SMOKE_CHECK_FAILED','Read-only database function checks failed.');
 const changed=Object.keys(preflight.counts||{}).filter(k=>Number(preflight.counts[k])!==Number(state.counts?.[k]));if(changed.length)stop('PROTECTED_ROW_COUNT_CHANGED','Protected operational row counts changed during schema migration.',{changed,before:preflight.counts,after:state.counts});
-const result={ok:true,code:'MIGRATIONS_APPLIED_AND_VERIFIED',fromVersion:Number(preflight.currentVersion),toVersion:14,appliedMigrations:Array.from({length:Math.max(0,14-Number(preflight.currentVersion))},(_,i)=>Number(preflight.currentVersion)+i+1),transactionAtomic:true,preMigrationBackup:preflight.backup,beforeCounts:preflight.counts,afterCounts:state.counts,verification:state};
+const result={ok:true,code:'MIGRATIONS_APPLIED_AND_VERIFIED',fromVersion:Number(preflight.currentVersion),toVersion:15,appliedMigrations:Array.from({length:Math.max(0,15-Number(preflight.currentVersion))},(_,i)=>Number(preflight.currentVersion)+i+1),transactionAtomic:true,preMigrationBackup:preflight.backup,beforeCounts:preflight.counts,afterCounts:state.counts,verification:state};
 writeFileSync(output,`${JSON.stringify(result,null,2)}\n`,{mode:0o600});
-console.log(`[migration-verify] SUCCESS ${result.fromVersion}->14`);
+console.log(`[migration-verify] SUCCESS ${result.fromVersion}->15`);
