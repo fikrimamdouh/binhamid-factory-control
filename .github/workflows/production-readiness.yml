@@ -14,6 +14,7 @@ on:
       - 'scripts/production-db-readiness.mjs'
       - 'scripts/production-data-integrity.mjs'
       - 'scripts/customer-schema-report.mjs'
+      - 'scripts/production-customer-sources.mjs'
       - 'scripts/resolve-supabase-connection.mjs'
 
 permissions:
@@ -39,6 +40,7 @@ jobs:
           node --check scripts/production-db-readiness.mjs
           node --check scripts/production-data-integrity.mjs
           node --check scripts/customer-schema-report.mjs
+          node --check scripts/production-customer-sources.mjs
           npm test
           npm run check:api
           npm run check:functions
@@ -97,6 +99,9 @@ jobs:
       - name: Report customer master schema
         run: node scripts/customer-schema-report.mjs
 
+      - name: Audit customer source metadata
+        run: node scripts/production-customer-sources.mjs
+
       - name: Upload readiness evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -107,6 +112,7 @@ jobs:
             production-readiness.json
             production-data-integrity.json
             customer-schema-report.json
+            production-customer-sources.json
             readiness-connection-diagnostic.json
           if-no-files-found: warn
           retention-days: 14
