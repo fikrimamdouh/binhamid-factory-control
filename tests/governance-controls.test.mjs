@@ -44,12 +44,13 @@ test('migration workflow applies through schema 18 with encrypted backups',async
 test('financial, credit and maintenance guards are server-side database controls',async()=>{
   const controls=await read('supabase/migrations/017_governance_control_rpcs.sql'),safety=await read('supabase/migrations/018_governance_safety_refinements.sql');
   for(const marker of ['sales_orders_credit_limit_guard','CREDIT_LIMIT_EXCEEDED','CREDIT_OVERRIDE_INVALID','maintenance_closure_control_trigger','MAINTENANCE_DIAGNOSIS_REQUIRED','MAINTENANCE_ATTACHMENT_REQUIRED','FINANCIAL_PERIOD_CLOSED'])assert.match(controls,new RegExp(marker));
-  for(const marker of ['flag_daily_report_credit_breach','daily_report_credit_breach_flag','control_asset_duplicates','like \'DR-%\''])assert.ok(safety.includes(marker),`safety migration missing ${marker}`);
+  for(const marker of ['flag_daily_report_credit_breach','daily_report_credit_breach_flag','control_asset_duplicates','like \'DR-%\'','CUSTODY_SETTLEMENT_EXCEEDS_OUTSTANDING','HANDOVER_BLOCKERS_OPEN'])assert.ok(safety.includes(marker),`safety migration missing ${marker}`);
 });
 
 test('restore drill decrypts only in isolated PostgreSQL and removes plaintext',async()=>{
   const workflow=await read('.github/workflows/backup-restore-drill.yml'),script=await read('scripts/restore-drill.mjs');
   for(const marker of ['postgres:17','encrypted-post-migration-backup','LOCAL_DATABASE_URL','Assert plaintext cleanup','restore-drill-result.json'])assert.ok(workflow.includes(marker),`restore workflow missing ${marker}`);
   for(const marker of ['createDecipheriv','aes-256-gcm','BH01','gunzipSync','rmSync(plaintextPath','productionEvidenceRecorded'])assert.ok(script.includes(marker),`restore script missing ${marker}`);
-  assert.doesNotMatch(workflow,/restore[^\n]+production/i);
+  assert.match(script,/command\('psql',\[localDb,'-X','-v','ON_ERROR_STOP=1','-f',plaintextPath\]/);
+  assert.doesNotMatch(script,/command\('psql',\[productionDb,[^\]]*'-f'/);
 });
