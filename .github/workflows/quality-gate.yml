@@ -29,7 +29,18 @@ jobs:
       - name: Audit legacy size
         run: npm run audit:legacy
       - name: Run tests
-        run: npm test
+        shell: bash
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee test-output.log
+      - name: Upload test output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-gate-test-output-${{ github.run_id }}
+          path: test-output.log
+          if-no-files-found: warn
+          retention-days: 7
       - name: Check API contracts
         run: npm run check:api
       - name: Check Vercel functions
