@@ -1,6 +1,6 @@
 (function(){
   'use strict';
-  const VERSION='2026.07.17-daily-report-source-v1',TOKEN_KEY='binhamid_cloud_access_token';
+  const VERSION='2026.07.17-daily-report-source-v2',TOKEN_KEY='binhamid_cloud_access_token';
   let installed=false,activeContext=null;
   const clean=value=>String(value??'').trim();
   const num=value=>{const parsed=Number(String(value??0).replace(/[٬,]/g,'').replace(/٫/g,'.'));return Number.isFinite(parsed)?parsed:0;};
@@ -33,7 +33,7 @@
     const access=token();if(!access)throw new Error('يلزم ربط الجهاز بالنظام السحابي قبل اعتماد التقرير اليومي.');
     let response;try{response=await fetch('/api/daily-report',{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${access}`},body:JSON.stringify(input)});}catch{throw new Error('تعذر الاتصال بالخادم. لم يعتمد التقرير ولم تُرحّل أي حركة.');}
     const data=await response.json().catch(()=>({}));
-    if(!response.ok){const first=data?.errors?.[0]?.message||data?.error||data?.message||`HTTP ${response.status}`;throw Object.assign(new Error(first),{details:data,status:response.status});}
+    if(!response.ok){if(response.status===401)window.bhCloudLogin?.();const first=data?.errors?.[0]?.message||data?.error||data?.message||`HTTP ${response.status}`;throw Object.assign(new Error(first),{details:data,status:response.status});}
     return data;
   }
 
@@ -63,6 +63,11 @@
       if(!context)return baseOpen.apply(this,arguments);
       const guardedSave=async function(){
         const dateField=context.mode==='summary'?'dailyDate':'reportDate',reportDate=document.querySelector(`#opsForm [name="${dateField}"]`)?.value||context.plan?.detectedDate||new Date().toISOString().slice(0,10);
+        if(!token()){
+          window.opsToast?.('اربط الجهاز بالنظام السحابي ثم اضغط اعتماد مرة أخرى. لم تُرحّل أي حركة.','err');
+          window.bhCloudLogin?.();
+          return false;
+        }
         const cloud=await cloudApprove(context,reportDate),result=await onSave.apply(this,arguments);if(result===false)return false;
         const batch=(window.OPS?.imports||[]).find(row=>String(row.reportDate||'').slice(0,10)===reportDate&&row.sourceFileFingerprint===context.fileHash)||(window.OPS?.imports||[])[0];
         if(batch){batch.cloudImportId=cloud.importId||cloud.existingImportId||'';batch.cloudApprovedAt=new Date().toISOString();batch.cloudSchemaVersion=12;}
