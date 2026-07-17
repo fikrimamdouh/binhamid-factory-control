@@ -1,4 +1,4 @@
-import { requireAdmin } from './auth.js';
+import { requireAdminOrDevice } from './auth.js';
 import { select } from './supabase.js';
 
 export const ROLE_CAPABILITIES=Object.freeze({
@@ -14,15 +14,16 @@ export const ROLE_CAPABILITIES=Object.freeze({
   driver:[],employee:[],collector:[],warehouse:[],quality:[],pending:[]
 });
 
-export function capabilitiesForRole(role){return [...(ROLE_CAPABILITIES[String(role||'pending')]||[])];}
+export function capabilitiesForRole(role){return[...(ROLE_CAPABILITIES[String(role||'pending')]||[])];}
 export function roleAllows(role,capability){const values=capabilitiesForRole(role);return values.includes('*')||values.includes(capability);}
-
 function header(req,name){const value=req?.headers?.[name];return Array.isArray(value)?value[0]:String(value||'').trim();}
 
 export async function requireCapability(req,capability){
-  const gateway=requireAdmin(req);
-  const appUserId=header(req,'x-app-user-id');
-  if(!appUserId)return{...gateway,role:'admin',capabilities:['*'],appUserId:null};
+  const gateway=requireAdminOrDevice(req,capability),appUserId=header(req,'x-app-user-id');
+  if(!appUserId){
+    if(gateway.kind==='device')return{...gateway,appUserId:null,fullName:'جهاز المصنع'};
+    return{...gateway,role:'admin',capabilities:['*'],appUserId:null};
+  }
   const users=await select('app_users',`id=eq.${encodeURIComponent(appUserId)}&active=eq.true&select=id,full_name,role,active&limit=1`),user=users?.[0];
   if(!user)throw Object.assign(new Error('المستخدم غير معتمد أو موقوف'),{status:403,code:'USER_NOT_ACTIVE'});
   const [roleRows,userRows]=await Promise.all([
@@ -30,8 +31,7 @@ export async function requireCapability(req,capability){
     select('user_capabilities',`app_user_id=eq.${encodeURIComponent(user.id)}&select=capability,allowed&limit=500`).catch(()=>[])
   ]);
   const roleCaps=new Set([...(ROLE_CAPABILITIES[user.role]||[]),...(roleRows||[]).map(row=>row.capability)]),overrides=new Map((userRows||[]).map(row=>[row.capability,Boolean(row.allowed)]));
-  const explicit=overrides.get(capability),wildcard=overrides.get('*');
-  const allowed=explicit!==undefined?explicit:wildcard!==undefined?wildcard:(roleCaps.has('*')||roleCaps.has(capability));
+  const explicit=overrides.get(capability),wildcard=overrides.get('*'),allowed=explicit!==undefined?explicit:wildcard!==undefined?wildcard:(roleCaps.has('*')||roleCaps.has(capability));
   if(!allowed)throw Object.assign(new Error(`ليست لديك صلاحية ${capability}`),{status:403,code:'CAPABILITY_REQUIRED',capability});
   return{...gateway,appUserId:user.id,fullName:user.full_name,role:user.role,capabilities:[...roleCaps]};
 }

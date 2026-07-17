@@ -5,6 +5,7 @@
     {"source":"/api/admin/users","destination":"/api/router?route=admin/users"},
     {"source":"/api/dashboard","destination":"/api/router?route=dashboard"},
     {"source":"/api/control-center","destination":"/api/router?route=control-center"},
+    {"source":"/api/device/session","destination":"/api/router?route=device/session"},
     {"source":"/api/conversations","destination":"/api/router?route=conversations"},
     {"source":"/api/operations","destination":"/api/router?route=operations"},
     {"source":"/api/reports","destination":"/api/router?route=reports"},
