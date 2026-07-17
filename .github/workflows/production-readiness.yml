@@ -8,8 +8,8 @@ on:
     paths:
       - '.github/workflows/production-readiness.yml'
       - 'api/_lib/routes/system-runtime.js'
-      - 'api/_lib/supabase.js'
-      - 'api/_lib/config.js'
+      - 'scripts/production-db-readiness.mjs'
+      - 'scripts/resolve-supabase-connection.mjs'
 
 permissions:
   contents: read
@@ -18,7 +18,7 @@ permissions:
 jobs:
   readiness:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -29,50 +29,51 @@ jobs:
         run: |
           set -euo pipefail
           npm install --ignore-scripts --no-audit --no-fund
+          node --check scripts/production-db-readiness.mjs
           npm test
           npm run check:api
           npm run check:functions
 
-      - name: Check production through application data layer
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      - name: Install PostgreSQL 17 client
+        shell: bash
         run: |
           set -euo pipefail
-          node <<'NODE'
-          import { writeFileSync } from 'node:fs';
-          import { collectDatabaseReadiness } from './api/_lib/routes/system-runtime.js';
-          import { validateEnvironment } from './api/_lib/config.js';
-          const database=await collectDatabaseReadiness();
-          const environment=validateEnvironment('database');
-          const report={
-            format:'binhamid-production-readiness-v1',
-            checkedAt:new Date().toISOString(),
-            ok:database.ready&&environment.ready&&Number(database.schemaVersion)===14,
-            database:{
-              ready:database.ready,
-              schemaVersion:database.schemaVersion,
-              latestRequiredVersion:database.latestRequiredVersion,
-              missingTables:database.missingTables,
-              missingViews:database.missingViews,
-              missingColumns:database.missingColumns,
-              missingMigrations:database.missingMigrations,
-              appliedMigrationCount:database.appliedMigrations.length
-            },
-            environment:{ready:environment.ready,missingRequired:environment.missingRequired},
-            readOnly:true
-          };
-          writeFileSync('production-readiness.json',`${JSON.stringify(report,null,2)}\n`,{mode:0o600});
-          console.log(`[production-readiness] ready=${report.ok}; schema=${database.schemaVersion}`);
-          if(!report.ok)process.exit(1);
-          NODE
+          sudo apt-get update -qq
+          sudo apt-get install -y curl ca-certificates
+          sudo install -d -m 0755 /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          . /etc/os-release
+          printf '%s\n' \
+            'Types: deb' \
+            'URIs: https://apt.postgresql.org/pub/repos/apt' \
+            "Suites: ${VERSION_CODENAME}-pgdg" \
+            'Components: main' \
+            'Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc' \
+            | sudo tee /etc/apt/sources.list.d/pgdg.sources > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client-17
+          echo '/usr/lib/postgresql/17/bin' >> "$GITHUB_PATH"
+
+      - name: Resolve protected database connection
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          SUPABASE_POOLER_HOST: ${{ vars.SUPABASE_POOLER_HOST }}
+          CONNECTION_DIAGNOSTIC_PATH: readiness-connection-diagnostic.json
+        run: node scripts/resolve-supabase-connection.mjs
+
+      - name: Check production schema requirements
+        env:
+          PRODUCTION_READINESS_PATH: production-readiness.json
+        run: node scripts/production-db-readiness.mjs
 
       - name: Upload readiness evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: production-readiness-${{ github.run_id }}
-          path: production-readiness.json
+          path: |
+            production-readiness.json
+            readiness-connection-diagnostic.json
           if-no-files-found: warn
           retention-days: 14
 
@@ -90,7 +91,7 @@ jobs:
           const response=await fetch(`https://api.github.com/repos/${process.env.REPOSITORY}/statuses/${process.env.HEAD_SHA}`,{
             method:'POST',
             headers:{Accept:'application/vnd.github+json',Authorization:`Bearer ${process.env.GITHUB_TOKEN}`,'X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'},
-            body:JSON.stringify({state:success?'success':'failure',context:'production-readiness',target_url:process.env.RUN_URL,description:success?'Production schema and application data layer are ready.':'Production readiness checks failed.'})
+            body:JSON.stringify({state:success?'success':'failure',context:'production-readiness',target_url:process.env.RUN_URL,description:success?'Production schema 14 matches application requirements.':'Production schema readiness checks failed.'})
           });
           if(!response.ok)throw new Error(`Status publication failed with HTTP ${response.status}`);
           NODE
