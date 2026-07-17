@@ -20,44 +20,63 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Extract relevant legacy excerpts
+      - name: Extract precise legacy diagnostics
         run: |
           python - <<'PY'
           from pathlib import Path
           import re
 
-          source = Path('legacy.html').read_text(encoding='utf-8').splitlines()
-          patterns = [
-              r'إقرار', r'اقرار', r'البلوك', r'بلك', r'بلوك', r'عميل', r'العملاء',
-              r'مبيعات', r'سداد', r'تحصيل', r'collection', r'payment', r'sales',
-              r'client', r'customer', r'ack', r'debt', r'balance', r'worker', r'employee'
-          ]
-          rx = re.compile('|'.join(patterns), re.I)
-          hits = [i for i, line in enumerate(source) if rx.search(line)]
-          windows = []
-          for i in hits:
-              windows.append((max(0, i-8), min(len(source), i+9)))
-          windows.sort()
-          merged=[]
-          for start,end in windows:
-              if not merged or start > merged[-1][1] + 2:
-                  merged.append([start,end])
-              else:
-                  merged[-1][1] = max(merged[-1][1],end)
-          out=[]
-          for start,end in merged:
-              out.append(f'\n===== LINES {start+1}-{end} =====')
-              for idx in range(start,end):
-                  out.append(f'{idx+1:05d}: {source[idx]}')
-          Path('debug').mkdir(exist_ok=True)
-          Path('debug/legacy-finance-excerpts.txt').write_text('\n'.join(out),encoding='utf-8')
-          print('hits',len(hits),'windows',len(merged),'lines',len(out))
+          lines = Path('legacy.html').read_text(encoding='utf-8').splitlines()
+          out_dir = Path('debug')
+          out_dir.mkdir(exist_ok=True)
+
+          def matches_file(name, patterns, context=2):
+              rx = re.compile('|'.join(patterns), re.I)
+              hits = [i for i, line in enumerate(lines) if rx.search(line)]
+              windows=[]
+              for i in hits:
+                  windows.append((max(0,i-context),min(len(lines),i+context+1)))
+              windows.sort()
+              merged=[]
+              for start,end in windows:
+                  if not merged or start>merged[-1][1]+1:
+                      merged.append([start,end])
+                  else:
+                      merged[-1][1]=max(merged[-1][1],end)
+              out=[]
+              for start,end in merged:
+                  out.append(f'===== LINES {start+1}-{end} =====')
+                  out.extend(f'{idx+1:05d}: {lines[idx]}' for idx in range(start,end))
+              (out_dir/name).write_text('\n'.join(out),encoding='utf-8')
+
+          matches_file('legacy-ack-worker-lines.txt',[
+              r'إقرار',r'اقرار',r'block[^\n]{0,80}(emp|worker)',r'(emp|worker)[^\n]{0,80}block',
+              r'بلوك[^\n]{0,80}(عامل|موظف|عمال)',r'(عامل|موظف|عمال)[^\n]{0,80}بلوك',r'D\.emp'
+          ],3)
+          matches_file('legacy-client-finance-lines.txt',[
+              r'سداد',r'تحصيل',r'مديون',r'رصيد',r'كشف حساب',r'مبيعات العميل',
+              r'OPS\.(collections|sales|invoices|movements)',r'clientId',r'customerCode',r'paymentType'
+          ],3)
+
+          text='\n'.join(lines)
+          props=[]
+          for root in ('D','OPS'):
+              names=sorted(set(re.findall(rf'\b{root}\.([A-Za-z_$][\w$]*)',text)))
+              props.append(root+': '+', '.join(names))
+          functions=[]
+          for idx,line in enumerate(lines):
+              if re.search(r'\bfunction\s+[A-Za-z_$][\w$]*|\b(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*(?:async\s*)?\([^)]*\)\s*=>',line):
+                  block=' '.join(lines[idx:min(len(lines),idx+8)])
+                  if re.search(r'إقرار|اقرار|عميل|مبيعات|سداد|تحصيل|collection|payment|client|customer|debt|balance|block|emp',block,re.I):
+                      functions.append(f'{idx+1:05d}: {line}')
+          (out_dir/'legacy-data-properties.txt').write_text('\n'.join(props),encoding='utf-8')
+          (out_dir/'legacy-finance-functions.txt').write_text('\n'.join(functions),encoding='utf-8')
           PY
       - name: Commit scan output
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add debug/legacy-finance-excerpts.txt
+          git add debug/legacy-ack-worker-lines.txt debug/legacy-client-finance-lines.txt debug/legacy-data-properties.txt debug/legacy-finance-functions.txt
           git diff --cached --quiet && exit 0
-          git commit -m 'chore: add temporary legacy finance excerpts'
+          git commit -m 'chore: add focused legacy finance diagnostics'
           git push origin HEAD:feat/complete-operational-roadmap
