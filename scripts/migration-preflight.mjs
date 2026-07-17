@@ -16,6 +16,8 @@ const state=JSON.parse(query(`select json_build_object(
 'daily_report_sales_lines',to_regclass('public.daily_report_sales_lines') is not null,
 'daily_report_cash_movements',to_regclass('public.daily_report_cash_movements') is not null,
 'customers',to_regclass('public.customers') is not null,
+'employees',to_regclass('public.employees') is not null,
+'vehicles',to_regclass('public.vehicles') is not null,
 'sales_orders',to_regclass('public.sales_orders') is not null,
 'collection_events',to_regclass('public.collection_events') is not null,
 'sales_payment_allocations',to_regclass('public.sales_payment_allocations') is not null,
@@ -23,6 +25,8 @@ const state=JSON.parse(query(`select json_build_object(
 'audit_log',to_regclass('public.audit_log') is not null),
 'counts',json_build_object(
 'customers',(select count(*) from public.customers),
+'employees',(select count(*) from public.employees),
+'vehicles',(select count(*) from public.vehicles),
 'salesOrders',(select count(*) from public.sales_orders),
 'collectionEvents',(select count(*) from public.collection_events),
 'maintenanceOrders',(select count(*) from public.maintenance_orders),
@@ -30,13 +34,13 @@ const state=JSON.parse(query(`select json_build_object(
 'dailyCashMovements',(select count(*) from public.daily_report_cash_movements))
 )::text;`));
 const version=Number(state.currentVersion||0);
-if(version<10||version>15)stop('SCHEMA_VERSION_OUT_OF_RANGE','Production schema must be between versions 10 and 15.',{currentVersion:version});
+if(version<10||version>17)stop('SCHEMA_VERSION_OUT_OF_RANGE','Production schema must be between versions 10 and 17.',{currentVersion:version});
 const missing=Object.entries(state.dependencies||{}).filter(([,v])=>!v).map(([k])=>k);
 if(missing.length)stop('BASE_SCHEMA_INCOMPLETE','Required base schema objects are missing.',{currentVersion:version,missing});
 const manifestPath=String(process.env.PRE_MIGRATION_MANIFEST||'').trim();
 if(!manifestPath||!existsSync(manifestPath))stop('BACKUP_MANIFEST_MISSING','The pre-migration backup manifest is missing.');
 let manifest;try{manifest=JSON.parse(readFileSync(manifestPath,'utf8'));}catch{stop('BACKUP_MANIFEST_INVALID','The pre-migration backup manifest is invalid.');}
 if(manifest.format!=='binhamid-backup-v1'||manifest.encrypted!==true||Number(manifest.schemaVersion)!==version||!/^[a-f0-9]{64}$/i.test(String(manifest.checksumSha256||'')))stop('BACKUP_GATE_FAILED','The pre-migration backup did not pass the schema and encryption gate.',{currentVersion:version,backupSchemaVersion:Number(manifest.schemaVersion)});
-const result={ok:true,currentVersion:version,targetVersion:15,counts:state.counts,backup:{fileName:manifest.fileName,checksumSha256:manifest.checksumSha256,schemaVersion:Number(manifest.schemaVersion),encrypted:true}};
+const result={ok:true,currentVersion:version,targetVersion:17,counts:state.counts,backup:{fileName:manifest.fileName,checksumSha256:manifest.checksumSha256,schemaVersion:Number(manifest.schemaVersion),encrypted:true}};
 writeFileSync(output,`${JSON.stringify(result,null,2)}\n`,{mode:0o600});
-console.log(`[migration-preflight] READY ${version}->15`);
+console.log(`[migration-preflight] READY ${version}->17`);
