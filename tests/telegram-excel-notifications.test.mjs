@@ -2,10 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
-const read=path=>fs.readFileSync(new URL(path,import.meta.url),'utf8');
+const read=parts=>fs.readFileSync(new URL(parts.join('/'),import.meta.url),'utf8');
 
 test('Telegram Excel uploads acknowledge receipt and report processing failures',()=>{
-  const source=read('../api/_lib/bot-files.js');
+  const source=read(['..','api','_lib','bot-files.js']);
   assert.match(source,/تم استلام ملف/);
   assert.match(source,/telegram excel import/);
   assert.match(source,/لم تُرحّل أي بيانات من هذا الملف/);
@@ -13,14 +13,14 @@ test('Telegram Excel uploads acknowledge receipt and report processing failures'
 });
 
 test('approved website reports call the protected Telegram owner notification route',()=>{
-  const source=read('../assets/daily-report-source-of-truth.js');
+  const source=read(['..','assets','daily-report-source-of-truth.js']);
   assert.match(source,/\/api\/telegram\/notify/);
   assert.match(source,/daily_report_approved/);
   assert.match(source,/telegramNotified/);
 });
 
 test('single-function router exposes Telegram notifications without adding a function',()=>{
-  const router=read('../api/router.js'),admin=read('../api/_lib/routes/telegram-admin.js'),vercel=JSON.parse(read('../vercel.json'));
+  const router=read(['..','api','router.js']),admin=read(['..','api','_lib','routes','telegram-admin.js']),vercel=JSON.parse(read(['..','vercel.json']));
   assert.match(router,/'telegram\/notify':telegramAdmin\.notify/);
   assert.match(admin,/export async function notify/);
   assert.match(admin,/config\.telegramOwnerId/);
