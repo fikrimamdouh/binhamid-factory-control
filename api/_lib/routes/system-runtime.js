@@ -5,12 +5,12 @@ import { select } from '../supabase.js';
 
 export const LATEST_REQUIRED_VERSION=14;
 
-const TABLES=[
+export const DATABASE_TABLES=[
   'app_users','user_channels','telegram_groups','telegram_messages','employees','vehicles','customers','bot_sessions','maintenance_orders','approvals','audit_log','work_sites','employee_assignments','attendance_events','driver_events','operational_records','sales_orders','sales_order_updates','inventory_items','inventory_movements','purchase_requests','supplier_quotes','collection_events','quality_cases','operational_tasks','notification_outbox','finance_events','hr_requests','employee_daily_reports','operation_status_history','document_registry','migration_history','daily_report_batches','daily_report_sales_lines','daily_report_cash_movements','daily_report_treasury_balances','daily_report_inventory_snapshots','daily_report_import_attempts','cost_ledger','sales_payment_allocations','fifo_rebuild_runs',
   'cost_centers','cost_periods','cost_calculation_runs','cost_allocation_rules','asset_cost_center_assignments','employee_cost_assignments','indirect_cost_allocations','operational_alerts','role_capabilities','user_capabilities','backup_runs','token_rotation_registry','gps_provider_events'
 ];
-const VIEWS=['daily_attendance_summary','driver_daily_summary','factory_daily_margin','cost_unit_monthly_report'];
-const COLUMN_CHECKS={
+export const DATABASE_VIEWS=['daily_attendance_summary','driver_daily_summary','factory_daily_margin','cost_unit_monthly_report'];
+export const DATABASE_COLUMN_CHECKS={
   purchase_requests:['source_event_type','source_event_id'],
   notification_outbox:['dedupe_key','attempts','last_attempt_at','dead_letter_at'],
   daily_report_batches:['report_date','file_hash','content_hash','status','summary','committed_at','file_storage_path','approved_by','validation_errors','validation_warnings','preview_summary'],
@@ -42,8 +42,8 @@ async function migrationState(){
 
 export async function collectDatabaseReadiness(){
   const [relations,columnResults,migrations]=await Promise.all([
-    Promise.all([...TABLES.map(name=>checkRelation(name,'table')),...VIEWS.map(name=>checkRelation(name,'view'))]),
-    Promise.all(Object.entries(COLUMN_CHECKS).map(([table,columns])=>checkColumns(table,columns))),
+    Promise.all([...DATABASE_TABLES.map(name=>checkRelation(name,'table')),...DATABASE_VIEWS.map(name=>checkRelation(name,'view'))]),
+    Promise.all(Object.entries(DATABASE_COLUMN_CHECKS).map(([table,columns])=>checkColumns(table,columns))),
     migrationState()
   ]);
   const checks=[...relations,...columnResults,{name:'migration_history.sequence',type:'migration',ready:migrations.ready,error:migrations.error||null}];
