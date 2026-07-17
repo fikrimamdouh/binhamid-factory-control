@@ -21,9 +21,18 @@ as $$
 declare
   v_code text:=nullif(trim(coalesce(p_code,'')),'');
   v_name text:=nullif(regexp_replace(trim(coalesce(p_name,'')),'\s+',' ','g'),'');
+  v_matches integer:=0;
   v_customer public.customers%rowtype;
 begin
   if v_code is null then return; end if;
+
+  select count(*) into v_matches
+  from public.customers
+  where external_id=v_code or customer_code=v_code;
+
+  if v_matches>1 then
+    raise exception 'DAILY_REPORT_CUSTOMER_CODE_AMBIGUOUS:%',v_code;
+  end if;
 
   select * into v_customer
   from public.customers
