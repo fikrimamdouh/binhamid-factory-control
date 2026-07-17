@@ -1,6 +1,6 @@
 {
   "name": "binhamid-factory-control",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,7 +8,12 @@
     "audit:functions": "node scripts/audit-vercel-functions.mjs",
     "check:functions": "node scripts/audit-vercel-functions.mjs --assert",
     "check:api": "node scripts/audit-api-contracts.mjs",
-    "check": "node scripts/check-enterprise.mjs && node --test tests/*.test.mjs && npm run check:api && npm run check:functions"
+    "audit:migrations": "node scripts/audit-migrations.mjs",
+    "audit:legacy": "node scripts/audit-legacy-size.mjs",
+    "audit:dependencies": "npm audit --omit=dev",
+    "backup": "node scripts/backup-supabase.mjs",
+    "restore:test": "node scripts/restore-supabase.mjs",
+    "check": "node scripts/check-enterprise.mjs && node scripts/check-operational-roadmap.mjs && npm run audit:migrations && npm run audit:legacy && node --test tests/*.test.mjs && npm run check:api && npm run check:functions"
   },
   "dependencies": {
     "xlsx": "^0.18.5"

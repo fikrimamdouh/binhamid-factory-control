@@ -16,13 +16,15 @@ test('operations actions only enhance a real operation-details modal',async()=>{
 
 test('scheduled notification outbox escapes dynamic Telegram HTML',async()=>{
   const safe=await read('api/_lib/bot-notifications-safe.js');
+  const implementation=await read('api/_lib/bot-notifications.js');
   const cron=await read('api/cron/manager-brief.js');
-  assert.match(safe,/const html=value=>/);
-  assert.match(safe,/const title=html/);
-  assert.match(safe,/const message=html/);
-  assert.match(safe,/recipient_chat_id/);
-  assert.match(safe,/status:'failed'/);
-  assert.match(safe,/status:'sent'/);
+  assert.match(safe,/from '\.\/bot-notifications\.js'/);
+  assert.match(implementation,/const html=value=>/);
+  assert.match(implementation,/const title=html/);
+  assert.match(implementation,/message=html/);
+  assert.match(implementation,/recipient_chat_id/);
+  assert.match(implementation,/status:'failed'/);
+  assert.match(implementation,/status:'sent'/);
   assert.match(cron,/bot-notifications-safe\.js/);
 });
 
