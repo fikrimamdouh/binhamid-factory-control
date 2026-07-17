@@ -28,26 +28,159 @@ jobs:
           node-version: '24.x'
       - name: Install PostgreSQL tools
         run: sudo apt-get update -qq && sudo apt-get install -y postgresql-client
-      - name: Validate encrypted backup secrets
+      - name: Validate encrypted backup secrets and connection
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$SUPABASE_DB_URL"
-          test -n "$BACKUP_ENCRYPTION_KEY"
           node <<'NODE'
-          const raw=String(process.env.SUPABASE_DB_URL||'').trim();
+          const { writeFileSync } = require('node:fs');
+          const { spawnSync } = require('node:child_process');
+
+          const diagnosticPath = 'backup-diagnostic.json';
+          const checkedAt = new Date().toISOString();
+          const writeDiagnostic = (ok, stage, code, reason, extra = {}) => {
+            const payload = {
+              format: 'binhamid-backup-diagnostic-v1',
+              checkedAt,
+              ok,
+              stage,
+              code,
+              reason,
+              ...extra,
+            };
+            writeFileSync(diagnosticPath, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
+          };
+          const fail = (stage, code, reason, extra = {}) => {
+            writeDiagnostic(false, stage, code, reason, extra);
+            console.error(`[backup-validation] ${code}: ${reason}`);
+            process.exit(1);
+          };
+
+          const raw = String(process.env.SUPABASE_DB_URL || '').trim();
+          const encryptionKey = String(process.env.BACKUP_ENCRYPTION_KEY || '').trim();
+          if (!raw) fail('configuration', 'SUPABASE_DB_URL_EMPTY', 'The database connection secret is empty.');
+          if (!encryptionKey) fail('configuration', 'BACKUP_ENCRYPTION_KEY_EMPTY', 'The backup encryption secret is empty.');
+
           let url;
-          try{url=new URL(raw);}catch{console.error('SUPABASE_DB_URL is not a valid PostgreSQL connection URL.');process.exit(1);}
-          if(!['postgres:','postgresql:'].includes(url.protocol)){console.error('SUPABASE_DB_URL must start with postgresql:// or postgres://');process.exit(1);}
-          if(!url.username||!url.password||url.password.includes('YOUR-PASSWORD')){console.error('SUPABASE_DB_URL must contain the real database user and password.');process.exit(1);}
-          if(url.hostname.startsWith('db.')){console.error('SUPABASE_DB_URL is a Direct connection URL. GitHub runners require the Supabase Session pooler URL.');process.exit(1);}
-          console.log(`Database connection target validated: ${url.hostname}:${url.port||'5432'}`);
+          try {
+            url = new URL(raw);
+          } catch {
+            fail('url-validation', 'DATABASE_URL_INVALID', 'The database connection secret is not a valid PostgreSQL URL.');
+          }
+
+          if (!['postgres:', 'postgresql:'].includes(url.protocol)) {
+            fail('url-validation', 'DATABASE_URL_PROTOCOL_INVALID', 'The database URL protocol must be PostgreSQL.');
+          }
+          if (!url.username || !url.password) {
+            fail('url-validation', 'DATABASE_URL_CREDENTIALS_MISSING', 'The database URL must contain both username and password.');
+          }
+
+          let username;
+          let password;
+          try {
+            username = decodeURIComponent(url.username);
+            password = decodeURIComponent(url.password);
+          } catch {
+            fail('url-validation', 'DATABASE_URL_ENCODING_INVALID', 'The database username or password contains invalid URL encoding.');
+          }
+          if (!password || password.includes('YOUR-PASSWORD')) {
+            fail('url-validation', 'DATABASE_URL_PASSWORD_PLACEHOLDER', 'The database URL still contains a missing or placeholder password.');
+          }
+
+          const hostname = String(url.hostname || '').toLowerCase();
+          const port = String(url.port || '5432');
+          if (hostname.startsWith('db.')) {
+            fail('url-validation', 'DIRECT_CONNECTION_URL', 'A Supabase Direct connection URL is configured; the GitHub runner requires the Session pooler URL.');
+          }
+          if (!hostname.endsWith('.pooler.supabase.com')) {
+            fail('url-validation', 'SESSION_POOLER_HOST_INVALID', 'The database host is not a Supabase Session pooler host.');
+          }
+          if (port !== '5432') {
+            fail('url-validation', 'SESSION_POOLER_PORT_INVALID', 'The Session pooler must use port 5432.');
+          }
+          if (!/^postgres\.[a-z0-9]+$/i.test(username)) {
+            fail('url-validation', 'SESSION_POOLER_USERNAME_INVALID', 'The Session pooler username must use the postgres.project-ref format.');
+          }
+          if (!url.pathname || url.pathname === '/') {
+            fail('url-validation', 'DATABASE_NAME_MISSING', 'The database name is missing from the connection URL.');
+          }
+
+          const readiness = spawnSync('pg_isready', ['--dbname', raw, '--timeout=15'], {
+            encoding: 'utf8',
+            env: process.env,
+            stdio: ['ignore', 'pipe', 'pipe'],
+          });
+          if (readiness.error) {
+            fail('network-readiness', 'PG_ISREADY_UNAVAILABLE', 'pg_isready could not be executed.');
+          }
+          if (readiness.status !== 0) {
+            const codeByStatus = {
+              1: ['PG_ISREADY_REJECTED', 'The database server rejected the readiness check.'],
+              2: ['PG_ISREADY_NO_RESPONSE', 'The database server did not respond before the timeout.'],
+              3: ['PG_ISREADY_INVALID_ATTEMPT', 'The readiness check could not make a valid connection attempt.'],
+            };
+            const [code, reason] = codeByStatus[readiness.status] || ['PG_ISREADY_FAILED', 'The database readiness check failed.'];
+            fail('network-readiness', code, reason, { pgIsReadyExitCode: readiness.status });
+          }
+
+          const auth = spawnSync('psql', [raw, '-X', '-t', '-A', '-v', 'ON_ERROR_STOP=1', '-c', 'select 1;'], {
+            encoding: 'utf8',
+            env: process.env,
+            stdio: ['ignore', 'pipe', 'pipe'],
+          });
+          if (auth.error) {
+            fail('authentication', 'PSQL_UNAVAILABLE', 'psql could not be executed.');
+          }
+          if (auth.status !== 0 || String(auth.stdout || '').trim() !== '1') {
+            const stderr = String(auth.stderr || '').toLowerCase();
+            let code = 'PSQL_CONNECTION_FAILED';
+            let reason = 'The authenticated PostgreSQL connection test failed.';
+            if (stderr.includes('tenant or user not found')) {
+              code = 'SESSION_POOLER_USERNAME_REJECTED';
+              reason = 'The Session pooler rejected the configured tenant or username.';
+            } else if (stderr.includes('password authentication failed')) {
+              code = 'DATABASE_AUTHENTICATION_FAILED';
+              reason = 'The database rejected the configured username or password.';
+            } else if (stderr.includes('could not translate host name')) {
+              code = 'DATABASE_DNS_FAILED';
+              reason = 'The database hostname could not be resolved.';
+            } else if (stderr.includes('timeout expired') || stderr.includes('connection timed out')) {
+              code = 'DATABASE_CONNECTION_TIMEOUT';
+              reason = 'The authenticated connection timed out.';
+            } else if (stderr.includes('connection refused')) {
+              code = 'DATABASE_CONNECTION_REFUSED';
+              reason = 'The database endpoint refused the connection.';
+            } else if (stderr.includes('no route to host') || stderr.includes('network is unreachable')) {
+              code = 'DATABASE_NETWORK_UNREACHABLE';
+              reason = 'The database network endpoint is unreachable from the runner.';
+            } else if (stderr.includes('does not exist')) {
+              code = 'DATABASE_NAME_INVALID';
+              reason = 'The configured database name was rejected.';
+            } else if (stderr.includes('certificate') || stderr.includes('ssl')) {
+              code = 'DATABASE_TLS_FAILED';
+              reason = 'The PostgreSQL TLS connection failed.';
+            }
+            fail('authentication', code, reason, { psqlExitCode: auth.status });
+          }
+
+          writeDiagnostic(true, 'complete', 'CONNECTION_VALIDATED', 'The encrypted backup secrets and authenticated Session pooler connection are valid.', {
+            pgIsReadyExitCode: readiness.status,
+            psqlExitCode: auth.status,
+          });
+          console.log('[backup-validation] CONNECTION_VALIDATED');
           NODE
-          pg_isready --dbname "$SUPABASE_DB_URL" --timeout=15
-      - name: Create and upload backup
+      - name: Upload safe backup diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backup-diagnostic-${{ github.run_id }}
+          path: backup-diagnostic.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Create encrypted backup
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -61,10 +194,69 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          rm -rf backup-output
+          mkdir -p backup-output
+          : > backup-result.jsonl
           node scripts/backup-supabase.mjs 2> >(tee backup-error.log >&2) | tee backup-result.jsonl
-          test -s backup-result.jsonl
-          test -n "$(find backup-output -maxdepth 1 -type f -name '*.enc' -size +64c -print -quit)"
-          test -n "$(find backup-output -maxdepth 1 -type f -name '*.manifest.json' -size +32c -print -quit)"
+      - name: Verify encrypted recovery files
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const { createHash } = require('node:crypto');
+          const { basename, join } = require('node:path');
+          const { readFileSync, readdirSync, statSync } = require('node:fs');
+
+          const fail = message => {
+            console.error(`[backup-verification] ${message}`);
+            process.exit(1);
+          };
+          const directory = 'backup-output';
+          const files = readdirSync(directory);
+          const encryptedFiles = files.filter(name => name.endsWith('.enc'));
+          const manifestFiles = files.filter(name => name.endsWith('.manifest.json'));
+          if (encryptedFiles.length !== 1) fail(`expected exactly one encrypted file, found ${encryptedFiles.length}`);
+          if (manifestFiles.length !== 1) fail(`expected exactly one manifest file, found ${manifestFiles.length}`);
+
+          const encryptedName = encryptedFiles[0];
+          const encryptedPath = join(directory, encryptedName);
+          const manifestPath = join(directory, manifestFiles[0]);
+          const encryptedSize = statSync(encryptedPath).size;
+          const manifestSize = statSync(manifestPath).size;
+          if (encryptedSize <= 154) fail(`encrypted file is too small: ${encryptedSize} bytes`);
+          if (manifestSize <= 32) fail(`manifest file is too small: ${manifestSize} bytes`);
+
+          let manifest;
+          try {
+            manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+          } catch {
+            fail('manifest is not valid JSON');
+          }
+          if (manifest.format !== 'binhamid-backup-v1') fail('manifest format is invalid');
+          if (manifest.encrypted !== true) fail('manifest does not mark the backup as encrypted');
+          if (manifest.fileName !== encryptedName) fail('manifest fileName does not match the encrypted file');
+          if (!/^[a-f0-9]{64}$/i.test(String(manifest.checksumSha256 || ''))) fail('manifest checksum is invalid');
+
+          const checksum = createHash('sha256').update(readFileSync(encryptedPath)).digest('hex');
+          if (checksum !== manifest.checksumSha256) fail('encrypted file checksum does not match the manifest');
+
+          const resultText = readFileSync('backup-result.jsonl', 'utf8').trim();
+          if (!resultText) fail('backup-result.jsonl is empty');
+          const resultLines = resultText.split(/\r?\n/).filter(Boolean);
+          let result;
+          try {
+            result = JSON.parse(resultLines[resultLines.length - 1]);
+          } catch {
+            fail('backup-result.jsonl does not end with valid JSON');
+          }
+          if (result.ok !== true) fail('backup-result.jsonl does not report success');
+          if (basename(String(result.file || '')) !== encryptedName) fail('backup result file does not match the encrypted file');
+          if (Number(result.sizeBytes) !== encryptedSize) fail('backup result size does not match the encrypted file');
+          if (result.checksumSha256 !== checksum) fail('backup result checksum does not match the encrypted file');
+          if (basename(String(result.manifest || '')) !== manifestFiles[0]) fail('backup result manifest does not match the manifest file');
+
+          console.log(`[backup-verification] verified ${encryptedName} (${encryptedSize} bytes) with manifest and checksum`);
+          NODE
       - name: Upload encrypted recovery artifact
         uses: actions/upload-artifact@v4
         with:
