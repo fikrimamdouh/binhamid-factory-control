@@ -23,11 +23,14 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: '24.x'
+
       - name: Install PostgreSQL tools
         run: sudo apt-get update -qq && sudo apt-get install -y postgresql-client
+
       - name: Validate encrypted backup secrets and connection
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
@@ -43,7 +46,7 @@ jobs:
           const diagnosticPath = 'backup-diagnostic.json';
           const checkedAt = new Date().toISOString();
           const writeDiagnostic = (ok, stage, code, reason, extra = {}) => {
-            const payload = {
+            writeFileSync(diagnosticPath, `${JSON.stringify({
               format: 'binhamid-backup-diagnostic-v1',
               checkedAt,
               ok,
@@ -51,8 +54,7 @@ jobs:
               code,
               reason,
               ...extra,
-            };
-            writeFileSync(diagnosticPath, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
+            }, null, 2)}\n`, { mode: 0o600 });
           };
           const fail = (stage, code, reason, extra = {}) => {
             writeDiagnostic(false, stage, code, reason, extra);
@@ -60,11 +62,8 @@ jobs:
             process.exit(1);
           };
           const decode = value => {
-            try {
-              return decodeURIComponent(value);
-            } catch {
-              fail('url-validation', 'DATABASE_URL_ENCODING_INVALID', 'The database username or password contains invalid URL encoding.');
-            }
+            try { return decodeURIComponent(value); }
+            catch { fail('url-validation', 'DATABASE_URL_ENCODING_INVALID', 'The database username or password contains invalid URL encoding.'); }
           };
           const classifyConnectionError = stderr => {
             const text = String(stderr || '').toLowerCase();
@@ -104,37 +103,23 @@ jobs:
           if (!process.env.GITHUB_ENV) fail('configuration', 'GITHUB_ENV_UNAVAILABLE', 'The runner environment file is unavailable.');
 
           let configured;
-          try {
-            configured = new URL(raw);
-          } catch {
-            fail('url-validation', 'DATABASE_URL_INVALID', 'The database connection secret is not a valid PostgreSQL URL.');
-          }
-          if (!['postgres:', 'postgresql:'].includes(configured.protocol)) {
-            fail('url-validation', 'DATABASE_URL_PROTOCOL_INVALID', 'The database URL protocol must be PostgreSQL.');
-          }
-          if (!configured.username || !configured.password) {
-            fail('url-validation', 'DATABASE_URL_CREDENTIALS_MISSING', 'The database URL must contain both username and password.');
-          }
+          try { configured = new URL(raw); }
+          catch { fail('url-validation', 'DATABASE_URL_INVALID', 'The database connection secret is not a valid PostgreSQL URL.'); }
+          if (!['postgres:', 'postgresql:'].includes(configured.protocol)) fail('url-validation', 'DATABASE_URL_PROTOCOL_INVALID', 'The database URL protocol must be PostgreSQL.');
+          if (!configured.username || !configured.password) fail('url-validation', 'DATABASE_URL_CREDENTIALS_MISSING', 'The database URL must contain both username and password.');
 
           const configuredUsername = decode(configured.username);
           const configuredPassword = decode(configured.password);
-          if (!configuredPassword || configuredPassword.includes('YOUR-PASSWORD')) {
-            fail('url-validation', 'DATABASE_URL_PASSWORD_PLACEHOLDER', 'The database URL still contains a missing or placeholder password.');
-          }
-          if (!configured.pathname || configured.pathname === '/') {
-            fail('url-validation', 'DATABASE_NAME_MISSING', 'The database name is missing from the connection URL.');
-          }
+          if (!configuredPassword || configuredPassword.includes('YOUR-PASSWORD')) fail('url-validation', 'DATABASE_URL_PASSWORD_PLACEHOLDER', 'The database URL still contains a missing or placeholder password.');
+          if (!configured.pathname || configured.pathname === '/') fail('url-validation', 'DATABASE_NAME_MISSING', 'The database name is missing from the connection URL.');
 
           const hostname = String(configured.hostname || '').toLowerCase();
           let effectiveUrl = '';
           let resolution = 'configured-session-pooler';
 
           if (hostname.endsWith('.pooler.supabase.com')) {
-            const port = String(configured.port || '5432');
-            if (port !== '5432') fail('url-validation', 'SESSION_POOLER_PORT_INVALID', 'The Session pooler must use port 5432.');
-            if (!/^postgres\.[a-z0-9]+$/i.test(configuredUsername)) {
-              fail('url-validation', 'SESSION_POOLER_USERNAME_INVALID', 'The Session pooler username must use the postgres.project-ref format.');
-            }
+            if (String(configured.port || '5432') !== '5432') fail('url-validation', 'SESSION_POOLER_PORT_INVALID', 'The Session pooler must use port 5432.');
+            if (!/^postgres\.[a-z0-9]+$/i.test(configuredUsername)) fail('url-validation', 'SESSION_POOLER_USERNAME_INVALID', 'The Session pooler username must use the postgres.project-ref format.');
             const result = probe(configured.toString());
             if (result.error) fail('authentication', 'PSQL_UNAVAILABLE', 'psql could not be executed.');
             if (!result.ok) {
@@ -144,39 +129,19 @@ jobs:
             effectiveUrl = result.url;
           } else {
             const directMatch = hostname.match(/^db\.([a-z0-9]+)\.supabase\.co$/i);
-            if (!directMatch) {
-              fail('url-validation', 'SESSION_POOLER_HOST_INVALID', 'The configured database host is neither a Supabase Direct host nor a Session pooler host.');
-            }
+            if (!directMatch) fail('url-validation', 'SESSION_POOLER_HOST_INVALID', 'The configured database host is neither a Supabase Direct host nor a Session pooler host.');
 
             const projectRef = directMatch[1];
             const overrideHost = String(process.env.SUPABASE_POOLER_HOST || '').trim().toLowerCase();
-            if (overrideHost && !/^aws-[0-9]+-[a-z0-9-]+\.pooler\.supabase\.com$/i.test(overrideHost)) {
-              fail('url-validation', 'SESSION_POOLER_OVERRIDE_INVALID', 'The optional Session pooler host override is invalid.');
-            }
+            if (overrideHost && !/^aws-[0-9]+-[a-z0-9-]+\.pooler\.supabase\.com$/i.test(overrideHost)) fail('url-validation', 'SESSION_POOLER_OVERRIDE_INVALID', 'The optional Session pooler host override is invalid.');
 
             const regions = [
-              'us-east-1',
-              'eu-central-1',
-              'ap-southeast-1',
-              'us-west-1',
-              'us-west-2',
-              'us-east-2',
-              'ca-central-1',
-              'eu-west-1',
-              'eu-west-2',
-              'eu-west-3',
-              'eu-central-2',
-              'eu-north-1',
-              'ap-south-1',
-              'ap-northeast-1',
-              'ap-northeast-2',
-              'ap-southeast-2',
-              'sa-east-1',
+              'us-east-1', 'eu-central-1', 'ap-southeast-1', 'us-west-1', 'us-west-2', 'us-east-2',
+              'ca-central-1', 'eu-west-1', 'eu-west-2', 'eu-west-3', 'eu-central-2', 'eu-north-1',
+              'ap-south-1', 'ap-northeast-1', 'ap-northeast-2', 'ap-southeast-2', 'sa-east-1',
             ];
             const generatedHosts = [];
-            for (const cluster of ['0', '1']) {
-              for (const region of regions) generatedHosts.push(`aws-${cluster}-${region}.pooler.supabase.com`);
-            }
+            for (const cluster of ['0', '1']) for (const region of regions) generatedHosts.push(`aws-${cluster}-${region}.pooler.supabase.com`);
             const candidateHosts = [...new Set([overrideHost, ...generatedHosts].filter(Boolean))];
             const observedCodes = new Set();
 
@@ -212,9 +177,7 @@ jobs:
           }
 
           const readiness = spawnSync('pg_isready', ['--dbname', effectiveUrl, '--timeout=15'], {
-            encoding: 'utf8',
-            env: process.env,
-            stdio: ['ignore', 'pipe', 'pipe'],
+            encoding: 'utf8', env: process.env, stdio: ['ignore', 'pipe', 'pipe'],
           });
           if (readiness.error) fail('network-readiness', 'PG_ISREADY_UNAVAILABLE', 'pg_isready could not be executed.');
           if (readiness.status !== 0) {
@@ -236,7 +199,8 @@ jobs:
           });
           console.log(`[backup-validation] CONNECTION_VALIDATED (${resolution})`);
           NODE
-      - name: Upload safe backup diagnostic
+
+      - name: Upload safe connection diagnostic
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -244,6 +208,7 @@ jobs:
           path: backup-diagnostic.json
           if-no-files-found: error
           retention-days: 7
+
       - name: Create encrypted backup
         env:
           BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
@@ -253,11 +218,94 @@ jobs:
           BACKUP_OUTPUT_DIR: backup-output
         shell: bash
         run: |
-          set -euo pipefail
+          set -uo pipefail
           rm -rf backup-output
           mkdir -p backup-output
           : > backup-result.jsonl
+          : > backup-error.log
+          set +e
           node scripts/backup-supabase.mjs 2> >(tee backup-error.log >&2) | tee backup-result.jsonl
+          backup_status=${PIPESTATUS[0]}
+          set -e
+          printf '%s\n' "$backup_status" > backup-exit-code.txt
+          exit "$backup_status"
+
+      - name: Build safe backup execution diagnostic
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const { existsSync, readFileSync, writeFileSync } = require('node:fs');
+          const text = existsSync('backup-error.log') ? readFileSync('backup-error.log', 'utf8').toLowerCase() : '';
+          const exitCode = existsSync('backup-exit-code.txt') ? Number(readFileSync('backup-exit-code.txt', 'utf8').trim()) : -1;
+          let code = 'BACKUP_EXECUTION_FAILED';
+          let reason = 'The backup process failed before producing a verified encrypted recovery file.';
+          const extra = { processExitCode: Number.isFinite(exitCode) ? exitCode : -1 };
+
+          if (text.includes('server version') && text.includes('pg_dump version')) {
+            code = 'PG_DUMP_VERSION_MISMATCH';
+            reason = 'The installed pg_dump client is older than the PostgreSQL server version.';
+            const server = text.match(/server version:\s*([0-9.]+)/i)?.[1];
+            const client = text.match(/pg_dump version:\s*([0-9.]+)/i)?.[1];
+            if (server) extra.serverVersion = server;
+            if (client) extra.pgDumpVersion = client;
+          } else if (text.includes('pg_dump unavailable') || text.includes('enoent')) {
+            code = 'PG_DUMP_UNAVAILABLE';
+            reason = 'pg_dump is not available on the GitHub runner.';
+          } else if (text.includes('password authentication failed')) {
+            code = 'PG_DUMP_AUTHENTICATION_FAILED';
+            reason = 'pg_dump was rejected during database authentication.';
+          } else if (text.includes('permission denied') || text.includes('must be owner')) {
+            code = 'PG_DUMP_PERMISSION_DENIED';
+            reason = 'The database role lacks permission to dump one or more database objects.';
+          } else if (text.includes('unrecognized configuration parameter') || text.includes('unsupported startup parameter')) {
+            code = 'PG_DUMP_POOLER_PARAMETER_REJECTED';
+            reason = 'The Session pooler rejected a PostgreSQL startup parameter used by pg_dump.';
+          } else if (text.includes('connection timed out') || text.includes('timeout expired')) {
+            code = 'PG_DUMP_CONNECTION_TIMEOUT';
+            reason = 'The pg_dump database connection timed out.';
+          } else if (text.includes('connection refused')) {
+            code = 'PG_DUMP_CONNECTION_REFUSED';
+            reason = 'The pg_dump database connection was refused.';
+          } else if (text.includes('could not translate host name')) {
+            code = 'PG_DUMP_DNS_FAILED';
+            reason = 'The pg_dump database hostname could not be resolved.';
+          } else if (text.includes('out of memory') || text.includes('heap out of memory')) {
+            code = 'BACKUP_MEMORY_LIMIT';
+            reason = 'The backup process exceeded available memory.';
+          } else if (text.includes('250 mb safe in-memory limit')) {
+            code = 'BACKUP_SIZE_LIMIT';
+            reason = 'The compressed backup exceeded the configured encryption size limit.';
+          } else if (text.includes('no space left on device')) {
+            code = 'BACKUP_DISK_FULL';
+            reason = 'The GitHub runner ran out of disk space.';
+          } else if (text.includes('eacces') || text.includes('operation not permitted')) {
+            code = 'BACKUP_FILESYSTEM_PERMISSION';
+            reason = 'The backup process could not create or read a required local file.';
+          }
+
+          writeFileSync('backup-execution-diagnostic.json', `${JSON.stringify({
+            format: 'binhamid-backup-execution-diagnostic-v1',
+            checkedAt: new Date().toISOString(),
+            ok: false,
+            stage: 'backup-execution',
+            code,
+            reason,
+            ...extra,
+          }, null, 2)}\n`, { mode: 0o600 });
+          console.error(`[backup-execution] ${code}: ${reason}`);
+          NODE
+
+      - name: Upload safe backup execution diagnostic
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backup-execution-diagnostic-${{ github.run_id }}
+          path: backup-execution-diagnostic.json
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Verify encrypted recovery files
         shell: bash
         run: |
@@ -289,11 +337,8 @@ jobs:
           if (manifestSize <= 32) fail(`manifest file is too small: ${manifestSize} bytes`);
 
           let manifest;
-          try {
-            manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-          } catch {
-            fail('manifest is not valid JSON');
-          }
+          try { manifest = JSON.parse(readFileSync(manifestPath, 'utf8')); }
+          catch { fail('manifest is not valid JSON'); }
           if (manifest.format !== 'binhamid-backup-v1') fail('manifest format is invalid');
           if (manifest.encrypted !== true) fail('manifest does not mark the backup as encrypted');
           if (manifest.fileName !== encryptedName) fail('manifest fileName does not match the encrypted file');
@@ -306,11 +351,8 @@ jobs:
           if (!resultText) fail('backup-result.jsonl is empty');
           const resultLines = resultText.split(/\r?\n/).filter(Boolean);
           let result;
-          try {
-            result = JSON.parse(resultLines[resultLines.length - 1]);
-          } catch {
-            fail('backup-result.jsonl does not end with valid JSON');
-          }
+          try { result = JSON.parse(resultLines[resultLines.length - 1]); }
+          catch { fail('backup-result.jsonl does not end with valid JSON'); }
           if (result.ok !== true) fail('backup-result.jsonl does not report success');
           if (basename(String(result.file || '')) !== encryptedName) fail('backup result file does not match the encrypted file');
           if (Number(result.sizeBytes) !== encryptedSize) fail('backup result size does not match the encrypted file');
@@ -320,6 +362,7 @@ jobs:
 
           console.log(`[backup-verification] verified ${encryptedName} (${encryptedSize} bytes) with manifest and checksum`);
           NODE
+
       - name: Upload encrypted recovery artifact
         uses: actions/upload-artifact@v4
         with:
