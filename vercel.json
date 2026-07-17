@@ -19,6 +19,7 @@
     {"source":"/api/telegram/register","destination":"/api/router?route=telegram/register"},
     {"source":"/api/telegram/status","destination":"/api/router?route=telegram/status"},
     {"source":"/api/telegram/test","destination":"/api/router?route=telegram/test"},
+    {"source":"/api/telegram/notify","destination":"/api/router?route=telegram/notify"},
     {"source":"/api/telegram/webhook","destination":"/api/telegram/webhook-v3"},
     {"source":"/api/telegram/webhook-v2","destination":"/api/telegram/webhook-v3"}
   ],
