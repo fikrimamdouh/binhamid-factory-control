@@ -31,11 +31,11 @@ const attendanceText=/^(الحضور والمواقع|تسجيل حضور|تسج
 const gpsText=/^(حاله gps|حالة gps|حاله الاسطول|حالة الأسطول|موقع السيارات|السيارات الان|السيارات الآن)$/;
 const roleType=role=>role==='block_sales'?'block':role==='concrete_sales'?'concrete':'';
 
-function sensitiveSession(session){const state=String(session?.state||'');return /^(product_|supplier_|rfq_|sales_|guided_sales_|mechanic_|driver_|attendance_)/.test(state);}
+function sensitiveSession(session){const state=String(session?.state||'');return state==='product_market_query'||/^(supplier_|rfq_|sales_|guided_sales_|mechanic_|driver_|attendance_)/.test(state);}
 function sessionAllowed(identity,session){
   if(!identity?.active)return false;
   const state=String(session?.state||''),role=identity.role||'';
-  if(state.startsWith('product_'))return PROCUREMENT_USE.has(role);
+  if(state==='product_market_query')return PROCUREMENT_USE.has(role);
   if(state.startsWith('supplier_')||state.startsWith('rfq_'))return PROCUREMENT_CREATE.has(role);
   if(state==='sales_update_order')return SALES_UPDATE.has(role);
   if(state.startsWith('sales_')||state.startsWith('guided_sales_')){const own=roleType(role),type=session?.context?.salesType||session?.context?.draft?.sales_type||'';return SALES_CREATE.has(role)&&(!own||!type||own===type);}
@@ -96,7 +96,7 @@ async function interceptMessage(update){
     if(registrationSession&&await continueRegistrationSession(message,identity,session,raw))return true;
     if(await handleRegistrationTextCommand(message,identity,raw))return true;
   }
-  const procurementSession=state.startsWith('product_')||state.startsWith('supplier_')||state.startsWith('rfq_'),salesSession=state.startsWith('sales_')||state.startsWith('guided_sales_'),mechanicSession=state.startsWith('mechanic_'),attendanceSession=state.startsWith('driver_')||state.startsWith('attendance_');
+  const procurementSession=state==='product_market_query'||state.startsWith('supplier_')||state.startsWith('rfq_'),salesSession=state.startsWith('sales_')||state.startsWith('guided_sales_'),mechanicSession=state.startsWith('mechanic_'),attendanceSession=state.startsWith('driver_')||state.startsWith('attendance_');
   const procurementCommand=/^\/(suppliers|products)(?:@\w+)?$/i.test(raw)||procurementText.test(normalized)||productPriceText.test(raw),salesCommand=/^\/sales(?:@\w+)?$/i.test(raw)||salesText.test(normalized),mechanicCommand=/^\/workshop(?:@\w+)?$/i.test(raw)||mechanicText.test(normalized),attendanceCommand=/^\/attendance(?:@\w+)?$/i.test(raw)||attendanceText.test(normalized),gpsCommand=/^\/gps(?:@\w+)?$/i.test(raw)||gpsText.test(normalized);
   if(!procurementSession&&!salesSession&&!mechanicSession&&!attendanceSession&&!procurementCommand&&!salesCommand&&!mechanicCommand&&!attendanceCommand&&!gpsCommand)return false;
   if(!await logIntercepted(update,message,identity))return true;
