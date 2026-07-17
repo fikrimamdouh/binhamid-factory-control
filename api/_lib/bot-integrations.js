@@ -3,7 +3,7 @@ import { sendMessage } from './telegram.js';
 
 const yes=value=>value?'مضبوط':'ناقص';
 const mark=value=>value?'✅':'❌';
-const line=(name,ready,vars,note='')=>`${mark(ready)} <b>${name}</b>: ${yes(ready)}\n<code>${vars.join(' + ')}</code>${note?`\n${note}`:''}`;
+const line=(name,ready,vars,note='')=>`${mark(ready)} <b>${name}</b>: ${yes(ready)}${vars.length?`\n<code>${vars.join(' + ')}</code>`:''}${note?`\n${note}`:''}`;
 
 export function integrationCatalog(){
   const state=readiness();
