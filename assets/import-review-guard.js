@@ -1,6 +1,6 @@
 (function(){
   'use strict';
-  const VERSION='2026.07.17-import-review-guard-v2';
+  const VERSION='2026.07.17-import-review-guard-v3';
   const AUTO_KEY='binhamid_cloud_auto_import';
   const ACTIVE_KEY='binhamid_active_import_id';
   try{localStorage.setItem(AUTO_KEY,'0');}catch{}
@@ -12,13 +12,12 @@
     const guarded=async function(id,type,name){
       const importId=String(id||'').trim();
       if(!importId)throw new Error('رقم عملية الاستيراد غير موجود.');
+      // Keep the source import bound to the review modal until the approval layer
+      // clears it after POSTED/REJECTED. Clearing it when the modal opens loses the
+      // original-file relationship before the user presses Approve.
       window.BinHamidActiveImportId=importId;
       try{sessionStorage.setItem(ACTIVE_KEY,importId);}catch{}
-      try{return await original.apply(this,arguments);}
-      finally{
-        if(window.BinHamidActiveImportId===importId)window.BinHamidActiveImportId='';
-        try{if(sessionStorage.getItem(ACTIVE_KEY)===importId)sessionStorage.removeItem(ACTIVE_KEY);}catch{}
-      }
+      return original.apply(this,arguments);
     };
     guarded.__reviewGuard=true;
     window.bhCloudApplyImport=guarded;
@@ -37,7 +36,7 @@
     if(document.getElementById('binhamid-daily-approval-integrity'))return true;
     const script=document.createElement('script');
     script.id='binhamid-daily-approval-integrity';
-    script.src='/assets/daily-approval-integrity-guard.js?v=20260717-1';
+    script.src='/assets/daily-approval-integrity-guard.js?v=20260717-2';
     script.async=false;
     script.onerror=()=>console.error('[BinHamid] تعذر تحميل طبقة سلامة اعتماد التقرير اليومي.');
     document.body.appendChild(script);
