@@ -64,8 +64,9 @@ test('Telegram menu exposes customer reports and sourced product assistant',asyn
   ]);
   for(const marker of ['ent:customer_menu','handleCustomerReportTextCommand','continueCustomerReportSession'])assert.ok(enterprise.includes(marker),`missing ${marker}`);
   for(const marker of ['proc:product','handleProductTextCommand','product_market_query'])assert.ok(procurement.includes(marker),`missing ${marker}`);
-  assert.ok(gateway.includes("state.startsWith('product_')"));
+  assert.ok(gateway.includes("state==='product_market_query'"));
   assert.ok(gateway.includes('productPriceText'));
+  assert.ok(!gateway.includes("state.startsWith('product_')"));
   assert.ok(help.includes('/customers'));
   assert.ok(help.includes('/products'));
 });
