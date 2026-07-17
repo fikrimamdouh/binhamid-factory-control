@@ -34,12 +34,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24.x'
-          cache: npm
 
       - name: Validate repository and migrations
         run: |
           set -euo pipefail
-          npm ci
+          npm install --ignore-scripts --no-audit --no-fund
           node --check scripts/resolve-supabase-connection.mjs
           node --check scripts/migration-preflight.mjs
           node --check scripts/migration-verify.mjs
