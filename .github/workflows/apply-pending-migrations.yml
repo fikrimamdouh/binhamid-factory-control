@@ -40,6 +40,10 @@ jobs:
         run: |
           set -euo pipefail
           npm ci
+          node --check scripts/resolve-supabase-connection.mjs
+          node --check scripts/migration-preflight.mjs
+          node --check scripts/migration-verify.mjs
+          node --check scripts/verify-backup-files.mjs
           npm run audit:migrations
           npm test
 
@@ -180,6 +184,19 @@ jobs:
             post-migration-backup-result.jsonl
             post-migration-backup-verification.json
           if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload safe migration failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: database-migration-failure-${{ github.run_id }}
+          path: |
+            migration-connection-diagnostic.json
+            pre-migration-backup-verification.json
+            migration-preflight.json
+            migration-result.json
+          if-no-files-found: warn
           retention-days: 14
 
       - name: Publish migration status
