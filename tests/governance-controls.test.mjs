@@ -48,9 +48,15 @@ test('financial, credit and maintenance guards are server-side database controls
   for(const marker of ['flag_daily_report_credit_breach','daily_report_credit_breach_flag','control_asset_duplicates','like \'DR-%\'','CUSTODY_SETTLEMENT_EXCEEDS_OUTSTANDING','HANDOVER_BLOCKERS_OPEN'])assert.ok(safety.includes(marker),`safety migration missing ${marker}`);
 });
 
-test('restore drill decrypts only in isolated PostgreSQL and removes plaintext',async()=>{
+test('backup is limited to the independently restorable public application schema',async()=>{
+  const backup=await read('scripts/backup-supabase.mjs'),verify=await read('scripts/verify-backup-files.mjs');
+  for(const marker of ["'--schema=public'","databaseScope:'public-schema'","schemas:['public']"])assert.ok(backup.includes(marker),`backup missing ${marker}`);
+  for(const marker of ['BACKUP_SCOPE_NOT_RESTORABLE',"manifest.databaseScope!=='public-schema'","result.databaseScope!=='public-schema'"])assert.ok(verify.includes(marker),`backup verifier missing ${marker}`);
+});
+
+test('restore drill runs after verified backup and never restores production',async()=>{
   const workflow=await read('.github/workflows/backup-restore-drill.yml'),script=await read('scripts/restore-drill.mjs');
-  for(const marker of ['postgres:17','encrypted-post-migration-backup','LOCAL_DATABASE_URL','Assert plaintext cleanup','restore-drill-result.json'])assert.ok(workflow.includes(marker),`restore workflow missing ${marker}`);
+  for(const marker of ['postgres:17','Encrypted Database Backup','encrypted-database-backup-${run_id}','databaseScope','LOCAL_DATABASE_URL','Assert plaintext cleanup','restore-drill-result.json'])assert.ok(workflow.includes(marker),`restore workflow missing ${marker}`);
   for(const marker of ['createDecipheriv','aes-256-gcm','BH01','gunzipSync','rmSync(plaintextPath','productionEvidenceRecorded'])assert.ok(script.includes(marker),`restore script missing ${marker}`);
   assert.match(script,/command\('psql',\[localDb,'-X','-v','ON_ERROR_STOP=1','-f',plaintextPath\]/);
   assert.doesNotMatch(script,/command\('psql',\[productionDb,[^\]]*'-f'/);
