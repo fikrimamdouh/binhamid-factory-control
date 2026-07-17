@@ -1,0 +1,36 @@
+name: Diagnose Cumulative PDF
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+      - name: Install dependencies
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Enterprise checker
+        run: node scripts/check-enterprise.mjs
+      - name: Operational roadmap checker
+        run: node scripts/check-operational-roadmap.mjs
+      - name: Migration audit
+        run: npm run audit:migrations
+      - name: Legacy audit
+        run: npm run audit:legacy
+      - name: New cumulative PDF tests
+        run: node --test tests/daily-cumulative-pdf-integrations.test.mjs
+      - name: Existing tests
+        run: node --test $(find tests -maxdepth 1 -name '*.test.mjs' ! -name 'daily-cumulative-pdf-integrations.test.mjs' -print | sort)
+      - name: API contract audit
+        run: npm run check:api
+      - name: Function count audit
+        run: npm run check:functions
