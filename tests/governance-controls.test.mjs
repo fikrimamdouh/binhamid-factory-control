@@ -24,7 +24,7 @@ test('governance duties remain separated by role',()=>{
 test('governance API maps sensitive actions to explicit capabilities',async()=>{
   const route=await read('api/_lib/routes/governance.js');
   const expected={financial_period_close:'financial_period.manage',credit_override_request:'credit_override.request',credit_override_decide:'credit_override.approve',asset_upsert:'assets.manage',compliance_upsert:'compliance.manage',custody_request:'custody.manage',custody_decide:'custody.approve',restore_test_record:'restore_test.manage',handover_start:'handover.manage',handover_signoff:'handover.manage'};
-  for(const [action,capability] of Object.entries(expected)){assert.match(route,new RegExp(`${action}[^\n]+${capability.replace('.','\\.')}`));}
+  for(const [action,capability] of Object.entries(expected)){assert.ok(route.includes(`${action}:'${capability}'`),`${action} must require ${capability}`);}
   assert.match(route,/requireCapability\(req,'governance\.view'\)/);
 });
 
@@ -34,13 +34,22 @@ test('governance page is read-only on automatic device sessions and exports evid
   assert.match(entry,/control-center\.html/);assert.match(entry,/governance\.html/);assert.match(index,/governance-entry\.js/);
 });
 
-test('migration workflow applies through schema 17 with encrypted backups',async()=>{
-  const workflow=await read('.github/workflows/apply-pending-migrations.yml'),preflight=await read('scripts/migration-preflight.mjs'),verify=await read('scripts/migration-verify.mjs');
-  for(const marker of ['016_enterprise_governance_and_handover.sql','017_governance_control_rpcs.sql','EXPECTED_SCHEMA_VERSION=17','seq $((current_version + 1)) 17','encrypted-pre-migration-backup','encrypted-post-migration-backup'])assert.match(workflow,new RegExp(marker.replace(/[()$+]/g,'\\$&')));
-  assert.match(preflight,/targetVersion:17/);assert.match(verify,/toVersion:17/);assert.match(verify,/PROTECTED_ROW_COUNT_CHANGED/);
+test('migration workflow applies through schema 18 with encrypted backups',async()=>{
+  const workflow=await read('.github/workflows/apply-pending-migrations.yml'),preflight=await read('scripts/governance-migration-preflight.mjs'),verify=await read('scripts/governance-migration-verify.mjs');
+  for(const marker of ['016_enterprise_governance_and_handover.sql','017_governance_control_rpcs.sql','018_governance_safety_refinements.sql','EXPECTED_SCHEMA_VERSION=18','encrypted-pre-migration-backup','encrypted-post-migration-backup','--single-transaction'])assert.ok(workflow.includes(marker),`workflow missing ${marker}`);
+  assert.match(workflow,/current_version \+ 1\)\) 18/);
+  assert.match(preflight,/targetVersion:18/);assert.match(verify,/toVersion:18/);assert.match(verify,/PROTECTED_ROW_COUNT_CHANGED/);
 });
 
-test('financial and maintenance guards are server-side database controls',async()=>{
-  const controls=await read('supabase/migrations/017_governance_control_rpcs.sql');
+test('financial, credit and maintenance guards are server-side database controls',async()=>{
+  const controls=await read('supabase/migrations/017_governance_control_rpcs.sql'),safety=await read('supabase/migrations/018_governance_safety_refinements.sql');
   for(const marker of ['sales_orders_credit_limit_guard','CREDIT_LIMIT_EXCEEDED','CREDIT_OVERRIDE_INVALID','maintenance_closure_control_trigger','MAINTENANCE_DIAGNOSIS_REQUIRED','MAINTENANCE_ATTACHMENT_REQUIRED','FINANCIAL_PERIOD_CLOSED'])assert.match(controls,new RegExp(marker));
+  for(const marker of ['flag_daily_report_credit_breach','daily_report_credit_breach_flag','control_asset_duplicates','like \'DR-%\''])assert.ok(safety.includes(marker),`safety migration missing ${marker}`);
+});
+
+test('restore drill decrypts only in isolated PostgreSQL and removes plaintext',async()=>{
+  const workflow=await read('.github/workflows/backup-restore-drill.yml'),script=await read('scripts/restore-drill.mjs');
+  for(const marker of ['postgres:17','encrypted-post-migration-backup','LOCAL_DATABASE_URL','Assert plaintext cleanup','restore-drill-result.json'])assert.ok(workflow.includes(marker),`restore workflow missing ${marker}`);
+  for(const marker of ['createDecipheriv','aes-256-gcm','BH01','gunzipSync','rmSync(plaintextPath','productionEvidenceRecorded'])assert.ok(script.includes(marker),`restore script missing ${marker}`);
+  assert.doesNotMatch(workflow,/restore[^\n]+production/i);
 });
