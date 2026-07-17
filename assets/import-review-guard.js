@@ -1,6 +1,6 @@
 (function(){
   'use strict';
-  const VERSION='2026.07.17-import-review-guard-v1';
+  const VERSION='2026.07.17-import-review-guard-v2';
   const AUTO_KEY='binhamid_cloud_auto_import';
   const ACTIVE_KEY='binhamid_active_import_id';
   try{localStorage.setItem(AUTO_KEY,'0');}catch{}
@@ -32,6 +32,19 @@
     return true;
   }
 
+  function loadDailyIntegrity(){
+    if(!window.BinHamidDailyReportSourceOfTruth?.installed)return false;
+    if(document.getElementById('binhamid-daily-approval-integrity'))return true;
+    const script=document.createElement('script');
+    script.id='binhamid-daily-approval-integrity';
+    script.src='/assets/daily-approval-integrity-guard.js?v=20260717-1';
+    script.async=false;
+    script.onerror=()=>console.error('[BinHamid] تعذر تحميل طبقة سلامة اعتماد التقرير اليومي.');
+    document.body.appendChild(script);
+    return true;
+  }
+
   const timer=setInterval(()=>{if(install())clearInterval(timer);},200);
-  setTimeout(()=>clearInterval(timer),20000);
+  const integrityTimer=setInterval(()=>{if(loadDailyIntegrity())clearInterval(integrityTimer);},250);
+  setTimeout(()=>{clearInterval(timer);clearInterval(integrityTimer);},25000);
 })();
