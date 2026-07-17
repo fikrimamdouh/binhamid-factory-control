@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { body, errorResponse, json, method } from '../http.js';
 import { config } from '../config.js';
 import { requireCapability } from '../permissions.js';
-import { insert, patch, rpc, select, uploadObject } from '../supabase.js';
+import { downloadObject, insert, patch, rpc, select, uploadObject } from '../supabase.js';
 import { buildDailyReportCustomerContext } from '../daily-report-customers.js';
 
 const clean=(value,max=1000)=>String(value??'').trim().slice(0,max);
@@ -24,6 +24,7 @@ function optionalBase64(value){
   if(!/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)||encoded.length%4===1)throw Object.assign(new Error('ترميز ملف التقرير غير صحيح'),{status:400});
   return encoded;
 }
+function one(value){return Array.isArray(value)?value[0]:value;}
 
 function normalizePayload(raw={}){
   const sales=ensureArray(raw.sales||[],'سطور المبيعات',10000).map((row,index)=>({sourceRowNo:Number.isInteger(Number(row.sourceRowNo))?Number(row.sourceRowNo):index+1,invoiceNo:clean(row.invoiceNo??row.invoice,120),salesType:clean(row.salesType,20),customerCode:clean(row.customerCode,120),customerName:clean(row.customerName??row.customer,500),item:clean(row.item,500),quantity:qty(row.quantity),unit:clean(row.unit,50)||null,amount:money(row.amount),paymentTerms:clean(row.paymentTerms,100)||null,issues:Array.isArray(row.issues)?row.issues.slice(0,20):[]}));
@@ -78,24 +79,56 @@ async function validatePayload(reportDate,payload){
   return{errors,warnings,preview,pendingCustomers:customerContext.pendingCustomers.map(customer=>({customerCode:customer.customer_code,customerName:customer.customer_name}))};
 }
 
-async function storeOriginal(input,reportDate,fileHash){
-  const encoded=optionalBase64(input.fileBase64);if(!encoded)return null;
+async function storeUploadedOriginal(input,reportDate,fileHash){
+  const encoded=optionalBase64(input.fileBase64);if(!encoded)throw Object.assign(new Error('النسخة الأصلية من ملف Excel مطلوبة قبل الاعتماد.'),{status:422,code:'ORIGINAL_FILE_REQUIRED'});
   const buffer=Buffer.from(encoded,'base64');if(!buffer.length||buffer.length>config.maxImportFileBytes)throw Object.assign(new Error('حجم ملف التقرير يتجاوز الحد المسموح'),{status:413});
   if(buffer[0]!==0x50||buffer[1]!==0x4b)throw Object.assign(new Error('ملف التقرير ليس XLSX صالحًا'),{status:415});
-  const name=clean(input.originalName,240).replace(/[^\p{L}\p{N}_. -]/gu,'-')||'daily-report.xlsx',path=`daily-reports/${reportDate}/${fileHash}-${name}`;await uploadObject(path,buffer,'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');return path;
+  const name=clean(input.originalName,240).replace(/[^\p{L}\p{N}_. -]/gu,'-')||'daily-report.xlsx',path=`daily-reports/${reportDate}/${fileHash}-${name}`;await uploadObject(path,buffer,'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');return{path,importRow:null};
 }
-async function registerAttempt(values){try{const result=await rpc('register_daily_report_attempt',values);return Array.isArray(result)?result[0]:result;}catch{return null;}}
+
+async function resolveStoredOriginal(input,reportDate,fileHash){
+  const importId=clean(input.importId,100);
+  if(!importId)return storeUploadedOriginal(input,reportDate,fileHash);
+  const row=(await select('imports',`id=eq.${encodeURIComponent(importId)}&select=id,file_hash,file_path,original_name,status,source_chat_id,report_type&limit=1`))?.[0];
+  if(!row?.file_path)throw Object.assign(new Error('النسخة الأصلية المرتبطة بعملية الاستيراد غير موجودة.'),{status:422,code:'ORIGINAL_FILE_REQUIRED'});
+  if(row.file_hash&&fileHash&&String(row.file_hash)!==String(fileHash))throw Object.assign(new Error('بصمة الملف لا تطابق عملية الاستيراد.'),{status:409,code:'IMPORT_FILE_HASH_MISMATCH'});
+  await downloadObject(row.file_path);
+  return{path:row.file_path,importRow:row};
+}
+
+async function registerAttempt(values){try{const result=await rpc('register_daily_report_attempt',values);return one(result);}catch{return null;}}
+async function transitionImport(importId,status,actor,note='',postedBatchId=null,result={}){if(!importId)return null;return one(await rpc('transition_import_status',{p_import_id:importId,p_next_status:status,p_actor:actor,p_note:note||null,p_posted_batch_id:postedBatchId,p_result:result}));}
+async function accountingEvidence(batchId){
+  const entries=await select('journal_entries',`source_batch_id=eq.${encodeURIComponent(batchId)}&select=id,reference_no,status,journal_entry_lines(debit,credit)&order=reference_no.asc&limit=20000`),summary=(entries||[]).reduce((out,entry)=>{out.entryCount++;for(const line of entry.journal_entry_lines||[]){out.totalDebit+=Number(line.debit||0);out.totalCredit+=Number(line.credit||0);}if(entry.status!=='posted')out.unposted++;return out;},{entryCount:0,totalDebit:0,totalCredit:0,unposted:0});
+  summary.totalDebit=money(summary.totalDebit);summary.totalCredit=money(summary.totalCredit);summary.balanced=summary.unposted===0&&summary.entryCount>0&&summary.totalDebit===summary.totalCredit;return summary;
+}
 
 async function previewOrCommit(req,res,input){
-  const action=clean(input.action,30)||'preview',identity=await requireCapability(req,action==='commit'?'daily_report.approve':'daily_report.import'),actor=identity.appUserId||identity.actor,reportDate=date(input.reportDate),originalName=clean(input.originalName,240)||'daily-report.xlsx',payload=normalizePayload(input.payload||{}),contentHash=clean(input.contentHash,64)||sha(stable(payload)),providedFile=optionalBase64(input.fileBase64),fileHash=clean(input.fileHash,64)||(providedFile?sha(Buffer.from(providedFile,'base64')):contentHash),idempotencyKey=clean(input.idempotencyKey,200)||sha(`${reportDate}|${contentHash}`);
+  const action=clean(input.action,30)||'preview',identity=await requireCapability(req,action==='commit'?'daily_report.approve':'daily_report.import'),actor=identity.appUserId||identity.actor,reportDate=date(input.reportDate),originalName=clean(input.originalName,240)||'daily-report.xlsx',payload=normalizePayload(input.payload||{}),contentHash=clean(input.contentHash,64)||sha(stable(payload)),fileHash=clean(input.fileHash,64)||contentHash,idempotencyKey=clean(input.idempotencyKey,200)||`daily:${reportDate}:${fileHash}`,importId=clean(input.importId,100);
   const existing=(await select('daily_report_batches',`report_date=eq.${reportDate}&select=id,report_date,file_hash,content_hash,status,summary,committed_at&limit=1`))?.[0]||null;
-  if(existing){const duplicate=existing.content_hash===contentHash||existing.file_hash===fileHash;await registerAttempt({p_report_date:reportDate,p_original_name:originalName,p_file_hash:fileHash,p_content_hash:contentHash,p_idempotency_key:idempotencyKey,p_status:duplicate?'duplicate':'rejected',p_existing_batch_id:existing.id,p_summary:existing.summary||{},p_errors:duplicate?[]:[{code:'DATE_ALREADY_COMMITTED'}],p_warnings:[],p_actor:actor});return json(res,duplicate?200:409,{ok:duplicate,duplicate,reason:duplicate?'نفس التقرير معتمد سابقًا':'يوجد تقرير مختلف معتمد لنفس التاريخ',existingImportId:existing.id,status:existing.status,committedAt:existing.committed_at});}
+  if(existing){const duplicate=existing.content_hash===contentHash||existing.file_hash===fileHash;await registerAttempt({p_report_date:reportDate,p_original_name:originalName,p_file_hash:fileHash,p_content_hash:contentHash,p_idempotency_key:idempotencyKey,p_status:duplicate?'duplicate':'rejected',p_existing_batch_id:existing.id,p_summary:existing.summary||{},p_errors:duplicate?[]:[{code:'DATE_ALREADY_COMMITTED'}],p_warnings:[],p_actor:actor});if(importId&&duplicate)await transitionImport(importId,'posted',actor,'نفس التقرير مرحّل سابقًا',existing.id,{duplicate:true}).catch(()=>{});return json(res,duplicate?200:409,{ok:duplicate,duplicate,reason:duplicate?'نفس التقرير معتمد سابقًا':'يوجد تقرير مختلف معتمد لنفس التاريخ',existingImportId:existing.id,status:existing.status,committedAt:existing.committed_at,accounting:duplicate?await accountingEvidence(existing.id):null});}
+  if(importId)await transitionImport(importId,'validating',actor,'بدء التحقق من التقرير').catch(error=>{if(!/TRANSITION_INVALID/i.test(String(error?.message||'')))throw error;});
   const validation=await validatePayload(reportDate,payload),attemptStatus=validation.errors.length?'rejected':'previewed';
-  if(action==='preview'||validation.errors.length){await registerAttempt({p_report_date:reportDate,p_original_name:originalName,p_file_hash:fileHash,p_content_hash:contentHash,p_idempotency_key:idempotencyKey,p_status:attemptStatus,p_existing_batch_id:null,p_summary:validation.preview,p_errors:validation.errors,p_warnings:validation.warnings,p_actor:actor});if(validation.errors.length)await insert('audit_log',[{actor_type:'web',actor_id:actor,action:'daily_report_rejected',entity_type:'daily_report',entity_id:idempotencyKey,details:{report_date:reportDate,file_hash:fileHash,error_count:validation.errors.length,warning_count:validation.warnings.length,errors:validation.errors.slice(0,50)}}],{prefer:'return=minimal'}).catch(()=>{});return json(res,validation.errors.length?422:200,{ok:validation.errors.length===0,duplicate:false,valid:validation.errors.length===0,contentHash,fileHash,idempotencyKey,...validation});}
-  const storagePath=await storeOriginal(input,reportDate,fileHash),resultRaw=await rpc('commit_daily_report',{p_report_date:reportDate,p_original_name:originalName,p_file_hash:fileHash,p_content_hash:contentHash,p_payload:{...payload,summary:{...payload.summary,...validation.preview}},p_actor:actor}),result=Array.isArray(resultRaw)?resultRaw[0]:resultRaw;
-  if(result?.id)await patch('daily_report_batches',`id=eq.${encodeURIComponent(result.id)}`,{file_storage_path:storagePath,uploaded_by:actor,approved_by:actor,approved_at:new Date().toISOString(),preview_summary:validation.preview,validation_errors:[],validation_warnings:validation.warnings});
-  await registerAttempt({p_report_date:reportDate,p_original_name:originalName,p_file_hash:fileHash,p_content_hash:contentHash,p_idempotency_key:idempotencyKey,p_status:result?.duplicate?'duplicate':'approved',p_existing_batch_id:result?.id||null,p_summary:validation.preview,p_errors:[],p_warnings:validation.warnings,p_actor:actor});
-  return json(res,200,{ok:true,duplicate:Boolean(result?.duplicate),existingImportId:result?.duplicate?result.id:null,importId:result?.id,status:result?.status||'approved',storagePath,...validation,result});
+  if(action==='preview'||validation.errors.length){
+    await registerAttempt({p_report_date:reportDate,p_original_name:originalName,p_file_hash:fileHash,p_content_hash:contentHash,p_idempotency_key:idempotencyKey,p_status:attemptStatus,p_existing_batch_id:null,p_summary:validation.preview,p_errors:validation.errors,p_warnings:validation.warnings,p_actor:actor});
+    if(importId)await transitionImport(importId,validation.errors.length?'validation_failed':'ready_for_review',actor,validation.errors.length?'فشل تحقق الملف':'اكتمل التحقق والملف جاهز للمراجعة',null,{preview:validation.preview,errors:validation.errors.slice(0,100),warnings:validation.warnings.slice(0,100)}).catch(()=>{});
+    if(validation.errors.length)await insert('audit_log',[{actor_type:'web',actor_id:actor,action:'daily_report_rejected',entity_type:'daily_report',entity_id:idempotencyKey,details:{report_date:reportDate,file_hash:fileHash,error_count:validation.errors.length,warning_count:validation.warnings.length,errors:validation.errors.slice(0,50)}}],{prefer:'return=minimal'}).catch(()=>{});
+    return json(res,validation.errors.length?422:200,{ok:validation.errors.length===0,duplicate:false,valid:validation.errors.length===0,contentHash,fileHash,idempotencyKey,importId:importId||null,...validation});
+  }
+  const original=await resolveStoredOriginal(input,reportDate,fileHash);
+  if(importId)await transitionImport(importId,'processing',actor,'بدأ الترحيل المحاسبي').catch(error=>{if(!/TRANSITION_INVALID/i.test(String(error?.message||'')))throw error;});
+  try{
+    const resultRaw=await rpc('commit_daily_report',{p_report_date:reportDate,p_original_name:originalName,p_file_hash:fileHash,p_content_hash:contentHash,p_payload:{...payload,summary:{...payload.summary,...validation.preview}},p_actor:actor}),result=one(resultRaw);
+    if(result?.id)await patch('daily_report_batches',`id=eq.${encodeURIComponent(result.id)}`,{file_storage_path:original.path,uploaded_by:actor,approved_by:actor,approved_at:new Date().toISOString(),preview_summary:validation.preview,validation_errors:[],validation_warnings:validation.warnings});
+    const accounting=result?.id?await accountingEvidence(result.id):{entryCount:0,totalDebit:0,totalCredit:0,balanced:false};
+    if(!accounting.balanced)throw Object.assign(new Error('تم رفض الاعتماد لأن القيود المحاسبية غير متوازنة.'),{status:500,code:'ACCOUNTING_POSTING_INVALID'});
+    await registerAttempt({p_report_date:reportDate,p_original_name:originalName,p_file_hash:fileHash,p_content_hash:contentHash,p_idempotency_key:idempotencyKey,p_status:result?.duplicate?'duplicate':'approved',p_existing_batch_id:result?.id||null,p_summary:{...validation.preview,accounting},p_errors:[],p_warnings:validation.warnings,p_actor:actor});
+    if(importId)await transitionImport(importId,'posted',actor,'تم الترحيل وإنشاء القيود المتوازنة',result?.id||null,{preview:validation.preview,accounting,storagePath:original.path});
+    return json(res,200,{ok:true,duplicate:Boolean(result?.duplicate),existingImportId:result?.duplicate?result.id:null,importId:result?.id,status:result?.status||'approved',storagePath:original.path,sourceImportId:importId||null,postedBatchId:result?.id||null,accounting,...validation,result});
+  }catch(error){
+    if(importId)await transitionImport(importId,'failed',actor,'فشل الترحيل ولم يُسجل اعتماد جزئي',null,{errorCode:String(error?.code||'POSTING_FAILED'),errorMessage:String(error?.message||'').slice(0,1000)}).catch(()=>{});
+    throw error;
+  }
 }
 
 export async function dailyReport(req,res){
