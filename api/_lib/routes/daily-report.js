@@ -3,6 +3,7 @@ import { body, errorResponse, json, method } from '../http.js';
 import { config } from '../config.js';
 import { requireCapability } from '../permissions.js';
 import { insert, patch, rpc, select, uploadObject } from '../supabase.js';
+import { buildDailyReportCustomerContext } from '../daily-report-customers.js';
 
 const clean=(value,max=1000)=>String(value??'').trim().slice(0,max);
 const num=value=>{const parsed=Number(value);return Number.isFinite(parsed)?parsed:null;};
@@ -40,16 +41,14 @@ async function databaseDuplicates(payload){
 }
 
 async function validatePayload(reportDate,payload){
-  const errors=[],warnings=[],customers=await select('customers','active=eq.true&select=external_id,customer_code,customer_name,credit_limit,payment_days&limit=10000').catch(()=>[]),customerMap=new Map();
-  for(const customer of customers)for(const key of [customer.external_id,customer.customer_code].filter(Boolean))customerMap.set(String(key),customer);
+  const customers=await select('customers','select=id,external_id,customer_code,customer_name,credit_limit,payment_days,active&limit=10000').catch(()=>[]),customerContext=buildDailyReportCustomerContext(payload,customers),errors=[...customerContext.errors],warnings=[...customerContext.warnings],customerMap=customerContext.customerMap;
   const localSales=new Set(),localCash=new Set();
   payload.sales.forEach((row,index)=>{
     const prefix=`sales[${index}]`;
     if(!row.invoiceNo)errors.push({code:'INVOICE_REQUIRED',path:prefix,message:'رقم الفاتورة مطلوب'});
     if(!['block','concrete'].includes(row.salesType))errors.push({code:'SALES_TYPE_INVALID',path:prefix,message:'نوع البيع يجب أن يكون block أو concrete'});
     if(!row.customerCode)errors.push({code:'CUSTOMER_CODE_REQUIRED',path:prefix,message:'كود العميل مطلوب'});
-    const customer=customerMap.get(row.customerCode);if(row.customerCode&&!customer)errors.push({code:'UNKNOWN_CUSTOMER',path:prefix,message:`كود العميل غير موجود: ${row.customerCode}`});
-    if(customer&&row.customerName&&clean(customer.customer_name,500)!==row.customerName)warnings.push({code:'CUSTOMER_NAME_MISMATCH',path:prefix,message:`اسم العميل لا يطابق الكود ${row.customerCode}`,expected:customer.customer_name,actual:row.customerName});
+    if(row.customerCode&&!customerMap.has(row.customerCode)&&!errors.some(error=>error.path===`customer:${row.customerCode}`))errors.push({code:'UNKNOWN_CUSTOMER',path:prefix,message:`تعذر تجهيز كود العميل: ${row.customerCode}`});
     if(!row.customerName||!row.item)errors.push({code:'SALE_TEXT_REQUIRED',path:prefix,message:'اسم العميل والصنف مطلوبان'});
     if(!(row.quantity>0))errors.push({code:'QUANTITY_INVALID',path:prefix,message:'الكمية يجب أن تكون أكبر من صفر'});
     if(!(row.amount>0))errors.push({code:'AMOUNT_INVALID',path:prefix,message:'المبلغ يجب أن يكون أكبر من صفر'});
@@ -64,9 +63,9 @@ async function validatePayload(reportDate,payload){
     if(row.isCustomerCollection){
       if(!['101','104'].includes(row.treasuryCode))errors.push({code:'COLLECTION_TREASURY_INVALID',path:prefix,message:'تحصيل العميل يجب أن يكون في الخزينة 101 أو 104'});
       if(!row.accountCode)errors.push({code:'COLLECTION_CUSTOMER_REQUIRED',path:prefix,message:'كود عميل التحصيل مطلوب'});
-      if(row.accountCode&&!customerMap.has(row.accountCode))errors.push({code:'UNKNOWN_COLLECTION_CUSTOMER',path:prefix,message:`عميل التحصيل غير موجود: ${row.accountCode}`});
+      if(row.accountCode&&!customerMap.has(row.accountCode)&&!errors.some(error=>error.path===`customer:${row.accountCode}`))errors.push({code:'UNKNOWN_COLLECTION_CUSTOMER',path:prefix,message:`تعذر تجهيز عميل التحصيل: ${row.accountCode}`});
       if(!(row.debit>0)||row.credit>0)errors.push({code:'COLLECTION_VALUE_INVALID',path:prefix,message:'تحصيل العميل يجب أن يكون مدينًا بقيمة موجبة'});
-      collectionsByCustomer.set(row.accountCode,(collectionsByCustomer.get(row.accountCode)||0)+row.debit);
+      if(row.accountCode)collectionsByCustomer.set(row.accountCode,(collectionsByCustomer.get(row.accountCode)||0)+row.debit);
     }
     const identity=cashIdentity(row);if(localCash.has(identity))errors.push({code:'DUPLICATE_CASH_IN_FILE',path:prefix,message:'حركة خزينة مكررة داخل الملف'});localCash.add(identity);
   });
@@ -75,8 +74,8 @@ async function validatePayload(reportDate,payload){
   const database=await databaseDuplicates(payload);for(const row of database.sales)errors.push({code:'DUPLICATE_INVOICE',path:`invoice:${row.invoice_no}`,message:`الفاتورة ${row.invoice_no} مرحّلة سابقًا`,existingBatchId:row.batch_id});for(const row of database.cash)errors.push({code:'DUPLICATE_CASH_MOVEMENT',path:`voucher:${row.voucher_no||row.id}`,message:'حركة الخزينة مرحّلة سابقًا',existingBatchId:row.batch_id});
   const salesTotal=money(payload.sales.reduce((sum,row)=>sum+row.amount,0)),collectionTotal=money(payload.cashMovements.filter(row=>row.isCustomerCollection).reduce((sum,row)=>sum+row.debit,0)),declared=num(payload.summary.totalDebt??payload.summary.totalSales),reconciliationDifference=declared===null?0:money(declared-salesTotal),treasury101=money(payload.cashMovements.filter(row=>row.isCustomerCollection&&row.treasuryCode==='101').reduce((sum,row)=>sum+row.debit,0)),treasury104=money(payload.cashMovements.filter(row=>row.isCustomerCollection&&row.treasuryCode==='104').reduce((sum,row)=>sum+row.debit,0));
   if(declared!==null&&Math.abs(reconciliationDifference)>0.01)errors.push({code:'RECONCILIATION_DIFFERENCE',path:'summary',message:`إجمالي الملف لا يساوي السطور. الفرق ${reconciliationDifference}`});
-  const preview={reportDate,invoiceCount:payload.sales.length,salesTotal,blockSales:money(payload.sales.filter(row=>row.salesType==='block').reduce((sum,row)=>sum+row.amount,0)),concreteSales:money(payload.sales.filter(row=>row.salesType==='concrete').reduce((sum,row)=>sum+row.amount,0)),blockQuantity:qty(payload.sales.filter(row=>row.salesType==='block').reduce((sum,row)=>sum+row.quantity,0)),concreteQuantity:qty(payload.sales.filter(row=>row.salesType==='concrete').reduce((sum,row)=>sum+row.quantity,0)),collectionCount:payload.cashMovements.filter(row=>row.isCustomerCollection).length,collectionTotal,treasury101,treasury104,inventoryRows:payload.inventory.length,reconciliationDifference,errorCount:errors.length,warningCount:warnings.length};
-  return{errors,warnings,preview};
+  const preview={reportDate,invoiceCount:payload.sales.length,salesTotal,blockSales:money(payload.sales.filter(row=>row.salesType==='block').reduce((sum,row)=>sum+row.amount,0)),concreteSales:money(payload.sales.filter(row=>row.salesType==='concrete').reduce((sum,row)=>sum+row.amount,0)),blockQuantity:qty(payload.sales.filter(row=>row.salesType==='block').reduce((sum,row)=>sum+row.quantity,0)),concreteQuantity:qty(payload.sales.filter(row=>row.salesType==='concrete').reduce((sum,row)=>sum+row.quantity,0)),collectionCount:payload.cashMovements.filter(row=>row.isCustomerCollection).length,collectionTotal,treasury101,treasury104,inventoryRows:payload.inventory.length,pendingCustomerCount:customerContext.pendingCustomers.length,reconciliationDifference,errorCount:errors.length,warningCount:warnings.length};
+  return{errors,warnings,preview,pendingCustomers:customerContext.pendingCustomers.map(customer=>({customerCode:customer.customer_code,customerName:customer.customer_name}))};
 }
 
 async function storeOriginal(input,reportDate,fileHash){
