@@ -52,7 +52,7 @@ export async function researchProductMarket(query,{city='نجران',country='ا
   const response=await fetch('https://api.openai.com/v1/responses',{
     method:'POST',
     headers:{Authorization:`Bearer ${config.openaiKey}`,'Content-Type':'application/json'},
-    body:JSON.stringify({model,instructions,input,tools:[{type:'web_search'}],tool_choice:'required',max_output_tokens:1300}),
+    body:JSON.stringify({model,instructions,input,tools:[{type:'web_search'}],tool_choice:'required',include:['web_search_call.action.sources'],max_output_tokens:1300}),
     signal:AbortSignal.timeout(30000)
   });
   const data=await response.json().catch(()=>({}));
