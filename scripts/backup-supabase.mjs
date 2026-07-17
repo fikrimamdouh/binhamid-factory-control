@@ -1,5 +1,5 @@
 import { createHash, createCipheriv, randomBytes } from 'node:crypto';
-import { createReadStream, createWriteStream, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync, appendFileSync, readdirSync } from 'node:fs';
+import { createReadStream, createWriteStream, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync, readdirSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { createGzip } from 'node:zlib';
@@ -21,6 +21,11 @@ function command(name,args,options={}){
 function schemaVersion(databaseUrl){
   try{return Number(command('psql',[databaseUrl,'-X','-t','-A','-v','ON_ERROR_STOP=1','-c','select coalesce(max(version),0) from public.migration_history;']))||0;}
   catch{return 0;}
+}
+
+function pgDumpVersion(){
+  const output=command('pg_dump',['--version']);
+  return output.match(/([0-9]+(?:\.[0-9]+)+)/)?.[1]||'unknown';
 }
 
 async function gzipFile(source,target){await pipeline(createReadStream(source),createGzip({level:9}),createWriteStream(target,{mode:0o600}));}
@@ -51,16 +56,16 @@ function applyRetention(directory,days){
 
 async function main(){
   const databaseUrl=required('SUPABASE_DB_URL'),environment=safe(process.env.BACKUP_ENVIRONMENT||process.env.VERCEL_ENV||process.env.NODE_ENV||'production'),directory=resolve(process.env.BACKUP_OUTPUT_DIR||'backups');mkdirSync(directory,{recursive:true,mode:0o700});
-  const stamp=timestamp(),baseName=`binhamid-${environment}-${stamp}`,sql=join(directory,`${baseName}.sql`),compressed=join(directory,`${baseName}.sql.gz`),encryptionKey=String(process.env.BACKUP_ENCRYPTION_KEY||''),finalFile=encryptionKey?join(directory,`${baseName}.sql.gz.enc`):compressed;
+  const stamp=timestamp(),baseName=`binhamid-${environment}-${stamp}`,sql=join(directory,`${baseName}.sql`),compressed=join(directory,`${baseName}.sql.gz`),encryptionKey=String(process.env.BACKUP_ENCRYPTION_KEY||''),finalFile=encryptionKey?join(directory,`${baseName}.sql.gz.enc`):compressed,clientVersion=pgDumpVersion();
   const fd=openSync(sql,'w',0o600),dump=spawnSync('pg_dump',[databaseUrl,'--format=plain','--no-owner','--no-privileges','--clean','--if-exists'],{stdio:['ignore',fd,'pipe'],env:process.env,encoding:'utf8'});
   if(dump.error)throw new Error(`pg_dump unavailable: ${dump.error.message}`);if(dump.status!==0)throw new Error(`pg_dump failed: ${String(dump.stderr||'').trim().slice(0,1200)}`);
   await gzipFile(sql,compressed);rmSync(sql,{force:true});if(encryptionKey){await encryptFile(compressed,finalFile,encryptionKey);rmSync(compressed,{force:true});}
-  const version=schemaVersion(databaseUrl),checksum=sha256(finalFile),storagePrefix=safe(process.env.BACKUP_STORAGE_PREFIX||'backups'),storagePath=`${storagePrefix}/${environment}/${basename(finalFile)}`,manifest={format:'binhamid-backup-v1',environment,createdAt:new Date().toISOString(),schemaVersion:version,fileName:basename(finalFile),checksumSha256:checksum,encrypted:Boolean(encryptionKey),compression:'gzip',databaseFormat:'plain-sql',restoreRequires:'psql'};
+  const version=schemaVersion(databaseUrl),checksum=sha256(finalFile),storagePrefix=safe(process.env.BACKUP_STORAGE_PREFIX||'backups'),storagePath=`${storagePrefix}/${environment}/${basename(finalFile)}`,manifest={format:'binhamid-backup-v1',environment,createdAt:new Date().toISOString(),schemaVersion:version,fileName:basename(finalFile),checksumSha256:checksum,encrypted:Boolean(encryptionKey),compression:'gzip',databaseFormat:'plain-sql',restoreRequires:'psql',pgDumpVersion:clientVersion};
   const manifestPath=`${finalFile}.manifest.json`;writeFileSync(manifestPath,JSON.stringify(manifest,null,2),{mode:0o600});
   let uploaded=false;if(process.env.SUPABASE_URL&&process.env.SUPABASE_SERVICE_ROLE_KEY){await uploadToStorage(finalFile,storagePath,'application/octet-stream');await uploadToStorage(manifestPath,`${storagePath}.manifest.json`,'application/json');uploaded=true;}
   await recordRun({environment,backup_name:basename(finalFile),schema_version:version,status:'completed',storage_path:uploaded?storagePath:null,manifest,checksum_sha256:checksum,encrypted:Boolean(encryptionKey),size_bytes:statSync(finalFile).size,completed_at:new Date().toISOString()});
   const removed=applyRetention(directory,Math.max(1,Number(process.env.BACKUP_RETENTION_DAYS)||30));
-  process.stdout.write(`${JSON.stringify({ok:true,file:finalFile,manifest:manifestPath,storagePath:uploaded?storagePath:null,schemaVersion:version,checksumSha256:checksum,sizeBytes:statSync(finalFile).size,retentionRemoved:removed.length})}\n`);
+  process.stdout.write(`${JSON.stringify({ok:true,file:finalFile,manifest:manifestPath,storagePath:uploaded?storagePath:null,schemaVersion:version,checksumSha256:checksum,sizeBytes:statSync(finalFile).size,pgDumpVersion:clientVersion,retentionRemoved:removed.length})}\n`);
 }
 
 main().catch(async error=>{try{await recordRun({environment:safe(process.env.BACKUP_ENVIRONMENT||process.env.VERCEL_ENV||'unknown'),backup_name:`binhamid-failed-${timestamp()}`,schema_version:0,status:'failed',manifest:{},encrypted:Boolean(process.env.BACKUP_ENCRYPTION_KEY),error_text:String(error.message).slice(0,1000)});}catch{}console.error(`Backup failed: ${error.message}`);process.exit(1);});

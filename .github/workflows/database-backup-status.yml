@@ -1,0 +1,53 @@
+name: Database Backup Status Publisher
+
+on:
+  workflow_run:
+    workflows:
+      - Encrypted Database Backup
+    types:
+      - completed
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  publish:
+    if: github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Publish database backup status
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const conclusion = String(process.env.RUN_CONCLUSION || 'failure');
+          const state = conclusion === 'success' ? 'success' : 'failure';
+          const response = await fetch(`https://api.github.com/repos/${process.env.REPOSITORY}/statuses/${process.env.HEAD_SHA}`, {
+            method: 'POST',
+            headers: {
+              Accept: 'application/vnd.github+json',
+              Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+              'X-GitHub-Api-Version': '2022-11-28',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              state,
+              context: 'database-backup',
+              target_url: process.env.RUN_URL,
+              description: state === 'success'
+                ? 'Encrypted database backup and artifact verification succeeded.'
+                : 'Encrypted database backup failed; inspect safe diagnostics.',
+            }),
+          });
+          if (!response.ok) {
+            throw new Error(`GitHub status publication failed with HTTP ${response.status}`);
+          }
+          console.log(`[database-backup-status] ${state}`);
+          NODE
