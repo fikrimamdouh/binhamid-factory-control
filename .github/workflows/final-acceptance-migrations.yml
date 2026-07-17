@@ -1,0 +1,91 @@
+name: Apply Final Acceptance Migrations
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/final-acceptance-migrations.yml'
+      - 'scripts/final-acceptance-migration-stage.mjs'
+      - 'scripts/final-acceptance-database.mjs'
+      - 'scripts/governance-migration-preflight.mjs'
+      - 'scripts/governance-migration-verify.mjs'
+      - 'supabase/migrations/019_accounting_import_and_telegram_integrity.sql'
+      - 'supabase/migrations/020_accounting_reversal_and_projection_safety.sql'
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: binhamid-final-acceptance-migrations
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: migration_clone
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d migration_clone"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+      - name: Install dependencies and PostgreSQL client
+        run: |
+          set -euo pipefail
+          npm install --ignore-scripts --no-audit --no-fund
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client-17 || sudo apt-get install -y postgresql-client
+      - name: Run repository and migration contracts
+        run: |
+          set -euo pipefail
+          npm run audit:migrations
+          npm test
+          npm run check:api
+          npm run check:functions
+      - name: Resolve protected production connection
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          SUPABASE_POOLER_HOST: ${{ vars.SUPABASE_POOLER_HOST }}
+          CONNECTION_DIAGNOSTIC_PATH: final-migration-connection.json
+        run: node scripts/resolve-supabase-connection.mjs
+      - name: Run isolated restore, migration acceptance and protected production apply
+        env:
+          BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+          LOCAL_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/migration_clone
+          POST_MIGRATION_LOCAL_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/post_migration_restore
+        run: node scripts/final-acceptance-migration-stage.mjs
+      - name: Upload final migration evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-acceptance-migration-evidence-${{ github.run_id }}
+          path: |
+            final-migration-connection.json
+            final-migration-result.json
+            migration-preflight.json
+            migration-result.json
+            isolated-restore-before.json
+            isolated-migration-result.json
+            isolated-final-acceptance.json
+            production-accounting-integrity.json
+            post-migration-backup-verification.json
+            isolated-restore-after.json
+            post-migration-backup/*.enc
+            post-migration-backup/*.manifest.json
+            post-migration-backup-result.jsonl
+          if-no-files-found: warn
+          retention-days: 14
