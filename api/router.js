@@ -27,6 +27,7 @@ const routes={
   'telegram/register':telegramAdmin.register,
   'telegram/status':telegramAdmin.status,
   'telegram/test':telegramAdmin.test,
+  'telegram/notify':telegramAdmin.notify,
   'costs':costs.costs,
   'driver/webapp':driverWebApp.driverWebApp,
   'resilience':resilience.resilience
