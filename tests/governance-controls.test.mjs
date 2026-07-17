@@ -42,8 +42,9 @@ test('migration workflow applies through schema 18 with encrypted backups',async
 });
 
 test('financial, credit and maintenance guards are server-side database controls',async()=>{
-  const controls=await read('supabase/migrations/017_governance_control_rpcs.sql'),safety=await read('supabase/migrations/018_governance_safety_refinements.sql');
-  for(const marker of ['sales_orders_credit_limit_guard','CREDIT_LIMIT_EXCEEDED','CREDIT_OVERRIDE_INVALID','maintenance_closure_control_trigger','MAINTENANCE_DIAGNOSIS_REQUIRED','MAINTENANCE_ATTACHMENT_REQUIRED','FINANCIAL_PERIOD_CLOSED'])assert.match(controls,new RegExp(marker));
+  const foundation=await read('supabase/migrations/016_enterprise_governance_and_handover.sql'),controls=await read('supabase/migrations/017_governance_control_rpcs.sql'),safety=await read('supabase/migrations/018_governance_safety_refinements.sql');
+  for(const marker of ['FINANCIAL_PERIOD_CLOSED','sales_orders_financial_period_guard','collection_events_financial_period_guard','daily_report_batches_financial_period_guard'])assert.match(foundation,new RegExp(marker));
+  for(const marker of ['sales_orders_credit_limit_guard','CREDIT_LIMIT_EXCEEDED','CREDIT_OVERRIDE_INVALID','maintenance_closure_control_trigger','MAINTENANCE_DIAGNOSIS_REQUIRED','MAINTENANCE_ATTACHMENT_REQUIRED'])assert.match(controls,new RegExp(marker));
   for(const marker of ['flag_daily_report_credit_breach','daily_report_credit_breach_flag','control_asset_duplicates','like \'DR-%\'','CUSTODY_SETTLEMENT_EXCEEDS_OUTSTANDING','HANDOVER_BLOCKERS_OPEN'])assert.ok(safety.includes(marker),`safety migration missing ${marker}`);
 });
 
