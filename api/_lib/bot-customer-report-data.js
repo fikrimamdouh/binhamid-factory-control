@@ -4,6 +4,7 @@ const n=value=>Number(value||0)||0;
 const norm=value=>String(value||'').toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ًٌٍَُِّْـ]/g,'').replace(/[^a-z0-9\u0600-\u06ff]+/gi,' ').replace(/\s+/g,' ').trim();
 const dayMs=86_400_000;
 const closedStatus=new Set(['cancelled','rejected']);
+const PAGE_SIZE=1000;
 
 export function customerReportScope(role=''){
   if(role==='block_sales')return'block';
@@ -20,6 +21,15 @@ function dateValue(value){const text=String(value||'').slice(0,10);return /^\d{4
 function addDays(date,days){if(!date)return null;return new Date(date.getTime()+Math.max(0,n(days))*dayMs);}
 function newest(a,b){if(!a)return b||'';if(!b)return a;return String(a)>String(b)?a:b;}
 function agingBucket(days){if(days<=0)return'current';if(days<=30)return'days1to30';if(days<=60)return'days31to60';if(days<=90)return'days61to90';return'days90plus';}
+async function pagedSelect(table,query,maxPages=50){
+  const output=[];
+  for(let page=0;page<maxPages;page++){
+    const rows=await select(table,`${query}&limit=${PAGE_SIZE}&offset=${page*PAGE_SIZE}`)||[];
+    output.push(...rows);
+    if(rows.length<PAGE_SIZE)break;
+  }
+  return output;
+}
 function baseAggregate(customer={},key=''){
   return{
     key,
@@ -111,9 +121,9 @@ export function findCustomers(analytics,query){
 
 export async function loadCustomerAnalytics(identity){
   const [customers,sales,collections]=await Promise.all([
-    select('customers','active=eq.true&select=external_id,customer_code,customer_name,phone,segment,credit_limit,payment_days,active&order=customer_name.asc&limit=5000').catch(()=>[]),
-    select('sales_orders','select=reference_no,sales_type,customer_external_id,customer_name,item,quantity,unit,total_amount,paid_amount,payment_method,status,delivery_date,created_at&order=created_at.desc&limit=10000').catch(()=>[]),
-    select('collection_events','select=reference_no,customer_external_id,customer_name,amount,allocated_amount,unallocated_amount,payment_method,status,note,occurred_at,created_at&order=occurred_at.desc&limit=10000').catch(()=>[])
+    pagedSelect('customers','active=eq.true&select=external_id,customer_code,customer_name,phone,segment,credit_limit,payment_days,active&order=customer_name.asc').catch(()=>[]),
+    pagedSelect('sales_orders','select=reference_no,sales_type,customer_external_id,customer_name,item,quantity,unit,total_amount,paid_amount,payment_method,status,delivery_date,created_at&order=created_at.desc').catch(()=>[]),
+    pagedSelect('collection_events','select=reference_no,customer_external_id,customer_name,amount,allocated_amount,unallocated_amount,payment_method,status,note,occurred_at,created_at&order=occurred_at.desc').catch(()=>[])
   ]);
   return buildCustomerAnalytics({customers,sales,collections,role:identity?.role||''});
 }
