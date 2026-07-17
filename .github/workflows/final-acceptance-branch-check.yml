@@ -63,6 +63,7 @@ jobs:
         run: |
           set -euo pipefail
           node --check scripts/final-acceptance-database.mjs
+          node --check scripts/reversal-ledger-acceptance.mjs
           node --check scripts/isolated-migration-preflight.mjs
           node --check api/_lib/telegram-webhook-gateway.js
           node --check api/_lib/telegram-webhook-handler.js
@@ -98,28 +99,37 @@ jobs:
           manifest="$(find acceptance-backup -type f -name '*.manifest.json' -print -quit)"
           ISOLATED_BACKUP_MANIFEST="$manifest" MIGRATION_PREFLIGHT_PATH=acceptance-preflight.json node scripts/isolated-migration-preflight.mjs
           current_version="$(node -e "const x=require('./acceptance-preflight.json');process.stdout.write(String(x.currentVersion))")"
-          : > acceptance-migrations.sql
+          : > acceptance-migrations-20.sql
           for version in $(seq $((current_version + 1)) 20); do
             file="$(find supabase/migrations -maxdepth 1 -type f -name "$(printf '%03d' "$version")_*.sql" -print -quit)"
             test -n "$file"
-            cat "$file" >> acceptance-migrations.sql
-            printf '\n' >> acceptance-migrations.sql
+            cat "$file" >> acceptance-migrations-20.sql
+            printf '\n' >> acceptance-migrations-20.sql
           done
-          psql "$LOCAL_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction --file acceptance-migrations.sql
-          rm -f acceptance-migrations.sql
+          psql "$LOCAL_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction --file acceptance-migrations-20.sql
+          rm -f acceptance-migrations-20.sql
 
-      - name: Verify isolated schema 20
+      - name: Run schema 20 transactional accounting and duplicate acceptance
+        env:
+          TEST_DATABASE_URL: ${{ env.LOCAL_DATABASE_URL }}
+          FINAL_ACCEPTANCE_DB_RESULT: acceptance-database-result.json
+        run: node scripts/final-acceptance-database.mjs
+
+      - name: Apply schema 21 reversal correction atomically
+        run: psql "$LOCAL_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction --file supabase/migrations/021_reversal_ledger_balance_fix.sql
+
+      - name: Verify isolated schema 21
         env:
           SUPABASE_DB_URL: ${{ env.LOCAL_DATABASE_URL }}
           MIGRATION_PREFLIGHT_PATH: acceptance-preflight.json
           MIGRATION_RESULT_PATH: acceptance-migration-result.json
         run: node scripts/governance-migration-verify.mjs
 
-      - name: Run transactional accounting and duplicate acceptance
+      - name: Verify net-zero reversal in schema 21
         env:
           TEST_DATABASE_URL: ${{ env.LOCAL_DATABASE_URL }}
-          FINAL_ACCEPTANCE_DB_RESULT: acceptance-database-result.json
-        run: node scripts/final-acceptance-database.mjs
+          REVERSAL_ACCEPTANCE_RESULT: reversal-ledger-result.json
+        run: node scripts/reversal-ledger-acceptance.mjs
 
       - name: Upload isolated acceptance evidence
         if: always()
@@ -132,6 +142,7 @@ jobs:
             acceptance-preflight.json
             acceptance-migration-result.json
             acceptance-database-result.json
+            reversal-ledger-result.json
           if-no-files-found: warn
           retention-days: 7
 
@@ -149,7 +160,7 @@ jobs:
           const response=await fetch(`https://api.github.com/repos/${process.env.REPOSITORY}/statuses/${process.env.HEAD_SHA}`,{
             method:'POST',
             headers:{Accept:'application/vnd.github+json',Authorization:`Bearer ${process.env.GITHUB_TOKEN}`,'X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'},
-            body:JSON.stringify({state:success?'success':'failure',context:'final-acceptance-branch',target_url:process.env.RUN_URL,description:success?'Encrypted-backup restore, schema 20 and transactional accounting acceptance passed.':'Isolated final acceptance failed; no production migration was run.'})
+            body:JSON.stringify({state:success?'success':'failure',context:'final-acceptance-branch',target_url:process.env.RUN_URL,description:success?'Encrypted restore, schema 20 E2E and schema 21 reversal checks passed.':'Isolated final acceptance failed; production was not changed.'})
           });
           if(!response.ok)throw new Error(`Status publication failed with HTTP ${response.status}`);
           NODE
