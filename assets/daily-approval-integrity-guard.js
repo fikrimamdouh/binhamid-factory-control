@@ -1,6 +1,6 @@
 (function(){
   'use strict';
-  const VERSION='2026.07.17-daily-approval-integrity-v1';
+  const VERSION='2026.07.17-daily-approval-integrity-v2';
   const ACTIVE_KEY='binhamid_active_import_id';
   const originalFetch=window.fetch.bind(window);
   let lastCommit=null;
@@ -8,6 +8,10 @@
   const activeImportId=()=>{
     try{return String(window.BinHamidActiveImportId||sessionStorage.getItem(ACTIVE_KEY)||'').trim();}
     catch{return String(window.BinHamidActiveImportId||'').trim();}
+  };
+  const clearActiveImport=()=>{
+    window.BinHamidActiveImportId='';
+    try{sessionStorage.removeItem(ACTIVE_KEY);}catch{}
   };
   const responseFrom=(original,data)=>new Response(JSON.stringify(data),{
     status:original.status,
@@ -25,9 +29,6 @@
       const response=await originalFetch(input,{...options,body:JSON.stringify(payload)});
       const data=await response.clone().json().catch(()=>null);
       if(data&&payload.action==='commit'&&response.ok){lastCommit=data;window.BinHamidLastDailyCommit=data;}
-      // The legacy UI treats a duplicate preview as a hard stop. For a retry after
-      // successful server posting, allow it to continue to commit; the server then
-      // returns the same batch and journals idempotently.
       if(data&&payload.action==='preview'&&response.ok&&data.duplicate){
         return responseFrom(response,{...data,duplicate:false,valid:true,recoveryDuplicate:true});
       }
@@ -54,14 +55,15 @@
           if(result===false)return false;
           const batch=(window.OPS?.imports||[])[0];
           if(batch&&lastCommit){
-            batch.cloudSchemaVersion=19;
+            batch.cloudSchemaVersion=20;
             batch.accounting=lastCommit.accounting||null;
             batch.cloudImportId=lastCommit.postedBatchId||lastCommit.importId||lastCommit.existingImportId||batch.cloudImportId||'';
             batch.sourceImportId=activeImportId()||batch.sourceImportId||'';
           }
+          clearActiveImport();
           return result;
         }catch(error){
-          const evidence=lastCommit&&{postedBatchId:lastCommit.postedBatchId||lastCommit.importId||'',accounting:lastCommit.accounting||null,at:new Date().toISOString()};
+          const evidence=lastCommit&&{postedBatchId:lastCommit.postedBatchId||lastCommit.importId||'',accounting:lastCommit.accounting||null,sourceImportId:activeImportId(),at:new Date().toISOString()};
           try{if(evidence)localStorage.setItem('binhamid_daily_local_recovery',JSON.stringify(evidence));}catch{}
           window.opsToast?.(evidence?'تم الترحيل في الخادم، وتعذر تحديث العرض المحلي. أعد الاعتماد لبناء العرض دون تكرار القيود.':'تعذر الاعتماد ولم تُرحّل حركة جديدة.','err');
           throw error;
@@ -71,7 +73,7 @@
     };
     guarded.__dailyIntegrityGuard=true;
     window.opsOpenModal=guarded;
-    window.BinHamidDailyApprovalIntegrityGuard={version:VERSION,installed:true};
+    window.BinHamidDailyApprovalIntegrityGuard={version:VERSION,installed:true,schemaVersion:20};
     console.info('[BinHamid]',VERSION,'loaded');
     return true;
   }
