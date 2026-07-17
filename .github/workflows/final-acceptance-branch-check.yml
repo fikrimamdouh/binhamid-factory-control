@@ -51,16 +51,21 @@ jobs:
           sudo apt-get install -y postgresql-client-17
           echo '/usr/lib/postgresql/17/bin' >> "$GITHUB_PATH"
 
-      - name: Run repository quality gates
+      - name: Audit migration chain
+        run: npm run audit:migrations
+      - name: Run unit and contract tests
+        run: npm test
+      - name: Audit API contracts
+        run: npm run check:api
+      - name: Audit Vercel function count
+        run: npm run check:functions
+      - name: Check final acceptance JavaScript syntax
         run: |
           set -euo pipefail
-          npm run audit:migrations
-          npm test
-          npm run check:api
-          npm run check:functions
           node --check scripts/final-acceptance-database.mjs
           node --check scripts/isolated-migration-preflight.mjs
           node --check api/_lib/telegram-webhook-gateway.js
+          node --check api/_lib/telegram-webhook-handler.js
           node --check api/_lib/routes/daily-report.js
           node --check api/_lib/routes/accounting.js
 
@@ -103,17 +108,18 @@ jobs:
           psql "$LOCAL_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction --file acceptance-migrations.sql
           rm -f acceptance-migrations.sql
 
-      - name: Verify schema and run transactional acceptance cycle
+      - name: Verify isolated schema 20
         env:
           SUPABASE_DB_URL: ${{ env.LOCAL_DATABASE_URL }}
           MIGRATION_PREFLIGHT_PATH: acceptance-preflight.json
           MIGRATION_RESULT_PATH: acceptance-migration-result.json
+        run: node scripts/governance-migration-verify.mjs
+
+      - name: Run transactional accounting and duplicate acceptance
+        env:
           TEST_DATABASE_URL: ${{ env.LOCAL_DATABASE_URL }}
           FINAL_ACCEPTANCE_DB_RESULT: acceptance-database-result.json
-        run: |
-          set -euo pipefail
-          node scripts/governance-migration-verify.mjs
-          node scripts/final-acceptance-database.mjs
+        run: node scripts/final-acceptance-database.mjs
 
       - name: Upload isolated acceptance evidence
         if: always()
