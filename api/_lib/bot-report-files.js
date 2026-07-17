@@ -32,8 +32,17 @@ function datesFromText(text=''){
   return matches.map(isoDate).filter(Boolean).slice(0,2);
 }
 
+export function parseStoredReportRequest(text=''){
+  const kind=requestKind(text),normalized=norm(text);
+  if(!kind||!/تقرير|تقارير|ملف|تحميل|نزل|نزّل|ارسل|أرسل/.test(normalized))return null;
+  const dates=datesFromText(text);
+  if(dates.length>=2)return{kind,from:dates[0]<=dates[1]?dates[0]:dates[1],to:dates[0]<=dates[1]?dates[1]:dates[0]};
+  if(dates.length===1)return{kind,date:dates[0]};
+  return{kind};
+}
+
 function summaryOf(row){return row?.preview_summary||row?.summary||{};}
-function matchesKind(row,kind){
+export function storedReportMatches(row,kind){
   const summary=summaryOf(row);
   if(kind==='concrete')return Number(summary.concreteSales||summary.concrete_sales||0)>0||Number(summary.concreteQuantity||summary.concrete_quantity||0)>0;
   if(kind==='block')return Number(summary.blockSales||summary.block_sales||0)>0||Number(summary.blockQuantity||summary.block_quantity||0)>0;
@@ -56,16 +65,18 @@ function caption(row,kind){
 }
 
 async function reportRows(){
-  return await select('daily_report_batches','file_storage_path=not.is.null&select=id,report_date,original_name,file_storage_path,status,preview_summary,summary,approved_at,committed_at&order=report_date.desc&limit=120').catch(()=>[]);
+  return select('daily_report_batches','file_storage_path=not.is.null&select=id,report_date,original_name,file_storage_path,status,preview_summary,summary,approved_at,committed_at&order=report_date.desc&limit=120');
 }
 
 export async function sendStoredReportFile(chatId,id,identity,kind='daily'){
-  if(!canRead(identity,kind))return sendMessage(chatId,'ليست لديك صلاحية تنزيل هذا التقرير.');
-  const row=(await select('daily_report_batches',`id=eq.${encodeURIComponent(String(id))}&file_storage_path=not.is.null&select=id,report_date,original_name,file_storage_path,status,preview_summary,summary&limit=1`))?.[0];
-  if(!row)return sendMessage(chatId,'ملف التقرير غير موجود أو لم يُحفظ في التخزين السحابي.');
-  if(!matchesKind(row,kind))return sendMessage(chatId,`هذا الملف لا يحتوي على بيانات ${kind==='concrete'?'خرسانة':kind==='block'?'بلوك':'تقرير يومي'} قابلة للعرض.`);
-  const object=await downloadObject(row.file_storage_path);
-  return sendDocumentBuffer(chatId,object.buffer,row.original_name||`daily-report-${row.report_date}.xlsx`,object.contentType,caption(row,kind));
+  try{
+    if(!canRead(identity,kind))return sendMessage(chatId,'ليست لديك صلاحية تنزيل هذا التقرير.');
+    const row=(await select('daily_report_batches',`id=eq.${encodeURIComponent(String(id))}&file_storage_path=not.is.null&select=id,report_date,original_name,file_storage_path,status,preview_summary,summary&limit=1`))?.[0];
+    if(!row)return sendMessage(chatId,'ملف التقرير غير موجود أو لم يُحفظ في التخزين السحابي.');
+    if(!storedReportMatches(row,kind))return sendMessage(chatId,`هذا الملف لا يحتوي على بيانات ${kind==='concrete'?'خرسانة':kind==='block'?'بلوك':'تقرير يومي'} قابلة للعرض.`);
+    const object=await downloadObject(row.file_storage_path);
+    return sendDocumentBuffer(chatId,object.buffer,row.original_name||`daily-report-${row.report_date}.xlsx`,object.contentType,caption(row,kind));
+  }catch(error){console.error('[telegram stored report file]',error);return sendMessage(chatId,'تعذر تنزيل ملف التقرير من التخزين السحابي. لم يتم إرسال ملف ناقص.');}
 }
 
 async function showChoices(chatId,rows,kind,title){
@@ -74,20 +85,20 @@ async function showChoices(chatId,rows,kind,title){
 }
 
 export async function sendStoredReportRequest(chatId,identity,kind,options={}){
-  if(!canRead(identity,kind))return sendMessage(chatId,'ليست لديك صلاحية عرض أو تنزيل هذا النوع من التقارير.');
-  const rows=(await reportRows()).filter(row=>matchesKind(row,kind));
-  if(!rows.length)return sendMessage(chatId,`لا توجد ملفات معتمدة تحتوي على ${kindLabel(kind)} حتى الآن.`);
-  const from=options.from||'',to=options.to||'',date=options.date||'';
-  const matching=rows.filter(row=>date?row.report_date===date:from&&to?row.report_date>=from&&row.report_date<=to:true);
-  if(!matching.length)return sendMessage(chatId,`لا يوجد ${kindLabel(kind)} مطابق للتاريخ أو المدة المطلوبة.`);
-  if(date||(!from&&!to))return sendStoredReportFile(chatId,matching[0].id,identity,kind);
-  if(matching.length===1)return sendStoredReportFile(chatId,matching[0].id,identity,kind);
-  return showChoices(chatId,matching,kind,`وجدت ملفات ${kindLabel(kind)} من <b>${esc(from)}</b> إلى <b>${esc(to)}</b>.`);
+  try{
+    if(!canRead(identity,kind))return sendMessage(chatId,'ليست لديك صلاحية عرض أو تنزيل هذا النوع من التقارير.');
+    const rows=(await reportRows()).filter(row=>storedReportMatches(row,kind));
+    if(!rows.length)return sendMessage(chatId,`لا توجد ملفات معتمدة تحتوي على ${kindLabel(kind)} حتى الآن.`);
+    const from=options.from||'',to=options.to||'',date=options.date||'';
+    const matching=rows.filter(row=>date?row.report_date===date:from&&to?row.report_date>=from&&row.report_date<=to:true);
+    if(!matching.length)return sendMessage(chatId,`لا يوجد ${kindLabel(kind)} مطابق للتاريخ أو المدة المطلوبة.`);
+    if(date||(!from&&!to))return sendStoredReportFile(chatId,matching[0].id,identity,kind);
+    if(matching.length===1)return sendStoredReportFile(chatId,matching[0].id,identity,kind);
+    return showChoices(chatId,matching,kind,`وجدت ملفات ${kindLabel(kind)} من <b>${esc(from)}</b> إلى <b>${esc(to)}</b>.`);
+  }catch(error){console.error('[telegram stored report request]',error);return sendMessage(chatId,'تعذر قراءة سجل التقارير المعتمدة من النظام السحابي.');}
 }
 
 export async function handleStoredReportTextCommand(message,identity,text){
-  const kind=requestKind(text);if(!kind)return false;
-  const normalized=norm(text);if(!/تقرير|تقارير|ملف|تحميل|نزل|نزّل|ارسل|أرسل/.test(normalized))return false;
-  const dates=datesFromText(text),options=dates.length>=2?{from:dates[0]<=dates[1]?dates[0]:dates[1],to:dates[0]<=dates[1]?dates[1]:dates[0]}:dates.length===1?{date:dates[0]}:{};
-  await sendStoredReportRequest(message.chat.id,identity,kind,options);return true;
+  const request=parseStoredReportRequest(text);if(!request)return false;
+  await sendStoredReportRequest(message.chat.id,identity,request.kind,request);return true;
 }
