@@ -14,7 +14,7 @@
     {"source":"/api/daily-report/fifo","destination":"/api/router?route=daily-report/fifo"},
     {"source":"/api/accounting","destination":"/api/router?route=accounting"},
     {"source":"/api/costs","destination":"/api/router?route=costs"},
-    {"source":"/api/mix-designs","destination":"/api/router?route=mix-designs"},
+    {"source":"/api/mix-designs","destination":"/api/router?route=mix-designs"},\n    {"source":"/api/fleet/status","destination":"/api/router?route=fleet/status"},
     {"source":"/api/driver/webapp","destination":"/api/router?route=driver/webapp"},
     {"source":"/api/resilience","destination":"/api/router?route=resilience"},
     {"source":"/api/documents/verify","destination":"/api/router?route=documents/verify"},
