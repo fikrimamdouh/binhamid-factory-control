@@ -37,9 +37,9 @@ export function validateProductQuery(query){
 }
 
 const SEARCH_SCOPES=Object.freeze([
-  {key:'saudi',label:'السوق السعودي',focus:'ابحث داخل السعودية أولًا: المتاجر الإلكترونية، موزعو قطع الغيار والمعدات، الوكلاء، الموردون المحليون، المتاجر الصناعية وصفحات المنتجات التي تعرض سعرًا أو توفرًا.'},
-  {key:'gulf',label:'الخليج والمنطقة',focus:'ابحث في الإمارات والبحرين والكويت وعُمان وقطر والأردن ومصر عن موزعين وموردين يشحنون للسعودية، مع تفضيل الصفحات التي تعرض سعرًا أو وسيلة تواصل واضحة.'},
-  {key:'global',label:'المصادر العالمية',focus:'ابحث عالميًا لدى المصنعين الرسميين والموزعين الدوليين ومتاجر المعدات وقطع الغيار ومنصات التجارة الموثوقة. استخدم رقم القطعة والاسم الإنجليزي والمرادفات عند توفرها.'}
+  {key:'saudi',label:'السوق السعودي',focus:'ابحث داخل جميع مدن السعودية: المتاجر الإلكترونية، موزعو قطع الغيار والمعدات، الوكلاء، الموردون المحليون، المتاجر الصناعية وصفحات المنتجات.'},
+  {key:'gulf',label:'الخليج والمنطقة',focus:'ابحث في الإمارات والبحرين والكويت وعُمان وقطر والأردن ومصر عن موزعين وموردين يشحنون للسعودية.'},
+  {key:'global',label:'المصادر العالمية',focus:'ابحث عالميًا لدى المصنعين الرسميين والموزعين الدوليين ومتاجر المعدات وقطع الغيار ومنصات التجارة الموثوقة، باستخدام رقم القطعة والاسم الإنجليزي والمرادفات.'}
 ]);
 
 async function searchScope(product,scope,{city,country}){
@@ -49,16 +49,16 @@ async function searchScope(product,scope,{city,country}){
 أخرج نصًا عربيًا بلا Markdown وبلا روابط داخل النص وفق الترتيب:
 1) تعريف الصنف والرقم أو المواصفة التي تم البحث عنها.
 2) المواصفات الحرجة التي يجب تأكيدها.
-3) من 4 إلى 8 نتائج مختلفة قدر الإمكان: اسم البائع أو المصنع، البلد، السعر المنشور والعملة، التوفر، الضريبة والشحن إن ظهرت. اذكر «السعر غير منشور» عندما يكون المورد مفيدًا لكن يحتاج عرض سعر.
+3) من 5 إلى 10 نتائج مختلفة قدر الإمكان: اسم البائع أو المصنع، البلد أو المدينة، السعر المنشور والعملة، التوفر، الضريبة والشحن إن ظهرت، ورقم الهاتف أو WhatsApp العام المنشور علنًا إن وجد. اكتب «الهاتف غير منشور» بدل التخمين.
 4) أفضل نتيجتين في هذه الجولة وسبب الاختيار.
-لا تخترع سعرًا أو توافرًا أو توافقًا. الأسعار لحظة البحث وقد تتغير.`;
+لا تخترع سعرًا أو هاتفًا أو توافرًا أو توافقًا. الأسعار وبيانات التواصل لحظة البحث وقد تتغير.`;
   const input=JSON.stringify({product,search_scope:scope.key,preferred_market:{city,country},currency:'SAR',searched_at:new Date().toISOString()});
   const model=config.textModel==='gpt-5.4-mini'?'gpt-5.6':config.textModel;
   const response=await fetch('https://api.openai.com/v1/responses',{
     method:'POST',
     headers:{Authorization:`Bearer ${config.openaiKey}`,'Content-Type':'application/json'},
-    body:JSON.stringify({model,instructions,input,tools:[{type:'web_search',search_context_size:'high',user_location:{city,country:'SA',region:'Najran',timezone:'Asia/Riyadh'}}],tool_choice:'required',include:['web_search_call.action.sources'],max_output_tokens:1000,store:false}),
-    signal:AbortSignal.timeout(24000)
+    body:JSON.stringify({model,instructions,input,tools:[{type:'web_search',search_context_size:'high',user_location:{type:'approximate',city,country:'SA',region:'Najran',timezone:'Asia/Riyadh'}}],tool_choice:'required',include:['web_search_call.action.sources'],max_output_tokens:1100,store:false}),
+    signal:AbortSignal.timeout(26000)
   });
   const data=await response.json().catch(()=>({}));
   if(!response.ok)throw Object.assign(new Error(data?.error?.message||`تعذر بحث ${scope.label}.`),{status:502,code:'PRODUCT_RESEARCH_SCOPE_FAILED',scope:scope.key});
