@@ -15,8 +15,8 @@ begin;
 
 do $$
 begin
-  if (select coalesce(max(version),0) from public.migration_history)<>23 then
-    raise exception 'SCHEMA_23_REQUIRED';
+  if (select coalesce(max(version),0) from public.migration_history)<>24 then
+    raise exception 'SCHEMA_24_REQUIRED';
   end if;
 end $$;
 
@@ -100,7 +100,7 @@ try{
   const lines=String(result.stdout||'').split(/\r?\n/).map(line=>line.trim()).filter(line=>line.startsWith('{')&&line.endsWith('}'));
   if(!lines.length)fail('ACCEPTANCE_RESULT_MISSING','The isolated database acceptance result is missing.');
   const evidence=JSON.parse(lines.at(-1)),blockers=[];
-  if(Number(evidence.schemaVersion)!==23)blockers.push('schema_version');
+  if(Number(evidence.schemaVersion)!==24)blockers.push('schema_version');
   if(evidence.firstDuplicate)blockers.push('first_commit_marked_duplicate');
   if(!evidence.secondDuplicate)blockers.push('duplicate_commit_not_detected');
   if(Number(evidence.journalCount)!==3||Number(evidence.journalLines)!==6)blockers.push('journal_count');
