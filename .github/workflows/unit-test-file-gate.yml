@@ -63,11 +63,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - uses: actions/checkout@v4
+      - name: Fetch one-time approval scripts
+        run: |
+          curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/scripts/resolve-supabase-pooler.cjs" -o /tmp/resolve-supabase-pooler.cjs
+          curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/scripts/approve-single-manager.sql" -o /tmp/approve-single-manager.sql
       - name: Resolve Supabase Session pooler
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           SUPABASE_POOLER_HOST: ${{ vars.SUPABASE_POOLER_HOST }}
-        run: node scripts/resolve-supabase-pooler.cjs
+        run: node /tmp/resolve-supabase-pooler.cjs
       - name: Approve manager account
-        run: psql "$EFFECTIVE_DB_URL" -X -v ON_ERROR_STOP=1 -f scripts/approve-single-manager.sql
+        run: psql "$EFFECTIVE_DB_URL" -X -v ON_ERROR_STOP=1 -f /tmp/approve-single-manager.sql
