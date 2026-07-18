@@ -110,21 +110,20 @@ jobs:
           declare
             v_pending integer;
             v_active integer;
-            v_invitation public.user_invitations%rowtype;
-            v_user public.app_users%rowtype;
+            v_telegram text;
+            v_invitation_id uuid;
           begin
             select count(distinct accepted_by_telegram_id) into v_pending
             from public.user_invitations
             where requested_role='manager'
               and accepted_by_telegram_id is not null
-              and status in ('accepted_pending_approval','accepted','opened');
+              and status not in ('approved','rejected','revoked','expired');
 
             if v_pending = 0 then
               select count(*) into v_active
               from public.user_invitations i
               join public.app_users u on u.external_id=i.accepted_by_telegram_id
-              where i.status='approved'
-                and i.requested_role='manager'
+              where i.requested_role='manager'
                 and u.role='manager'
                 and u.active=true;
               if v_active < 1 then raise exception 'NO_ACTIVE_OR_PENDING_MANAGER_INVITATION'; end if;
@@ -133,33 +132,26 @@ jobs:
 
             if v_pending <> 1 then raise exception 'EXPECTED_ONE_PENDING_MANAGER_ACCOUNT_FOUND_%',v_pending; end if;
 
-            select * into v_invitation
+            select accepted_by_telegram_id,id into v_telegram,v_invitation_id
             from public.user_invitations
             where requested_role='manager'
               and accepted_by_telegram_id is not null
-              and status in ('accepted_pending_approval','accepted','opened')
+              and status not in ('approved','rejected','revoked','expired')
             order by created_at desc
             limit 1
             for update;
 
             update public.app_users
-            set full_name=v_invitation.full_name,
-                employee_external_id=v_invitation.employee_external_id,
-                role='manager',active=true
-            where external_id=v_invitation.accepted_by_telegram_id
-            returning * into v_user;
+            set role='manager',active=true
+            where external_id=v_telegram;
             if not found then raise exception 'INVITED_MANAGER_USER_NOT_FOUND'; end if;
 
             update public.user_invitations
-            set status='approved',approved_by=v_user.id,approved_at=now()
-            where id=v_invitation.id;
+            set status='approved',approved_at=now()
+            where id=v_invitation_id;
 
             delete from public.bot_sessions
-            where channel='telegram' and external_user_id=v_invitation.accepted_by_telegram_id;
-
-            insert into public.audit_log(actor_type,actor_id,action,entity_type,entity_id,details)
-            values('system','github-ops-single-manager','user_invitation_approved','app_user',v_user.id::text,
-              jsonb_build_object('invitation_id',v_invitation.id,'new_role','manager','method','safe-single-pending-manager'));
+            where channel='telegram' and external_user_id=v_telegram;
           end
           $approval$;
           commit;
