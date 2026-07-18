@@ -78,12 +78,15 @@ test('cost decision is blocked when assignments or trip evidence are incomplete'
   assert.equal(quality.tripsWithoutOdometer,1);
 });
 
-test('Telegram menu and command routing expose the full cost system only to intended roles',async()=>{
+test('Telegram menu and command routing expose each cost view only to its intended roles',async()=>{
   const enterprise=await source('api/_lib/bot-enterprise.js'),costs=await source('api/_lib/bot-costs.js'),help=await source('api/_lib/bot-help.js');
   assert.match(enterprise,/التكاليف والربحية/);
   assert.match(enterprise,/handleCostTextCommand/);
   assert.match(enterprise,/handleCostCallback/);
-  for(const marker of ['cost_decision','cost_products','cost_trips','cost_vehicles','cost_workers','cost_breakeven','cost_quality'])assert.ok(costs.includes(marker),`missing ${marker}`);
-  assert.match(costs,/VIEW_ROLES=new Set\(\['admin','manager','accountant','hr'\]\)/);
+  for(const marker of ['cost_decision','cost_products','cost_trips','cost_vehicles','cost_workers','cost_breakeven','cost_quality','cost_customer','cost_mixes'])assert.ok(costs.includes(marker),`missing ${marker}`);
+  assert.match(costs,/STANDARD_ROLES=new Set\(\['admin','manager','accountant','hr'\]\)/);
+  assert.match(costs,/CUSTOMER_ROLES=new Set\(\['admin','manager','accountant'\]\)/);
+  assert.match(costs,/MIX_ROLES=new Set\(\['admin','manager','accountant','quality','concrete_sales'\]\)/);
+  assert.match(costs,/identity\.role==='concrete_sales'/);
   assert.match(help,/\/costs — نظام التكاليف والقرار/);
 });
