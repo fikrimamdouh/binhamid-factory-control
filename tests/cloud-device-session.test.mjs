@@ -28,7 +28,7 @@ test('device transport alone cannot execute business capabilities',()=>{
   const device=read('api/_lib/device-session.js'),permissions=read('api/_lib/permissions.js'),imports=read('api/_lib/routes/imports.js');
   assert.match(device,/DEVICE_CAPABILITY_REQUIRED/);
   assert.match(permissions,/APP_USER_REQUIRED/);
-  assert.match(permissions,/requireAdminOrDevice\(req\)/);
+  assert.match(permissions,/requireAdminOrDevice\(req,capability\)/);
   assert.match(imports,/requireCapability/);
   assert.doesNotMatch(imports,/requireAdminOrDevice/);
 });
