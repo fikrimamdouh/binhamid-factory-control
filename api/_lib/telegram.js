@@ -71,7 +71,17 @@ export async function sendMessage(chatId, text, extra = {}) {
   return result;
 }
 
-export const answerCallback = (id, text = '') => telegram('answerCallbackQuery', { callback_query_id: id, text, show_alert: false });
+export async function answerCallback(id, text = '') {
+  try{return await telegram('answerCallbackQuery', { callback_query_id: id, text, show_alert: false });}
+  catch(error){
+    const message=String(error?.message||'');
+    if(/query is too old|response timeout expired|query ID is invalid/i.test(message)){
+      console.warn('[telegram callback expired]',{message:message.slice(0,180)});
+      return null;
+    }
+    throw error;
+  }
+}
 export async function getFile(fileId) { return telegram('getFile', { file_id: fileId }); }
 async function getFileWithRetry(fileId,tries=3){
   let lastError;
