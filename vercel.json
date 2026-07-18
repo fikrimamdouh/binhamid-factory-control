@@ -1,4 +1,5 @@
 {
+  "git": {"deploymentEnabled": false},
   "functions": {"api/**/*.js": {"maxDuration": 30}},
   "rewrites": [
     {"source":"/api/admin/groups","destination":"/api/router?route=admin/groups"},
