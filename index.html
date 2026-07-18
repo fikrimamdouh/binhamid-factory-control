@@ -60,7 +60,13 @@
           injectScript('binhamid-telegram-site-two-way','/assets/telegram-site-two-way.js?v=20260717-1',function(){console.error('[BinHamid] تعذر تحميل الأتمتة الثنائية بين Telegram والموقع.');});
           injectScript('binhamid-governance-entry','/assets/governance-entry.js?v=20260717-final-acceptance-19',function(){console.error('[BinHamid] تعذر تحميل روابط مركز الرقابة والحوكمة.');});
         }
-        function loadCloudControl(){injectScript('binhamid-cloud-script','/assets/cloud-control.js?v=20260717-final-acceptance-19',function(){fail(new Error('تعذر تحميل مركز الاتصال، بينما النسخة الأساسية ما زالت متاحة.'));},injectExtensions);}
+        function openRequestedWorkspace(){
+          const target=new URL(location.href).searchParams.get('open')||'';
+          const allowed=['dashboard','movements','custody','fleet','maintenance','inventory','production','deliveries','safety','documents','reports','backup'];
+          if(!allowed.includes(target))return;
+          setTimeout(function(){if(typeof win.opsGo==='function')win.opsGo(target);},250);
+        }
+        function loadCloudControl(){injectScript('binhamid-cloud-script','/assets/cloud-control.js?v=20260717-final-acceptance-19',function(){fail(new Error('تعذر تحميل مركز الاتصال، بينما النسخة الأساسية ما زالت متاحة.'));},function(){injectExtensions();openRequestedWorkspace();});}
         injectScript('binhamid-cloud-device-autolink','/assets/cloud-device-autolink.js?v=20260717-final-acceptance-19',function(){console.error('[BinHamid] تعذر تحميل الربط التلقائي للجهاز.');loadCloudControl();},function(){Promise.resolve(win.bhCloudDeviceReady).then(loadCloudControl).catch(function(error){console.error('[BinHamid] تعذر إنشاء جلسة الجهاز التلقائية.',error);loadCloudControl();});});
         completed=true;frame.style.visibility='visible';screen.remove();
       }catch(error){fail(error);}
