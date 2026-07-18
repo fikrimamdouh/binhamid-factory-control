@@ -11,6 +11,11 @@
   function message(text,ok=false){const box=document.getElementById('bhOwnerMessage');if(box){box.textContent=text||'';box.className='bh-owner-message'+(ok?' ok':'');}}
   async function requestCode(){try{message('جارٍ إرسال الرمز إلى Telegram...');const r=await originalFetch('/api/auth/request',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({deviceId:device()})}),d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||'تعذر إرسال الرمز');document.getElementById('bhOwnerCodeBox').classList.add('on');document.getElementById('bhOwnerText').textContent='وصل الرمز إلى Telegram. صالح لخمس دقائق.';const button=document.getElementById('bhOwnerSend');button.textContent='تأكيد الدخول';button.onclick=verify;message('تم الإرسال إلى حساب المالك.',true);document.getElementById('bhOwnerCode').focus();}catch(error){message(error.message||'تعذر إرسال الرمز');}}
   async function verify(){try{const code=document.getElementById('bhOwnerCode').value.trim();if(!/^\d{6}$/.test(code))throw new Error('اكتب رمز Telegram المكوّن من 6 أرقام.');message('جارٍ التحقق من الرمز...');const r=await originalFetch('/api/auth/verify',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({deviceId:device(),code})}),d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||'الرمز غير صحيح');localStorage.setItem(USER_KEY,String(d.user?.id||''));localStorage.setItem(TOKEN_KEY,'device-session');message('تم الدخول بنجاح.',true);setTimeout(()=>location.reload(),350);}catch(error){message(error.message||'تعذر التحقق من الرمز');}}
-  function install(){style();window.bhCloudLogin=show;const ready=()=>{if(!user())show();};setTimeout(ready,2600);console.info('[BinHamid]',VERSION,'ready');}
+  // `device-session` is only a browser-side transport marker.  The server
+  // still validates the signed HttpOnly device cookie and the app-user id on
+  // every request; this marker merely lets the legacy cloud shell know that a
+  // verified owner session already exists after a reload.
+  function restoreCloudMarker(){try{if(user())localStorage.setItem(TOKEN_KEY,'device-session');}catch{}}
+  function install(){restoreCloudMarker();style();window.bhCloudLogin=show;const ready=()=>{if(!user())show();};setTimeout(ready,2600);console.info('[BinHamid]',VERSION,'ready');}
   install();
 })();

@@ -88,5 +88,7 @@ test('Telegram menu and command routing expose each cost view only to its intend
   assert.match(costs,/CUSTOMER_ROLES=new Set\(\['admin','manager','accountant'\]\)/);
   assert.match(costs,/MIX_ROLES=new Set\(\['admin','manager','accountant','quality','concrete_sales'\]\)/);
   assert.match(costs,/identity\.role==='concrete_sales'/);
+  assert.match(costs,/Migration 019 مطبّق ضمن Schema 22/);
+  assert.match(costs,/احسب واحفظ/);
   assert.match(help,/\/costs — نظام التكاليف والقرار/);
 });

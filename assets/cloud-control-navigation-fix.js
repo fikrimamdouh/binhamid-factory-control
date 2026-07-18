@@ -29,20 +29,6 @@
     return true;
   }
 
-  function runWithoutLegacyCommsNavigation(callback,context,event){
-    const originalGo=window.go;
-    if(typeof originalGo==='function'){
-      window.go=function(page){
-        if(String(page||'')==='comms')return false;
-        return originalGo.apply(this,arguments);
-      };
-    }
-    try{return callback.call(context,event);}
-    finally{
-      if(typeof originalGo==='function')window.go=originalGo;
-    }
-  }
-
   function wrapButton(button){
     if(!button||button.hasAttribute(FIXED))return;
     button.setAttribute(FIXED,'1');
@@ -52,16 +38,14 @@
       if(event){event.preventDefault();event.stopPropagation();}
       setActive('comms');
 
-      if(typeof original==='function'){
-        try{runWithoutLegacyCommsNavigation(original,this,event);}
-        catch(error){console.error('[BinHamid comms navigation]',error);}
-      }
-
+      // Do not call the legacy handler here.  It routes to a page that is not
+      // part of the original tab map, so a browser error there used to leave
+      // every pane hidden.  This extension owns the communication-center tab.
       activateCommunicationCenter();
-      queueMicrotask(activateCommunicationCenter);
-      [50,180,500,1200,2500].forEach(delay=>setTimeout(()=>{
+      [50,180,500].forEach(delay=>setTimeout(()=>{
         if(isCommunicationCenterActive())activateCommunicationCenter();
       },delay));
+      try{window.bhCloudView?.('overview');}catch(error){console.error('[BinHamid comms load]',error);}
       return false;
     };
   }
