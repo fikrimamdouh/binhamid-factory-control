@@ -21,20 +21,20 @@ export async function showRoleHome(message,identity){
   if(!identity?.active)return sendMessage(message.chat.id,`مرحبًا ${name}. حسابك مسجل وينتظر الاعتماد. استخدم /whoami وأرسل الرقم لمدير النظام.`);
   const markup=roleHomeKeyboard(role),rows=markup.reply_markup.inline_keyboard;
   if(['admin','manager'].includes(role)){
-    addBeforeHelp(rows,[{text:'الحضور والمواقع',callback_data:'home:attendance'},{text:'GPS الأسطول',callback_data:'gps:fleet'}]);
+    addBeforeHelp(rows,[{text:'الحضور والانصراف',callback_data:'home:attendance'},{text:'حالة الأسطول اليوم',callback_data:'gps:fleet'}]);
     addBeforeHelp(rows,[{text:'التحليلات الرقابية',callback_data:'ent:insights_help'},{text:'تقارير العملاء',callback_data:'ent:customer_menu'}]);
     addBeforeHelp(rows,[{text:'التكاليف والربحية',callback_data:'ent:cost_menu'},{text:'دعوات المستخدمين',callback_data:'ent:inv|list'}]);
     if(role==='admin')addBeforeHelp(rows,[{text:'التكاملات والمفاتيح',callback_data:'ent:integrations'},{text:'طلبات تسجيل الموظفين',callback_data:'ent:er|list'}]);
   }else if(role==='driver'){
-    rows.splice(0,0,[{text:'الحضور وحركة السائق',callback_data:'home:attendance'}],[{text:'GPS الأسطول',callback_data:'gps:fleet'},{text:'مهامي',callback_data:'ent:my_tasks'}]);
+    rows.splice(0,0,[{text:'الحضور وحركة السائق',callback_data:'home:attendance'}],[{text:'حالة مركبتي اليوم',callback_data:'gps:fleet'},{text:'مهامي',callback_data:'ent:my_tasks'}]);
   }else if(role==='employee'){
     rows.splice(0,0,[{text:'تسجيل الحضور والانصراف',callback_data:'home:attendance'}],[{text:'خدمات الموظف',callback_data:'ent:hr_menu'}]);
   }else if(role==='mechanic'){
-    addBeforeHelp(rows,[{text:'الحضور والمواقع',callback_data:'home:attendance'},{text:'GPS الأسطول',callback_data:'gps:fleet'}]);
+    addBeforeHelp(rows,[{text:'الحضور والانصراف',callback_data:'home:attendance'},{text:'حالة الأسطول اليوم',callback_data:'gps:fleet'}]);
   }else if(role==='warehouse'){
     rows.splice(0,0,[{text:'المخزون والصرف',callback_data:'ent:inventory_menu'},{text:'طلبات الشراء',callback_data:'ent:purchase'}],[{text:'الحضور',callback_data:'home:attendance'}]);
   }else if(role==='fuel_operator'){
-    rows.splice(0,0,[{text:'الديزل والعدادات',callback_data:'ent:fuel_menu'},{text:'GPS الأسطول',callback_data:'gps:fleet'}],[{text:'الحضور',callback_data:'home:attendance'}]);
+    rows.splice(0,0,[{text:'الديزل والعدادات',callback_data:'ent:fuel_menu'},{text:'حالة الأسطول اليوم',callback_data:'gps:fleet'}],[{text:'الحضور',callback_data:'home:attendance'}]);
   }else if(role==='hr'){
     rows.splice(0,0,[{text:'الحضور والموظفون',callback_data:'home:attendance'},{text:'الموارد البشرية',callback_data:'ent:hr_menu'}],[{text:'تكلفة العامل',callback_data:'ent:cost_workers'},{text:'مهام الفريق',callback_data:'ent:team_tasks'}]);
   }else if(role==='procurement'){
