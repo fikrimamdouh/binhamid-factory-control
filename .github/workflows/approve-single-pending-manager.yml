@@ -1,0 +1,64 @@
+name: Approve Single Pending Manager
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/approve-single-pending-manager.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  approve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Approve exactly one accepted manager invitation
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_DB_URL:-}"
+          psql "$SUPABASE_DB_URL" -X -v ON_ERROR_STOP=1 <<'SQL'
+          begin;
+          do $approval$
+          declare
+            v_count integer;
+            v_invitation public.user_invitations%rowtype;
+            v_user public.app_users%rowtype;
+          begin
+            select count(*) into v_count
+            from public.user_invitations
+            where status='accepted_pending_approval'
+              and requested_role='manager'
+              and accepted_by_telegram_id is not null;
+            if v_count <> 1 then
+              raise exception 'EXPECTED_ONE_PENDING_MANAGER_INVITATION_FOUND_%', v_count;
+            end if;
+            select * into v_invitation
+            from public.user_invitations
+            where status='accepted_pending_approval'
+              and requested_role='manager'
+              and accepted_by_telegram_id is not null
+            for update;
+            update public.app_users
+            set full_name=v_invitation.full_name,
+                employee_external_id=v_invitation.employee_external_id,
+                role='manager',active=true,updated_at=now()
+            where external_id=v_invitation.accepted_by_telegram_id
+            returning * into v_user;
+            if not found then raise exception 'INVITED_MANAGER_USER_NOT_FOUND'; end if;
+            update public.user_invitations
+            set status='approved',approved_by='github-ops-single-manager',approved_at=now()
+            where id=v_invitation.id;
+            delete from public.bot_sessions
+            where channel='telegram' and external_user_id=v_invitation.accepted_by_telegram_id;
+            insert into public.audit_log(actor_type,actor_id,action,entity_type,entity_id,details)
+            values('system','github-ops-single-manager','user_invitation_approved','app_user',v_user.id::text,
+              jsonb_build_object('invitation_id',v_invitation.id,'new_role','manager','method','safe-single-pending-manager'));
+          end
+          $approval$;
+          commit;
+          select 'MANAGER_APPROVED' as result;
+          SQL
