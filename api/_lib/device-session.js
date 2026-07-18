@@ -3,7 +3,7 @@ import { config } from './config.js';
 
 export const DEVICE_COOKIE='bh_device_session';
 // Device sessions authenticate a physical browser only. Business decisions still require an active app user.
-export const DEVICE_CAPABILITIES=Object.freeze(['state.read','state.write','imports.status.sync']);
+export const DEVICE_CAPABILITIES=Object.freeze(['state.read','state.write','imports.read','imports.status.sync']);
 const SESSION_VERSION=2;
 const MAX_AGE_SECONDS=30*24*60*60;
 const clean=(value,max=160)=>String(value??'').trim().slice(0,max);
