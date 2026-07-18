@@ -1,5 +1,6 @@
 name: Runtime Registration Excel Diagnostic
 
+# diagnostic revision: entity persistence v2
 on:
   push:
     branches:
