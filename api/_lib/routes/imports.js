@@ -1,4 +1,5 @@
 import { requireAdminOrDevice } from '../auth.js';
+import { requireCapability } from '../permissions.js';
 import { json, method, body, errorResponse } from '../http.js';
 import { patch, select } from '../supabase.js';
 import { sendMessage } from '../telegram.js';
@@ -17,10 +18,12 @@ async function notifySource(row,nextStatus,note=''){
 export async function status(req,res){
   if(!method(req,res,['POST']))return;
   try{
-    const actor=requireAdminOrDevice(req,'imports.manage'),input=await body(req),nextStatus=String(input.status||'');
-    if(!allowed.includes(nextStatus))throw Object.assign(new Error('الحالة غير صحيحة'),{status:400});
+    const input=await body(req),nextStatus=String(input.status||'');
+    if(!allowed.includes(nextStatus))throw Object.assign(new Error('الحالة غير صحيحة'),{status:400,code:'IMPORT_STATUS_INVALID'});
+    // The device can only report that a file was opened. All business status changes require a real active user.
+    const actor=nextStatus==='opened_in_program'?requireAdminOrDevice(req,'imports.status.sync'):await requireCapability(req,'imports.manage');
     const current=(await select('imports',`id=eq.${encodeURIComponent(input.id)}&select=id,source,source_chat_id,source_message_id,original_name,report_type,status,file_hash,file_path,summary&limit=1`))?.[0];
-    if(!current)throw Object.assign(new Error('ملف مركز الوارد غير موجود'),{status:404});
+    if(!current)throw Object.assign(new Error('ملف مركز الوارد غير موجود'),{status:404,code:'IMPORT_NOT_FOUND'});
     const values={status:nextStatus,updated_at:new Date().toISOString()};
     if(input.note)values.summary={...(current.summary||{}),lastStatusNote:String(input.note).slice(0,500),lastStatusActor:actor.actor,lastStatusAt:new Date().toISOString()};
     const rows=await patch('imports',`id=eq.${encodeURIComponent(input.id)}`,values),updated=rows?.[0]||{...current,...values};
