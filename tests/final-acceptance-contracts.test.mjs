@@ -87,6 +87,7 @@ test('structured accounting API and page are present',()=>{
 test('isolated final database acceptance requires Schema 23 and resolves status transition arguments exactly',()=>{
   const source=read('scripts/final-acceptance-database.mjs');
   assert.match(source,/max\(version\),0\) from public\.migration_history\)<>23/);
+  assert.match(source,/Number\(evidence\.schemaVersion\)!==23/);
   assert.match(source,/null::uuid/);
   assert.match(source,/'processing'::text/);
   assert.match(source,/'posted'::text/);

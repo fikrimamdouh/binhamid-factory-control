@@ -39,7 +39,7 @@ test('migration workflow tests through schema 23 with encrypted backups and isol
   const workflow=await read('.github/workflows/apply-pending-migrations.yml'),preflight=await read('scripts/governance-migration-preflight.mjs'),verify=await read('scripts/governance-migration-verify.mjs');
   for(const marker of ['019_accounting_import_and_telegram_integrity.sql','020_accounting_reversal_and_projection_safety.sql','021_reversal_ledger_balance_fix.sql','022_schema_21_runtime_repair.sql','023_factory_reset_operational_data.sql','pre-migration-backup','post-migration-backup','--single-transaction','Restore production backup to isolated PostgreSQL 17','Run transactional accounting and duplicate acceptance'])assert.ok(workflow.includes(marker),`workflow missing ${marker}`);
   assert.match(workflow,/current_version \+ 1\)\) 23/);
-  assert.match(preflight,/targetVersion:23/);assert.match(verify,/toVersion:23/);assert.match(verify,/PROTECTED_ROW_COUNT_CHANGED/);assert.match(verify,/ACCOUNTING_INTEGRITY_FAILED/);
+  assert.match(preflight,/targetVersion:23/);assert.match(verify,/const targetVersion=23/);assert.match(verify,/between 16 and 23/);assert.match(verify,/toVersion:23/);assert.match(verify,/PROTECTED_ROW_COUNT_CHANGED/);assert.match(verify,/ACCOUNTING_INTEGRITY_FAILED/);
 });
 
 test('financial, credit and maintenance guards are server-side database controls',async()=>{
