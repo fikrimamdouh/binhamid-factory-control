@@ -1,12 +1,12 @@
 import { sendMessage, keyboard } from './telegram.js';
 import { displayName, roleLabel } from './bot-profile.js';
 import { clearMaintenanceSession } from './bot-maintenance.js';
-import { roleHomeKeyboard, financeMenu, collectionMenu, inventoryMenu, fuelMenu, hrMenu, qualityMenu, tripMenu, peopleMenu } from './bot-enterprise-defs.js';
+import { roleHomeKeyboard, financeMenu, collectionMenu, inventoryMenu, fuelMenu, hrMenu, qualityMenu, tripMenu, peopleMenu, concreteSalesMenu, blockSalesMenu, systemsMenu } from './bot-enterprise-defs.js';
 import { advanceEnterpriseForm, cancelEnterpriseForm, confirmEnterpriseForm, startEnterpriseForm } from './bot-enterprise-forms.js';
 import { canManage, getEnterpriseSession, norm } from './bot-enterprise-store.js';
 import { executeEnterpriseSearch, startEnterpriseSearch } from './bot-enterprise-search.js';
 import { sendEnterprisePriorities } from './bot-enterprise-priorities.js';
-import { sendEnterpriseAlerts, sendEnterpriseApprovals, sendEnterpriseCategorySummary, sendEnterpriseDailyReports, sendEnterpriseOperations, sendEnterpriseTasks, setEnterpriseOperationStatus } from './bot-enterprise-status.js';
+import { sendEnterpriseAlerts, sendEnterpriseApprovals, sendEnterpriseCategorySummary, sendEnterpriseDailyReports, sendEnterpriseOperations, sendEnterpriseProductionReports, sendEnterpriseTasks, setEnterpriseOperationStatus } from './bot-enterprise-status.js';
 import { sendFuelAnomalies } from './bot-insights-fleet.js';
 import { sendInventoryRisks, sendDebtAnalysis, sendConcreteCapacity } from './bot-insights-ops.js';
 import { handleEmployeeRegistrationAction, handleEmployeeRegistrationTextCommand } from './bot-employee-approvals.js';
@@ -14,6 +14,7 @@ import { handleCostCallback, handleCostTextCommand } from './bot-costs.js';
 import { continueCustomerReportSession, handleCustomerReportCallback, handleCustomerReportTextCommand } from './bot-customer-reports.js';
 import { continueInvitationSession, handleInvitationCallback, handleInvitationTextCommand } from './bot-invitations.js';
 import { sendIntegrationCatalog } from './bot-integrations.js';
+import { continueAccountingSession, handleAccountingCallback, handleAccountingTextCommand } from './bot-accounting.js';
 
 function addBeforeHelp(rows,row){rows.splice(Math.max(0,rows.length-1),0,row);}
 function miniAppUrl(){let base=String(process.env.PUBLIC_APP_URL||process.env.VERCEL_PROJECT_PRODUCTION_URL||process.env.VERCEL_URL||'https://binhamid-factory-control.vercel.app').trim().replace(/\/$/,'');if(!/^https?:\/\//i.test(base))base=`https://${base}`;return `${base}/telegram-operations.html`;}
@@ -22,6 +23,7 @@ export async function showRoleHome(message,identity){
   if(!identity?.active)return sendMessage(message.chat.id,`مرحبًا ${name}. حسابك مسجل وينتظر الاعتماد. استخدم /whoami وأرسل الرقم لمدير النظام.`);
   const markup=roleHomeKeyboard(role),rows=markup.reply_markup.inline_keyboard;
   if(['admin','manager'].includes(role)){
+    addBeforeHelp(rows,[{text:'🧩 كل أنظمة البرنامج',callback_data:'ent:systems_menu'},{text:'📚 مركز المحاسبة',callback_data:'ent:accounting_menu'}]);
     addBeforeHelp(rows,[{text:'الحضور والانصراف',callback_data:'home:attendance'},{text:'حالة الأسطول اليوم',callback_data:'gps:fleet'}]);
     addBeforeHelp(rows,[{text:'التحليلات الرقابية',callback_data:'ent:insights_help'},{text:'تقارير العملاء',callback_data:'ent:customer_menu'}]);
     addBeforeHelp(rows,[{text:'فتح عمليات العملاء والمراجعة',web_app:{url:miniAppUrl()}}]);
@@ -45,7 +47,7 @@ export async function showRoleHome(message,identity){
     rows.splice(0,0,[{text:'الجودة والرقابة',callback_data:'ent:quality_menu'},{text:'الحضور',callback_data:'home:attendance'}]);
   }else if(['accountant','block_sales','concrete_sales','collector'].includes(role)){
     addBeforeHelp(rows,[{text:'الحضور والمواقع',callback_data:'home:attendance'},{text:'تقارير العملاء',callback_data:'ent:customer_menu'}]);
-    if(role==='accountant')addBeforeHelp(rows,[{text:'التكاليف والربحية',callback_data:'ent:cost_menu'},{text:'مساعد المنتجات والأسعار',callback_data:'home:suppliers'}]);
+    if(role==='accountant'){addBeforeHelp(rows,[{text:'📚 مركز المحاسبة',callback_data:'ent:accounting_menu'},{text:'🧩 كل أنظمة البرنامج',callback_data:'ent:systems_menu'}]);addBeforeHelp(rows,[{text:'التكاليف والربحية',callback_data:'ent:cost_menu'},{text:'مساعد المنتجات والأسعار',callback_data:'home:suppliers'}]);}
   }
   return sendMessage(message.chat.id,`<b>لوحة الموظف الذكي</b>\nمرحبًا ${name} — ${roleLabel(role)}.\nاختر العملية المطلوبة؛ كل مسار يعمل خطوة بخطوة مع مراجعة قبل الحفظ.`,markup);
 }
@@ -57,6 +59,7 @@ export async function handleEnterpriseTextCommand(message,identity,text){
   if(await handleInvitationTextCommand(message,identity,raw))return true;
   if(await handleCostTextCommand(message,identity,raw))return true;
   if(await handleCustomerReportTextCommand(message,identity,raw))return true;
+  if(await handleAccountingTextCommand(message,identity,raw))return true;
   if(/^\/suggestion(?:@\w+)?$/i.test(raw)||/^(اقتراح للاداره|اقتراح للمدير|ارسل اقتراح للاداره)$/.test(value)){await startEnterpriseForm(message,identity,'management_suggestion');return true;}
   if(/^\/(problem|complaint)(?:@\w+)?$/i.test(raw)||/^(مشكله للاداره|شكوى للاداره|بلاغ للاداره)$/.test(value)){await startEnterpriseForm(message,identity,'management_problem');return true;}
   if(/^\/(integrations|keys)(?:@\w+)?$/i.test(raw)||/^(التكاملات والمفاتيح|مفاتيح البرنامج|حاله التكاملات|حالة التكاملات)$/.test(value)){await sendIntegrationCatalog(message,identity);return true;}
@@ -68,6 +71,12 @@ export async function handleEnterpriseTextCommand(message,identity,text){
   if(/^(تسجيل تحصيل|سند قبض عميل)$/.test(value)){await startEnterpriseForm(message,identity,'collection_receipt');return true;}
   if(/^(طلب شراء جديد|طلب شراء)$/.test(value)){await startEnterpriseForm(message,identity,'purchase');return true;}
   if(/^(بلاغ جوده|بلاغ جودة|عدم مطابقه|عدم مطابقة)$/.test(value)){await startEnterpriseForm(message,identity,'quality_issue');return true;}
+  if(/تقرير.*(مسبق|بكره|غدا).*(خرسان|رخسان)|(?:خرسان|رخسان).*(تقرير|تسجيل).*(مسبق|بكره|غدا)/.test(value)){await startEnterpriseForm(message,identity,'concrete_pre_report');return true;}
+  if(/تقرير.*(اليوم|يومي).*(خرسان|رخسان)|(?:خرسان|رخسان).*(تقرير|تسجيل).*(اليوم|يومي)/.test(value)){await startEnterpriseForm(message,identity,'concrete_daily_report');return true;}
+  if(/تقرير.*(مسبق|بكره|غدا).*بلوك|بلوك.*(تقرير|تسجيل).*(مسبق|بكره|غدا)/.test(value)){await startEnterpriseForm(message,identity,'block_pre_report');return true;}
+  if(/تقرير.*(اليوم|يومي).*بلوك|بلوك.*(تقرير|تسجيل).*(اليوم|يومي)/.test(value)){await startEnterpriseForm(message,identity,'block_daily_report');return true;}
+  if(/^(تقارير الخرسانه|تشغيل الخرسانه|احتياجات الخرسانه)$/.test(value)){await sendEnterpriseProductionReports(message.chat.id,identity,'concrete');return true;}
+  if(/^(تقارير البلوك|تشغيل البلوك|احتياجات البلوك)$/.test(value)){await sendEnterpriseProductionReports(message.chat.id,identity,'block');return true;}
   return false;
 }
 export async function continueEnterpriseSession(message,identity,session,text){
@@ -75,6 +84,7 @@ export async function continueEnterpriseSession(message,identity,session,text){
   if(await continueInvitationSession(message,identity,session,value))return true;
   if(/^(الغاء|إلغاء|تراجع|cancel)$/i.test(value)){await clearMaintenanceSession(message.chat.id,identity.external_id||message.from.id);await sendMessage(message.chat.id,'تم إلغاء العملية الحالية.');return true;}
   if(await continueCustomerReportSession(message,identity,session,value))return true;
+  if(await continueAccountingSession(message,identity,session,value))return true;
   if(session.state==='enterprise_search'){await executeEnterpriseSearch(message,identity,value);return true;}
   if(session.state?.startsWith('enterprise_form:'))return advanceEnterpriseForm(message,identity,session,value);
   return false;
@@ -88,6 +98,12 @@ export async function handleEnterpriseCallback(message,from,identity,action,valu
     if(String(value||'').startsWith('customer_'))return handleCustomerReportCallback(message,from,identity,value);
     if(value==='help')return showRoleHome({...message,from},identity);
     if(value==='integrations')return sendIntegrationCatalog({...message,from},identity);
+    if(value==='systems_menu')return sendMessage(message.chat.id,'كل أنظمة البرنامج المتاحة حسب صلاحيتك:',systemsMenu(identity.role));
+    if(value==='accounting_menu'||String(value||'').startsWith('accounting_'))return handleAccountingCallback({...message,from},identity,value);
+    if(value==='concrete_sales_menu')return sendMessage(message.chat.id,'الخرسانة مستقلة: أوامر بيع، تقرير مسبق، تقرير اليوم ومتطلبات التشغيل.',concreteSalesMenu(identity.role));
+    if(value==='block_sales_menu')return sendMessage(message.chat.id,'البلوك مستقل: أوامر بيع، تقرير مسبق، تقرير اليوم ومتطلبات التشغيل.',blockSalesMenu(identity.role));
+    if(value==='concrete_reports')return sendEnterpriseProductionReports(message.chat.id,identity,'concrete');
+    if(value==='block_reports')return sendEnterpriseProductionReports(message.chat.id,identity,'block');
     if(value==='finance_menu')return sendMessage(message.chat.id,'اختر العملية المالية:',financeMenu());
     if(value==='collection_menu')return sendMessage(message.chat.id,'اختر عملية التحصيل:',collectionMenu());
     if(value==='inventory_menu')return sendMessage(message.chat.id,'اختر حركة المخزون أو الشراء:',inventoryMenu());

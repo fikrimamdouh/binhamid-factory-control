@@ -34,6 +34,10 @@ export const SIMPLE_DEFS={
   trip_fault:{prefix:'TFT',category:'trip',subtype:'fault',title:'عطل أثناء رحلة',fields:[['asset','اكتب رقم السيارة أو اللوحة.'],['location','اكتب الموقع الحالي.'],['note','اكتب وصف العطل وهل المركبة متوقفة.']]},
   trip_end:{prefix:'TEN',category:'trip',subtype:'end',title:'إنهاء رحلة',fields:[['asset','اكتب رقم السيارة أو اللوحة.'],['odometer','اكتب قراءة العداد.'],['note','اكتب نتيجة الرحلة.']]},
   customer:{prefix:'CUS',category:'customer',subtype:'new',title:'عميل جديد',fields:[['party','اكتب اسم العميل أو المنشأة.'],['phone','اكتب رقم الجوال.'],['location','اكتب المدينة أو العنوان.'],['note','اكتب النشاط أو ملاحظات الائتمان.']]},
+  concrete_pre_report:{prefix:'CPR',category:'production',subtype:'concrete_pre_report',title:'تقرير خرسانة مسبق',fields:[['report_date','اكتب تاريخ التشغيل أو التوريد بصيغة 2026-07-20.'],['party','اكتب اسم العميل والموقع.'],['item','اكتب نوع الخرسانة أو الخلطة والمقاومة.'],['quantity','اكتب الكمية المخططة بالمتر المكعب.'],['delivery_time','اكتب وقت بداية الصب والمدة المتوقعة.'],['pumps','اكتب عدد المضخات أو اكتب 0.'],['requirements','اذكر المتطلبات التي يجب على المدير تجهيزها: أسمنت، رمل، بحص، إضافات، مضخات، خلاطات أو سائقون.']]},
+  concrete_daily_report:{prefix:'CDR',category:'production',subtype:'concrete_daily_report',title:'تقرير الخرسانة اليوم',fields:[['report_date','اكتب تاريخ التقرير بصيغة 2026-07-20.'],['item','اكتب الخلطات أو درجات الخرسانة المنفذة.'],['quantity','اكتب الكمية المخططة بالمتر المكعب.'],['produced','اكتب الكمية المنتجة فعليًا.'],['delivered','اكتب الكمية الموردة فعليًا.'],['waste','اكتب الهالك أو المرتجع، أو 0.'],['delays','اذكر أي تأخير أو توقف، أو اكتب لا يوجد.'],['requirements','اذكر ما يحتاجه تشغيل الغد أو اكتب لا يوجد.']]},
+  block_pre_report:{prefix:'BPR',category:'production',subtype:'block_pre_report',title:'تقرير بلوك مسبق',fields:[['report_date','اكتب تاريخ التشغيل أو التوريد بصيغة 2026-07-20.'],['party','اكتب اسم العميل أو جهة الطلب.'],['item','اكتب نوع ومقاس البلوك.'],['quantity','اكتب الكمية المخططة بالحبة.'],['delivery_time','اكتب موعد بدء الإنتاج أو التوريد.'],['requirements','اذكر المواد والقوالب والعمالة والسيارات المطلوب تجهيزها.']]},
+  block_daily_report:{prefix:'BDR',category:'production',subtype:'block_daily_report',title:'تقرير البلوك اليوم',fields:[['report_date','اكتب تاريخ التقرير بصيغة 2026-07-20.'],['item','اكتب أنواع ومقاسات البلوك المنتجة.'],['quantity','اكتب الكمية المخططة بالحبة.'],['produced','اكتب الكمية المنتجة فعليًا.'],['delivered','اكتب الكمية الموردة فعليًا.'],['waste','اكتب المرفوض أو الهالك، أو 0.'],['delays','اذكر أي توقف أو عطل، أو اكتب لا يوجد.'],['requirements','اذكر احتياجات تشغيل الغد أو اكتب لا يوجد.']]},
   management_suggestion:{prefix:'SUG',category:'incident',subtype:'management_suggestion',title:'اقتراح للإدارة',fields:[['note','اكتب اقتراحك للإدارة بالتفصيل. يمكنك أيضًا إرسال رسالة صوتية، وللسرية استخدم المحادثة الخاصة مع البوت.']]},
   management_problem:{prefix:'PRB',category:'incident',subtype:'management_problem',title:'مشكلة للإدارة',fields:[['priority','اختر مدى تأثير المشكلة.',[['normal','ملاحظة'],['urgent','تحتاج تدخل'],['critical','حرجة']]],['note','اشرح المشكلة التي تواجهك، وتأثيرها، وما الذي تحتاجه من الإدارة. يمكنك إرسال التفاصيل صوتيًا.']]},
   daily_report:{prefix:'DLY',category:'incident',subtype:'daily_report',title:'تقرير يومي',fields:[['note','اكتب ما أنجزته، ما تعطل، وما يحتاج متابعة.']]},
@@ -45,7 +49,8 @@ export function roleHomeRows(role){
   if(role==='admin'||role==='manager'){
     rows.push([{text:'🚨 ما يحتاج تدخلي الآن',callback_data:'ent:priorities'},{text:'✅ الاعتمادات',callback_data:'ent:approvals'}]);
     rows.push([{text:'📊 لوحة التشغيل',callback_data:'ent:operations'},{text:'🧭 بحث شامل',callback_data:'ent:search'}]);
-    rows.push([{text:'🔧 الورشة',callback_data:'home:workshop'},{text:'🧱 المبيعات',callback_data:'home:sales'}]);
+    rows.push([{text:'🏭 الخرسانة',callback_data:'ent:concrete_sales_menu'},{text:'🧱 البلوك',callback_data:'ent:block_sales_menu'}]);
+    rows.push([{text:'🔧 الورشة',callback_data:'home:workshop'},{text:'📊 كل المبيعات',callback_data:'home:sales'}]);
     rows.push([{text:'💰 المالية والتحصيل',callback_data:'ent:finance_menu'},{text:'📦 المخزون والشراء',callback_data:'ent:inventory_menu'}]);
     rows.push([{text:'⛽ الديزل والأسطول',callback_data:'ent:fuel_menu'},{text:'👥 الموظفون والمهام',callback_data:'ent:people_menu'}]);
     rows.push([{text:'🧪 الجودة والرقابة',callback_data:'ent:quality_menu'},{text:'🔎 الموردون والأسعار',callback_data:'home:suppliers'}]);
@@ -53,7 +58,8 @@ export function roleHomeRows(role){
     rows.push([{text:'📈 تقرير اليوم',callback_data:'report:daily'},{text:'📎 آخر ملف يومي',callback_data:'report:daily_file'}]);
     rows.push([{text:'👥 تقارير العملاء',callback_data:'ent:customer_menu'},{text:'💸 التكاليف والربحية',callback_data:'ent:cost_menu'}]);
   }else if(role==='accountant'){
-    rows.push([{text:'💰 المالية',callback_data:'ent:finance_menu'},{text:'🧾 التحصيلات',callback_data:'ent:collection_menu'}]);
+    rows.push([{text:'📚 مركز المحاسبة',callback_data:'ent:accounting_menu'},{text:'💰 العمليات المالية',callback_data:'ent:finance_menu'}]);
+    rows.push([{text:'🧾 التحصيلات',callback_data:'ent:collection_menu'},{text:'📊 كل المبيعات',callback_data:'home:sales'}]);
     rows.push([{text:'📦 المخزون والمشتريات',callback_data:'ent:inventory_menu'},{text:'⛽ الديزل',callback_data:'ent:fuel_menu'}]);
     rows.push([{text:'👥 الرواتب والموظفون',callback_data:'ent:hr_menu'},{text:'✅ الاعتمادات',callback_data:'ent:approvals'}]);
     rows.push([{text:'📋 مهامي',callback_data:'ent:my_tasks'},{text:'🧭 بحث شامل',callback_data:'ent:search'}]);
@@ -66,7 +72,8 @@ export function roleHomeRows(role){
     rows.push([{text:'⛽ تسجيل وقود',callback_data:'ent:fuel_fill'},{text:'🚚 حركة مركبة/رحلة',callback_data:'ent:trip_menu'}]);
     rows.push([{text:'🧪 بلاغ جودة أو سلامة',callback_data:'ent:quality_issue'}]);
   }else if(role==='block_sales'||role==='concrete_sales'){
-    rows.push([{text:'➕ أمر بيع جديد',callback_data:'home:sales'},{text:'📋 أوامر البيع',callback_data:'home:sales'}]);
+    const productMenu=role==='concrete_sales'?'ent:concrete_sales_menu':'ent:block_sales_menu',productLabel=role==='concrete_sales'?'الخرسانة':'البلوك';
+    rows.push([{text:`🏭 تشغيل ومبيعات ${productLabel}`,callback_data:productMenu},{text:'📋 أوامر البيع',callback_data:'home:sales'}]);
     rows.push([{text:'💵 تسجيل تحصيل',callback_data:'ent:collection_receipt'},{text:'👤 عميل جديد',callback_data:'ent:customer'}]);
     rows.push([{text:'📍 متابعة توريد/زيارة',callback_data:'ent:trip_menu'},{text:'📋 مهامي',callback_data:'ent:my_tasks'}]);
     rows.push([{text:'🧭 بحث',callback_data:'ent:search'},{text:'📝 تقريري اليومي',callback_data:'ent:daily_report'}]);
@@ -83,6 +90,9 @@ export function roleHomeRows(role){
   return rows;
 }
 export const roleHomeKeyboard=role=>keyboard(roleHomeRows(role));
+export const concreteSalesMenu=role=>{const rows=[];if(['admin','concrete_sales'].includes(role))rows.push([{text:'➕ أمر بيع خرسانة',callback_data:'sales:new_concrete'},{text:'📋 أوامر الخرسانة',callback_data:'sales:open_concrete'}]);else rows.push([{text:'📋 أوامر الخرسانة',callback_data:'sales:open_concrete'}]);rows.push([{text:'🗓 تسجيل تقرير مسبق',callback_data:'ent:concrete_pre_report'},{text:'📝 تسجيل تقرير اليوم',callback_data:'ent:concrete_daily_report'}],[{text:'🏭 ملخص تشغيل الخرسانة',callback_data:'ent:concrete_reports'},{text:'📊 حالة المبيعات',callback_data:'sales:summary'}],[{text:'🧪 طاقة وتصميم الخلطات',callback_data:'ent:insight_capacity'}]);return keyboard(rows);};
+export const blockSalesMenu=role=>{const rows=[];if(['admin','block_sales'].includes(role))rows.push([{text:'➕ أمر بيع بلوك',callback_data:'sales:new_block'},{text:'📋 أوامر البلوك',callback_data:'sales:open_block'}]);else rows.push([{text:'📋 أوامر البلوك',callback_data:'sales:open_block'}]);rows.push([{text:'🗓 تسجيل تقرير مسبق',callback_data:'ent:block_pre_report'},{text:'📝 تسجيل تقرير اليوم',callback_data:'ent:block_daily_report'}],[{text:'🧱 ملخص تشغيل البلوك',callback_data:'ent:block_reports'},{text:'📊 حالة المبيعات',callback_data:'sales:summary'}]);return keyboard(rows);};
+export const systemsMenu=role=>keyboard([[{text:'🏭 الخرسانة',callback_data:'ent:concrete_sales_menu'},{text:'🧱 البلوك',callback_data:'ent:block_sales_menu'}],[{text:'📚 المحاسبة',callback_data:'ent:accounting_menu'},{text:'💰 المالية والتحصيل',callback_data:'ent:finance_menu'}],[{text:'📦 المخزون والشراء',callback_data:'ent:inventory_menu'},{text:'🔧 الورشة',callback_data:'home:workshop'}],[{text:'⛽ الديزل والأسطول',callback_data:'ent:fuel_menu'},{text:'👥 الموظفون والمهام',callback_data:'ent:people_menu'}],[{text:'🧪 الجودة',callback_data:'ent:quality_menu'},{text:'🔎 الموردون',callback_data:'home:suppliers'}],[{text:'📈 تقارير اليوم',callback_data:'report:daily'},{text:'🧭 بحث شامل',callback_data:'ent:search'}]]);
 export const financeMenu=()=>keyboard([[{text:'➕ سند قبض',callback_data:'ent:finance_receipt'},{text:'➖ سند صرف',callback_data:'ent:finance_payment'}],[{text:'🧾 فاتورة مورد',callback_data:'ent:finance_invoice'},{text:'🏦 تسوية صندوق',callback_data:'ent:finance_cash'}],[{text:'👥 ملاحظة رواتب/سلفة',callback_data:'ent:hr_payroll'},{text:'📊 ملخص المالية',callback_data:'ent:finance_summary'}]]);
 export const collectionMenu=()=>keyboard([[{text:'💵 تحصيل',callback_data:'ent:collection_receipt'},{text:'🤝 زيارة عميل',callback_data:'ent:collection_visit'}],[{text:'📅 وعد سداد',callback_data:'ent:collection_promise'},{text:'📵 لم يرد',callback_data:'ent:collection_no_answer'}],[{text:'📊 ملخص التحصيل',callback_data:'ent:collection_summary'}]]);
 export const inventoryMenu=()=>keyboard([[{text:'📥 استلام صنف',callback_data:'ent:inventory_receive'},{text:'📤 صرف صنف',callback_data:'ent:inventory_issue'}],[{text:'🧮 جرد سريع',callback_data:'ent:inventory_count'},{text:'⚠️ صنف منخفض',callback_data:'ent:inventory_low'}],[{text:'🛒 طلب شراء',callback_data:'ent:purchase'},{text:'📊 حركة المخزون',callback_data:'ent:inventory_summary'}]]);
