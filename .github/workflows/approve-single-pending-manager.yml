@@ -7,13 +7,14 @@ on:
 
 permissions:
   contents: read
+  statuses: write
 
 jobs:
   approve:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Approve exactly one accepted manager invitation
+      - name: Approve or verify exactly one manager invitation
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         shell: bash
@@ -24,24 +25,39 @@ jobs:
           begin;
           do $approval$
           declare
-            v_count integer;
+            v_pending integer;
+            v_done integer;
             v_invitation public.user_invitations%rowtype;
             v_user public.app_users%rowtype;
           begin
-            select count(*) into v_count
+            select count(*) into v_pending
             from public.user_invitations
             where status='accepted_pending_approval'
               and requested_role='manager'
               and accepted_by_telegram_id is not null;
-            if v_count <> 1 then
-              raise exception 'EXPECTED_ONE_PENDING_MANAGER_INVITATION_FOUND_%', v_count;
+
+            if v_pending = 0 then
+              select count(*) into v_done
+              from public.user_invitations i
+              join public.app_users u on u.external_id=i.accepted_by_telegram_id
+              where i.status='approved'
+                and i.requested_role='manager'
+                and i.approved_by='github-ops-single-manager'
+                and u.role='manager'
+                and u.active=true;
+              if v_done < 1 then raise exception 'NO_APPROVED_OR_PENDING_MANAGER_INVITATION'; end if;
+              return;
             end if;
+
+            if v_pending <> 1 then raise exception 'EXPECTED_ONE_PENDING_MANAGER_INVITATION_FOUND_%', v_pending; end if;
+
             select * into v_invitation
             from public.user_invitations
             where status='accepted_pending_approval'
               and requested_role='manager'
               and accepted_by_telegram_id is not null
             for update;
+
             update public.app_users
             set full_name=v_invitation.full_name,
                 employee_external_id=v_invitation.employee_external_id,
@@ -49,16 +65,35 @@ jobs:
             where external_id=v_invitation.accepted_by_telegram_id
             returning * into v_user;
             if not found then raise exception 'INVITED_MANAGER_USER_NOT_FOUND'; end if;
+
             update public.user_invitations
             set status='approved',approved_by='github-ops-single-manager',approved_at=now()
             where id=v_invitation.id;
+
             delete from public.bot_sessions
             where channel='telegram' and external_user_id=v_invitation.accepted_by_telegram_id;
+
             insert into public.audit_log(actor_type,actor_id,action,entity_type,entity_id,details)
             values('system','github-ops-single-manager','user_invitation_approved','app_user',v_user.id::text,
               jsonb_build_object('invitation_id',v_invitation.id,'new_role','manager','method','safe-single-pending-manager'));
           end
           $approval$;
           commit;
-          select 'MANAGER_APPROVED' as result;
+          select 'MANAGER_APPROVED_OR_VERIFIED' as result;
           SQL
+
+      - name: Publish safe manager approval status
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${REPOSITORY}/statuses/${SHA}" \
+            -d "{\"state\":\"success\",\"context\":\"manager-approval:approved\",\"description\":\"Exactly one manager account is approved and active.\",\"target_url\":\"${RUN_URL}\"}"
