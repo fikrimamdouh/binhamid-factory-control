@@ -41,6 +41,10 @@ async function managementFeedbackChats(excludeChatId=''){
   }catch(error){console.warn('[telegram management feedback recipients]',{message:String(error?.message||'').slice(0,300)});}
   return[...chats];
 }
+function managementFeedbackKeyboard(reference){return keyboard([
+  [{text:'تم الاطلاع',callback_data:`entstatus:${reference}|under_review`},{text:'بدأت المعالجة',callback_data:`entstatus:${reference}|in_progress`}],
+  [{text:'تم الرد والإغلاق',callback_data:`entstatus:${reference}|completed`},{text:'رفض الاقتراح/البلاغ',callback_data:`entstatus:${reference}|rejected`}]
+]);}
 async function notifyFinancialControl(details,message,identity){
   const chats=await managementFeedbackChats(message.chat.id);
   if(!chats.length)return{recipients:0,delivered:0,failed:0};
@@ -67,8 +71,8 @@ async function notifyManagementFeedback(details,message,identity){
   const chats=await managementFeedbackChats(message.chat.id);
   if(!chats.length)return{recipients:0,delivered:0,failed:0};
   const type=details.subtype==='management_problem'?'مشكلة':'اقتراح',employee=details.created_by_name||displayName(identity,message.from),role=roleLabel(identity?.role||'pending'),source=message.chat.title||'محادثة خاصة';
-  const text=`<b>${esc(type)} جديد من موظف</b>\n\nالمرجع: <b>${esc(details.reference_no)}</b>\nالموظف: <b>${esc(employee)}</b>\nالدور: <b>${esc(role)}</b>\nTelegram: <code>${esc(message.from.id)}</code>\nالمصدر: <b>${esc(source)}</b>${details.priority&&details.priority!=='normal'?`\nدرجة التأثير: <b>${esc(details.priority==='critical'?'حرجة':'تحتاج تدخل')}</b>`:''}\n\n<b>التفاصيل:</b>\n${esc(details.note||'').slice(0,2200)}`;
-  const sent=await Promise.allSettled(chats.map(chatId=>sendMessage(chatId,text,{...statusKeyboard(details.reference_no),action_name:'management_feedback_received',action_payload:{reference_no:details.reference_no,subtype:details.subtype,created_by_user_id:details.created_by_user_id}})));
+  const text=`<b>${esc(type)} جديد من موظف</b>\n\nالمرجع: <b>${esc(details.reference_no)}</b>\nالموظف: <b>${esc(employee)}</b>\nالدور: <b>${esc(role)}</b>\nTelegram: <code>${esc(message.from.id)}</code>\nالمصدر: <b>${esc(source)}</b>${details.priority&&details.priority!=='normal'?`\nدرجة التأثير: <b>${esc(details.priority==='critical'?'حرجة':'تحتاج تدخل')}</b>`:''}\n\n<b>التفاصيل:</b>\n${esc(details.note||'').slice(0,2200)}\n\nاضغط «تم الاطلاع» ليصل للموظف إثبات باسمك ووقت الاطلاع.`;
+  const sent=await Promise.allSettled(chats.map(chatId=>sendMessage(chatId,text,{...managementFeedbackKeyboard(details.reference_no),action_name:'management_feedback_received',action_payload:{reference_no:details.reference_no,subtype:details.subtype,created_by_user_id:details.created_by_user_id}})));
   const delivered=sent.filter(item=>item.status==='fulfilled').length,failed=sent.length-delivered;
   if(failed)console.warn('[telegram management feedback delivery]',{reference:details.reference_no,recipients:chats.length,delivered,failed});
   return{recipients:chats.length,delivered,failed};
@@ -137,7 +141,7 @@ export async function advanceEnterpriseForm(message,identity,session,value){
     if(nextField[2])await sendMessage(message.chat.id,nextField[1],optionsKeyboard(action,nextField[2]));else await sendMessage(message.chat.id,nextField[1]);
     return true;
   }
-  const reference=await nextEnterpriseReference(def.prefix),managementFeedback=MANAGEMENT_FEEDBACK_ACTIONS.has(action),productionReport=PRODUCTION_REPORT_ACTIONS.has(action),financialControl=FINANCIAL_CONTROL_ACTIONS.has(action),status=def.category==='task'?'assigned':financialControl?'under_review':(def.category==='quality'||managementFeedback)&&data.priority==='critical'?'under_review':'open';
+  const reference=await nextEnterpriseReference(def.prefix),managementFeedback=MANAGEMENT_FEEDBACK_ACTIONS.has(action),productionReport=PRODUCTION_REPORT_ACTIONS.has(action),financialControl=FINANCIAL_CONTROL_ACTIONS.has(action),status=def.category==='task'?'assigned':financialControl?'under_review':def.category==='quality'&&data.priority==='critical'?'under_review':'open';
   const details={reference_no:reference,category:def.category,subtype:def.subtype,title:def.title,status,priority:data.priority||'normal',created_by_user_id:String(identity.user_id||''),created_by_name:displayName(identity,message.from),assigned_to:managementFeedback?'الإدارة':data.party||displayName(identity,message.from),...data};
   await setEnterpriseSession(message.chat.id,identity.external_id||message.from.id,'enterprise_confirm',{action,reference,details,startedAt:new Date().toISOString(),roleAtStart:session.context?.roleAtStart||identity.role});
   const lines=Object.entries(data).map(([keyName,fieldValue])=>summaryLine(keyName,fieldValue)).join('\n');
@@ -152,7 +156,7 @@ export async function confirmEnterpriseForm(message,from,identity,reference){
   if(details.category==='quality'&&details.priority==='critical')await insert('discrepancies',[{reference_no:reference,source_type:'telegram_quality',discrepancy_type:details.subtype,severity:'critical',title:details.title,actual_value:details,status:'open',reason:details.note||'',assigned_to:null}]);
   const managementFeedback=MANAGEMENT_FEEDBACK_ACTIONS.has(action),productionReport=PRODUCTION_REPORT_ACTIONS.has(action),financialControl=FINANCIAL_CONTROL_ACTIONS.has(action),notification=managementFeedback?await notifyManagementFeedback(details,{...message,from},identity):productionReport?await notifyProductionReport(details,{...message,from},identity):financialControl?await notifyFinancialControl(details,{...message,from},identity):null;
   await clearMaintenanceSession(message.chat.id,identity.external_id||from.id);
-  const delivery=(managementFeedback||productionReport||financialControl)?(notification.delivered?`\nتم إرساله فورًا إلى الإدارة: <b>${notification.delivered}</b> مستلم.`:'\nتم حفظه في لوحة التشغيل، لكن تعذر إرسال تنبيه Telegram للإدارة.') :'';
+  const delivery=(managementFeedback||productionReport||financialControl)?(notification.delivered?(managementFeedback?`\nوصل التنبيه إلى <b>${notification.delivered}</b> حساب إداري. هذا إثبات تسليم فقط، وليس إثبات مشاهدة. سيصلك إشعار باسم المدير ووقت الاطلاع عند ضغطه «تم الاطلاع» أو تغيير الحالة.`:`\nتم إرساله فورًا إلى الإدارة: <b>${notification.delivered}</b> مستلم.`):'\nتم حفظه في لوحة التشغيل، لكن تعذر إرسال تنبيه Telegram للإدارة.') :'';
   return sendMessage(message.chat.id,`تم حفظ ${esc(details.title)} رسميًا.\nالمرجع: <b>${esc(reference)}</b>\nالحالة: <b>${esc(STATUS_LABEL[details.status]||details.status)}</b>.${delivery}`,managementFeedback?{}:statusKeyboard(reference));
 }
 export async function cancelEnterpriseForm(message,from,identity){await clearMaintenanceSession(message.chat.id,identity.external_id||from.id);return sendMessage(message.chat.id,'تم إلغاء العملية المؤقتة.');}
