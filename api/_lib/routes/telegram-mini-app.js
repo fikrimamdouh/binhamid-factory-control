@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { body, errorResponse, json, method } from '../http.js';
 import { validateTelegramWebApp } from '../telegram-webapp.js';
 import { insert, patch, select, upsert } from '../supabase.js';
@@ -17,6 +18,15 @@ async function profile(identity){return{user:{name:identity.user.full_name,role:
 async function customers(identity){
   if(!canManage(identity))throw Object.assign(new Error('هذه الشاشة للإدارة والمحاسب فقط'),{status:403});
   return select('customers','select=id,external_id,customer_code,customer_name,phone,credit_limit,payment_days,active&order=customer_name.asc&limit=300');
+}
+async function createCustomer(identity,input){
+  if(!canManage(identity))throw Object.assign(new Error('لا تملك صلاحية إضافة العملاء'),{status:403});
+  const customerName=clean(input.customerName,500),customerCode=clean(input.customerCode,120),phone=clean(input.phone,80);
+  if(!customerName||!customerCode)throw Object.assign(new Error('اسم العميل وكوده مطلوبان'),{status:400});
+  const duplicate=(await select('customers',`customer_code=eq.${encodeURIComponent(customerCode)}&select=id,customer_name&limit=1`).catch(()=>[]))?.[0];
+  if(duplicate)throw Object.assign(new Error(`كود العميل مستخدم بالفعل للعميل ${duplicate.customer_name}`),{status:409});
+  const externalId=`TG-${customerCode}-${crypto.randomUUID().slice(0,8)}`,rows=await insert('customers',[{external_id:externalId,customer_code:customerCode,customer_name:customerName,phone:phone||null,credit_limit:numeric(input.creditLimit||0),payment_days:Math.round(numeric(input.paymentDays||0,0,3650)),active:true,created_at:new Date().toISOString(),updated_at:new Date().toISOString()}]);
+  const customer=rows?.[0]||null;await audit(identity,'telegram_mini_customer_created','customer',customer?.id||externalId,{customer_code:customerCode,customer_name:customerName});return customer;
 }
 async function saveCustomer(identity,input){
   if(!canManage(identity))throw Object.assign(new Error('لا تملك صلاحية تعديل العملاء'),{status:403});
@@ -46,6 +56,7 @@ export async function telegramMiniApp(req,res){
     const input=await body(req),identity=await identityFor(input.initData),action=clean(input.action,40);
     if(action==='profile')return json(res,200,{ok:true,...await profile(identity)});
     if(action==='customers')return json(res,200,{ok:true,customers:await customers(identity)});
+    if(action==='create_customer')return json(res,200,{ok:true,customer:await createCustomer(identity,input)});
     if(action==='save_customer')return json(res,200,{ok:true,customer:await saveCustomer(identity,input)});
     if(action==='failed_imports')return json(res,200,{ok:true,imports:await failedImports(identity)});
     if(action==='assignment_data')return json(res,200,{ok:true,...await assignmentData(identity)});
