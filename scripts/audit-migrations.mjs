@@ -23,6 +23,6 @@ for(const file of files){
   if(version===19){for(const marker of ['chart_of_accounts','journal_entries','journal_entry_lines','general_ledger','trial_balance','post_daily_report_accounting','transition_import_status','telegram_update_receipts','claim_telegram_update'])if(!sql.includes(marker))errors.push(`${file}: missing ${marker}`);}
   if(version===20){for(const marker of ['reverse_journal_entry','accounting_integrity_report','project_sales_audit_event','project_operational_audit_event','trial_balance'])if(!sql.includes(marker))errors.push(`${file}: missing ${marker}`);}
   if(version===21){for(const marker of ["status in ('posted','reversed')",'general_ledger','trial_balance','accounting_integrity_report'])if(!sql.includes(marker))errors.push(`${file}: missing ${marker}`);}
-  if(version===22){for(const marker of ['MIGRATION_021_REQUIRED','transition_import_status','telegram_update_receipts','commit_daily_report_acceptance'])if(!sql.includes(marker))errors.push(`${file}: missing ${marker}`);}
+  if(version===22){for(const marker of ['MIGRATION_021_REQUIRED','create extension if not exists pgcrypto','transition_import_status','telegram_update_receipts','commit_daily_report_acceptance'])if(!sql.includes(marker))errors.push(`${file}: missing ${marker}`);}
 }
 if(errors.length){console.error(errors.join('\n'));process.exit(1);}console.log(`MIGRATIONS_OK=${files.length};LATEST=${String(latest).padStart(3,'0')}`);
