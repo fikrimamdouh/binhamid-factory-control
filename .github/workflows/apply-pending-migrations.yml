@@ -22,6 +22,7 @@ on:
       - 'supabase/migrations/019_accounting_import_and_telegram_integrity.sql'
       - 'supabase/migrations/020_accounting_reversal_and_projection_safety.sql'
       - 'supabase/migrations/021_reversal_ledger_balance_fix.sql'
+      - 'supabase/migrations/022_schema_21_runtime_repair.sql'
 
 permissions:
   contents: read
@@ -132,9 +133,9 @@ jobs:
           SUPABASE_DB_URL: ''
         run: node scripts/restore-drill.mjs
 
-      - name: Apply schema 19-20 to isolated clone atomically
+      - name: Apply schema 19-22 to isolated clone atomically
         env:
-          ISOLATED_MIGRATION_TARGET: '20'
+          ISOLATED_MIGRATION_TARGET: '22'
           ISOLATED_MIGRATION_APPLY_RESULT: isolated-migration-apply.json
         run: node scripts/apply-isolated-accounting-migrations.mjs
 
@@ -144,16 +145,7 @@ jobs:
           FINAL_ACCEPTANCE_DB_RESULT: isolated-final-acceptance.json
         run: node scripts/final-acceptance-database.mjs
 
-      - name: Apply schema 21 reversal correction to isolated clone
-        shell: bash
-        run: |
-          set -euo pipefail
-          current_version="$(psql "$LOCAL_DATABASE_URL" -X -t -A -v ON_ERROR_STOP=1 -c 'select coalesce(max(version),0) from public.migration_history;')"
-          if [ "$current_version" -lt 21 ]; then
-            psql "$LOCAL_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction --file supabase/migrations/021_reversal_ledger_balance_fix.sql
-          fi
-
-      - name: Verify isolated schema 21 and reversal ledger
+      - name: Verify isolated schema 22, Telegram runtime and reversal ledger
         env:
           SUPABASE_DB_URL: ${{ env.LOCAL_DATABASE_URL }}
           MIGRATION_PREFLIGHT_PATH: migration-preflight.json
@@ -170,9 +162,9 @@ jobs:
         run: |
           set -euo pipefail
           current_version="$(node -e "const x=require('./migration-preflight.json');process.stdout.write(String(x.currentVersion))")"
-          if [ "$current_version" -lt 21 ]; then
+          if [ "$current_version" -lt 22 ]; then
             : > pending-migrations.sql
-            for version in $(seq $((current_version + 1)) 21); do
+            for version in $(seq $((current_version + 1)) 22); do
               file="$(find supabase/migrations -maxdepth 1 -type f -name "$(printf '%03d' "$version")_*.sql" -print -quit)"
               test -n "$file"
               cat "$file" >> pending-migrations.sql
@@ -181,7 +173,7 @@ jobs:
             psql "$SUPABASE_DB_URL" -X -v ON_ERROR_STOP=1 --single-transaction --file pending-migrations.sql
             rm -f pending-migrations.sql
           else
-            echo 'Database is already at schema version 21.'
+            echo 'Database is already at schema version 22.'
           fi
 
       - name: Verify production schema and accounting integrity
@@ -211,7 +203,7 @@ jobs:
           BACKUP_OUTPUT_DIR=post-migration-backup \
           BACKUP_VERIFICATION_FILE=post-migration-backup-verification.json \
           BACKUP_MANIFEST_ENV_NAME=POST_MIGRATION_MANIFEST \
-          EXPECTED_SCHEMA_VERSION=21 \
+          EXPECTED_SCHEMA_VERSION=22 \
           node scripts/verify-backup-files.mjs
 
       - name: Restore post-migration backup to second isolated database
@@ -273,7 +265,7 @@ jobs:
           const response=await fetch(`https://api.github.com/repos/${process.env.REPOSITORY}/statuses/${process.env.HEAD_SHA}`,{
             method:'POST',
             headers:{Accept:'application/vnd.github+json',Authorization:`Bearer ${process.env.GITHUB_TOKEN}`,'X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'},
-            body:JSON.stringify({state:success?'success':'failure',context:'final-acceptance-migrations',target_url:process.env.RUN_URL,description:success?'Schema 21 restored, tested, applied atomically and backed up.':'Migration stopped or rolled back before final acceptance.'})
+            body:JSON.stringify({state:success?'success':'failure',context:'final-acceptance-migrations',target_url:process.env.RUN_URL,description:success?'Schema 22 restored, tested, applied atomically and backed up.':'Migration stopped or rolled back before final acceptance.'})
           });
           if(!response.ok)throw new Error(`Status publication failed with HTTP ${response.status}`);
           NODE
