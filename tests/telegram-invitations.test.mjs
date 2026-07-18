@@ -30,7 +30,7 @@ test('manager can invite operational roles but cannot invite finance or admin',(
 });
 
 test('invitation schema stores only a hash and enforces single use and approval states',()=>{
-  const migration=read('supabase/migrations/019_mix_design_and_user_invitations.sql');
+  const migration=read('supabase/migrations/019_accounting_import_and_telegram_integrity.sql');
   assert.match(migration,/token_hash text not null unique/);
   assert.doesNotMatch(migration,/raw_token|token_raw/);
   assert.match(migration,/user_invitations_open_phone_uidx/);

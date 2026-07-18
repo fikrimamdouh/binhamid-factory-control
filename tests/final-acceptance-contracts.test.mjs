@@ -36,6 +36,12 @@ test('daily report commit requires a stored original and returns accounting evid
   assert.match(source,/ORIGINAL_FILE_REQUIRED|النسخة الأصلية/);
   assert.match(source,/journal|accounting/i);
   assert.match(source,/posted_batch_id|postedBatchId/);
+  assert.match(source,/commit_daily_report_acceptance/);
+  assert.doesNotMatch(source,/await patch\('daily_report_batches'/);
+  const acceptance=read('supabase/migrations/021_reversal_ledger_balance_fix.sql');
+  assert.match(acceptance,/create or replace function public\.commit_daily_report_acceptance/);
+  assert.match(acceptance,/ACCOUNTING_POSTING_INVALID/);
+  assert.match(acceptance,/transition_import_status\(\s*p_import_id,'posted'/);
 });
 
 test('Telegram webhook processing is idempotent and unexpected failures are retryable',()=>{
@@ -43,8 +49,16 @@ test('Telegram webhook processing is idempotent and unexpected failures are retr
   assert.match(source,/claim_telegram_update/);
   assert.match(source,/complete_telegram_update/);
   assert.match(source,/fail_telegram_update/);
+  assert.match(source,/claim\?\.status==='completed'/);
+  assert.match(read('api/_lib/telegram-webhook-handler.js'),/if\(req\.telegramGatewayManaged\)return/);
   assert.doesNotMatch(source,/error_logged:true/);
   assert.match(source,/statusCode\s*=\s*503|json\(res,503/);
+});
+
+test('security-definer acceptance RPCs are not executable by PUBLIC',()=>{
+  const sql=['supabase/migrations/019_accounting_import_and_telegram_integrity.sql','supabase/migrations/020_accounting_reversal_and_projection_safety.sql','supabase/migrations/021_reversal_ledger_balance_fix.sql'].map(read).join('\n');
+  for(const name of ['claim_telegram_update','complete_telegram_update','fail_telegram_update','reverse_journal_entry','commit_daily_report_acceptance'])assert.match(sql,new RegExp(`revoke all on function public\\.${name}[\\s\\S]{0,300}from public,anon,authenticated`));
+  assert.match(sql,/grant execute[\s\S]*to service_role/);
 });
 
 test('automatic import is disabled and import IDs persist until daily approval completes',()=>{

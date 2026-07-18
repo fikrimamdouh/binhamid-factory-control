@@ -73,7 +73,7 @@ test('invalid or incomplete mix inputs fail closed',()=>{
 });
 
 test('mix schema prevents overlapping approved prices and editing approved designs',()=>{
-  const migration=read('supabase/migrations/019_mix_design_and_user_invitations.sql'),engine=read('api/_lib/mix-design-costing.js');
+  const migration=read('supabase/migrations/019_accounting_import_and_telegram_integrity.sql'),engine=read('api/_lib/mix-design-costing.js');
   assert.match(migration,/guard_mix_material_price_overlap/);
   assert.match(migration,/MIX_MATERIAL_PRICE_PERIOD_OVERLAP/);
   assert.match(migration,/guard_approved_mix_design_update/);

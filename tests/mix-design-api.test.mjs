@@ -32,7 +32,7 @@ test('mix design API validates ids numbers enumerations and payload size',()=>{
 });
 
 test('atomic database functions protect approval cloning and invitation decisions',()=>{
-  const migration=read('supabase/migrations/020_atomic_mix_invitation_and_sales_basis.sql');
+  const migration=read('supabase/migrations/020_accounting_reversal_and_projection_safety.sql');
   assert.match(migration,/clone_mix_design_version/);
   assert.match(migration,/approve_mix_cost_run/);
   assert.match(migration,/decide_user_invitation/);
@@ -42,7 +42,7 @@ test('atomic database functions protect approval cloning and invitation decision
 });
 
 test('sales tax basis fields are additive and non-destructive',()=>{
-  const migration=read('supabase/migrations/020_atomic_mix_invitation_and_sales_basis.sql');
+  const migration=read('supabase/migrations/020_accounting_reversal_and_projection_safety.sql');
   for(const field of ['subtotal_before_vat','discount_amount','return_amount','vat_amount','vat_rate','amount_includes_vat','net_amount_before_vat'])assert.match(migration,new RegExp(`add column if not exists ${field}`));
   assert.doesNotMatch(migration,/\btruncate\b/i);
   assert.doesNotMatch(migration,/\bdrop table\b/i);

@@ -24,7 +24,7 @@ test('canonical API enforces preview, capability checks and atomic RPC commit',a
   const route=await read('api/_lib/routes/daily-report.js');
   assert.match(route,/daily_report\.approve/);
   assert.match(route,/daily_report\.import/);
-  assert.match(route,/commit_daily_report/);
+  assert.match(route,/commit_daily_report_acceptance/);
   assert.match(route,/register_daily_report_attempt/);
   assert.match(route,/DUPLICATE_INVOICE/);
   assert.match(route,/COLLECTION_EXCEEDS_BALANCE/);

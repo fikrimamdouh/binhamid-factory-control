@@ -115,7 +115,7 @@ async function handleCallback(update){
   if(['proc','supplier_city','supplier_rfq','rfq_qty','rfq_urgency'].includes(action))return handleProcurementCallback(message,query.from,identity,action,value);
   if(action==='sales_confirm')return confirmSalesOrder({...message,from:query.from},value,identity);
   if(action==='sales_cancel')return cancelSalesDraft({...message,from:query.from},identity);
-  if(action==='mech')return startMechanicAction({...message,from:query.from},value,identity);
+  if(action==='mech')return startMechanicAction({...message,from:query.from},identity,value);
   if(action==='parts_confirm')return confirmSparePartsRequest({...message,from:query.from},value,identity,role);
   if(action==='maint_confirm')return confirmMaintenance({...message,from:query.from},value,identity,role);
   if(action==='maint_cancel')return cancelMaintenance({...message,from:query.from},value,identity);
@@ -165,5 +165,9 @@ export default async function handler(req,res){
     console.error('[telegram webhook enterprise]',{code:String(error?.code||'PROCESSING_FAILED').slice(0,120),status:Number(error?.status||error?.upstreamStatus||0),message:String(error?.message||'').slice(0,300)});
     return json(res,503,{ok:false,retryable:true,error:'تعذر إكمال معالجة تحديث Telegram مؤقتًا.'});
   }
+  // The gateway records completion before it acknowledges Telegram. It owns
+  // the response for managed requests so an incomplete receipt remains
+  // retryable rather than being acknowledged as successful.
+  if(req.telegramGatewayManaged)return;
   if(!res.headersSent)json(res,200,{ok:true});
 }

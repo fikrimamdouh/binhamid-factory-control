@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { body, errorResponse, json, method } from '../http.js';
 import { config } from '../config.js';
 import { requireCapability } from '../permissions.js';
-import { downloadObject, insert, patch, rpc, select, uploadObject } from '../supabase.js';
+import { downloadObject, insert, rpc, select, uploadObject } from '../supabase.js';
 import { buildDailyReportCustomerContext } from '../daily-report-customers.js';
 
 const clean=(value,max=1000)=>String(value??'').trim().slice(0,max);
@@ -116,14 +116,8 @@ async function previewOrCommit(req,res,input){
     return json(res,validation.errors.length?422:200,{ok:validation.errors.length===0,duplicate:false,valid:validation.errors.length===0,contentHash,fileHash,idempotencyKey,importId:importId||null,...validation});
   }
   const original=await resolveStoredOriginal(input,reportDate,fileHash);
-  if(importId)await transitionImport(importId,'processing',actor,'بدأ الترحيل المحاسبي').catch(error=>{if(!/TRANSITION_INVALID/i.test(String(error?.message||'')))throw error;});
   try{
-    const resultRaw=await rpc('commit_daily_report',{p_report_date:reportDate,p_original_name:originalName,p_file_hash:fileHash,p_content_hash:contentHash,p_payload:{...payload,summary:{...payload.summary,...validation.preview}},p_actor:actor}),result=one(resultRaw);
-    if(result?.id)await patch('daily_report_batches',`id=eq.${encodeURIComponent(result.id)}`,{file_storage_path:original.path,uploaded_by:actor,approved_by:actor,approved_at:new Date().toISOString(),preview_summary:validation.preview,validation_errors:[],validation_warnings:validation.warnings});
-    const accounting=result?.id?await accountingEvidence(result.id):{entryCount:0,totalDebit:0,totalCredit:0,balanced:false};
-    if(!accounting.balanced)throw Object.assign(new Error('تم رفض الاعتماد لأن القيود المحاسبية غير متوازنة.'),{status:500,code:'ACCOUNTING_POSTING_INVALID'});
-    await registerAttempt({p_report_date:reportDate,p_original_name:originalName,p_file_hash:fileHash,p_content_hash:contentHash,p_idempotency_key:idempotencyKey,p_status:result?.duplicate?'duplicate':'approved',p_existing_batch_id:result?.id||null,p_summary:{...validation.preview,accounting},p_errors:[],p_warnings:validation.warnings,p_actor:actor});
-    if(importId)await transitionImport(importId,'posted',actor,'تم الترحيل وإنشاء القيود المتوازنة',result?.id||null,{preview:validation.preview,accounting,storagePath:original.path});
+    const resultRaw=await rpc('commit_daily_report_acceptance',{p_report_date:reportDate,p_original_name:originalName,p_file_hash:fileHash,p_content_hash:contentHash,p_payload:{...payload,summary:{...payload.summary,...validation.preview}},p_actor:actor,p_file_storage_path:original.path,p_preview_summary:validation.preview,p_validation_warnings:validation.warnings,p_idempotency_key:idempotencyKey,p_import_id:importId||null}),result=one(resultRaw),accounting=result?.accounting||{entryCount:0,totalDebit:0,totalCredit:0,balanced:false};
     return json(res,200,{ok:true,duplicate:Boolean(result?.duplicate),existingImportId:result?.duplicate?result.id:null,importId:result?.id,status:result?.status||'approved',storagePath:original.path,sourceImportId:importId||null,postedBatchId:result?.id||null,accounting,...validation,result});
   }catch(error){
     if(importId)await transitionImport(importId,'failed',actor,'فشل الترحيل ولم يُسجل اعتماد جزئي',null,{errorCode:String(error?.code||'POSTING_FAILED'),errorMessage:String(error?.message||'').slice(0,1000)}).catch(()=>{});
