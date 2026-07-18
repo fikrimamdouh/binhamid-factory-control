@@ -22,15 +22,18 @@ left join posted_lines pl on pl.account_id=coa.id
 where coa.active=true
 group by coa.account_code,coa.account_name_ar,coa.account_type,coa.normal_side;
 
+-- Preserve the six columns introduced by migration 019 in their original order.
+-- PostgreSQL allows CREATE OR REPLACE VIEW to append a column, but not to insert
+-- one in the middle because that is interpreted as renaming existing columns.
 create or replace view public.accounting_integrity_report as
 select
   (select count(*) from public.journal_entries where status='draft') draft_entries,
   (select count(*) from public.journal_entries where status='posted') posted_entries,
-  (select count(*) from public.journal_entries where status='reversed') reversed_entries,
   (select count(*) from public.journal_entries je where je.status='posted' and not exists(select 1 from public.journal_entry_lines l where l.journal_entry_id=je.id)) entries_without_lines,
   (select count(*) from (select l.journal_entry_id from public.journal_entry_lines l join public.journal_entries e on e.id=l.journal_entry_id where e.status='posted' group by l.journal_entry_id having round(sum(l.debit),2)<>round(sum(l.credit),2)) x) unbalanced_entries,
   (select coalesce(sum(total_debit),0) from public.trial_balance) total_debit,
-  (select coalesce(sum(total_credit),0) from public.trial_balance) total_credit;
+  (select coalesce(sum(total_credit),0) from public.trial_balance) total_credit,
+  (select count(*) from public.journal_entries where status='reversed') reversed_entries;
 
 create or replace function public.reverse_journal_entry(p_entry_id uuid,p_actor text,p_reason text)
 returns jsonb language plpgsql security definer set search_path=public as $$
