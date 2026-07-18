@@ -18,7 +18,7 @@ async function guarded(chatId,identity,work){if(!await canView(identity)){await 
 async function safeSelect(table,query){try{return await select(table,query)||[];}catch(error){console.warn('[telegram accounting read]',{table,message:String(error?.message||'').slice(0,250)});return[];}}
 const amount=value=>formatAmount(Number(value||0));
 
-export const accountingMenu=()=>keyboard([[{text:'📊 الملخص المحاسبي',callback_data:'ent:accounting_summary'},{text:'⚖️ ميزان المراجعة',callback_data:'ent:accounting_trial'}],[{text:'📚 أحدث دفتر الأستاذ',callback_data:'ent:accounting_ledger'},{text:'🔎 بحث حساب أو قيد',callback_data:'ent:accounting_search'}],[{text:'🧾 أحدث القيود',callback_data:'ent:accounting_entries'},{text:'🛡 فحص سلامة الحسابات',callback_data:'ent:accounting_integrity'}]]);
+export const accountingMenu=()=>keyboard([[{text:'🧠 مساعد المدير المالي',callback_data:'ent:cfo_menu'}],[{text:'📊 الملخص المحاسبي',callback_data:'ent:accounting_summary'},{text:'⚖️ ميزان المراجعة',callback_data:'ent:accounting_trial'}],[{text:'📚 أحدث دفتر الأستاذ',callback_data:'ent:accounting_ledger'},{text:'🔎 بحث حساب أو قيد',callback_data:'ent:accounting_search'}],[{text:'🧾 أحدث القيود',callback_data:'ent:accounting_entries'},{text:'🛡 فحص سلامة الحسابات',callback_data:'ent:accounting_integrity'}]]);
 
 export async function sendAccountingSummary(chatId,identity){
   return guarded(chatId,identity,async()=>{

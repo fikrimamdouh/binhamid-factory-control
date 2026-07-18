@@ -13,7 +13,9 @@ const CATEGORY_ROLES={
   fuel:new Set(['admin','manager','accountant','fuel_operator','mechanic']),
   hr:new Set(['admin','manager','accountant','hr']),
   quality:new Set(['admin','manager','quality']),
-  production:new Set(['admin','manager','accountant','block_sales','concrete_sales'])
+  production:new Set(['admin','manager','accountant','block_sales','concrete_sales']),
+  administration:new Set(['admin','manager','hr']),
+  governance:new Set(['admin','manager','accountant','hr','procurement','quality'])
 };
 function allowed(identity,set){return Boolean(identity?.active&&set.has(identity.role));}
 function todayRiyadh(){

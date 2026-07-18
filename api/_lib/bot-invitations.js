@@ -39,6 +39,12 @@ export function normalizeInvitationPhone(value){
   return raw;
 }
 export const maskInvitationPhone=phone=>{const value=String(phone||'');return value.length<8?'***':`${value.slice(0,4)}****${value.slice(-3)}`;};
+export function normalizeInvitationNickname(value){
+  const nickname=String(value||'').replace(/\s+/g,' ').trim();
+  if(/^(لا يوجد|بدون|skip)$/i.test(nickname))return'';
+  if(nickname.length<2||nickname.length>80||/^\d+$/.test(nickname))throw Object.assign(new Error('الكنية يجب أن تكون من حرفين إلى 80 حرفًا، أو اكتب «لا يوجد».'),{code:'INVITATION_NICKNAME_INVALID'});
+  return nickname;
+}
 export const invitationTokenHash=token=>crypto.createHash('sha256').update(String(token||'')).digest('hex');
 export function invitationRoleAllowed(identity,role){
   if(!identity?.active)return false;
@@ -65,6 +71,12 @@ async function getBotUsername(){if(botUsername)return botUsername;const me=await
 async function sendSensitiveLink(chatId,text,markup){
   return telegram('sendMessage',{chat_id:String(chatId),text,parse_mode:'HTML',disable_web_page_preview:true,...(markup||{})});
 }
+function nicknameOf(invitation){return String(invitation?.nickname||invitation?.metadata?.nickname||'').trim().slice(0,80);}
+async function patchInvitedUser(telegramId,data,nickname=''){
+  const preferred=String(nickname||'').trim().slice(0,80);
+  try{return await patch('app_users',`external_id=eq.${encodeURIComponent(String(telegramId))}`,{...data,nickname:preferred||null});}
+  catch(error){if(!/nickname|column.*does not exist|schema cache/i.test(String(error?.message||'')))throw error;return patch('app_users',`external_id=eq.${encodeURIComponent(String(telegramId))}`,data);}
+}
 async function linkedTelegramId(phone){
   const employees=await select('employees',`phone=eq.${encodeURIComponent(phone)}&active=eq.true&select=external_id,full_name,phone&limit=2`).catch(()=>[]),employee=employees?.[0];
   if(!employee?.external_id)return'';
@@ -83,15 +95,19 @@ export async function startInvitation(message,identity){
 async function createInvitation(message,identity,context){
   if(!invitationRoleAllowed(identity,context.requestedRole))return sendMessage(message.chat.id,'لا تملك صلاحية إنشاء دعوة بهذا الدور.');
   const token=crypto.randomBytes(32).toString('base64url'),tokenHash=invitationTokenHash(token),expiresAt=new Date(Date.now()+72*60*60*1000).toISOString();
-  const values={phone_normalized:context.phone,full_name:context.fullName,employee_external_id:context.employeeExternalId||null,requested_role:context.requestedRole,requested_capabilities:[],token_hash:tokenHash,token_prefix:token.slice(0,10),expires_at:expiresAt,status:'pending',created_by:String(identity.user_id||identity.external_id),metadata:{source_chat_id:String(message.chat.id),source_message_id:String(message.message_id||''),created_by_role:identity.role}};
-  let invitation;try{invitation=(await insert('user_invitations',[values]))?.[0];}catch(error){if(/duplicate|unique|user_invitations_open_phone/i.test(String(error?.message||'')))return sendMessage(message.chat.id,'توجد دعوة مفتوحة بالفعل لهذا الرقم. ألغِ الدعوة السابقة أو استخدمها.');throw error;}
-  const username=await getBotUsername(),link=`https://t.me/${username}?start=invite_${token}`,masked=maskInvitationPhone(context.phone),text=`<b>دعوة مستخدم — مصنع بن حامد</b>\n\nالاسم: <b>${esc(context.fullName)}</b>\nالجوال: <b>${esc(masked)}</b>\nالدور المطلوب: <b>${esc(ROLE_LABELS[context.requestedRole]||context.requestedRole)}</b>\nتنتهي خلال 72 ساعة.\n\nرابط الدعوة:\n${esc(link)}`;
+  const values={phone_normalized:context.phone,full_name:context.fullName,nickname:context.nickname||null,employee_external_id:context.employeeExternalId||null,requested_role:context.requestedRole,requested_capabilities:[],token_hash:tokenHash,token_prefix:token.slice(0,10),expires_at:expiresAt,status:'pending',created_by:String(identity.user_id||identity.external_id),metadata:{nickname:context.nickname||'',source_chat_id:String(message.chat.id),source_message_id:String(message.message_id||''),created_by_role:identity.role}};
+  let invitation;try{invitation=(await insert('user_invitations',[values]))?.[0];}catch(error){
+    if(/nickname|column.*does not exist|schema cache/i.test(String(error?.message||''))){const compatible={...values};delete compatible.nickname;invitation=(await insert('user_invitations',[compatible]))?.[0];}
+    else if(/duplicate|unique|user_invitations_open_phone/i.test(String(error?.message||'')))return sendMessage(message.chat.id,'توجد دعوة مفتوحة بالفعل لهذا الرقم. ألغِ الدعوة السابقة أو استخدمها.');
+    else throw error;
+  }
+  const username=await getBotUsername(),link=`https://t.me/${username}?start=invite_${token}`,masked=maskInvitationPhone(context.phone),text=`<b>دعوة مستخدم — مصنع بن حامد</b>\n\nالاسم: <b>${esc(context.fullName)}</b>\nالكنية: <b>${esc(context.nickname||'لا توجد')}</b>\nالجوال: <b>${esc(masked)}</b>\nالدور المطلوب: <b>${esc(ROLE_LABELS[context.requestedRole]||context.requestedRole)}</b>\nتنتهي خلال 72 ساعة.\n\nرابط الدعوة:\n${esc(link)}`;
   const markup=keyboard([[{text:'إلغاء الدعوة',callback_data:`ent:inv|revoke|${invitation.id}`},{text:'قائمة الدعوات',callback_data:'ent:inv|list'}]]).reply_markup;
   await sendSensitiveLink(message.chat.id,text,{reply_markup:markup});
   const directId=await linkedTelegramId(context.phone);
   let directSent=false;
   if(directId&&directId!==String(message.chat.id)){try{await sendSensitiveLink(directId,`لديك دعوة للانضمام إلى نظام مصنع بن حامد.\n\n${esc(link)}`);directSent=true;}catch(error){console.warn('[invitation direct send]',{status:error?.status||0,code:error?.code||null});}}
-  await insert('audit_log',[{actor_type:'telegram',actor_id:String(identity.user_id||identity.external_id),action:'user_invitation_created',entity_type:'user_invitation',entity_id:invitation.id,details:{phone:masked,requested_role:context.requestedRole,expires_at:expiresAt,direct_sent:directSent,token_prefix:values.token_prefix}}],{prefer:'return=minimal'}).catch(()=>{});
+  await insert('audit_log',[{actor_type:'telegram',actor_id:String(identity.user_id||identity.external_id),action:'user_invitation_created',entity_type:'user_invitation',entity_id:invitation.id,details:{phone:masked,nickname:context.nickname||'',requested_role:context.requestedRole,expires_at:expiresAt,direct_sent:directSent,token_prefix:values.token_prefix}}],{prefer:'return=minimal'}).catch(()=>{});
   await clearMaintenanceSession(message.chat.id,identity.external_id||message.from.id).catch(()=>{});
   return invitation;
 }
@@ -107,7 +123,11 @@ export async function continueInvitationSession(message,identity,session,text){
   }
   if(state==='enterprise_invite_name'){
     const fullName=value.replace(/\s+/g,' ').trim();if(fullName.length<3||fullName.length>160||/^\d+$/.test(fullName)){await sendMessage(message.chat.id,'الاسم غير صحيح. اكتب اسمًا من 3 إلى 160 حرفًا.');return true;}
-    await setSession(message.chat.id,userId,'enterprise_invite_employee',{...context,fullName});await sendMessage(message.chat.id,'اكتب رقم الموظف الداخلي، أو اكتب «لا يوجد».');return true;
+    await setSession(message.chat.id,userId,'enterprise_invite_nickname',{...context,fullName});await sendMessage(message.chat.id,'اكتب كنية الموظف أو الاسم الذي يحب أن نناديه به، أو اكتب «لا يوجد».');return true;
+  }
+  if(state==='enterprise_invite_nickname'){
+    let nickname;try{nickname=normalizeInvitationNickname(value);}catch(error){await sendMessage(message.chat.id,error.message);return true;}
+    await setSession(message.chat.id,userId,'enterprise_invite_employee',{...context,nickname});await sendMessage(message.chat.id,'اكتب رقم الموظف الداخلي، أو اكتب «لا يوجد».');return true;
   }
   if(state==='enterprise_invite_employee'){
     const employeeExternalId=/^(لا يوجد|بدون|skip)$/i.test(value)?'':value.slice(0,100);await setSession(message.chat.id,userId,'enterprise_invite_role',{...context,employeeExternalId});await sendMessage(message.chat.id,'اختر صلاحية الموظف:',roleKeyboard(identity));return true;
@@ -123,9 +143,9 @@ export async function handleInvitationStart(message,identity,text){
   const hash=invitationTokenHash(match[1]);
   try{
     const result=await rpc('accept_user_invitation',{p_token_hash:hash,p_telegram_id:String(message.from.id)}),invitation=Array.isArray(result)?result[0]:result;
-    await patch('app_users',`external_id=eq.${encodeURIComponent(String(message.from.id))}`,{full_name:invitation.full_name,employee_external_id:invitation.employee_external_id||null,role:'pending',active:false});
-    await sendMessage(message.chat.id,`تم قبول الدعوة باسم <b>${esc(invitation.full_name)}</b>.\nالدور المطلوب: <b>${esc(ROLE_LABELS[invitation.requested_role]||invitation.requested_role)}</b>.\n\nالحساب ما زال غير نشط وينتظر اعتماد الإدارة.`);
-    if(config.telegramOwnerId)await sendMessage(config.telegramOwnerId,`<b>تم فتح دعوة مستخدم</b>\n\nالاسم: <b>${esc(invitation.full_name)}</b>\nالجوال: <b>${esc(maskInvitationPhone(invitation.phone_normalized))}</b>\nالدور المطلوب: <b>${esc(ROLE_LABELS[invitation.requested_role]||invitation.requested_role)}</b>\nTelegram ID: <code>${esc(message.from.id)}</code>`,keyboard([[{text:'اعتماد وتفعيل',callback_data:`ent:inv|approve|${invitation.id}`},{text:'تعديل الدور',callback_data:`ent:inv|edit|${invitation.id}`}],[{text:'رفض',callback_data:`ent:inv|reject|${invitation.id}`}]]));
+    await patchInvitedUser(message.from.id,{full_name:invitation.full_name,employee_external_id:invitation.employee_external_id||null,role:'pending',active:false},nicknameOf(invitation));
+    await sendMessage(message.chat.id,`تم قبول الدعوة باسم <b>${esc(invitation.full_name)}</b>${nicknameOf(invitation)?` — الكنية: <b>${esc(nicknameOf(invitation))}</b>`:''}.\nالدور المطلوب: <b>${esc(ROLE_LABELS[invitation.requested_role]||invitation.requested_role)}</b>.\n\nالحساب ما زال غير نشط وينتظر اعتماد الإدارة.`);
+    if(config.telegramOwnerId)await sendMessage(config.telegramOwnerId,`<b>تم فتح دعوة مستخدم</b>\n\nالاسم: <b>${esc(invitation.full_name)}</b>${nicknameOf(invitation)?`\nالكنية: <b>${esc(nicknameOf(invitation))}</b>`:''}\nالجوال: <b>${esc(maskInvitationPhone(invitation.phone_normalized))}</b>\nالدور المطلوب: <b>${esc(ROLE_LABELS[invitation.requested_role]||invitation.requested_role)}</b>\nTelegram ID: <code>${esc(message.from.id)}</code>`,keyboard([[{text:'اعتماد وتفعيل',callback_data:`ent:inv|approve|${invitation.id}`},{text:'تعديل الدور',callback_data:`ent:inv|edit|${invitation.id}`}],[{text:'رفض',callback_data:`ent:inv|reject|${invitation.id}`}]]));
   }catch(error){
     const code=String(error?.message||'');const messageText=/EXPIRED/.test(code)?'انتهت صلاحية رابط الدعوة.':/ALREADY_ACCEPTED/.test(code)?'تم استخدام رابط الدعوة بواسطة حساب آخر.':/NOT_USABLE/.test(code)?'رابط الدعوة مستخدم أو ملغى.':'رابط الدعوة غير صالح.';await sendMessage(message.chat.id,messageText);
   }
@@ -133,9 +153,9 @@ export async function handleInvitationStart(message,identity,text){
 }
 async function listInvitations(message,identity){
   if(!canCreate(identity))return showInvitationMenu(message,identity);
-  const rows=await select('user_invitations','select=id,phone_normalized,full_name,requested_role,status,expires_at,accepted_by_telegram_id,created_at&order=created_at.desc&limit=20').catch(()=>[]);
+  let rows;try{rows=await select('user_invitations','select=id,phone_normalized,full_name,nickname,metadata,requested_role,status,expires_at,accepted_by_telegram_id,created_at&order=created_at.desc&limit=20');}catch{rows=await select('user_invitations','select=id,phone_normalized,full_name,metadata,requested_role,status,expires_at,accepted_by_telegram_id,created_at&order=created_at.desc&limit=20').catch(()=>[]);}
   if(!rows.length)return sendMessage(message.chat.id,'لا توجد دعوات مسجلة.');
-  const text=rows.map((row,index)=>`${index+1}. <b>${esc(row.full_name)}</b> — ${esc(ROLE_LABELS[row.requested_role]||row.requested_role)}\n${esc(maskInvitationPhone(row.phone_normalized))} | ${esc(row.status)} | ${String(row.expires_at||'').slice(0,16).replace('T',' ')}`).join('\n\n');
+  const text=rows.map((row,index)=>`${index+1}. <b>${esc(row.full_name)}</b>${nicknameOf(row)?` (${esc(nicknameOf(row))})`:''} — ${esc(ROLE_LABELS[row.requested_role]||row.requested_role)}\n${esc(maskInvitationPhone(row.phone_normalized))} | ${esc(row.status)} | ${String(row.expires_at||'').slice(0,16).replace('T',' ')}`).join('\n\n');
   const buttons=rows.filter(row=>['pending','opened','accepted_pending_approval'].includes(row.status)).slice(0,8).map(row=>[{text:`إلغاء: ${row.full_name.slice(0,18)}`,callback_data:`ent:inv|revoke|${row.id}`}]);buttons.push([{text:'دعوة جديدة',callback_data:'ent:inv|new'}]);return sendMessage(message.chat.id,`<b>آخر الدعوات</b>\n\n${text}`,keyboard(buttons));
 }
 async function decideInvitation(message,identity,id,decision){
@@ -144,10 +164,11 @@ async function decideInvitation(message,identity,id,decision){
   if(invitation.status!=='accepted_pending_approval')return sendMessage(message.chat.id,'الدعوة ليست في حالة انتظار الاعتماد.');
   const actor=String(identity.user_id||identity.external_id),approved=decision==='approve';
   if(approved){
-    const users=await patch('app_users',`external_id=eq.${encodeURIComponent(invitation.accepted_by_telegram_id)}`,{full_name:invitation.full_name,employee_external_id:invitation.employee_external_id||null,role:invitation.requested_role,active:true}),user=users?.[0];if(!user)throw Object.assign(new Error('تعذر العثور على مستخدم الدعوة'),{code:'INVITATION_USER_NOT_FOUND'});
+    const users=await patchInvitedUser(invitation.accepted_by_telegram_id,{full_name:invitation.full_name,employee_external_id:invitation.employee_external_id||null,role:invitation.requested_role,active:true},nicknameOf(invitation)),user=users?.[0];if(!user)throw Object.assign(new Error('تعذر العثور على مستخدم الدعوة'),{code:'INVITATION_USER_NOT_FOUND'});
     await patch('user_invitations',`id=eq.${encodeURIComponent(id)}`,{status:'approved',approved_by:actor,approved_at:now()});
-    await insert('audit_log',[{actor_type:'telegram',actor_id:actor,action:'user_invitation_approved',entity_type:'app_user',entity_id:user.id,details:{invitation_id:id,new_role:invitation.requested_role,target_telegram_id:invitation.accepted_by_telegram_id}}],{prefer:'return=minimal'}).catch(()=>{});
-    await sendMessage(invitation.accepted_by_telegram_id,`تم اعتماد حسابك وتفعيله.\nالدور: <b>${esc(ROLE_LABELS[invitation.requested_role]||invitation.requested_role)}</b>.\nاستخدم /menu لفتح العمليات.`).catch(()=>{});return sendMessage(message.chat.id,'تم اعتماد المستخدم وتفعيل صلاحياته.');
+    await insert('audit_log',[{actor_type:'telegram',actor_id:actor,action:'user_invitation_approved',entity_type:'app_user',entity_id:user.id,details:{invitation_id:id,nickname:nicknameOf(invitation),new_role:invitation.requested_role,target_telegram_id:invitation.accepted_by_telegram_id}}],{prefer:'return=minimal'}).catch(()=>{});
+    if(invitation.employee_external_id)await patch('employees',`external_id=eq.${encodeURIComponent(invitation.employee_external_id)}`,{nickname:nicknameOf(invitation)||null}).catch(()=>{});
+    await sendMessage(invitation.accepted_by_telegram_id,`تم اعتماد حسابك وتفعيله.${nicknameOf(invitation)?`\nالكنية: <b>${esc(nicknameOf(invitation))}</b>`:''}\nالدور: <b>${esc(ROLE_LABELS[invitation.requested_role]||invitation.requested_role)}</b>.\nاستخدم /menu لفتح العمليات.`).catch(()=>{});return sendMessage(message.chat.id,'تم اعتماد المستخدم وتفعيل صلاحياته.');
   }
   await patch('user_invitations',`id=eq.${encodeURIComponent(id)}`,{status:'rejected',revoked_by:actor,revoked_at:now()});await sendMessage(invitation.accepted_by_telegram_id,'تم رفض طلب تفعيل الحساب. راجع الإدارة.').catch(()=>{});return sendMessage(message.chat.id,'تم رفض الدعوة دون تفعيل المستخدم.');
 }
@@ -160,7 +181,7 @@ export async function handleInvitationCallback(message,from,identity,value){
   if(action==='role'||action==='editrole'){
     const role=CODE_ROLE[parts[2]]||'',session=await getBotSession(message.chat.id,userId),context=session?.context||{};if(!invitationRoleAllowed(identity,role)){await sendMessage(message.chat.id,'الدور غير مسموح لك.');return true;}
     if(context.editInvitationId){await patch('user_invitations',`id=eq.${encodeURIComponent(context.editInvitationId)}&status=eq.accepted_pending_approval`,{requested_role:role});await clearMaintenanceSession(message.chat.id,userId);await sendMessage(message.chat.id,`تم تعديل الدور المطلوب إلى <b>${esc(ROLE_LABELS[role]||role)}</b>.`);return true;}
-    if(session?.state!=='enterprise_invite_role'){await sendMessage(message.chat.id,'انتهت جلسة الدعوة. ابدأ من جديد.');return true;}const next={...context,requestedRole:role};await setSession(message.chat.id,userId,'enterprise_invite_confirm',next);await sendMessage(message.chat.id,`<b>مراجعة الدعوة</b>\n\nالاسم: ${esc(next.fullName)}\nالجوال: ${esc(maskInvitationPhone(next.phone))}\nرقم الموظف: ${esc(next.employeeExternalId||'غير متوفر')}\nالدور: <b>${esc(ROLE_LABELS[role]||role)}</b>\n\nلن يتفعل الحساب إلا بعد قبول الرابط واعتماد الإدارة.`,keyboard([[{text:'تأكيد إنشاء الدعوة',callback_data:'ent:inv|confirm'},{text:'إلغاء',callback_data:'ent:inv|cancel'}]]));return true;
+    if(session?.state!=='enterprise_invite_role'){await sendMessage(message.chat.id,'انتهت جلسة الدعوة. ابدأ من جديد.');return true;}const next={...context,requestedRole:role};await setSession(message.chat.id,userId,'enterprise_invite_confirm',next);await sendMessage(message.chat.id,`<b>مراجعة الدعوة</b>\n\nالاسم: ${esc(next.fullName)}\nالكنية: <b>${esc(next.nickname||'لا توجد')}</b>\nالجوال: ${esc(maskInvitationPhone(next.phone))}\nرقم الموظف: ${esc(next.employeeExternalId||'غير متوفر')}\nالدور: <b>${esc(ROLE_LABELS[role]||role)}</b>\n\nلن يتفعل الحساب إلا بعد قبول الرابط واعتماد الإدارة.`,keyboard([[{text:'تأكيد إنشاء الدعوة',callback_data:'ent:inv|confirm'},{text:'إلغاء',callback_data:'ent:inv|cancel'}]]));return true;
   }
   if(action==='confirm'){const session=await getBotSession(message.chat.id,userId);if(session?.state!=='enterprise_invite_confirm')return sendMessage(message.chat.id,'انتهت جلسة الدعوة. ابدأ من جديد.');await createInvitation({...message,from},identity,session.context||{});return true;}
   if(action==='approve'||action==='reject'){await decideInvitation({...message,from},identity,id,action);return true;}

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { invitationRoleAllowed, invitationTokenHash, maskInvitationPhone, normalizeInvitationPhone } from '../api/_lib/bot-invitations.js';
+import { invitationRoleAllowed, invitationTokenHash, maskInvitationPhone, normalizeInvitationNickname, normalizeInvitationPhone } from '../api/_lib/bot-invitations.js';
 
 const read=path=>fs.readFileSync(new URL(`../${path}`,import.meta.url),'utf8');
 
@@ -11,6 +11,20 @@ test('invitation phone normalization produces E.164 values',()=>{
   assert.equal(normalizeInvitationPhone('+201012345678'),'+201012345678');
   assert.throws(()=>normalizeInvitationPhone('123'),error=>error?.code==='INVITATION_PHONE_INVALID');
   assert.equal(maskInvitationPhone('+966512345678'),'+966****678');
+});
+
+test('invitation captures an optional employee nickname safely',()=>{
+  assert.equal(normalizeInvitationNickname('  أبو أحمد  '),'أبو أحمد');
+  assert.equal(normalizeInvitationNickname('لا يوجد'),'');
+  assert.throws(()=>normalizeInvitationNickname('1'),error=>error?.code==='INVITATION_NICKNAME_INVALID');
+  const source=read('api/_lib/bot-invitations.js'),profile=read('api/_lib/bot-profile.js'),migration=read('supabase/migrations/024_employee_nickname_and_financial_command_center.sql');
+  assert.match(source,/enterprise_invite_nickname/);
+  assert.match(source,/nickname:context\.nickname/);
+  assert.match(source,/patchInvitedUser/);
+  assert.match(profile,/select=id,full_name,nickname,role,active/);
+  assert.match(profile,/identity\?\.nickname/);
+  for(const table of ['app_users','employees','user_invitations'])assert.match(migration,new RegExp(`alter table public\\.${table} add column if not exists nickname`));
+  assert.match(migration,/sync_app_user_nickname_to_employee/);
 });
 
 test('invitation tokens are hashed deterministically and never treated as roles',()=>{

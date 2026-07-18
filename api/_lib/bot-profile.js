@@ -6,12 +6,13 @@ const REPORT_LABELS={fuel:'تقرير الديزل والوقود',payroll:'مس
 export async function enrichIdentity(basic,from){
   const identity=Array.isArray(basic)?basic[0]:basic;
   if(!identity?.user_id)return {...identity,external_id:String(from?.id||''),full_name:[from?.first_name,from?.last_name].filter(Boolean).join(' ')};
-  const profile=(await select('app_users',`id=eq.${encodeURIComponent(identity.user_id)}&select=id,full_name,role,active&limit=1`))?.[0];
+  let profile;try{profile=(await select('app_users',`id=eq.${encodeURIComponent(identity.user_id)}&select=id,full_name,nickname,role,active&limit=1`))?.[0];}catch{profile=(await select('app_users',`id=eq.${encodeURIComponent(identity.user_id)}&select=id,full_name,role,active&limit=1`))?.[0];}
   return {...identity,...profile,user_id:identity.user_id,external_id:identity.external_id||String(from?.id||'')};
 }
 export function displayName(identity,from){
   if(config.telegramOwnerId&&String(from?.id)===config.telegramOwnerId)return 'أبو مالك';
-  const stored=String(identity?.full_name||'').trim();
+  const nickname=String(identity?.nickname||'').trim(),stored=String(identity?.full_name||'').trim();
+  if(nickname&&!/^\d+$/.test(nickname))return nickname;
   return stored&&!/^\d+$/.test(stored)?stored:[from?.first_name,from?.last_name].filter(Boolean).join(' ')||'أستاذي';
 }
 export const roleLabel=role=>ROLE_LABELS[role]||role||ROLE_LABELS.pending;
