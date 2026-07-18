@@ -13,8 +13,8 @@ const sql=String.raw`
 begin;
 do $$
 begin
-  if (select coalesce(max(version),0) from public.migration_history)<>21 then
-    raise exception 'SCHEMA_21_REQUIRED';
+  if (select coalesce(max(version),0) from public.migration_history)<>22 then
+    raise exception 'SCHEMA_22_REQUIRED';
   end if;
 end $$;
 select id as debit_account from public.chart_of_accounts where account_code='110100' \gset
@@ -43,7 +43,7 @@ try{
   const line=String(result.stdout||'').split(/\r?\n/).map(value=>value.trim()).find(value=>value.startsWith('{')&&value.endsWith('}'));
   if(!line)fail('REVERSAL_RESULT_MISSING','The reversal result is missing.');
   const evidence=JSON.parse(line),blockers=[];
-  if(Number(evidence.schemaVersion)!==21)blockers.push('schema_version');
+  if(Number(evidence.schemaVersion)!==22)blockers.push('schema_version');
   if(Number(evidence.ledgerRows)!==4)blockers.push('ledger_rows');
   if(Number(evidence.maximumAccountDifference)!==0)blockers.push('non_zero_reversal_effect');
   if(evidence.originalStatus!=='reversed'||evidence.reversalStatus!=='posted')blockers.push('reversal_status');
