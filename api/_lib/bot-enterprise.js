@@ -57,6 +57,8 @@ export async function handleEnterpriseTextCommand(message,identity,text){
   if(await handleInvitationTextCommand(message,identity,raw))return true;
   if(await handleCostTextCommand(message,identity,raw))return true;
   if(await handleCustomerReportTextCommand(message,identity,raw))return true;
+  if(/^\/suggestion(?:@\w+)?$/i.test(raw)||/^(اقتراح للاداره|اقتراح للمدير|ارسل اقتراح للاداره)$/.test(value)){await startEnterpriseForm(message,identity,'management_suggestion');return true;}
+  if(/^\/(problem|complaint)(?:@\w+)?$/i.test(raw)||/^(مشكله للاداره|شكوى للاداره|بلاغ للاداره)$/.test(value)){await startEnterpriseForm(message,identity,'management_problem');return true;}
   if(/^\/(integrations|keys)(?:@\w+)?$/i.test(raw)||/^(التكاملات والمفاتيح|مفاتيح البرنامج|حاله التكاملات|حالة التكاملات)$/.test(value)){await sendIntegrationCatalog(message,identity);return true;}
   if(/^\/(menu|home)(?:@\w+)?$/i.test(raw)||/^(القائمه الرئيسيه|القائمة الرئيسية|لوحه التحكم|لوحة التحكم|العمليات)$/.test(value)){await showRoleHome(message,identity);return true;}
   if(/^\/tasks(?:@\w+)?$/i.test(raw)||/^(مهامي|المهام المفتوحه|المهام المفتوحة)$/.test(value)){await sendEnterpriseTasks(message.chat.id,identity,'mine');return true;}
