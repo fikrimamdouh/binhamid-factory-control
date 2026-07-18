@@ -1,6 +1,7 @@
-import { insert } from './supabase.js';
+import { config } from './config.js';
+import { insert, select } from './supabase.js';
 import { sendMessage, keyboard } from './telegram.js';
-import { displayName } from './bot-profile.js';
+import { displayName, roleLabel } from './bot-profile.js';
 import { clearMaintenanceSession } from './bot-maintenance.js';
 import { SIMPLE_DEFS, optionsKeyboard, statusKeyboard } from './bot-enterprise-defs.js';
 import { canFinance, esc, getEnterpriseSession, logEnterpriseEvent, nextEnterpriseReference, numberFrom, setEnterpriseSession, STATUS_LABEL } from './bot-enterprise-store.js';
@@ -18,6 +19,30 @@ const HR_SELF_ROLES=new Set([...ACTIVE_ROLES]);
 const QUALITY_ADMIN_ACTIONS=new Set(['quality_check','quality_corrective']);
 const QUALITY_ROLES=new Set(['admin','manager','mechanic','quality']);
 const TASK_CREATE_ROLES=new Set(['admin','manager','accountant','hr']);
+const MANAGEMENT_FEEDBACK_ACTIONS=new Set(['management_suggestion','management_problem']);
+
+async function managementFeedbackChats(excludeChatId=''){
+  const excluded=String(excludeChatId||''),chats=new Set();
+  if(config.telegramOwnerId&&String(config.telegramOwnerId)!==excluded)chats.add(String(config.telegramOwnerId));
+  try{
+    const users=await select('app_users','active=eq.true&role=in.(admin,manager)&select=id&limit=500'),userIds=(users||[]).map(user=>String(user.id||'')).filter(Boolean);
+    if(userIds.length){
+      const channels=await select('user_channels',`active=eq.true&channel=eq.telegram&user_id=in.(${userIds.join(',')})&select=external_id&limit=1000`);
+      for(const row of channels||[]){const chatId=String(row.external_id||'');if(chatId&&chatId!==excluded)chats.add(chatId);}
+    }
+  }catch(error){console.warn('[telegram management feedback recipients]',{message:String(error?.message||'').slice(0,300)});}
+  return[...chats];
+}
+async function notifyManagementFeedback(details,message,identity){
+  const chats=await managementFeedbackChats(message.chat.id);
+  if(!chats.length)return{recipients:0,delivered:0,failed:0};
+  const type=details.subtype==='management_problem'?'مشكلة':'اقتراح',employee=details.created_by_name||displayName(identity,message.from),role=roleLabel(identity?.role||'pending'),source=message.chat.title||'محادثة خاصة';
+  const text=`<b>${esc(type)} جديد من موظف</b>\n\nالمرجع: <b>${esc(details.reference_no)}</b>\nالموظف: <b>${esc(employee)}</b>\nالدور: <b>${esc(role)}</b>\nTelegram: <code>${esc(message.from.id)}</code>\nالمصدر: <b>${esc(source)}</b>${details.priority&&details.priority!=='normal'?`\nدرجة التأثير: <b>${esc(details.priority==='critical'?'حرجة':'تحتاج تدخل')}</b>`:''}\n\n<b>التفاصيل:</b>\n${esc(details.note||'').slice(0,2200)}`;
+  const sent=await Promise.allSettled(chats.map(chatId=>sendMessage(chatId,text,{...statusKeyboard(details.reference_no),action_name:'management_feedback_received',action_payload:{reference_no:details.reference_no,subtype:details.subtype,created_by_user_id:details.created_by_user_id}})));
+  const delivered=sent.filter(item=>item.status==='fulfilled').length,failed=sent.length-delivered;
+  if(failed)console.warn('[telegram management feedback delivery]',{reference:details.reference_no,recipients:chats.length,delivered,failed});
+  return{recipients:chats.length,delivered,failed};
+}
 
 function permission(identity,action,def){
   const role=identity?.role||'';
@@ -38,7 +63,7 @@ function permission(identity,action,def){
     if(QUALITY_ADMIN_ACTIONS.has(action)&&!QUALITY_ROLES.has(role))return'الفحص والإجراء التصحيحي متاحان لمسؤول الجودة والورشة والإدارة.';
   }
   if(def.category==='task'&&!TASK_CREATE_ROLES.has(role))return'إنشاء المهام متاح للإدارة والموارد البشرية والمحاسب.';
-  if(def.category==='incident'&&action!=='daily_report')return'نوع التقرير غير مسموح.';
+  if(def.category==='incident'&&!new Set(['daily_report',...MANAGEMENT_FEEDBACK_ACTIONS]).has(action))return'نوع التقرير غير مسموح.';
   return'';
 }
 
@@ -70,8 +95,8 @@ export async function advanceEnterpriseForm(message,identity,session,value){
     if(nextField[2])await sendMessage(message.chat.id,nextField[1],optionsKeyboard(action,nextField[2]));else await sendMessage(message.chat.id,nextField[1]);
     return true;
   }
-  const reference=await nextEnterpriseReference(def.prefix),status=def.category==='task'?'assigned':def.category==='quality'&&data.priority==='critical'?'under_review':'open';
-  const details={reference_no:reference,category:def.category,subtype:def.subtype,title:def.title,status,priority:data.priority||'normal',created_by_user_id:String(identity.user_id||''),created_by_name:displayName(identity,message.from),assigned_to:data.party||displayName(identity,message.from),...data};
+  const reference=await nextEnterpriseReference(def.prefix),managementFeedback=MANAGEMENT_FEEDBACK_ACTIONS.has(action),status=def.category==='task'?'assigned':(def.category==='quality'||managementFeedback)&&data.priority==='critical'?'under_review':'open';
+  const details={reference_no:reference,category:def.category,subtype:def.subtype,title:def.title,status,priority:data.priority||'normal',created_by_user_id:String(identity.user_id||''),created_by_name:displayName(identity,message.from),assigned_to:managementFeedback?'الإدارة':data.party||displayName(identity,message.from),...data};
   await setEnterpriseSession(message.chat.id,identity.external_id||message.from.id,'enterprise_confirm',{action,reference,details,startedAt:new Date().toISOString(),roleAtStart:session.context?.roleAtStart||identity.role});
   const lines=Object.entries(data).map(([keyName,fieldValue])=>summaryLine(keyName,fieldValue)).join('\n');
   await sendMessage(message.chat.id,`<b>مراجعة ${esc(def.title)}</b>\n\nالمرجع: <b>${esc(reference)}</b>\n${lines}\n\nلم يتم الحفظ النهائي بعد.`,keyboard([[{text:'تأكيد وحفظ',callback_data:`entconfirm:${reference}`},{text:'إلغاء',callback_data:`entcancel:${reference}`}]]));
@@ -83,7 +108,9 @@ export async function confirmEnterpriseForm(message,from,identity,reference){
   const denied=permission(identity,action,def);if(denied){await clearMaintenanceSession(message.chat.id,identity.external_id||from.id);return sendMessage(message.chat.id,denied);}
   await logEnterpriseEvent({identity,message:{...message,from},action:'enterprise_operation_created',entityType:details.category,entityId:reference,details});
   if(details.category==='quality'&&details.priority==='critical')await insert('discrepancies',[{reference_no:reference,source_type:'telegram_quality',discrepancy_type:details.subtype,severity:'critical',title:details.title,actual_value:details,status:'open',reason:details.note||'',assigned_to:null}]);
+  const managementFeedback=MANAGEMENT_FEEDBACK_ACTIONS.has(action),notification=managementFeedback?await notifyManagementFeedback(details,{...message,from},identity):null;
   await clearMaintenanceSession(message.chat.id,identity.external_id||from.id);
-  return sendMessage(message.chat.id,`تم حفظ ${esc(details.title)} رسميًا.\nالمرجع: <b>${esc(reference)}</b>\nالحالة: <b>${esc(STATUS_LABEL[details.status]||details.status)}</b>.`,statusKeyboard(reference));
+  const delivery=managementFeedback?(notification.delivered?`\nتم إرساله فورًا إلى الإدارة: <b>${notification.delivered}</b> مستلم.`:'\nتم حفظه في لوحة التشغيل، لكن تعذر إرسال تنبيه Telegram للإدارة.') :'';
+  return sendMessage(message.chat.id,`تم حفظ ${esc(details.title)} رسميًا.\nالمرجع: <b>${esc(reference)}</b>\nالحالة: <b>${esc(STATUS_LABEL[details.status]||details.status)}</b>.${delivery}`,managementFeedback?{}:statusKeyboard(reference));
 }
 export async function cancelEnterpriseForm(message,from,identity){await clearMaintenanceSession(message.chat.id,identity.external_id||from.id);return sendMessage(message.chat.id,'تم إلغاء العملية المؤقتة.');}
