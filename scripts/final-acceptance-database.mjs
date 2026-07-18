@@ -13,7 +13,12 @@ const sql=String.raw`
 \set ON_ERROR_STOP on
 begin;
 
-select case when (select coalesce(max(version),0) from public.migration_history)=20 then 1 else 1/0 end;
+do $$
+begin
+  if (select coalesce(max(version),0) from public.migration_history)<>20 then
+    raise exception 'SCHEMA_20_REQUIRED';
+  end if;
+end $$;
 
 insert into public.customers(external_id,customer_code,customer_name,segment,credit_limit,payment_days,active,source_updated_at)
 values('ACC-${run}','ACC-${run}','عميل اختبار قبول ${run}','acceptance',1000000,30,true,now())
