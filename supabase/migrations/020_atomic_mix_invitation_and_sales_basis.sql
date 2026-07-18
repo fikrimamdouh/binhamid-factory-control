@@ -10,6 +10,33 @@ alter table public.sales_orders add column if not exists vat_rate numeric(9,4) c
 alter table public.sales_orders add column if not exists amount_includes_vat boolean;
 alter table public.sales_orders add column if not exists net_amount_before_vat numeric(18,2) check (net_amount_before_vat is null or net_amount_before_vat>=0);
 
+create or replace function public.accept_user_invitation(p_token_hash text,p_telegram_id text)
+returns jsonb language plpgsql security definer set search_path=public as $$
+declare
+  v_row public.user_invitations%rowtype;
+  v_user_id uuid;
+begin
+  if p_token_hash is null or p_token_hash !~ '^[a-f0-9]{64}$' or nullif(trim(p_telegram_id),'') is null then raise exception 'INVITATION_INPUT_INVALID'; end if;
+  select * into v_row from public.user_invitations where token_hash=p_token_hash for update;
+  if not found then raise exception 'INVITATION_NOT_FOUND'; end if;
+  if v_row.status in ('approved','revoked','rejected','expired') then raise exception 'INVITATION_NOT_USABLE:%',v_row.status; end if;
+  if v_row.expires_at<=now() then
+    update public.user_invitations set status='expired' where id=v_row.id;
+    raise exception 'INVITATION_EXPIRED';
+  end if;
+  if v_row.accepted_by_telegram_id is not null and v_row.accepted_by_telegram_id<>p_telegram_id then raise exception 'INVITATION_ALREADY_ACCEPTED'; end if;
+  update public.app_users
+  set full_name=v_row.full_name,employee_external_id=v_row.employee_external_id,role='pending',active=false,updated_at=now()
+  where external_id=p_telegram_id returning id into v_user_id;
+  if v_user_id is null then raise exception 'INVITATION_USER_NOT_FOUND'; end if;
+  update public.user_invitations
+  set status='accepted_pending_approval',accepted_by_telegram_id=p_telegram_id,accepted_at=coalesce(accepted_at,now()),metadata=metadata||jsonb_build_object('last_opened_at',now())
+  where id=v_row.id returning * into v_row;
+  insert into public.audit_log(actor_type,actor_id,action,entity_type,entity_id,details)
+  values('telegram',p_telegram_id,'user_invitation_accepted','user_invitation',v_row.id::text,jsonb_build_object('app_user_id',v_user_id,'requested_role',v_row.requested_role));
+  return to_jsonb(v_row)-'token_hash';
+end $$;
+
 create or replace function public.clone_mix_design_version(p_design_id uuid,p_actor text)
 returns jsonb language plpgsql security definer set search_path=public as $$
 declare
@@ -75,14 +102,16 @@ begin
   if p_decision='revoke' then
     if v_inv.status not in ('pending','opened','accepted_pending_approval') then raise exception 'INVITATION_NOT_REVOCABLE'; end if;
     update public.user_invitations set status='revoked',revoked_by=p_actor,revoked_at=now() where id=p_invitation_id;
-    insert into public.audit_log(actor_type,actor_id,action,entity_type,entity_id,details) values('telegram',p_actor,'user_invitation_revoked','user_invitation',p_invitation_id::text,jsonb_build_object('phone',regexp_replace(v_inv.phone_normalized,'(.{4}).*(.{3})','\1****\2')));
+    insert into public.audit_log(actor_type,actor_id,action,entity_type,entity_id,details)
+    values('telegram',p_actor,'user_invitation_revoked','user_invitation',p_invitation_id::text,jsonb_build_object('phone',regexp_replace(v_inv.phone_normalized,'(.{4}).*(.{3})','\1****\2')));
     return jsonb_build_object('id',p_invitation_id,'status','revoked');
   end if;
   if v_inv.status<>'accepted_pending_approval' then raise exception 'INVITATION_NOT_AWAITING_APPROVAL'; end if;
   if v_inv.accepted_by_telegram_id=p_approver_telegram_id then raise exception 'INVITATION_SELF_APPROVAL_FORBIDDEN'; end if;
   if p_decision='reject' then
     update public.user_invitations set status='rejected',revoked_by=p_actor,revoked_at=now() where id=p_invitation_id;
-    insert into public.audit_log(actor_type,actor_id,action,entity_type,entity_id,details) values('telegram',p_actor,'user_invitation_rejected','user_invitation',p_invitation_id::text,jsonb_build_object('target_telegram_id',v_inv.accepted_by_telegram_id));
+    insert into public.audit_log(actor_type,actor_id,action,entity_type,entity_id,details)
+    values('telegram',p_actor,'user_invitation_rejected','user_invitation',p_invitation_id::text,jsonb_build_object('target_telegram_id',v_inv.accepted_by_telegram_id));
     return jsonb_build_object('id',p_invitation_id,'status','rejected','target_telegram_id',v_inv.accepted_by_telegram_id);
   end if;
   v_role:=coalesce(nullif(trim(p_role),''),v_inv.requested_role);
