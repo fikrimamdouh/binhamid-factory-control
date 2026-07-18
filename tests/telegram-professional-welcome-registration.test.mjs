@@ -45,10 +45,11 @@ test('admin review shows the submitted job and preserves final role approval',()
   assert.match(approvals,/approve_telegram_user/);
 });
 
-test('Telegram command menu publishes help and registration entry points',()=>{
+test('Telegram command menu publishes help registration and invitation entry points',()=>{
   const admin=read(['..','api','_lib','routes','telegram-admin.js']);
   assert.match(admin,/command:'help'/);
   assert.match(admin,/command:'register'/);
+  assert.match(admin,/command:'invite'/);
   assert.match(admin,/تسجيل أو تحديث بيانات الموظف/);
-  assert.match(admin,/version:6/);
+  assert.match(admin,/version:7/);
 });
