@@ -52,6 +52,7 @@ export const insert = (table, rows, options = {}) => supabase(`/rest/v1/${table}
 export const upsert = (table, rows, onConflict) => supabase(`/rest/v1/${table}${onConflict ? `?on_conflict=${encodeURIComponent(onConflict)}` : ''}`, { method: 'POST', body: JSON.stringify(rows), headers: { Prefer: 'resolution=merge-duplicates,return=representation' } });
 export const patch = (table, query, values) => supabase(`/rest/v1/${table}?${query}`, { method: 'PATCH', body: JSON.stringify(values), headers: { Prefer: 'return=representation' } });
 export const rpc = (name, args) => supabase(`/rest/v1/rpc/${name}`, { method: 'POST', body: JSON.stringify(args), headers: { Prefer: 'return=representation' } });
+export const remove = (table, query = '') => supabase(`/rest/v1/${table}${query ? `?${query}` : ''}`, { method: 'DELETE', headers: { Prefer: 'return=representation' } });
 
 const storageErrorCode=error=>String(error?.data?.code||error?.data?.error||error?.data?.errorCode||'').trim();
 const storageErrorText=error=>`${storageErrorCode(error)} ${String(error?.message||'')}`.trim();
