@@ -16,6 +16,7 @@ import * as dailyReport from './_lib/routes/daily-report.js';
 import * as fifo from './_lib/routes/fifo.js';
 import * as accounting from './_lib/routes/accounting.js';
 import * as fleetStatus from './_lib/routes/fleet-status.js';
+import * as webAuth from './_lib/routes/web-auth.js';
 
 const routes={
   'admin/groups':admin.groups,
