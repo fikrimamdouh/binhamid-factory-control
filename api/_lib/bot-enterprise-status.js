@@ -12,9 +12,14 @@ const CATEGORY_ROLES={
   inventory:new Set(['admin','manager','accountant','warehouse','procurement','mechanic']),
   fuel:new Set(['admin','manager','accountant','fuel_operator','mechanic']),
   hr:new Set(['admin','manager','accountant','hr']),
-  quality:new Set(['admin','manager','quality'])
+  quality:new Set(['admin','manager','quality']),
+  production:new Set(['admin','manager','accountant','block_sales','concrete_sales'])
 };
 function allowed(identity,set){return Boolean(identity?.active&&set.has(identity.role));}
+function todayRiyadh(){
+  const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Riyadh',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date()),get=type=>parts.find(item=>item.type===type)?.value||'';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
 
 export async function setEnterpriseOperationStatus(message,from,identity,payload){
   const [reference,status]=String(payload||'').split('|');
@@ -44,6 +49,20 @@ export async function sendEnterpriseCategorySummary(chatId,identity,category,tit
   const ops=reduceEnterpriseOperations(await enterpriseEvents()).filter(item=>item.category===category),open=ops.filter(item=>ACTIVE_STATUS.has(item.status)),today=new Date().toISOString().slice(0,10),todayOps=ops.filter(item=>String(item.created_at||'').slice(0,10)===today),total=todayOps.reduce((sum,item)=>sum+Number(item.amount||0),0);
   let text=`<b>${esc(title)}</b>\n\nمسجل اليوم: <b>${todayOps.length}</b>\nمفتوح حاليًا: <b>${open.length}</b>${total?`\nإجمالي مبالغ اليوم: <b>${formatAmount(total)} ر.س</b>`:''}`;
   if(open.length)text+=`\n\n<b>أهم العمليات المفتوحة</b>\n${open.slice(0,8).map(operationLine).join('\n\n')}`;
+  return sendMessage(chatId,text.slice(0,3900));
+}
+export async function sendEnterpriseProductionReports(chatId,identity,product=''){
+  const allowedRoles=new Set(['admin','manager','accountant','block_sales','concrete_sales']);
+  if(!allowed(identity,allowedRoles))return sendMessage(chatId,'تقارير الإنتاج متاحة للإدارة والمحاسب وموظفي مبيعات القسم.');
+  const ownProduct=identity.role==='concrete_sales'?'concrete':identity.role==='block_sales'?'block':'';
+  const requested=product||ownProduct;
+  if(ownProduct&&requested&&ownProduct!==requested)return sendMessage(chatId,'لا تملك صلاحية عرض تقارير القسم الآخر.');
+  const ops=reduceEnterpriseOperations(await enterpriseEvents(1200)).filter(item=>item.category==='production'&&(!requested||String(item.subtype||'').startsWith(`${requested}_`)));
+  const today=todayRiyadh(),daily=ops.filter(item=>item.subtype?.includes('_daily_')&&item.report_date===today),upcoming=ops.filter(item=>item.subtype?.includes('_pre_')&&String(item.report_date||'')>=today&&ACTIVE_STATUS.has(item.status));
+  const sum=(rows,key)=>rows.reduce((total,item)=>total+Number(item[key]||0),0),label=requested==='concrete'?'الخرسانة':requested==='block'?'البلوك':'الإنتاج';
+  let text=`<b>تشغيل ${label}</b>\n\n<b>تقرير اليوم</b>\n• تقارير مسجلة: <b>${daily.length}</b>\n• المخطط: <b>${formatAmount(sum(daily,'quantity'))}</b>\n• المنتج فعليًا: <b>${formatAmount(sum(daily,'produced'))}</b>\n• المورد فعليًا: <b>${formatAmount(sum(daily,'delivered'))}</b>\n• الهالك/المرفوض: <b>${formatAmount(sum(daily,'waste'))}</b>\n\n<b>التجهيز المسبق</b>\n• تقارير قادمة مفتوحة: <b>${upcoming.length}</b>`;
+  if(upcoming.length)text+=`\n\n${upcoming.slice(0,12).map(item=>`• <b>${esc(item.reference_no)}</b> — ${esc(item.report_date||'')}\n  ${esc(item.party||item.item||label)} | مخطط ${formatAmount(item.quantity)}\n  المتطلبات: ${esc(item.requirements||'لم تُذكر').slice(0,220)}`).join('\n\n')}`;
+  if(daily.some(item=>item.delays&&norm(item.delays)!=='لا يوجد'))text+=`\n\n<b>تأخيرات اليوم</b>\n${daily.filter(item=>item.delays&&norm(item.delays)!=='لا يوجد').slice(0,8).map(item=>`• ${esc(item.delays).slice(0,220)}`).join('\n')}`;
   return sendMessage(chatId,text.slice(0,3900));
 }
 export async function sendEnterpriseOperations(chatId,identity){

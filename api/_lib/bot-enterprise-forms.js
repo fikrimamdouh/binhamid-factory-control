@@ -20,6 +20,9 @@ const QUALITY_ADMIN_ACTIONS=new Set(['quality_check','quality_corrective']);
 const QUALITY_ROLES=new Set(['admin','manager','mechanic','quality']);
 const TASK_CREATE_ROLES=new Set(['admin','manager','accountant','hr']);
 const MANAGEMENT_FEEDBACK_ACTIONS=new Set(['management_suggestion','management_problem']);
+const PRODUCTION_REPORT_ACTIONS=new Set(['concrete_pre_report','concrete_daily_report','block_pre_report','block_daily_report']);
+const CONCRETE_REPORT_ROLES=new Set(['admin','manager','concrete_sales']);
+const BLOCK_REPORT_ROLES=new Set(['admin','manager','block_sales']);
 
 async function managementFeedbackChats(excludeChatId=''){
   const excluded=String(excludeChatId||''),chats=new Set();
@@ -32,6 +35,17 @@ async function managementFeedbackChats(excludeChatId=''){
     }
   }catch(error){console.warn('[telegram management feedback recipients]',{message:String(error?.message||'').slice(0,300)});}
   return[...chats];
+}
+async function notifyProductionReport(details,message,identity){
+  const chats=await managementFeedbackChats(message.chat.id);
+  if(!chats.length)return{recipients:0,delivered:0,failed:0};
+  const product=details.subtype?.startsWith('concrete_')?'الخرسانة':'البلوك',kind=details.subtype?.includes('_pre_')?'تقرير تجهيز مسبق':'تقرير اليوم',employee=details.created_by_name||displayName(identity,message.from),role=roleLabel(identity?.role||'pending');
+  const fields=[['التاريخ',details.report_date],['العميل/الموقع',details.party],['الصنف أو الخلطة',details.item],['المخطط',details.quantity],['المنتج فعليًا',details.produced],['المورد فعليًا',details.delivered],['الهالك/المرفوض',details.waste],['موعد التشغيل',details.delivery_time],['المضخات',details.pumps],['التأخيرات',details.delays],['المتطلبات',details.requirements]].filter(([,value])=>value!==undefined&&value!=='');
+  const text=`<b>${esc(kind)} — ${esc(product)}</b>\n\nالمرجع: <b>${esc(details.reference_no)}</b>\nالموظف: <b>${esc(employee)}</b> — ${esc(role)}\n\n${fields.map(([label,value])=>`• ${label}: <b>${esc(value)}</b>`).join('\n')}\n\n<b>إجراء الإدارة:</b> راجع المتطلبات وجهّز المواد والمضخات والسيارات والعمالة قبل موعد التشغيل.`;
+  const sent=await Promise.allSettled(chats.map(chatId=>sendMessage(chatId,text,{...statusKeyboard(details.reference_no),action_name:'production_report_received',action_payload:{reference_no:details.reference_no,subtype:details.subtype,created_by_user_id:details.created_by_user_id}})));
+  const delivered=sent.filter(item=>item.status==='fulfilled').length,failed=sent.length-delivered;
+  if(failed)console.warn('[telegram production report delivery]',{reference:details.reference_no,recipients:chats.length,delivered,failed});
+  return{recipients:chats.length,delivered,failed};
 }
 async function notifyManagementFeedback(details,message,identity){
   const chats=await managementFeedbackChats(message.chat.id);
@@ -63,6 +77,10 @@ function permission(identity,action,def){
     if(QUALITY_ADMIN_ACTIONS.has(action)&&!QUALITY_ROLES.has(role))return'الفحص والإجراء التصحيحي متاحان لمسؤول الجودة والورشة والإدارة.';
   }
   if(def.category==='task'&&!TASK_CREATE_ROLES.has(role))return'إنشاء المهام متاح للإدارة والموارد البشرية والمحاسب.';
+  if(def.category==='production'){
+    if(action.startsWith('concrete_')&&!CONCRETE_REPORT_ROLES.has(role))return'تقارير الخرسانة متاحة لموظف الخرسانة والإدارة فقط.';
+    if(action.startsWith('block_')&&!BLOCK_REPORT_ROLES.has(role))return'تقارير البلوك متاحة لموظف البلوك والإدارة فقط.';
+  }
   if(def.category==='incident'&&!new Set(['daily_report',...MANAGEMENT_FEEDBACK_ACTIONS]).has(action))return'نوع التقرير غير مسموح.';
   return'';
 }
@@ -70,7 +88,7 @@ function permission(identity,action,def){
 function mapMethod(value){return({cash:'نقدي',transfer:'تحويل',cheque:'شيك'}[value]||value);}
 function mapPriority(value){return({normal:'عادي',urgent:'عاجل',critical:'حرج'}[value]||value);}
 function summaryLine(key,value){
-  const labels={party:'الطرف/المسؤول',amount:'المبلغ',method:'الطريقة',note:'البيان',item:'الصنف/الموضوع',quantity:'الكمية',expected:'المتوقع',asset:'اللوحة/الأصل',odometer:'العداد',priority:'الأولوية',date_from:'من',date_to:'إلى',due_date:'الموعد',location:'الموقع',result:'النتيجة',phone:'الجوال',title:'العنوان',next_date:'المتابعة'};
+  const labels={party:'الطرف/المسؤول',amount:'المبلغ',method:'الطريقة',note:'البيان',item:'الصنف/الخلطة',quantity:'المخطط',expected:'المتوقع',asset:'اللوحة/الأصل',odometer:'العداد',priority:'الأولوية',date_from:'من',date_to:'إلى',due_date:'الموعد',report_date:'تاريخ التقرير',delivery_time:'موعد التشغيل',pumps:'المضخات',produced:'المنتج فعليًا',delivered:'المورد فعليًا',waste:'الهالك/المرفوض',delays:'التأخيرات',requirements:'المتطلبات',location:'الموقع',result:'النتيجة',phone:'الجوال',title:'العنوان',next_date:'المتابعة'};
   let shown=value;if(key==='method')shown=mapMethod(value);if(key==='priority')shown=mapPriority(value);
   return `${labels[key]||key}: <b>${esc(shown)}</b>`;
 }
@@ -87,7 +105,7 @@ export async function advanceEnterpriseForm(message,identity,session,value){
   const denied=permission(identity,action,def);if(denied){await clearMaintenanceSession(message.chat.id,identity.external_id||message.from.id);return sendMessage(message.chat.id,denied).then(()=>true);}
   const index=Number(String(session.state).split(':')[2]||0),field=def.fields[index],key=field?.[0];if(!key)return false;
   let normalized=String(value||'').trim();
-  if(['amount','quantity','expected','odometer'].includes(key)){const n=numberFrom(normalized);if(!n&&normalized!=='0')return sendMessage(message.chat.id,'اكتب قيمة رقمية صحيحة.').then(()=>true);normalized=n;}
+  if(['amount','quantity','expected','odometer','pumps','produced','delivered','waste'].includes(key)){const n=numberFrom(normalized);if(!n&&normalized!=='0')return sendMessage(message.chat.id,'اكتب قيمة رقمية صحيحة.').then(()=>true);normalized=n;}
   const data={...(session.context?.data||{}),[key]:normalized},nextIndex=index+1;
   if(nextIndex<def.fields.length){
     const nextField=def.fields[nextIndex];
@@ -95,7 +113,7 @@ export async function advanceEnterpriseForm(message,identity,session,value){
     if(nextField[2])await sendMessage(message.chat.id,nextField[1],optionsKeyboard(action,nextField[2]));else await sendMessage(message.chat.id,nextField[1]);
     return true;
   }
-  const reference=await nextEnterpriseReference(def.prefix),managementFeedback=MANAGEMENT_FEEDBACK_ACTIONS.has(action),status=def.category==='task'?'assigned':(def.category==='quality'||managementFeedback)&&data.priority==='critical'?'under_review':'open';
+  const reference=await nextEnterpriseReference(def.prefix),managementFeedback=MANAGEMENT_FEEDBACK_ACTIONS.has(action),productionReport=PRODUCTION_REPORT_ACTIONS.has(action),status=def.category==='task'?'assigned':(def.category==='quality'||managementFeedback)&&data.priority==='critical'?'under_review':'open';
   const details={reference_no:reference,category:def.category,subtype:def.subtype,title:def.title,status,priority:data.priority||'normal',created_by_user_id:String(identity.user_id||''),created_by_name:displayName(identity,message.from),assigned_to:managementFeedback?'الإدارة':data.party||displayName(identity,message.from),...data};
   await setEnterpriseSession(message.chat.id,identity.external_id||message.from.id,'enterprise_confirm',{action,reference,details,startedAt:new Date().toISOString(),roleAtStart:session.context?.roleAtStart||identity.role});
   const lines=Object.entries(data).map(([keyName,fieldValue])=>summaryLine(keyName,fieldValue)).join('\n');
@@ -108,9 +126,9 @@ export async function confirmEnterpriseForm(message,from,identity,reference){
   const denied=permission(identity,action,def);if(denied){await clearMaintenanceSession(message.chat.id,identity.external_id||from.id);return sendMessage(message.chat.id,denied);}
   await logEnterpriseEvent({identity,message:{...message,from},action:'enterprise_operation_created',entityType:details.category,entityId:reference,details});
   if(details.category==='quality'&&details.priority==='critical')await insert('discrepancies',[{reference_no:reference,source_type:'telegram_quality',discrepancy_type:details.subtype,severity:'critical',title:details.title,actual_value:details,status:'open',reason:details.note||'',assigned_to:null}]);
-  const managementFeedback=MANAGEMENT_FEEDBACK_ACTIONS.has(action),notification=managementFeedback?await notifyManagementFeedback(details,{...message,from},identity):null;
+  const managementFeedback=MANAGEMENT_FEEDBACK_ACTIONS.has(action),productionReport=PRODUCTION_REPORT_ACTIONS.has(action),notification=managementFeedback?await notifyManagementFeedback(details,{...message,from},identity):productionReport?await notifyProductionReport(details,{...message,from},identity):null;
   await clearMaintenanceSession(message.chat.id,identity.external_id||from.id);
-  const delivery=managementFeedback?(notification.delivered?`\nتم إرساله فورًا إلى الإدارة: <b>${notification.delivered}</b> مستلم.`:'\nتم حفظه في لوحة التشغيل، لكن تعذر إرسال تنبيه Telegram للإدارة.') :'';
+  const delivery=(managementFeedback||productionReport)?(notification.delivered?`\nتم إرساله فورًا إلى الإدارة: <b>${notification.delivered}</b> مستلم.`:'\nتم حفظه في لوحة التشغيل، لكن تعذر إرسال تنبيه Telegram للإدارة.') :'';
   return sendMessage(message.chat.id,`تم حفظ ${esc(details.title)} رسميًا.\nالمرجع: <b>${esc(reference)}</b>\nالحالة: <b>${esc(STATUS_LABEL[details.status]||details.status)}</b>.${delivery}`,managementFeedback?{}:statusKeyboard(reference));
 }
 export async function cancelEnterpriseForm(message,from,identity){await clearMaintenanceSession(message.chat.id,identity.external_id||from.id);return sendMessage(message.chat.id,'تم إلغاء العملية المؤقتة.');}

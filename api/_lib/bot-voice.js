@@ -8,7 +8,7 @@ function buildForm(buffer,contentType,model){
   form.append('language','ar');
   form.append('response_format','json');
   form.append('temperature','0');
-  form.append('prompt','مصنع بن حامد، بلوك، خرسانة جاهزة، ديزل، وقود، لوحة سيارة، معدة، سائق، فاتورة، تحصيل، مبيعات، صيانة، عطل، أمر إصلاح، قطع غيار، رواتب. اكتب الأرقام بوضوح.');
+  form.append('prompt','مصنع بن حامد، بلوك، خرسانة جاهزة، تقرير مسبق، تقرير اليوم، احتياجات الخرسانة، خلطات ومضخات وخلاطات، إنتاج البلوك، ديزل، وقود، لوحة سيارة، معدة، سائق، فاتورة، تحصيل، مبيعات، محاسبة، ميزان مراجعة، دفتر أستاذ، صيانة، عطل، أمر إصلاح، قطع غيار، رواتب. اكتب الأرقام والتواريخ والكميات بوضوح.');
   form.append('file',new Blob([buffer],{type:contentType||'audio/ogg'}),'telegram-voice.ogg');
   return form;
 }
@@ -18,7 +18,7 @@ async function requestTranscription(buffer,contentType,model){
     method:'POST',
     headers:{Authorization:`Bearer ${config.openaiKey}`},
     body:buildForm(buffer,contentType,model),
-    signal:AbortSignal.timeout(11000)
+    signal:AbortSignal.timeout(8500)
   });
   const data=await response.json().catch(()=>({}));
   if(!response.ok){
