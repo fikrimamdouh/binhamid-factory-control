@@ -12,13 +12,13 @@ test('automatic device bootstrap grants no business-data capability',()=>{
   assert.match(source,/DEVICE_CAPABILITY_REQUIRED/);
 });
 
-test('production readiness follows schema 21 and never references schema 15 as current',()=>{
+test('production readiness follows schema 22 and never references schema 15 as current',()=>{
   const workflow=read('.github/workflows/production-readiness.yml');
   const runtime=read('api/_lib/routes/system-runtime.js');
   assert.doesNotMatch(workflow,/directOperationsSchema\)!==15|expected schema 15|schema 15/);
-  assert.match(workflow,/directOperationsSchema\)!==21|directOperationsSchema\)===21|directOperationsSchema===21/);
-  assert.match(runtime,/LATEST_REQUIRED_VERSION=21/);
-  assert.match(runtime,/directOperationsSchema:21/);
+  assert.match(workflow,/directOperationsSchema\)!==22|directOperationsSchema\)===22|directOperationsSchema===22/);
+  assert.match(runtime,/LATEST_REQUIRED_VERSION=22/);
+  assert.match(runtime,/directOperationsSchema:22/);
 });
 
 test('accounting migrations provide balanced journals, ledger, reversal and trial balance',()=>{
@@ -82,9 +82,9 @@ test('structured accounting API and page are present',()=>{
   assert.match(vercel,/api\/accounting/);
 });
 
-test('isolated final database acceptance supports Schema 21 and resolves status transition arguments exactly',()=>{
+test('isolated final database acceptance requires Schema 22 and resolves status transition arguments exactly',()=>{
   const source=read('scripts/final-acceptance-database.mjs');
-  assert.match(source,/max\(version\),0\) from public\.migration_history\)<20/);
+  assert.match(source,/max\(version\),0\) from public\.migration_history\)<>22/);
   assert.match(source,/null::uuid/);
   assert.match(source,/'processing'::text/);
   assert.match(source,/'posted'::text/);
