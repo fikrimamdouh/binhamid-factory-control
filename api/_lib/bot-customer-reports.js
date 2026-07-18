@@ -1,19 +1,23 @@
+import crypto from 'node:crypto';
 import { sendMessage, keyboard } from './telegram.js';
 import { clearMaintenanceSession } from './bot-maintenance.js';
 import { esc, formatAmount, norm, setEnterpriseSession } from './bot-enterprise-store.js';
 import { findCustomers, loadCustomerAnalytics } from './bot-customer-report-data.js';
+import { insert, select } from './supabase.js';
 
 const REPORT_ROLES=new Set(['admin','manager','accountant','block_sales','concrete_sales','collector']);
+const CREATE_ROLES=new Set(['admin','manager','accountant']);
 const decisionLabel={normal:'طبيعي',watch:'مراجعة قبل زيادة الائتمان',stop:'إيقاف البيع الآجل حتى المراجعة'};
 const salesTypeLabel={block:'بلوك',concrete:'خرسانة'};
 const canView=identity=>Boolean(identity?.active&&REPORT_ROLES.has(identity.role));
+const canCreate=identity=>Boolean(identity?.active&&CREATE_ROLES.has(identity.role));
 const money=value=>`${formatAmount(value)} ر.س`;
 const pct=value=>value===null?'غير محدد':`${formatAmount(value*100)}%`;
 
 export function customerReportsMenu(){return keyboard([
+  [{text:'تسجيل عميل جديد',callback_data:'ent:customer_create'},{text:'كشف عميل',callback_data:'ent:customer_lookup'}],
   [{text:'ملخص العملاء',callback_data:'ent:customer_summary'},{text:'أكبر المديونيات',callback_data:'ent:customer_debt'}],
-  [{text:'أعمار الديون',callback_data:'ent:customer_aging'},{text:'العملاء المتأخرون',callback_data:'ent:customer_overdue'}],
-  [{text:'كشف عميل بالاسم أو الكود',callback_data:'ent:customer_lookup'}]
+  [{text:'أعمار الديون',callback_data:'ent:customer_aging'},{text:'العملاء المتأخرون',callback_data:'ent:customer_overdue'}]
 ]);}
 async function deny(chatId){return sendMessage(chatId,'تقارير العملاء متاحة للإدارة والمحاسب والمبيعات والتحصيل وفق نطاق كل دور.');}
 export async function sendCustomerReportsMenu(chatId,identity){
@@ -60,17 +64,49 @@ async function sendCustomerStatement(chatId,identity,query){
   const receipts=recentCollections.length?`\n\n<b>أحدث التحصيلات</b>\n${recentCollections.map(collectionLine).join('\n')}`:'\n\nلا توجد تحصيلات مسجلة.';
   return sendMessage(chatId,`${header}${invoices}${receipts}`.slice(0,3900));
 }
+function field(text,label){const match=String(text||'').match(new RegExp(`(?:^|\\n)\\s*${label}\\s*[:：-]\\s*(.+)`,'i'));return match?.[1]?.trim()||'';}
+function parseCustomer(text){
+  const name=field(text,'(?:الاسم|اسم العميل)'),code=field(text,'(?:الكود|كود العميل|رقم العميل)'),phone=field(text,'(?:الجوال|الهاتف|رقم الجوال)'),limit=Number(String(field(text,'(?:حد الائتمان|الحد الائتماني)')||'0').replace(/[^0-9.]/g,''))||0,days=Math.round(Number(String(field(text,'(?:أيام السداد|مدة السداد)')||'0').replace(/[^0-9.]/g,''))||0);
+  return{name,code,phone,creditLimit:limit,paymentDays:days};
+}
+async function startCustomerCreate(message,identity){
+  if(!canCreate(identity))return sendMessage(message.chat.id,'تسجيل عميل جديد متاح للإدارة والمحاسب.');
+  await setEnterpriseSession(message.chat.id,identity.external_id||message.from.id,'enterprise_customer_create',{startedAt:new Date().toISOString()});
+  return sendMessage(message.chat.id,'أرسل بيانات العميل في رسالة واحدة:\n\nالاسم: مؤسسة المثال\nالكود: 10021\nالجوال: 05xxxxxxxx\nحد الائتمان: 50000\nأيام السداد: 30\n\nلن يُحفظ العميل قبل المراجعة والتأكيد.');
+}
+async function createCustomer(message,identity,draft){
+  const duplicate=(await select('customers',`customer_code=eq.${encodeURIComponent(draft.code)}&select=id,customer_name&limit=1`).catch(()=>[]))?.[0];
+  if(duplicate)return sendMessage(message.chat.id,`كود العميل مستخدم بالفعل للعميل <b>${esc(duplicate.customer_name)}</b>.`);
+  const externalId=`TG-${draft.code}-${crypto.randomUUID().slice(0,8)}`,rows=await insert('customers',[{external_id:externalId,customer_code:draft.code,customer_name:draft.name,phone:draft.phone||null,credit_limit:draft.creditLimit,payment_days:draft.paymentDays,active:true,created_at:new Date().toISOString(),updated_at:new Date().toISOString()}]),customer=rows?.[0];
+  await insert('audit_log',[{actor_type:'telegram',actor_id:String(identity.user_id||identity.external_id),action:'customer_created',entity_type:'customer',entity_id:String(customer?.id||externalId),details:{customer_code:draft.code,customer_name:draft.name,phone:draft.phone||null,credit_limit:draft.creditLimit,payment_days:draft.paymentDays,source_chat_id:String(message.chat.id),source_message_id:String(message.message_id)}}],{prefer:'return=minimal'}).catch(()=>{});
+  await clearMaintenanceSession(message.chat.id,identity.external_id||message.from.id).catch(()=>{});
+  return sendMessage(message.chat.id,`تم إنشاء العميل في سجل الموقع.\nالاسم: <b>${esc(draft.name)}</b>\nالكود: <code>${esc(draft.code)}</code>\nحد الائتمان: <b>${money(draft.creditLimit)}</b>\nأيام السداد: <b>${draft.paymentDays}</b>`);
+}
 export async function startCustomerLookup(message,identity){
   if(!canView(identity))return deny(message.chat.id);
   await setEnterpriseSession(message.chat.id,identity.external_id||message.from.id,'enterprise_customer_lookup',{startedAt:new Date().toISOString()});
   return sendMessage(message.chat.id,'اكتب كود العميل أو اسمه. مثال: 10021 أو مصنع الأمل.');
 }
 export async function continueCustomerReportSession(message,identity,session,text){
+  if(session?.state==='enterprise_customer_create'){
+    const draft=parseCustomer(text),missing=[];if(!draft.name)missing.push('الاسم');if(!draft.code)missing.push('الكود');if(draft.paymentDays<0||draft.paymentDays>3650)missing.push('أيام السداد الصحيحة');if(missing.length){await sendMessage(message.chat.id,`البيانات الناقصة أو غير الصحيحة: ${missing.join('، ')}. أعد إرسال النموذج كاملًا.`);return true;}
+    await setEnterpriseSession(message.chat.id,identity.external_id||message.from.id,'enterprise_customer_create_confirm',{draft,startedAt:new Date().toISOString()});
+    await sendMessage(message.chat.id,`<b>مراجعة العميل</b>\n\nالاسم: <b>${esc(draft.name)}</b>\nالكود: <code>${esc(draft.code)}</code>\nالجوال: ${esc(draft.phone||'غير مسجل')}\nحد الائتمان: <b>${money(draft.creditLimit)}</b>\nأيام السداد: <b>${draft.paymentDays}</b>`,keyboard([[{text:'تأكيد إنشاء العميل',callback_data:'ent:customer_create_confirm'}],[{text:'إلغاء',callback_data:'ent:customer_create_cancel'}]]));return true;
+  }
+  if(session?.state==='enterprise_customer_create_confirm'){await sendMessage(message.chat.id,'استخدم زر تأكيد إنشاء العميل أو الإلغاء.');return true;}
   if(session?.state!=='enterprise_customer_lookup')return false;
   const query=String(text||'').trim();if(query.length<2){await sendMessage(message.chat.id,'اكتب كودًا أو اسمًا أوضح.');return true;}
   await sendCustomerStatement(message.chat.id,identity,query);await clearMaintenanceSession(message.chat.id,identity.external_id||message.from.id).catch(()=>{});return true;
 }
 export async function handleCustomerReportCallback(message,from,identity,value){
+  if(value==='customer_create')return startCustomerCreate({...message,from},identity);
+  if(value==='customer_create_cancel'){await clearMaintenanceSession(message.chat.id,identity.external_id||from.id).catch(()=>{});return sendMessage(message.chat.id,'تم إلغاء تسجيل العميل.');}
+  if(value==='customer_create_confirm'){
+    if(!canCreate(identity))return sendMessage(message.chat.id,'ليست لديك صلاحية إنشاء العملاء.');
+    const session=(await select('bot_sessions',`channel=eq.telegram&chat_id=eq.${encodeURIComponent(String(message.chat.id))}&external_user_id=eq.${encodeURIComponent(String(identity.external_id||from.id))}&select=*&limit=1`))?.[0];
+    if(session?.state!=='enterprise_customer_create_confirm'||!session.context?.draft)return sendMessage(message.chat.id,'انتهت جلسة إنشاء العميل. ابدأ من جديد.');
+    return createCustomer({...message,from},identity,session.context.draft);
+  }
   if(!canView(identity))return deny(message.chat.id);
   if(value==='customer_menu')return sendCustomerReportsMenu(message.chat.id,identity);
   if(value==='customer_summary')return sendSummary(message.chat.id,identity);
@@ -82,6 +118,7 @@ export async function handleCustomerReportCallback(message,from,identity,value){
 }
 export async function handleCustomerReportTextCommand(message,identity,text){
   const raw=String(text||'').trim(),value=norm(raw);
+  if(/^(تسجيل عميل|اضافه عميل|إضافة عميل|عميل جديد)$/.test(value)){await startCustomerCreate(message,identity);return true;}
   if(/^\/(customers|clients)(?:@\w+)?$/i.test(raw)||/^(تقارير العملاء|تقرير العملاء|عملاء المصنع)$/.test(value)){await sendCustomerReportsMenu(message.chat.id,identity);return true;}
   if(/^(ملخص العملاء|اجمالي العملاء|إجمالي العملاء)$/.test(value)){if(!canView(identity))await deny(message.chat.id);else await sendSummary(message.chat.id,identity);return true;}
   if(/^(اكبر المديونيات|أكبر المديونيات|مديونيات العملاء)$/.test(value)){if(!canView(identity))await deny(message.chat.id);else await sendTopDebt(message.chat.id,identity);return true;}
