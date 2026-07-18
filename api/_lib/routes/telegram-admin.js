@@ -48,13 +48,11 @@ export async function notify(req,res){
     const ownerMessage=await sendMessage(config.telegramOwnerId,text,{action_name:'daily_report_approved',action_payload:{reportDate:reportDate||batch?.report_date,importId:importId||batch?.id,sourceImportId:source?.id||null}});
     const filePath=batch?.file_storage_path||source?.file_path||'',filename=batch?.original_name||source?.original_name||originalName,ownerFile=await sendApprovedFile(config.telegramOwnerId,filePath,filename,`التقرير المعتمد\n${text.replace(/<[^>]+>/g,'')}`);
     let sourceChatNotified=false,sourceFileSent=false;
-    if(source?.id){
-      await patch('imports',`id=eq.${encodeURIComponent(source.id)}`,{status:'approved',updated_at:new Date().toISOString(),summary:{...(source.summary||{}),approvedBatchId:batch?.id||importId||null,approvedAt:new Date().toISOString()}}).catch(error=>console.warn('[approved import link]',error?.message||error));
-      if(source.source_chat_id&&String(source.source_chat_id)!==String(config.telegramOwnerId)){
-        await sendMessage(String(source.source_chat_id),text,{action_name:'daily_report_approved_source',action_payload:{reportDate:reportDate||batch?.report_date,importId:batch?.id||importId||null}});sourceChatNotified=true;
-        const sent=await sendApprovedFile(String(source.source_chat_id),filePath,filename,`نسخة التقرير المعتمد\n${text.replace(/<[^>]+>/g,'')}`);sourceFileSent=sent.sent;
-      }
+    if(source?.id)await patch('imports',`id=eq.${encodeURIComponent(source.id)}`,{status:'approved',summary:{...(source.summary||{}),approvedBatchId:batch?.id||importId||null,approvedReportDate:reportDate||batch?.report_date||null,telegramApprovalNotifiedAt:new Date().toISOString()},updated_at:new Date().toISOString()}).catch(error=>console.warn('[linked import approval]',error?.message||error));
+    if(source?.source_chat_id&&String(source.source_chat_id)!==String(config.telegramOwnerId)){
+      try{await sendMessage(source.source_chat_id,`تم اعتماد الملف الذي أرسلته وربطه بالنظام.\n\n${text}`,{action_name:'source_import_approved',action_payload:{importId:source.id,batchId:batch?.id||importId}});sourceChatNotified=true;}catch(error){console.warn('[source import approval notify]',error?.message||error);}
+      const sourceFile=await sendApprovedFile(source.source_chat_id,filePath,filename,`نسخة التقرير بعد الاعتماد\nالتاريخ: ${reportDate||batch?.report_date||'—'}`);sourceFileSent=sourceFile.sent;
     }
-    json(res,200,{ok:true,messageId:ownerMessage.message_id,ownerFileSent:ownerFile.sent,sourceChatNotified,sourceFileSent,linkedImportId:source?.id||null,approvedBatchId:batch?.id||null});
+    json(res,200,{ok:true,messageId:ownerMessage.message_id,fileSent:ownerFile.sent,fileError:ownerFile.reason||null,sourceChatNotified,sourceFileSent,sourceImportId:source?.id||null,batchId:batch?.id||importId||null});
   }catch(error){errorResponse(res,error);}
 }
