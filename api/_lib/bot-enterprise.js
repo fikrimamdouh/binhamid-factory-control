@@ -1,7 +1,7 @@
 import { sendMessage, keyboard } from './telegram.js';
 import { displayName, roleLabel } from './bot-profile.js';
 import { clearMaintenanceSession } from './bot-maintenance.js';
-import { roleHomeKeyboard, financeMenu, collectionMenu, inventoryMenu, fuelMenu, hrMenu, qualityMenu, tripMenu, peopleMenu, concreteSalesMenu, blockSalesMenu, systemsMenu } from './bot-enterprise-defs.js';
+import { roleHomeKeyboard, financeMenu, collectionMenu, inventoryMenu, fuelMenu, hrMenu, qualityMenu, tripMenu, peopleMenu, concreteSalesMenu, blockSalesMenu, systemsMenu, administrationMenu } from './bot-enterprise-defs.js';
 import { advanceEnterpriseForm, cancelEnterpriseForm, confirmEnterpriseForm, startEnterpriseForm } from './bot-enterprise-forms.js';
 import { canManage, getEnterpriseSession, norm } from './bot-enterprise-store.js';
 import { executeEnterpriseSearch, startEnterpriseSearch } from './bot-enterprise-search.js';
@@ -15,6 +15,7 @@ import { continueCustomerReportSession, handleCustomerReportCallback, handleCust
 import { continueInvitationSession, handleInvitationCallback, handleInvitationTextCommand } from './bot-invitations.js';
 import { sendIntegrationCatalog } from './bot-integrations.js';
 import { continueAccountingSession, handleAccountingCallback, handleAccountingTextCommand } from './bot-accounting.js';
+import { handleFinancialDirectorCallback, handleFinancialDirectorTextCommand } from './bot-financial-director.js';
 
 function addBeforeHelp(rows,row){rows.splice(Math.max(0,rows.length-1),0,row);}
 function miniAppUrl(){let base=String(process.env.PUBLIC_APP_URL||process.env.VERCEL_PROJECT_PRODUCTION_URL||process.env.VERCEL_URL||'https://binhamid-factory-control.vercel.app').trim().replace(/\/$/,'');if(!/^https?:\/\//i.test(base))base=`https://${base}`;return `${base}/telegram-operations.html`;}
@@ -23,6 +24,7 @@ export async function showRoleHome(message,identity){
   if(!identity?.active)return sendMessage(message.chat.id,`مرحبًا ${name}. حسابك مسجل وينتظر الاعتماد. استخدم /whoami وأرسل الرقم لمدير النظام.`);
   const markup=roleHomeKeyboard(role),rows=markup.reply_markup.inline_keyboard;
   if(['admin','manager'].includes(role)){
+    addBeforeHelp(rows,[{text:'🧠 مساعد المدير المالي',callback_data:'ent:cfo_menu'},{text:'🏛 الإدارة والحوكمة',callback_data:'ent:admin_menu'}]);
     addBeforeHelp(rows,[{text:'🧩 كل أنظمة البرنامج',callback_data:'ent:systems_menu'},{text:'📚 مركز المحاسبة',callback_data:'ent:accounting_menu'}]);
     addBeforeHelp(rows,[{text:'الحضور والانصراف',callback_data:'home:attendance'},{text:'حالة الأسطول اليوم',callback_data:'gps:fleet'}]);
     addBeforeHelp(rows,[{text:'التحليلات الرقابية',callback_data:'ent:insights_help'},{text:'تقارير العملاء',callback_data:'ent:customer_menu'}]);
@@ -40,14 +42,14 @@ export async function showRoleHome(message,identity){
   }else if(role==='fuel_operator'){
     rows.splice(0,0,[{text:'الديزل والعدادات',callback_data:'ent:fuel_menu'},{text:'حالة الأسطول اليوم',callback_data:'gps:fleet'}],[{text:'الحضور',callback_data:'home:attendance'}]);
   }else if(role==='hr'){
-    rows.splice(0,0,[{text:'الحضور والموظفون',callback_data:'home:attendance'},{text:'الموارد البشرية',callback_data:'ent:hr_menu'}],[{text:'تكلفة العامل',callback_data:'ent:cost_workers'},{text:'مهام الفريق',callback_data:'ent:team_tasks'}]);
+    rows.splice(0,0,[{text:'الحضور والموظفون',callback_data:'home:attendance'},{text:'الموارد البشرية',callback_data:'ent:hr_menu'}],[{text:'🏛 الإدارة والحوكمة',callback_data:'ent:admin_menu'},{text:'تكلفة العامل',callback_data:'ent:cost_workers'}],[{text:'مهام الفريق',callback_data:'ent:team_tasks'}]);
   }else if(role==='procurement'){
     rows.splice(0,0,[{text:'المشتريات',callback_data:'ent:purchase'},{text:'مساعد المنتجات والموردون',callback_data:'home:suppliers'}],[{text:'المخزون',callback_data:'ent:inventory_menu'},{text:'الحضور',callback_data:'home:attendance'}]);
   }else if(role==='quality'){
     rows.splice(0,0,[{text:'الجودة والرقابة',callback_data:'ent:quality_menu'},{text:'الحضور',callback_data:'home:attendance'}]);
   }else if(['accountant','block_sales','concrete_sales','collector'].includes(role)){
     addBeforeHelp(rows,[{text:'الحضور والمواقع',callback_data:'home:attendance'},{text:'تقارير العملاء',callback_data:'ent:customer_menu'}]);
-    if(role==='accountant'){addBeforeHelp(rows,[{text:'📚 مركز المحاسبة',callback_data:'ent:accounting_menu'},{text:'🧩 كل أنظمة البرنامج',callback_data:'ent:systems_menu'}]);addBeforeHelp(rows,[{text:'التكاليف والربحية',callback_data:'ent:cost_menu'},{text:'مساعد المنتجات والأسعار',callback_data:'home:suppliers'}]);}
+    if(role==='accountant'){addBeforeHelp(rows,[{text:'🧠 مساعد المدير المالي',callback_data:'ent:cfo_menu'},{text:'📚 مركز المحاسبة',callback_data:'ent:accounting_menu'},{text:'🧩 كل أنظمة البرنامج',callback_data:'ent:systems_menu'}]);addBeforeHelp(rows,[{text:'التكاليف والربحية',callback_data:'ent:cost_menu'},{text:'مساعد المنتجات والأسعار',callback_data:'home:suppliers'}]);}
   }
   return sendMessage(message.chat.id,`<b>لوحة الموظف الذكي</b>\nمرحبًا ${name} — ${roleLabel(role)}.\nاختر العملية المطلوبة؛ كل مسار يعمل خطوة بخطوة مع مراجعة قبل الحفظ.`,markup);
 }
@@ -60,6 +62,7 @@ export async function handleEnterpriseTextCommand(message,identity,text){
   if(await handleCostTextCommand(message,identity,raw))return true;
   if(await handleCustomerReportTextCommand(message,identity,raw))return true;
   if(await handleAccountingTextCommand(message,identity,raw))return true;
+  if(await handleFinancialDirectorTextCommand(message,identity,raw))return true;
   if(/^\/suggestion(?:@\w+)?$/i.test(raw)||/^(اقتراح للاداره|اقتراح للمدير|ارسل اقتراح للاداره)$/.test(value)){await startEnterpriseForm(message,identity,'management_suggestion');return true;}
   if(/^\/(problem|complaint)(?:@\w+)?$/i.test(raw)||/^(مشكله للاداره|شكوى للاداره|بلاغ للاداره)$/.test(value)){await startEnterpriseForm(message,identity,'management_problem');return true;}
   if(/^\/(integrations|keys)(?:@\w+)?$/i.test(raw)||/^(التكاملات والمفاتيح|مفاتيح البرنامج|حاله التكاملات|حالة التكاملات)$/.test(value)){await sendIntegrationCatalog(message,identity);return true;}
@@ -77,6 +80,14 @@ export async function handleEnterpriseTextCommand(message,identity,text){
   if(/تقرير.*(اليوم|يومي).*بلوك|بلوك.*(تقرير|تسجيل).*(اليوم|يومي)/.test(value)){await startEnterpriseForm(message,identity,'block_daily_report');return true;}
   if(/^(تقارير الخرسانه|تشغيل الخرسانه|احتياجات الخرسانه)$/.test(value)){await sendEnterpriseProductionReports(message.chat.id,identity,'concrete');return true;}
   if(/^(تقارير البلوك|تشغيل البلوك|احتياجات البلوك)$/.test(value)){await sendEnterpriseProductionReports(message.chat.id,identity,'block');return true;}
+  if(/^(قرار اداري|قرار إداري)$/.test(value)){await startEnterpriseForm(message,identity,'admin_decision');return true;}
+  if(/^(محضر اجتماع|تسجيل اجتماع)$/.test(value)){await startEnterpriseForm(message,identity,'admin_meeting');return true;}
+  if(/^(تعميم اداري|تعميم إداري|سياسه جديده|سياسة جديدة)$/.test(value)){await startEnterpriseForm(message,identity,'admin_policy');return true;}
+  if(/^(طلب ميزانيه|طلب ميزانية)$/.test(value)){await startEnterpriseForm(message,identity,'finance_budget_request');return true;}
+  if(/^(التزام مورد|مستحق مورد)$/.test(value)){await startEnterpriseForm(message,identity,'finance_supplier_commitment');return true;}
+  if(/^(مطالبه مصروف|مطالبة مصروف)$/.test(value)){await startEnterpriseForm(message,identity,'finance_expense_claim');return true;}
+  if(/^(طلب عهده|طلب عهدة)$/.test(value)){await startEnterpriseForm(message,identity,'finance_custody_request');return true;}
+  if(/^(تسجيل خطر|خطر تشغيلي|خطر اداري|خطر إداري)$/.test(value)){await startEnterpriseForm(message,identity,'risk_register');return true;}
   return false;
 }
 export async function continueEnterpriseSession(message,identity,session,text){
@@ -99,6 +110,8 @@ export async function handleEnterpriseCallback(message,from,identity,action,valu
     if(value==='help')return showRoleHome({...message,from},identity);
     if(value==='integrations')return sendIntegrationCatalog({...message,from},identity);
     if(value==='systems_menu')return sendMessage(message.chat.id,'كل أنظمة البرنامج المتاحة حسب صلاحيتك:',systemsMenu(identity.role));
+    if(value==='admin_menu')return sendMessage(message.chat.id,'اختر العملية الإدارية أو الرقابية:',administrationMenu());
+    if(value==='cfo_menu'||String(value||'').startsWith('cfo_'))return handleFinancialDirectorCallback({...message,from},identity,value);
     if(value==='accounting_menu'||String(value||'').startsWith('accounting_'))return handleAccountingCallback({...message,from},identity,value);
     if(value==='concrete_sales_menu')return sendMessage(message.chat.id,'الخرسانة مستقلة: أوامر بيع، تقرير مسبق، تقرير اليوم ومتطلبات التشغيل.',concreteSalesMenu(identity.role));
     if(value==='block_sales_menu')return sendMessage(message.chat.id,'البلوك مستقل: أوامر بيع، تقرير مسبق، تقرير اليوم ومتطلبات التشغيل.',blockSalesMenu(identity.role));
@@ -132,6 +145,8 @@ export async function handleEnterpriseCallback(message,from,identity,action,valu
     if(value==='fuel_summary')return sendEnterpriseCategorySummary(message.chat.id,identity,'fuel','ملخص الديزل');
     if(value==='hr_summary')return sendEnterpriseCategorySummary(message.chat.id,identity,'hr','ملخص الموارد البشرية');
     if(value==='quality_summary')return sendEnterpriseCategorySummary(message.chat.id,identity,'quality','ملخص الجودة والرقابة');
+    if(value==='administration_summary')return sendEnterpriseCategorySummary(message.chat.id,identity,'administration','ملخص الإدارة');
+    if(value==='governance_summary')return sendEnterpriseCategorySummary(message.chat.id,identity,'governance','ملخص الحوكمة والمخاطر');
     return startEnterpriseForm({...message,from},identity,value);
   }
   if(action==='entopt'){

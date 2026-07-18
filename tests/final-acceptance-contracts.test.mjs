@@ -12,13 +12,23 @@ test('automatic device bootstrap grants no business-data capability',()=>{
   assert.match(source,/DEVICE_CAPABILITY_REQUIRED/);
 });
 
-test('production readiness follows schema 23 and never references schema 15 as current',()=>{
+test('production readiness follows schema 24 and never references schema 15 as current',()=>{
   const workflow=read('.github/workflows/production-readiness.yml');
+  const migrations=read('.github/workflows/apply-pending-migrations.yml');
+  const preflight=read('scripts/governance-migration-preflight.mjs');
+  const verify=read('scripts/governance-migration-verify.mjs');
   const runtime=read('api/_lib/routes/system-runtime.js');
   assert.doesNotMatch(workflow,/directOperationsSchema\)!==15|expected schema 15|schema 15/);
-  assert.match(workflow,/directOperationsSchema\)!==23|directOperationsSchema\)===23|directOperationsSchema===23/);
-  assert.match(runtime,/LATEST_REQUIRED_VERSION=23/);
-  assert.match(runtime,/directOperationsSchema:23/);
+  assert.match(workflow,/directOperationsSchema\)!==24|directOperationsSchema\)===24|directOperationsSchema===24/);
+  assert.match(runtime,/LATEST_REQUIRED_VERSION=24/);
+  assert.match(runtime,/directOperationsSchema:24/);
+  assert.match(migrations,/024_employee_nickname_and_financial_command_center\.sql/);
+  assert.ok(migrations.includes("ISOLATED_MIGRATION_TARGET: '24'"));
+  assert.ok(migrations.includes('$(seq $((current_version + 1)) 24)'));
+  assert.match(migrations,/EXPECTED_SCHEMA_VERSION=24/);
+  assert.match(preflight,/targetVersion=24/);
+  assert.match(verify,/targetVersion=24/);
+  for(const marker of ['appUsersNickname','employeesNickname','userInvitationsNickname','nicknameSyncTrigger'])assert.match(verify,new RegExp(marker));
 });
 
 test('accounting migrations provide balanced journals, ledger, reversal and trial balance',()=>{
@@ -84,10 +94,10 @@ test('structured accounting API and page are present',()=>{
   assert.match(vercel,/api\/accounting/);
 });
 
-test('isolated final database acceptance requires Schema 23 and resolves status transition arguments exactly',()=>{
+test('isolated final database acceptance requires Schema 24 and resolves status transition arguments exactly',()=>{
   const source=read('scripts/final-acceptance-database.mjs');
-  assert.match(source,/max\(version\),0\) from public\.migration_history\)<>23/);
-  assert.match(source,/Number\(evidence\.schemaVersion\)!==23/);
+  assert.match(source,/max\(version\),0\) from public\.migration_history\)<>24/);
+  assert.match(source,/Number\(evidence\.schemaVersion\)!==24/);
   assert.match(source,/null::uuid/);
   assert.match(source,/'processing'::text/);
   assert.match(source,/'posted'::text/);
