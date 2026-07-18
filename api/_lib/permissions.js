@@ -32,7 +32,10 @@ export function resolveCapabilityGateway(gateway,appUserId,capability){
 
 export async function requireCapability(req,capability){
   if(!String(capability||'').trim())throw accessError('اسم الصلاحية مطلوب',500,'CAPABILITY_NAME_REQUIRED');
-  const gateway=requireAdminOrDevice(req),appUserId=header(req,'x-app-user-id'),resolved=resolveCapabilityGateway(gateway,appUserId,capability);
+  // A transport-only device cookie never authenticates an app user. Passing the
+  // requested capability here makes such a cookie fail closed before a caller
+  // supplied x-app-user-id can be used for an authorization decision.
+  const gateway=requireAdminOrDevice(req,capability),appUserId=header(req,'x-app-user-id'),resolved=resolveCapabilityGateway(gateway,appUserId,capability);
   if(resolved)return resolved;
   const users=await select('app_users',`id=eq.${encodeURIComponent(appUserId)}&active=eq.true&select=id,full_name,role,active&limit=1`),user=users?.[0];
   if(!user)throw accessError('المستخدم غير معتمد أو موقوف',403,'USER_NOT_ACTIVE');
