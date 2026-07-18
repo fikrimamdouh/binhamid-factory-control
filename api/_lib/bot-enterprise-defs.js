@@ -34,6 +34,8 @@ export const SIMPLE_DEFS={
   trip_fault:{prefix:'TFT',category:'trip',subtype:'fault',title:'عطل أثناء رحلة',fields:[['asset','اكتب رقم السيارة أو اللوحة.'],['location','اكتب الموقع الحالي.'],['note','اكتب وصف العطل وهل المركبة متوقفة.']]},
   trip_end:{prefix:'TEN',category:'trip',subtype:'end',title:'إنهاء رحلة',fields:[['asset','اكتب رقم السيارة أو اللوحة.'],['odometer','اكتب قراءة العداد.'],['note','اكتب نتيجة الرحلة.']]},
   customer:{prefix:'CUS',category:'customer',subtype:'new',title:'عميل جديد',fields:[['party','اكتب اسم العميل أو المنشأة.'],['phone','اكتب رقم الجوال.'],['location','اكتب المدينة أو العنوان.'],['note','اكتب النشاط أو ملاحظات الائتمان.']]},
+  management_suggestion:{prefix:'SUG',category:'incident',subtype:'management_suggestion',title:'اقتراح للإدارة',fields:[['note','اكتب اقتراحك للإدارة بالتفصيل. يمكنك أيضًا إرسال رسالة صوتية، وللسرية استخدم المحادثة الخاصة مع البوت.']]},
+  management_problem:{prefix:'PRB',category:'incident',subtype:'management_problem',title:'مشكلة للإدارة',fields:[['priority','اختر مدى تأثير المشكلة.',[['normal','ملاحظة'],['urgent','تحتاج تدخل'],['critical','حرجة']]],['note','اشرح المشكلة التي تواجهك، وتأثيرها، وما الذي تحتاجه من الإدارة. يمكنك إرسال التفاصيل صوتيًا.']]},
   daily_report:{prefix:'DLY',category:'incident',subtype:'daily_report',title:'تقرير يومي',fields:[['note','اكتب ما أنجزته، ما تعطل، وما يحتاج متابعة.']]},
   task_new:{prefix:'TSK',category:'task',subtype:'task',title:'مهمة جديدة',fields:[['title','اكتب عنوان المهمة.'],['party','اكتب اسم المسؤول أو اكتب نفسي.'],['due_date','اكتب موعد الإنجاز أو اكتب اليوم.'],['priority','اختر الأولوية.',[['normal','عادي'],['urgent','عاجل'],['critical','حرج']]],['note','اكتب تفاصيل المهمة.']]}
 };
@@ -76,6 +78,7 @@ export function roleHomeRows(role){
     rows.push([{text:'📝 تقريري اليومي',callback_data:'ent:daily_report'},{text:'🧭 بحث عميل',callback_data:'ent:search'}]);
     rows.push([{text:'👥 كشف حساب عميل',callback_data:'ent:customer_lookup'},{text:'📈 ملخص التحصيل',callback_data:'report:sales'}]);
   }else rows.push([{text:'📋 مهامي',callback_data:'ent:my_tasks'},{text:'🧭 بحث',callback_data:'ent:search'}]);
+  rows.push([{text:'💡 اقتراح للإدارة',callback_data:'ent:management_suggestion'},{text:'⚠️ مشكلة للإدارة',callback_data:'ent:management_problem'}]);
   rows.push([{text:'ℹ️ المساعدة',callback_data:'ent:help'}]);
   return rows;
 }
