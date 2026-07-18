@@ -41,6 +41,7 @@ jobs:
         run: |
           node scripts/runtime-registration-excel-diagnostic.mjs
           node scripts/telegram-failure-diagnostic.mjs
+          node scripts/telegram-entity-persistence-diagnostic.mjs
 
       - name: Write fallback diagnostic when connection resolution fails
         if: failure()
@@ -64,6 +65,7 @@ jobs:
             runtime-registration-excel-diagnostic.json
             runtime-connection-diagnostic.json
             telegram-failure-diagnostic.json
+            telegram-entity-persistence-diagnostic.json
           if-no-files-found: warn
           retention-days: 7
 
