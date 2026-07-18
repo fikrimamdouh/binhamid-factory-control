@@ -1,5 +1,6 @@
 import { verifyTelegram } from './auth.js';
 import { json, method, body, errorResponse } from './http.js';
+import { rpc } from './supabase.js';
 import { sendMessage, answerCallback } from './telegram.js';
 import { ensureTelegramGroup, ensureTelegramIdentity, storeTelegramMessage } from './bot-webhook-core.js';
 import { getBotSession, clearMaintenanceSession } from './bot-maintenance.js';
@@ -30,6 +31,9 @@ const mechanicText=/^(قائمه الورشه|قائمة الورشة|تقرير
 const attendanceText=/^(الحضور والمواقع|تسجيل حضور|تسجيل انصراف|قائمه الحضور|قائمة الحضور|لوحه السائق|لوحة السائق)$/;
 const gpsText=/^(حاله gps|حالة gps|حاله الاسطول|حالة الأسطول|موقع السيارات|السيارات الان|السيارات الآن)$/;
 const roleType=role=>role==='block_sales'?'block':role==='concrete_sales'?'concrete':'';
+const resultValue=value=>Array.isArray(value)?value[0]:value;
+const updateKind=update=>update?.callback_query?'callback':update?.edited_message?'edited_message':update?.message?.document?'document':update?.message?.voice?'voice':update?.message?.photo?'photo':update?.message?.location?'location':'message';
+const safeErrorCode=error=>String(error?.code||error?.data?.code||'TELEGRAM_PROCESSING_FAILED').replace(/[^A-Z0-9_-]/gi,'_').slice(0,120);
 
 function sensitiveSession(session){const state=String(session?.state||'');return state==='product_market_query'||/^(supplier_|rfq_|sales_|guided_sales_|mechanic_|driver_|attendance_)/.test(state);}
 function sessionAllowed(identity,session){
@@ -119,9 +123,29 @@ async function interceptMessage(update){
 export default async function handler(req,res){
   if(!method(req,res,['POST']))return;
   let update;try{verifyTelegram(req);update=await body(req,2_000_000);}catch(error){return errorResponse(res,error);}
+  const updateId=String(update?.update_id??'');
+  if(!updateId)return json(res,400,{ok:false,error:'Telegram update ID is missing'});
+  let claim;
+  try{claim=resultValue(await rpc('claim_telegram_update',{p_update_id:updateId,p_payload_kind:updateKind(update)}));}
+  catch(error){console.error('[telegram webhook claim]',{code:safeErrorCode(error),message:String(error?.message||'').slice(0,300)});return json(res,503,{ok:false,retryable:true,error:'تعذر حجز تحديث Telegram للمعالجة.'});}
+  if(!claim?.claimed)return json(res,200,{ok:true,duplicate:true,updateId});
   try{
-    if(update.callback_query&&await interceptCallback(update))return json(res,200,{ok:true,gateway:true});
-    if((update.message||update.edited_message)&&await interceptMessage(update))return json(res,200,{ok:true,gateway:true});
-    req.body=update;return enterpriseHandler(req,res);
-  }catch(error){console.error('[telegram webhook gateway]',error);return json(res,200,{ok:true,error_logged:true});}
+    if(update.callback_query&&await interceptCallback(update)){
+      await rpc('complete_telegram_update',{p_update_id:updateId});
+      return json(res,200,{ok:true,gateway:true,updateId});
+    }
+    if((update.message||update.edited_message)&&await interceptMessage(update)){
+      await rpc('complete_telegram_update',{p_update_id:updateId});
+      return json(res,200,{ok:true,gateway:true,updateId});
+    }
+    req.body=update;req.telegramGatewayManaged=true;req.telegramUpdateId=updateId;
+    await enterpriseHandler(req,res);
+    await rpc('complete_telegram_update',{p_update_id:updateId});
+    return;
+  }catch(error){
+    const code=safeErrorCode(error),message=String(error?.message||'Unexpected Telegram processing failure').slice(0,1000);
+    await rpc('fail_telegram_update',{p_update_id:updateId,p_error_code:code,p_error_message:message,p_retryable:true}).catch(()=>{});
+    console.error('[telegram webhook gateway]',{updateId,code,status:Number(error?.status||error?.upstreamStatus||0),message:message.slice(0,300)});
+    if(!res.headersSent)return json(res,503,{ok:false,retryable:true,updateId,error:'تعذر إكمال المعالجة مؤقتًا؛ سيُعاد إرسال التحديث.'});
+  }
 }

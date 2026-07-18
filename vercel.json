@@ -12,6 +12,7 @@
     {"source":"/api/reports","destination":"/api/router?route=reports"},
     {"source":"/api/daily-report","destination":"/api/router?route=daily-report"},
     {"source":"/api/daily-report/fifo","destination":"/api/router?route=daily-report/fifo"},
+    {"source":"/api/accounting","destination":"/api/router?route=accounting"},
     {"source":"/api/costs","destination":"/api/router?route=costs"},
     {"source":"/api/mix-designs","destination":"/api/router?route=mix-designs"},
     {"source":"/api/driver/webapp","destination":"/api/router?route=driver/webapp"},
@@ -34,6 +35,7 @@
     {"source":"/legacy.html","headers":[{"key":"Cache-Control","value":"no-store, no-cache, must-revalidate, max-age=0"}]},
     {"source":"/control-center.html","headers":[{"key":"Cache-Control","value":"no-store, no-cache, must-revalidate, max-age=0"}]},
     {"source":"/governance.html","headers":[{"key":"Cache-Control","value":"no-store, no-cache, must-revalidate, max-age=0"}]},
+    {"source":"/accounting.html","headers":[{"key":"Cache-Control","value":"no-store, no-cache, must-revalidate, max-age=0"}]},
     {"source":"/assets/(.*)","headers":[{"key":"Cache-Control","value":"no-store, no-cache, must-revalidate, max-age=0"}]},
     {"source":"/favicon.svg","headers":[{"key":"Cache-Control","value":"public, max-age=86400"}]},
     {"source":"/api/(.*)","headers":[{"key":"Cache-Control","value":"no-store"},{"key":"X-Content-Type-Options","value":"nosniff"},{"key":"Referrer-Policy","value":"same-origin"}]}

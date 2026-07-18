@@ -8,7 +8,10 @@ test('webhook gateway intercepts every role-sensitive callback and session',asyn
   const gateway=await read('api/_lib/telegram-webhook-gateway.js');
   for(const marker of ['procurementActions','guidedSalesActions','home&&value===\'suppliers\'','home&&value===\'sales\'','home&&value===\'workshop\'','home&&value===\'attendance\'','action===\'gps\'','action===\'sales_confirm\'','action===\'parts_confirm\'','fuelconfirm','sensitiveSession','sessionAllowed','rejectSession'])assert.ok(gateway.includes(marker),`missing gateway marker ${marker}`);
   assert.match(gateway,/storeTelegramMessage/);
-  assert.match(gateway,/req\.body=update;return enterpriseHandler/);
+  assert.match(gateway,/claim_telegram_update/);
+  assert.match(gateway,/req\.body=update;req\.telegramGatewayManaged=true/);
+  assert.match(gateway,/await enterpriseHandler\(req,res\);[\s\S]*await rpc\('complete_telegram_update'/);
+  assert.match(gateway,/fail_telegram_update/);
 });
 
 test('procurement wrapper includes specialist roles and direct RFQ visibility',async()=>{

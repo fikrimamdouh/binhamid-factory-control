@@ -1,0 +1,55 @@
+name: Sensitive Material Gate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - fix/final-acceptance-hardening
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+      - name: Scan tracked files
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p sensitive-evidence
+          if node scripts/scan-sensitive-material.mjs > sensitive-evidence/output.txt 2>&1; then
+            printf '%s\n' 'clean' > sensitive-evidence/result.txt
+          else
+            head -n 1 sensitive-evidence/output.txt > sensitive-evidence/result.txt
+            cat sensitive-evidence/output.txt
+            exit 1
+          fi
+      - name: Publish sensitive scan status
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          node <<'NODE'
+          import { existsSync,readFileSync } from 'node:fs';
+          const raw=existsSync('sensitive-evidence/result.txt')?readFileSync('sensitive-evidence/result.txt','utf8').trim():'unknown';
+          const label=raw.replace(/[^A-Za-z0-9_.:-]/g,'-').slice(0,70);
+          const success=process.env.JOB_STATUS==='success';
+          const response=await fetch(`https://api.github.com/repos/${process.env.REPOSITORY}/statuses/${process.env.HEAD_SHA}`,{
+            method:'POST',
+            headers:{Accept:'application/vnd.github+json',Authorization:`Bearer ${process.env.GITHUB_TOKEN}`,'X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'},
+            body:JSON.stringify({state:success?'success':'failure',context:`sensitive-scan:${label}`,target_url:process.env.RUN_URL,description:success?'No tracked secret material detected.':raw.slice(0,140)})
+          });
+          if(!response.ok)throw new Error(`Status publication failed with HTTP ${response.status}`);
+          NODE

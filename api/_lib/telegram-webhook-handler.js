@@ -32,7 +32,6 @@ async function handleText(message,group,identity,text,voicePath='',stored=null){
   if(builtIn){if(/^\/start(?:@\w+)?(?:\s+\w+)?$/i.test(raw)&&active)await showRoleHome(message,identity);return;}
   if(!active)return sendMessage(chatId,`مرحبًا ${esc(name)}. فهمت رسالتك وسجلتها، لكن حسابك غير معتمد لتنفيذ الإجراءات. أرسل رقمك من /whoami إلى مدير النظام.`);
   if(['group','supergroup'].includes(message.chat.type)&&!group.active)return sendMessage(chatId,'فهمت الرسالة وسجلتها، لكن المجموعة لم تعتمد بعد. يجب تحديد قسمها قبل التوجيه النهائي.');
-
   if(/^\/attendance(?:@\w+)?$/i.test(raw)||/^(الحضور والمواقع|تسجيل حضور|تسجيل انصراف|قائمه الحضور|قائمة الحضور|لوحه السائق|لوحة السائق)$/.test(normalized))return showAttendanceMenu(message,identity);
   if(/^(حاله الورشه|وضع الورشه|وضع الميكانيكي|ملخص اعمال الميكانيكي|تقرير تنفيذي للورشه)$/.test(normalized)){
     if(!['admin','manager','mechanic','accountant'].includes(role))return sendMessage(chatId,'عرض الحالة التنفيذية للورشة متاح لمدير النظام ومدير المصنع والمحاسب ومسؤول الورشة.');
@@ -45,7 +44,6 @@ async function handleText(message,group,identity,text,voicePath='',stored=null){
     if(!['admin','manager','mechanic','driver','fuel_operator'].includes(role))return sendMessage(chatId,'عرض GPS متاح للإدارة والسائق ومسؤول الأسطول والورشة.');
     return sendGpsFleetStatus(chatId);
   }
-
   const session=await getBotSession(chatId,message.from.id);
   if(session?.state?.startsWith('attendance_')||session?.state?.startsWith('driver_')){if(await continueAttendanceSession(message,identity,session,raw))return;}
   if(session?.state?.startsWith('enterprise_')){if(await continueEnterpriseSession(message,identity,session,raw))return;}
@@ -54,12 +52,10 @@ async function handleText(message,group,identity,text,voicePath='',stored=null){
   if(session?.state?.startsWith('sales_')){if(await continueSalesSession(message,identity,session,raw))return;}
   if(session?.state?.startsWith('mechanic_')){if(await continueMechanicSession(message,identity,session,raw))return;}
   if(session?.state==='waiting_plate'){const waiting=await continueWaitingPlate(message,identity,session,raw,voicePath);if(waiting?.handled)return;}
-
   if(await handleEnterpriseTextCommand(message,identity,raw))return;
   if(await handleInsightCommand(message,identity,raw))return;
   if(await handleProcurementTextCommand(message,identity,raw))return;
   if(await handleSalesTextCommand(message,identity,raw))return;
-
   const mechanicActions=[
     {re:/^(بلاغ اصل بدون لوحه|اصل بدون لوحه|عطل معده بدون لوحه)$/,action:'general_fault'},
     {re:/^(فحص معده|فحص معدات|فحص اصل|بدء فحص معده)$/,action:'inspection'},
@@ -71,7 +67,6 @@ async function handleText(message,group,identity,text,voicePath='',stored=null){
   if(mechanicAction)return startMechanicAction(message,identity,mechanicAction.action);
   if(await handleMechanicTextCommand(message,identity,raw))return;
   if(await handleStoredReportTextCommand(message,identity,raw))return;
-
   if(/^(تقارير|تقرير|ملخص)$/i.test(raw)||/اعرض.*تقارير/.test(raw)){
     if(!allowed(role,'report'))return sendMessage(chatId,'فهمت أنك تطلب التقارير، لكن الإجراء متاح لمدير المصنع ومدير النظام فقط.');
     return sendMessage(chatId,`حاضر ${esc(name)}. اختر التقرير المطلوب:`,reportKeyboard());
@@ -120,7 +115,7 @@ async function handleCallback(update){
   if(['proc','supplier_city','supplier_rfq','rfq_qty','rfq_urgency'].includes(action))return handleProcurementCallback(message,query.from,identity,action,value);
   if(action==='sales_confirm')return confirmSalesOrder({...message,from:query.from},value,identity);
   if(action==='sales_cancel')return cancelSalesDraft({...message,from:query.from},identity);
-  if(action==='mech')return startMechanicAction({...message,from:query.from},identity,value);
+  if(action==='mech')return startMechanicAction({...message,from:query.from},value,identity);
   if(action==='parts_confirm')return confirmSparePartsRequest({...message,from:query.from},value,identity,role);
   if(action==='maint_confirm')return confirmMaintenance({...message,from:query.from},value,identity,role);
   if(action==='maint_cancel')return cancelMaintenance({...message,from:query.from},value,identity);
@@ -158,7 +153,17 @@ async function handleMessage(update){
 export default async function handler(req,res){
   if(!method(req,res,['POST']))return;
   let update;
-  try{verifyTelegram(req);update=await body(req,2_000_000);}catch(error){return errorResponse(res,error);}
-  try{if(update.callback_query)await handleCallback(update);else if(update.message||update.edited_message)await handleMessage(update);}catch(error){console.error('[telegram webhook enterprise]',error);}
-  json(res,200,{ok:true});
+  if(req.telegramGatewayManaged&&req.body)update=req.body;
+  else{
+    try{verifyTelegram(req);update=await body(req,2_000_000);}catch(error){return errorResponse(res,error);}
+  }
+  try{
+    if(update.callback_query)await handleCallback(update);
+    else if(update.message||update.edited_message)await handleMessage(update);
+  }catch(error){
+    if(req.telegramGatewayManaged)throw error;
+    console.error('[telegram webhook enterprise]',{code:String(error?.code||'PROCESSING_FAILED').slice(0,120),status:Number(error?.status||error?.upstreamStatus||0),message:String(error?.message||'').slice(0,300)});
+    return json(res,503,{ok:false,retryable:true,error:'تعذر إكمال معالجة تحديث Telegram مؤقتًا.'});
+  }
+  if(!res.headersSent)json(res,200,{ok:true});
 }
