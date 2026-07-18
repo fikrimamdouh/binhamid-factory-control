@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const directory=resolve('supabase/migrations'),files=readdirSync(directory).filter(name=>/^\d{3}_.+\.sql$/.test(name)).sort(),versions=files.map(name=>Number(name.slice(0,3))),errors=[];
-const latest=19;
+const latest=20;
 for(let version=1;version<=latest;version++){if(!versions.includes(version))errors.push(`missing migration ${String(version).padStart(3,'0')}`);}
 if(new Set(versions).size!==versions.length)errors.push('duplicate migration version');
 if(Math.max(...versions)!==latest)errors.push(`latest migration must be ${String(latest).padStart(3,'0')}`);
@@ -20,5 +20,6 @@ for(const file of files){
   if(version===17){for(const marker of ['close_financial_period','request_credit_override','guard_sales_order_credit','approve_custody_transaction','guard_maintenance_closure','start_handover_acceptance','sign_handover_acceptance'])if(!sql.includes(marker))errors.push(`${file}: missing ${marker}`);}
   if(version===18){for(const marker of ['unified_assets_plate_idx','flag_daily_report_credit_breach','daily_report_credit_breach_flag','control_asset_duplicates','CREDIT_LIMIT_EXCEEDED'])if(!sql.includes(marker))errors.push(`${file}: missing ${marker}`);}
   if(version===19){for(const marker of ['user_invitations','accept_user_invitation','mix_materials','mix_material_prices','guard_mix_material_price_overlap','mix_designs','guard_approved_mix_design_update','mix_design_items','mix_design_overheads','mix_cost_calculation_runs','mix_design_latest_cost'])if(!sql.includes(marker))errors.push(`${file}: missing ${marker}`);}
+  if(version===20){for(const marker of ['subtotal_before_vat','net_amount_before_vat','clone_mix_design_version','approve_mix_cost_run','decide_user_invitation','INVITATION_SELF_APPROVAL_FORBIDDEN'])if(!sql.includes(marker))errors.push(`${file}: missing ${marker}`);}
 }
 if(errors.length){console.error(errors.join('\n'));process.exit(1);}console.log(`MIGRATIONS_OK=${files.length};LATEST=${String(latest).padStart(3,'0')}`);
