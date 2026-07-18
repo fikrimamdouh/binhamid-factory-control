@@ -2,15 +2,19 @@ import { select, insert, rpc } from './supabase.js';
 import { sendMessage, keyboard } from './telegram.js';
 import { displayName } from './bot-profile.js';
 import { clearMaintenanceSession } from './bot-maintenance.js';
+import { canUseProductAssistant, continueProductAssistant, handleProductTextCommand, startProductAssistant, startProductImageAssistant } from './bot-product-assistant.js';
 
 const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const now=()=>new Date().toISOString();
-const CITY_LABELS={najran:'نجران',riyadh:'الرياض',jeddah:'جدة',dammam:'الدمام',khamis:'خميس مشيط',saudi:'السعودية'};
+const CITY_LABELS={najran:'نجران',riyadh:'الرياض',jeddah:'جدة',dammam:'الدمام',khamis:'خميس مشيط',saudi:'كل السعودية'};
 const URGENCY={normal:'عادي',urgent:'عاجل',critical:'حرج'};
-const canUse=role=>['admin','manager','accountant','mechanic'].includes(role);
-const canCreate=role=>['admin','mechanic'].includes(role);
+const USE_ROLES=new Set(['admin','manager','accountant','mechanic','procurement','warehouse']);
+const CREATE_ROLES=new Set(['admin','manager','mechanic','procurement','warehouse']);
+const canUse=role=>USE_ROLES.has(String(role||''));
+const canCreate=role=>CREATE_ROLES.has(String(role||''));
 const referenceFrom=result=>String(Array.isArray(result)?result[0]?.next_document_no||result[0]||'':result||'');
 const nextReference=async()=>referenceFrom(await rpc('next_document_no',{p_prefix:'RFQ'}));
+const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
 async function setSession(chatId,userId,state,context={}){
   const old=(await select('bot_sessions',`channel=eq.telegram&chat_id=eq.${encodeURIComponent(String(chatId))}&external_user_id=eq.${encodeURIComponent(String(userId))}&select=context&limit=1`))?.[0];
@@ -21,12 +25,13 @@ async function setSession(chatId,userId,state,context={}){
 async function currentSession(chatId,userId){return(await select('bot_sessions',`channel=eq.telegram&chat_id=eq.${encodeURIComponent(String(chatId))}&external_user_id=eq.${encodeURIComponent(String(userId))}&select=*&limit=1`))?.[0]||null;}
 
 export function procurementMenu(){return keyboard([
-  [{text:'🔎 بحث عن قطعة أو مورد',callback_data:'proc:search'},{text:'📝 طلب عرض سعر',callback_data:'proc:rfq'}],
-  [{text:'📋 طلبات الأسعار المفتوحة',callback_data:'proc:open'}]
+  [{text:'مساعد المنتجات والأسعار',callback_data:'proc:product'},{text:'البحث بصورة القطعة',callback_data:'proc:product_image'}],
+  [{text:'بحث دليل الموردين',callback_data:'proc:search'},{text:'طلب عرض سعر',callback_data:'proc:rfq'}],
+  [{text:'طلبات الأسعار المفتوحة',callback_data:'proc:open'}]
 ]);}
 export async function showProcurementMenu(message,identity){
-  if(!canUse(identity?.role))return sendMessage(message.chat.id,'بحث الموردين وطلبات الأسعار متاح لمسؤول الورشة ومدير المصنع والمحاسب ومدير النظام.');
-  return sendMessage(message.chat.id,'اختر العملية المطلوبة. البوت يعرض بيانات أعمال عامة فقط، ولا يؤكد توفر القطعة أو السعر إلا بعد التواصل مع المورد.',procurementMenu());
+  if(!canUse(identity?.role))return sendMessage(message.chat.id,'بحث المنتجات والموردين متاح للمشتريات والمخزن والورشة والإدارة والمحاسب.');
+  return sendMessage(message.chat.id,'اختر العملية. مساعد المنتجات يبحث في السعودية والخليج والمصادر العالمية، ويمكنه التعرف على القطعة من الصورة. دليل الموردين يجلب الأنشطة وأرقام الاتصال المنشورة.',procurementMenu());
 }
 
 function cityKeyboard(){return keyboard([
@@ -43,8 +48,10 @@ function urgencyKeyboard(){return keyboard([[{text:'عادي',callback_data:'rfq
 
 export async function startProcurementAction(message,identity,action){
   const role=identity?.role||'',userId=identity?.external_id||message.from.id;
+  if(action==='product')return startProductAssistant(message,identity);
+  if(action==='product_image')return startProductImageAssistant(message,identity);
   if(action==='open')return sendOpenQuoteRequests(message.chat.id,identity);
-  if(!canCreate(role))return sendMessage(message.chat.id,'إنشاء بحث أو طلب عرض سعر متاح لمسؤول الورشة ومدير النظام، بينما المدير والمحاسب يستطيعان عرض النتائج والطلبات المفتوحة.');
+  if(!canCreate(role))return sendMessage(message.chat.id,'إنشاء البحث وطلب عرض السعر متاح للمشتريات والمخزن والورشة والإدارة.');
   if(action==='search'){
     await setSession(message.chat.id,userId,'supplier_search_query',{startedAt:now()});
     return sendMessage(message.chat.id,'اكتب رقم القطعة أو اسمها بوضوح. مثال:\n6205 bearing\nفلتر زيت Hino 500\nرقم القطعة 15613-E0110');
@@ -57,42 +64,51 @@ export async function startProcurementAction(message,identity,action){
 
 async function searchPlaces(query,city){
   const apiKey=process.env.GOOGLE_PLACES_API_KEY||process.env.PLACES_DIRECTORY_KEY||'';
-  if(!apiKey)throw Object.assign(new Error('خدمة البحث غير مفعلة. أضف GOOGLE_PLACES_API_KEY في Vercel ثم أعد النشر.'),{code:'NOT_CONFIGURED'});
-  const textQuery=`${query} قطع غيار مورد ${city} السعودية`;
-  const response=await fetch('https://places.googleapis.com/v1/places:searchText',{
-    method:'POST',
-    headers:{'Content-Type':'application/json','X-Goog-Api-Key':apiKey,'X-Goog-FieldMask':'places.id,places.displayName,places.formattedAddress,places.nationalPhoneNumber,places.internationalPhoneNumber,places.googleMapsUri,places.websiteUri,places.rating,places.userRatingCount,places.businessStatus'},
-    body:JSON.stringify({textQuery,pageSize:8,languageCode:'ar',regionCode:'SA',includePureServiceAreaBusinesses:true})
-  });
-  const data=await response.json();
-  if(!response.ok)throw new Error(data?.error?.message||`تعذر البحث: ${response.status}`);
-  return(data.places||[]).filter(place=>place.businessStatus!=='CLOSED_PERMANENTLY').slice(0,6).map(place=>({
-    id:place.id||'',name:place.displayName?.text||'مورد',address:place.formattedAddress||'',phone:place.nationalPhoneNumber||place.internationalPhoneNumber||'',maps:place.googleMapsUri||'',website:place.websiteUri||'',rating:place.rating||0,reviews:place.userRatingCount||0
-  }));
+  if(!apiKey)throw Object.assign(new Error('خدمة دليل الموردين غير مفعلة. أضف GOOGLE_PLACES_API_KEY في Vercel ثم أعد النشر.'),{code:'NOT_CONFIGURED'});
+  const textQuery=city==='كل السعودية'?`${query} قطع غيار مورد السعودية`:`${query} قطع غيار مورد ${city} السعودية`;
+  const fieldMask='places.id,places.displayName,places.formattedAddress,places.nationalPhoneNumber,places.internationalPhoneNumber,places.googleMapsUri,places.websiteUri,places.rating,places.userRatingCount,places.businessStatus,nextPageToken';
+  const found=[];let pageToken='';
+  for(let page=0;page<3;page++){
+    const body={textQuery,pageSize:20,languageCode:'ar',regionCode:'SA',includePureServiceAreaBusinesses:true};if(pageToken)body.pageToken=pageToken;
+    const response=await fetch('https://places.googleapis.com/v1/places:searchText',{method:'POST',headers:{'Content-Type':'application/json','X-Goog-Api-Key':apiKey,'X-Goog-FieldMask':fieldMask},body:JSON.stringify(body),signal:AbortSignal.timeout(15000)});
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok)throw new Error(data?.error?.message||`تعذر البحث: ${response.status}`);
+    for(const place of data.places||[]){
+      if(place.businessStatus==='CLOSED_PERMANENTLY'||found.some(row=>row.id===place.id))continue;
+      found.push({id:place.id||'',name:place.displayName?.text||'مورد',address:place.formattedAddress||'',phone:place.internationalPhoneNumber||place.nationalPhoneNumber||'',maps:place.googleMapsUri||'',website:place.websiteUri||'',rating:place.rating||0,reviews:place.userRatingCount||0});
+    }
+    pageToken=String(data.nextPageToken||'');if(!pageToken)break;await wait(250);
+  }
+  return found.slice(0,60);
 }
 async function logSearch(message,identity,query,city,count){return insert('audit_log',[{actor_type:'telegram',actor_id:String(identity?.user_id||identity?.external_id||message.from.id),action:'supplier_public_search',entity_type:'supplier_search',entity_id:'',details:{query,city,result_count:count,requested_by:displayName(identity,message.from),source_message_id:String(message.message_id),chat_id:String(message.chat.id)},created_at:now()}]);}
 
 async function sendSupplierResults(message,identity,query,city){
-  await sendMessage(message.chat.id,`جارٍ البحث عن موردين محتملين للقطعة: <b>${esc(query)}</b> في <b>${esc(city)}</b>...`);
-  let places;
-  try{places=await searchPlaces(query,city);}catch(error){return sendMessage(message.chat.id,esc(error.message));}
-  await logSearch(message,identity,query,city,places.length);
+  await sendMessage(message.chat.id,`جارٍ البحث الموسع عن موردين محتملين للقطعة: <b>${esc(query)}</b> في <b>${esc(city)}</b>...`);
+  let places;try{places=await searchPlaces(query,city);}catch(error){return sendMessage(message.chat.id,esc(error.message));}
+  await logSearch(message,identity,query,city,places.length).catch(()=>{});
   await setSession(message.chat.id,identity.external_id||message.from.id,'supplier_results',{query,city,places,startedAt:now()});
-  if(!places.length)return sendMessage(message.chat.id,'لم أجد نشاطًا تجاريًا مطابقًا بوضوح. جرّب اسم القطعة بالإنجليزية أو رقمها الكامل أو مدينة أخرى.');
-  let text=`<b>موردون محتملون</b>\nالقطعة: <b>${esc(query)}</b>\nالنطاق: <b>${esc(city)}</b>\n\n`;
-  const buttons=[];
-  places.forEach((place,index)=>{
-    text+=`${index+1}. <b>${esc(place.name)}</b>\nالهاتف: <b>${esc(place.phone||'غير منشور')}</b>\nالعنوان: ${esc(place.address||'غير متاح')}${place.rating?`\nالتقييم: ${place.rating} (${place.reviews})`:''}\n\n`;
-    const row=[];if(place.maps)row.push({text:`خريطة ${index+1}`,url:place.maps});if(place.website)row.push({text:`الموقع ${index+1}`,url:place.website});if(row.length)buttons.push(row);
-  });
-  buttons.push([{text:'إنشاء طلب عرض سعر لهذه القطعة',callback_data:'supplier_rfq:start'}],[{text:'بحث في مدينة أخرى',callback_data:'supplier_city:other'}]);
-  text+='النتائج من بيانات أعمال عامة. وجود المورد في النتائج لا يثبت توفر القطعة أو صحة السعر؛ يجب الاتصال والتأكد.';
-  return sendMessage(message.chat.id,text.slice(0,3900),keyboard(buttons));
+  if(!places.length)return sendMessage(message.chat.id,'لم أجد نشاطًا تجاريًا مطابقًا بوضوح. جرّب الاسم بالإنجليزية أو رقم القطعة الكامل أو استخدم مساعد المنتجات والأسعار.');
+  const chunks=[];for(let i=0;i<places.length;i+=8)chunks.push(places.slice(i,i+8));
+  for(let chunkIndex=0;chunkIndex<chunks.length;chunkIndex++){
+    const chunk=chunks[chunkIndex],buttons=[];let text=`<b>موردون محتملون — ${chunkIndex+1}/${chunks.length}</b>\nالقطعة: <b>${esc(query)}</b>\nالنطاق: <b>${esc(city)}</b>\nإجمالي النتائج: <b>${places.length}</b>\n\n`;
+    chunk.forEach((place,localIndex)=>{
+      const index=chunkIndex*8+localIndex+1;
+      text+=`${index}. <b>${esc(place.name)}</b>\nالهاتف: ${place.phone?`<code>${esc(place.phone)}</code>`:'غير منشور'}\nالعنوان: ${esc(place.address||'غير متاح')}${place.rating?`\nالتقييم: ${place.rating} (${place.reviews})`:''}\n\n`;
+      const row=[];if(place.maps)row.push({text:`خريطة ${index}`,url:place.maps});if(place.website)row.push({text:`الموقع ${index}`,url:place.website});if(row.length)buttons.push(row);
+    });
+    if(chunkIndex===chunks.length-1)buttons.push([{text:'إنشاء طلب عرض سعر',callback_data:'supplier_rfq:start'},{text:'بحث بصورة القطعة',callback_data:'proc:product_image'}],[{text:'بحث في مدينة أخرى',callback_data:'supplier_city:other'}]);
+    text+='اضغط مطولًا على رقم الهاتف داخل المربع لنسخه. النتائج من بيانات أعمال عامة؛ يجب الاتصال والتأكد من توفر القطعة والسعر.';
+    await sendMessage(message.chat.id,text.slice(0,3900),keyboard(buttons));
+  }
+  return places;
 }
 
 export async function continueProcurementSession(message,identity,session,text){
+  if(['product_market_query','product_image_waiting'].includes(session?.state))return continueProductAssistant(message,identity,session,text);
   const userId=identity.external_id||message.from.id,t=String(text||'').trim(),context=session.context||{};
   if(/^(الغاء|إلغاء|تراجع|cancel)$/i.test(t)){await clearMaintenanceSession(message.chat.id,userId);await sendMessage(message.chat.id,'تم إلغاء العملية الحالية.');return true;}
+  if(!canCreate(identity?.role))return false;
   if(session.state==='supplier_search_query'){
     if(t.length<2){await sendMessage(message.chat.id,'اكتب رقم قطعة أو اسمًا أوضح.');return true;}
     await setSession(message.chat.id,userId,'supplier_search_city',{query:t,startedAt:now()});
@@ -157,6 +173,7 @@ export async function sendOpenQuoteRequests(chatId,identity){
 }
 
 export async function handleProcurementTextCommand(message,identity,text){
+  if(canUseProductAssistant(identity)&&await handleProductTextCommand(message,identity,text))return true;
   const t=String(text||'').toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[؟?!.,،؛:]+/g,'').replace(/\s+/g,' ').trim();
   if(/^(بحث مورد|بحث عن مورد|بحث عن قطعه|بحث عن قطعة|ابحث عن قطعه|ابحث عن قطعة|قائمه الموردين|قائمة الموردين)$/.test(t)){await showProcurementMenu(message,identity);return true;}
   if(/^(طلب عرض سعر|طلب اسعار|طلب أسعار)$/.test(t)){await startProcurementAction(message,identity,'rfq');return true;}
