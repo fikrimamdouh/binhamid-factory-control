@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 
-process.env.TELEGRAM_BOT_TOKEN='123456:test-token-for-validation';
+process.env.TELEGRAM_BOT_TOKEN='unit-test-telegram-signing-secret';
 
 const { validateTelegramWebApp }=await import('../api/_lib/telegram-webapp.js');
 
