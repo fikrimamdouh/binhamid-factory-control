@@ -1,53 +1,35 @@
 \set ON_ERROR_STOP on
 
-select column_name,data_type,udt_name,is_nullable
-from information_schema.columns
-where table_schema='public'
-  and table_name in ('user_invitations','app_users')
-  and column_name in ('id','external_id','role','active','status','requested_role','accepted_by_telegram_id','approved_by','approved_at')
-order by table_name,column_name;
-
-select requested_role,status,count(*) as records,count(distinct accepted_by_telegram_id) as linked_accounts
-from public.user_invitations
-where accepted_by_telegram_id is not null
-group by requested_role,status
-order by requested_role,status;
-
 begin;
 do $approval$
 declare
-  v_pending integer;
+  v_recent integer;
   v_active integer;
   v_telegram public.user_invitations.accepted_by_telegram_id%type;
   v_invitation_id public.user_invitations.id%type;
   v_updated integer;
 begin
-  select count(distinct accepted_by_telegram_id) into v_pending
+  select count(distinct accepted_by_telegram_id) into v_recent
   from public.user_invitations
-  where requested_role='manager'
-    and accepted_by_telegram_id is not null
-    and status not in ('rejected','revoked')
-    and created_at >= now()-interval '30 days';
+  where accepted_by_telegram_id is not null
+    and status not in ('approved','rejected','revoked','expired')
+    and created_at >= now()-interval '12 hours';
 
-  if v_pending = 0 then
+  if v_recent = 0 then
     select count(*) into v_active
-    from public.user_invitations i
-    join public.app_users u on u.external_id=i.accepted_by_telegram_id
-    where i.requested_role='manager'
-      and u.role='manager'
-      and u.active=true;
-    if v_active < 1 then raise exception 'NO_RECENT_ACCEPTED_MANAGER_INVITATION'; end if;
+    from public.app_users
+    where role='manager' and active=true;
+    if v_active < 1 then raise exception 'NO_RECENT_ACCEPTED_INVITATION_OR_ACTIVE_MANAGER'; end if;
     return;
   end if;
 
-  if v_pending <> 1 then raise exception 'EXPECTED_ONE_RECENT_MANAGER_ACCOUNT_FOUND_%',v_pending; end if;
+  if v_recent <> 1 then raise exception 'EXPECTED_ONE_RECENT_ACCEPTED_ACCOUNT_FOUND_%',v_recent; end if;
 
   select accepted_by_telegram_id,id into v_telegram,v_invitation_id
   from public.user_invitations
-  where requested_role='manager'
-    and accepted_by_telegram_id is not null
-    and status not in ('rejected','revoked')
-    and created_at >= now()-interval '30 days'
+  where accepted_by_telegram_id is not null
+    and status not in ('approved','rejected','revoked','expired')
+    and created_at >= now()-interval '12 hours'
   order by created_at desc
   limit 1
   for update;
