@@ -149,16 +149,14 @@ async function handleMessage(update){
     catch(error){console.warn('[telegram voice download]',{message:String(error?.message||'').slice(0,220)});return sendMessage(message.chat.id,'تم استلام الرسالة الصوتية، لكن تعذر تنزيلها من Telegram. أعد إرسال التسجيل مرة واحدة.');}
     const hash=sha256(downloaded.buffer),path=`telegram/${group.department||'unassigned'}/${new Date().toISOString().slice(0,10)}/voice-${hash.slice(0,16)}.ogg`,contentType=message.voice.mime_type||downloaded.contentType;
     const uploadTask=uploadObject(path,downloaded.buffer,contentType).then(()=>true).catch(error=>{console.warn('[telegram voice upload]',{message:String(error?.message||'').slice(0,220)});return false;});
-    const result=await transcribeTelegramVoice(downloaded.buffer,contentType);
-    const uploaded=await Promise.race([uploadTask,delay(1200).then(()=>false)]);
+    const [result,uploaded]=await Promise.all([transcribeTelegramVoice(downloaded.buffer,contentType),Promise.race([uploadTask,delay(1200).then(()=>false)])]);
     if(stored?.id){
       const values={transcription:result.text||null,related_entity_type:result.text?'voice_transcribed':`voice_${result.reason||'failed'}`};
       if(uploaded)values.file_path=path;
       await patch('telegram_messages',`id=eq.${stored.id}`,values).catch(error=>console.warn('[telegram voice message patch]',{message:String(error?.message||'').slice(0,220)}));
     }
-    if(!result.text)return sendMessage(message.chat.id,voiceFailureMessage(result));
-    await sendMessage(message.chat.id,`تم فهم التسجيل: <b>${esc(result.text).slice(0,500)}</b>\nجارٍ تنفيذ الطلب...`).catch(()=>{});
-    return handleText(message,group,identity,result.text,uploaded?path:'',stored);
+    if(result.text)await sendMessage(message.chat.id,`تم فهم التسجيل: <b>${esc(result.text).slice(0,500)}</b>\nجارٍ تنفيذ الطلب...`).catch(()=>{});
+    return result.text?handleText(message,group,identity,result.text,uploaded?path:'',stored):sendMessage(message.chat.id,voiceFailureMessage(result));
   }
   const text=String(message.text||message.caption||'').trim();
   return handleText(message,group,identity,text,'',stored);
