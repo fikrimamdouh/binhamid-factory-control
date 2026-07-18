@@ -48,6 +48,34 @@ begin
   return jsonb_build_object('device_id',p_device_id,'status','revoked');
 end $$;
 
+-- These records and security-definer functions are server-side only. No browser or Supabase client role may access them directly.
+alter table public.user_invitations enable row level security;
+alter table public.mix_materials enable row level security;
+alter table public.mix_material_prices enable row level security;
+alter table public.mix_designs enable row level security;
+alter table public.mix_design_items enable row level security;
+alter table public.mix_design_overheads enable row level security;
+alter table public.mix_cost_calculation_runs enable row level security;
+alter table public.device_enrollments enable row level security;
+
+revoke all on table public.user_invitations,public.mix_materials,public.mix_material_prices,public.mix_designs,public.mix_design_items,public.mix_design_overheads,public.mix_cost_calculation_runs,public.device_enrollments from anon,authenticated;
+grant all on table public.user_invitations,public.mix_materials,public.mix_material_prices,public.mix_designs,public.mix_design_items,public.mix_design_overheads,public.mix_cost_calculation_runs,public.device_enrollments to service_role;
+revoke all on table public.mix_design_latest_cost from anon,authenticated;
+grant select on table public.mix_design_latest_cost to service_role;
+
+revoke all on function public.accept_user_invitation(text,text) from public,anon,authenticated;
+revoke all on function public.decide_user_invitation(uuid,text,text,text,text) from public,anon,authenticated;
+revoke all on function public.clone_mix_design_version(uuid,text) from public,anon,authenticated;
+revoke all on function public.approve_mix_cost_run(uuid,text) from public,anon,authenticated;
+revoke all on function public.approve_device_enrollment(text,uuid,text) from public,anon,authenticated;
+revoke all on function public.revoke_device_enrollment(text,text) from public,anon,authenticated;
+grant execute on function public.accept_user_invitation(text,text) to service_role;
+grant execute on function public.decide_user_invitation(uuid,text,text,text,text) to service_role;
+grant execute on function public.clone_mix_design_version(uuid,text) to service_role;
+grant execute on function public.approve_mix_cost_run(uuid,text) to service_role;
+grant execute on function public.approve_device_enrollment(text,uuid,text) to service_role;
+grant execute on function public.revoke_device_enrollment(text,text) to service_role;
+
 insert into public.migration_history(version,migration_name)
 values(21,'021_device_identity_binding')
 on conflict(version) do update set migration_name=excluded.migration_name;
