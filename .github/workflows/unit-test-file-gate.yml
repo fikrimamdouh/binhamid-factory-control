@@ -113,11 +113,11 @@ jobs:
             v_invitation public.user_invitations%rowtype;
             v_user public.app_users%rowtype;
           begin
-            select count(*) into v_pending
+            select count(distinct accepted_by_telegram_id) into v_pending
             from public.user_invitations
-            where status='accepted_pending_approval'
-              and requested_role='manager'
-              and accepted_by_telegram_id is not null;
+            where requested_role='manager'
+              and accepted_by_telegram_id is not null
+              and status in ('accepted_pending_approval','accepted','opened');
 
             if v_pending = 0 then
               select count(*) into v_active
@@ -131,13 +131,15 @@ jobs:
               return;
             end if;
 
-            if v_pending <> 1 then raise exception 'EXPECTED_ONE_PENDING_MANAGER_INVITATION_FOUND_%',v_pending; end if;
+            if v_pending <> 1 then raise exception 'EXPECTED_ONE_PENDING_MANAGER_ACCOUNT_FOUND_%',v_pending; end if;
 
             select * into v_invitation
             from public.user_invitations
-            where status='accepted_pending_approval'
-              and requested_role='manager'
+            where requested_role='manager'
               and accepted_by_telegram_id is not null
+              and status in ('accepted_pending_approval','accepted','opened')
+            order by created_at desc
+            limit 1
             for update;
 
             update public.app_users
@@ -149,7 +151,7 @@ jobs:
             if not found then raise exception 'INVITED_MANAGER_USER_NOT_FOUND'; end if;
 
             update public.user_invitations
-            set status='approved',approved_by='github-ops-single-manager',approved_at=now()
+            set status='approved',approved_by=v_user.id,approved_at=now()
             where id=v_invitation.id;
 
             delete from public.bot_sessions
