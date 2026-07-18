@@ -49,3 +49,10 @@ test('verified owner sessions survive reload and communication center navigation
   assert.match(navigation,/window\.bhCloudView\?\.\('overview'\)/);
   assert.doesNotMatch(navigation,/runWithoutLegacyCommsNavigation/);
 });
+
+test('verified web login approval persists database-required approval metadata',()=>{
+  const source=read('api/_lib/routes/web-auth.js'),verifyPath=source.slice(source.indexOf('export async function verifyWebLogin'));
+  const approvedEnrollment=verifyPath.match(/saveEnrollment\(deviceId,\{status:'approved'[^;]+/u)?.[0]||'';
+  assert.match(approvedEnrollment,/approved_at:new Date\(\)\.toISOString\(\)/);
+  assert.match(approvedEnrollment,/approved_by:`telegram:\$\{telegramId\}`/);
+});
