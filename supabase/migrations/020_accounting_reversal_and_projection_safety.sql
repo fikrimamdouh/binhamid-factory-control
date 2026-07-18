@@ -101,7 +101,7 @@ revoke all on function public.project_operational_audit_event() from public,anon
 grant execute on function public.reverse_journal_entry(uuid,text,text) to service_role;
 
 -- Additional Schema 20 features merged from the same release.
-+-- Bin Hamid Factory Control — atomic workflow controls and explicit sales tax basis
+-- Bin Hamid Factory Control — atomic workflow controls and explicit sales tax basis
 -- Additional features for Schema 20, applied after Schema 19.
 -- Idempotent and non-destructive.
 
@@ -228,6 +228,6 @@ begin
   return jsonb_build_object('id',p_invitation_id,'status','approved','user_id',v_user_id,'role',v_role,'target_telegram_id',v_inv.accepted_by_telegram_id);
 end $$;
 
-+insert into public.migration_history(version,migration_name)
+insert into public.migration_history(version,migration_name)
 values(20,'020_accounting_reversal_and_projection_safety')
 on conflict(version) do update set migration_name=excluded.migration_name;
