@@ -128,7 +128,13 @@ export default async function handler(req,res){
   let claim;
   try{claim=resultValue(await rpc('claim_telegram_update',{p_update_id:updateId,p_payload_kind:updateKind(update)}));}
   catch(error){console.error('[telegram webhook claim]',{code:safeErrorCode(error),message:String(error?.message||'').slice(0,300)});return json(res,503,{ok:false,retryable:true,error:'تعذر حجز تحديث Telegram للمعالجة.'});}
-  if(!claim?.claimed)return json(res,200,{ok:true,duplicate:true,updateId});
+  if(!claim?.claimed){
+    if(claim?.status==='completed')return json(res,200,{ok:true,duplicate:true,updateId});
+    // A receipt still being processed is not a duplicate. Returning 5xx keeps
+    // Telegram retrying instead of acknowledging work that may have died in an
+    // interrupted serverless invocation.
+    return json(res,503,{ok:false,retryable:true,updateId,error:'التحديث قيد المعالجة؛ سيعيد Telegram المحاولة.'});
+  }
   try{
     if(update.callback_query&&await interceptCallback(update)){
       await rpc('complete_telegram_update',{p_update_id:updateId});
@@ -141,7 +147,7 @@ export default async function handler(req,res){
     req.body=update;req.telegramGatewayManaged=true;req.telegramUpdateId=updateId;
     await enterpriseHandler(req,res);
     await rpc('complete_telegram_update',{p_update_id:updateId});
-    return;
+    return json(res,200,{ok:true,gateway:true,updateId});
   }catch(error){
     const code=safeErrorCode(error),message=String(error?.message||'Unexpected Telegram processing failure').slice(0,1000);
     await rpc('fail_telegram_update',{p_update_id:updateId,p_error_code:code,p_error_message:message,p_retryable:true}).catch(()=>{});
