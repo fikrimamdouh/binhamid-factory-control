@@ -16,8 +16,8 @@ if(roles.error||roles.status!==0)fail('ISOLATED_ROLE_GATE_FAILED','The local Sup
 const versionResult=psql(['-t','-A','-c','select coalesce(max(version),0) from public.migration_history;']);
 if(versionResult.error||versionResult.status!==0)fail('CURRENT_VERSION_QUERY_FAILED','Could not read the isolated schema version.',{stderr:redact(versionResult.stderr)});
 const currentVersion=Number(String(versionResult.stdout||'').trim());
-if(!Number.isInteger(currentVersion)||currentVersion<1||currentVersion>target)fail('CURRENT_VERSION_INVALID','The isolated schema version is outside the allowed range.',{currentVersion,target});
-if(currentVersion===target){save({ok:true,code:'ALREADY_AT_TARGET',currentVersion,target,applied:[],rolesReady:true});console.log(`[isolated-migration] already at ${target}`);process.exit(0);}
+if(!Number.isInteger(currentVersion)||currentVersion<1)fail('CURRENT_VERSION_INVALID','The isolated schema version is invalid.',{currentVersion,target});
+if(currentVersion>=target){save({ok:true,code:currentVersion===target?'ALREADY_AT_TARGET':'ALREADY_ABOVE_TARGET',currentVersion,target,applied:[],rolesReady:true});console.log(`[isolated-migration] already at schema ${currentVersion}; target ${target} needs no replay`);process.exit(0);}
 const directory=resolve('supabase/migrations'),names=readdirSync(directory).filter(name=>/^\d{3}_.+\.sql$/.test(name));
 const selected=[];
 for(let version=currentVersion+1;version<=target;version++){
