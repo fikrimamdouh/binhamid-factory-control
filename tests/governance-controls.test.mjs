@@ -36,11 +36,12 @@ test('governance page requires authenticated access and exports evidence',async(
 });
 
 test('migration workflow tests through schema 24 with encrypted backups and isolated restore',async()=>{
-  const workflow=await read('.github/workflows/apply-pending-migrations.yml'),preflight=await read('scripts/governance-migration-preflight.mjs'),verify=await read('scripts/governance-migration-verify.mjs');
+  const workflow=await read('.github/workflows/apply-pending-migrations.yml'),preflight=await read('scripts/governance-migration-preflight.mjs'),verify=await read('scripts/governance-migration-verify.mjs'),reversal=await read('scripts/reversal-ledger-acceptance.mjs');
   for(const marker of ['019_accounting_import_and_telegram_integrity.sql','020_accounting_reversal_and_projection_safety.sql','021_reversal_ledger_balance_fix.sql','022_schema_21_runtime_repair.sql','023_factory_reset_operational_data.sql','024_employee_nickname_and_financial_command_center.sql','pre-migration-backup','post-migration-backup','--single-transaction','Restore production backup to isolated PostgreSQL 17','Run transactional accounting and duplicate acceptance'])assert.ok(workflow.includes(marker),`workflow missing ${marker}`);
   assert.match(workflow,/current_version \+ 1\)\) 24/);
   assert.ok(workflow.includes("psql \"$LOCAL_DATABASE_URL\" -X -v ON_ERROR_STOP=1 -c 'create extension if not exists pgcrypto;'"));
   assert.match(preflight,/targetVersion:24/);assert.match(verify,/const targetVersion=24/);assert.match(verify,/between 16 and 24/);assert.match(verify,/toVersion:24/);assert.match(verify,/PROTECTED_ROW_COUNT_CHANGED/);assert.match(verify,/ACCOUNTING_INTEGRITY_FAILED/);
+  assert.match(reversal,/migration_history\)<>24/);assert.match(reversal,/Number\(evidence\.schemaVersion\)!==24/);assert.doesNotMatch(reversal,/SCHEMA_23_REQUIRED/);
 });
 
 test('financial, credit and maintenance guards are server-side database controls',async()=>{
