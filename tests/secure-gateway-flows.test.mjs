@@ -53,5 +53,6 @@ test('fleet status enforces role and limits a driver to the assigned vehicle wit
   assert.match(gps,/employee_assignments/);
   assert.match(gps,/identity\.role==='driver'/);
   assert.match(gps,/vehicle_external_id/);
-  assert.match(gps,/attendance_events/);\n  assert.match(gps,/ليست تتبع GPS/);
+  assert.match(gps,/attendance_events/);
+  assert.match(gps,/ليست تتبع GPS/);
 });
