@@ -35,7 +35,7 @@ export async function verifyWebLogin(req,res){
     assertSameOrigin(req);const input=await body(req,4096),deviceId=clean(input.deviceId),telegramId=clean(input.telegramId||config.telegramOwnerId,20),code=clean(input.code,12);if(!validDevice(deviceId)||!validTelegram(telegramId)||!/^\d{6}$/.test(code))throw Object.assign(new Error('بيانات الدخول غير صحيحة.'),{status:400});
     const current=await enrollment(deviceId),login=current?.metadata?.web_login||{};if(String(login.telegramId)!==telegramId||Number(login.expiresAt||0)<Date.now()||Number(login.attempts||0)>=5||!same(login.codeHash,hash(`${deviceId}:${code}`))) {await saveEnrollment(deviceId,{metadata:{...(current?.metadata||{}),web_login:{...login,attempts:Number(login.attempts||0)+1}}});throw Object.assign(new Error('الرمز غير صحيح أو انتهت صلاحيته.'),{status:401});}
     const user=await activeUser(telegramId);if(!user)throw Object.assign(new Error('الحساب غير معتمد أو موقوف.'),{status:403});
-    await saveEnrollment(deviceId,{status:'approved',app_user_id:user.id,last_seen_at:new Date().toISOString(),updated_at:new Date().toISOString(),metadata:{...(current?.metadata||{}),web_login:{verifiedAt:Date.now(),telegramId}}});
+    await saveEnrollment(deviceId,{status:'approved',app_user_id:user.id,approved_at:new Date().toISOString(),approved_by:`telegram:${telegramId}`,last_seen_at:new Date().toISOString(),updated_at:new Date().toISOString(),metadata:{...(current?.metadata||{}),web_login:{verifiedAt:Date.now(),telegramId}}});
     const session=issueDeviceSession(req,res,deviceId,user.id);json(res,200,{ok:true,user:{id:user.id,name:user.full_name||'',role:user.role||'employee'},expiresAt:new Date(session.exp*1000).toISOString()});
   }catch(error){errorResponse(res,error);}
 }
