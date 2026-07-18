@@ -41,11 +41,12 @@ left join ledger_lines ll on ll.account_id=coa.id
 where coa.active=true
 group by coa.account_code,coa.account_name_ar,coa.account_type,coa.normal_side;
 
+-- Keep migration 019's original six columns stable and leave reversed_entries
+-- appended in the seventh position introduced by migration 020.
 create or replace view public.accounting_integrity_report as
 select
   (select count(*) from public.journal_entries where status='draft') draft_entries,
   (select count(*) from public.journal_entries where status='posted') posted_entries,
-  (select count(*) from public.journal_entries where status='reversed') reversed_entries,
   (select count(*) from public.journal_entries e
     where e.status in ('posted','reversed')
       and not exists(select 1 from public.journal_entry_lines l where l.journal_entry_id=e.id)) entries_without_lines,
@@ -58,7 +59,8 @@ select
     having round(sum(l.debit),2)<>round(sum(l.credit),2)
   ) x) unbalanced_entries,
   (select coalesce(sum(total_debit),0) from public.trial_balance) total_debit,
-  (select coalesce(sum(total_credit),0) from public.trial_balance) total_credit;
+  (select coalesce(sum(total_credit),0) from public.trial_balance) total_credit,
+  (select count(*) from public.journal_entries where status='reversed') reversed_entries;
 
 insert into public.migration_history(version,migration_name)
 values(21,'021_reversal_ledger_balance_fix')
