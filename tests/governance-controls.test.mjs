@@ -32,7 +32,7 @@ test('governance page requires authenticated access and exports evidence',async(
   const page=await read('governance.html'),entry=await read('assets/governance-entry.js'),index=await read('index.html');
   for(const marker of ['/api/governance','الحوكمة والتسليم المؤسسي','تصدير JSON','مركز الرقابة'])assert.match(page,new RegExp(marker));
   assert.match(page,/401|403|رمز|تسجيل دخول/);
-  assert.match(entry,/control-center\.html/);assert.match(entry,/governance\.html/);assert.match(index,/governance-entry\.js/);
+  assert.match(entry,/control-center\.html/);assert.match(entry,/مركز إدارة المصنع/);assert.doesNotMatch(entry,/governance\.html/);assert.match(index,/governance-entry\.js/);
 });
 
 test('migration workflow tests through schema 21 with encrypted backups and isolated restore',async()=>{
