@@ -1,29 +1,37 @@
 import { keyboard, sendMessage } from './telegram.js';
 import { breakEvenEconomics, costDataQuality, currentCostPeriod, loadCostDecisionData, normalizeCostPeriod, productEconomics, tripEconomics, vehicleEconomics, workerEconomics } from './bot-costs-data.js';
+import { findCustomerProfitability, loadCustomerProfitability } from './customer-profitability.js';
+import { listLatestMixCosts } from './mix-design-costing.js';
 
-const VIEW_ROLES=new Set(['admin','manager','accountant','hr']);
-const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+const STANDARD_ROLES=new Set(['admin','manager','accountant','hr']);
+const MIX_ROLES=new Set(['admin','manager','accountant','quality','concrete_sales']);
+const CUSTOMER_ROLES=new Set(['admin','manager','accountant']);
+const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#39;'}[char]));
 const n=value=>{const parsed=Number(value||0);return Number.isFinite(parsed)?parsed:0;};
 const money=value=>n(value).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 const quantity=value=>n(value).toLocaleString('en-US',{maximumFractionDigits:3});
 const percentage=value=>n(value).toLocaleString('en-US',{maximumFractionDigits:1});
 const norm=value=>String(value||'').toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ًٌٍَُِّْـ]/g,'').replace(/[؟?!.,،؛:]+/g,' ').replace(/\s+/g,' ').trim();
 const centerName=code=>({block:'البلوك',concrete:'الخرسانة'}[code]||code);
-const denied=identity=>!identity?.active||!VIEW_ROLES.has(identity?.role||'');
+const allowedAny=identity=>Boolean(identity?.active&&(STANDARD_ROLES.has(identity.role)||MIX_ROLES.has(identity.role)));
 
-export function costMenu(){
-  return keyboard([
-    [{text:'🧭 قرار التكلفة',callback_data:'ent:cost_decision'},{text:'🏭 ربحية المنتجات',callback_data:'ent:cost_products'}],
-    [{text:'🚚 تكلفة الرحلات',callback_data:'ent:cost_trips'},{text:'🚛 تكلفة السيارات',callback_data:'ent:cost_vehicles'}],
-    [{text:'👷 تكلفة العامل',callback_data:'ent:cost_workers'},{text:'⚖️ نقطة التعادل',callback_data:'ent:cost_breakeven'}],
-    [{text:'🧪 جودة بيانات التكلفة',callback_data:'ent:cost_quality'}],
-    [{text:'↩️ القائمة الرئيسية',callback_data:'ent:help'}]
-  ]);
+export function costMenu(identity={role:'admin'}){
+  const role=identity?.role||'pending',rows=[];
+  if(STANDARD_ROLES.has(role)){
+    rows.push([{text:'قرار التكلفة',callback_data:'ent:cost_decision'},{text:'ربحية المنتجات',callback_data:'ent:cost_products'}]);
+    rows.push([{text:'تكلفة الرحلات',callback_data:'ent:cost_trips'},{text:'تكلفة السيارات',callback_data:'ent:cost_vehicles'}]);
+    rows.push([{text:'تكلفة العامل',callback_data:'ent:cost_workers'},{text:'نقطة التعادل',callback_data:'ent:cost_breakeven'}]);
+    if(CUSTOMER_ROLES.has(role))rows.push([{text:'ربحية عميل',callback_data:'ent:cost_customer'}]);
+    rows.push([{text:'جودة بيانات التكلفة',callback_data:'ent:cost_quality'}]);
+  }
+  if(MIX_ROLES.has(role))rows.push([{text:'تكلفة الخلطات',callback_data:'ent:cost_mixes'}]);
+  rows.push([{text:'القائمة الرئيسية',callback_data:'ent:help'}]);return keyboard(rows);
 }
 
 export async function showCostMenu(message,identity){
-  if(denied(identity))return sendMessage(message.chat.id,'نظام التكاليف متاح للإدارة والمحاسب والموارد البشرية وفق الصلاحية.');
-  return sendMessage(message.chat.id,'<b>نظام التكاليف والربحية</b>\n\nيعرض تكلفة المنتج والرحلة والسيارة والعامل ونقطة التعادل. القرار النهائي يظهر فقط عندما تكون الفترة محسوبة ومعتمدة والبيانات مكتملة.',costMenu());
+  if(!allowedAny(identity))return sendMessage(message.chat.id,'لا تملك صلاحية عرض نظام التكاليف.');
+  if(identity.role==='concrete_sales')return sendMessage(message.chat.id,'يعرض هذا القسم سعر البيع المعتمد للخلطات فقط، دون تفاصيل تكلفة المواد.',costMenu(identity));
+  return sendMessage(message.chat.id,'<b>نظام التكاليف والربحية</b>\n\nيعرض التكلفة الفعلية للمنتجات والمركبات والموظفين والعملاء، والتكلفة المعيارية للخلطات. القرار النهائي يعتمد على فترة تكلفة معتمدة وبيانات مكتملة.',costMenu(identity));
 }
 
 function productDecision(item){
@@ -32,17 +40,17 @@ function productDecision(item){
   if(item.grossMargin===0)return'تعادل فقط؛ أي خصم إضافي يسبب خسارة.';
   return`مربح حسب البيانات المسجلة؛ هامش الوحدة ${money(item.marginPerUnit)} ر.س.`;
 }
-async function sendDecision(chatId,data){
+async function sendDecision(chatId,data,identity){
   const products=productEconomics(data),quality=costDataQuality(data);
-  if(!products.length)return sendMessage(chatId,`<b>قرار التكلفة — ${data.period}</b>\n\nلا توجد نتيجة تكلفة للبلوك أو الخرسانة. أكمل ربط الموظفين والأصول وشغّل احتساب الفترة من شاشة التكاليف في البرنامج.`,costMenu());
+  if(!products.length)return sendMessage(chatId,`<b>قرار التكلفة — ${data.period}</b>\n\nلا توجد نتيجة تكلفة للبلوك أو الخرسانة. أكمل ربط الموظفين والأصول وشغّل احتساب الفترة من شاشة التكاليف في البرنامج.`,costMenu(identity));
   const losing=products.filter(item=>item.grossMargin<0),judgment=losing.length?'موقوف للتوسع':quality.reliable?'جاهز للقرار':'قرار مشروط';
   const lines=products.map(item=>`<b>${centerName(item.costCenter)}</b>\nالإيراد: ${money(item.revenue)} ر.س\nالتكلفة: ${money(item.actualCost)} ر.س\nالهامش: ${money(item.grossMargin)} ر.س${item.marginRate===null?'':` (${percentage(item.marginRate)}%)`}\nالقرار: ${productDecision(item)}`);
-  return sendMessage(chatId,`<b>قرار التكلفة — ${data.period}</b>\n\nالحكم: <b>${judgment}</b>\nحالة الفترة: <b>${esc(quality.periodStatus)}</b>\nجودة البيانات: <b>${quality.reliable?'صالحة للقرار':'تحتاج استكمال'}</b>\n\n${lines.join('\n\n')}\n\nلا تغيّر السعر أو حجم الإنتاج اعتمادًا على فترة غير معتمدة أو بها تكلفة غير مصنفة.`,costMenu());
+  return sendMessage(chatId,`<b>قرار التكلفة — ${data.period}</b>\n\nالحكم: <b>${judgment}</b>\nحالة الفترة: <b>${esc(quality.periodStatus)}</b>\nجودة البيانات: <b>${quality.reliable?'صالحة للقرار':'تحتاج استكمال'}</b>\n\n${lines.join('\n\n')}\n\nلا تغيّر السعر أو حجم الإنتاج اعتمادًا على فترة غير معتمدة أو بها تكلفة غير مصنفة.`,costMenu(identity));
 }
 async function sendProducts(chatId,data){
   const rows=productEconomics(data);if(!rows.length)return sendMessage(chatId,`لا توجد تكلفة وحدة محسوبة للفترة ${data.period}.`);
-  const lines=rows.map(item=>`<b>${centerName(item.costCenter)}</b>\nالكمية: ${quantity(item.quantity)}\nمتوسط البيع: ${money(item.averageSalePrice)} ر.س/وحدة\nتكلفة الوحدة: ${money(item.unitCost)} ر.س\nهامش الوحدة: ${money(item.marginPerUnit)} ر.س\nالفرق عن سعر التعادل: ${item.priceGap>=0?'+':''}${money(item.priceGap)} ر.س\nالقرار: ${productDecision(item)}`);
-  return sendMessage(chatId,`<b>ربحية المنتجات — ${data.period}</b>\n\n${lines.join('\n\n')}\n\nتكلفة الوحدة هي حد التعادل المسجل وليست سعر بيع مقترحًا بهامش ربح.`);
+  const lines=rows.map(item=>`<b>${centerName(item.costCenter)}</b>\nالكمية: ${quantity(item.quantity)}\nمتوسط البيع: ${money(item.averageSalePrice)} ر.س/وحدة\nتكلفة الوحدة: ${money(item.unitCost)} ر.س\nهامش الوحدة: ${money(item.marginPerUnit)} ر.س\nإجمالي الربح: ${money(item.grossMargin)} ر.س${item.marginRate===null?'':`\nنسبة الهامش: ${percentage(item.marginRate)}%`}\nالفرق عن سعر التعادل: ${item.priceGap>=0?'+':''}${money(item.priceGap)} ر.س\nالقرار: ${productDecision(item)}`);
+  return sendMessage(chatId,`<b>تكلفة المنتجات وربحيتها — ${data.period}</b>\n\n${lines.join('\n\n')}\n\nتكلفة الوحدة متوسط شهري فعلي وليست سعر بيع مقترحًا.`);
 }
 async function sendTrips(chatId,data){
   const trip=tripEconomics(data);if(!trip.vehicles.length)return sendMessage(chatId,`لا توجد رحلات أو تكاليف سيارات مسجلة للفترة ${data.period}.`);
@@ -70,11 +78,29 @@ async function sendQuality(chatId,data){
   const quality=costDataQuality(data),completion=quality.products.length?Math.min(...quality.products.map(item=>item.completenessPercent)):0;
   return sendMessage(chatId,`<b>جودة بيانات التكلفة — ${data.period}</b>\n\nاكتمال تقرير المنتج: <b>${percentage(completion)}%</b>\nالتكاليف غير المصنفة: <b>${money(quality.unclassified)} ر.س</b>\nالأصول بلا مركز تكلفة: <b>${quality.missingAssets.length}</b>\nالموظفون بلا توزيع تكلفة: <b>${quality.missingEmployees.length}</b>\nرحلات بلا سيارة: <b>${quality.tripsWithoutVehicle}</b>\nرحلات بلا عداد: <b>${quality.tripsWithoutOdometer}</b>\nحالة الفترة: <b>${esc(quality.periodStatus)}</b>\n\nالحكم: <b>${quality.reliable?'البيانات صالحة للقرار':'القرار غير مكتمل'}</b>${quality.blockers.length?`\n\n${quality.blockers.map(item=>`• ${esc(item)}`).join('\n')}`:''}`);
 }
-
+async function sendCustomer(chatId,identity,period,query=''){
+  if(!CUSTOMER_ROLES.has(identity.role))return sendMessage(chatId,'ربحية العميل متاحة للإدارة والمحاسب فقط.');
+  if(!query)return sendMessage(chatId,'اكتب: <code>ربحية عميل اسم العميل 2026-07</code> أو استخدم كود العميل.');
+  const data=await loadCustomerProfitability(period),matches=findCustomerProfitability(data.rows,query);
+  if(!matches.length)return sendMessage(chatId,'لم أجد عميلًا مطابقًا في مبيعات الفترة.');
+  if(matches.length>1&&norm(matches[0].name)!==norm(query)&&norm(matches[0].code)!==norm(query)){return sendMessage(chatId,`وجدت أكثر من نتيجة. استخدم الكود أو الاسم الكامل:\n\n${matches.slice(0,8).map(row=>`• ${esc(row.code||'—')} — ${esc(row.name)}`).join('\n')}`);}
+  const row=matches[0],warning=row.marginRate!==null&&row.marginRate<0?'\n\n<b>تحذير: هذا العميل بيع له بأقل من التكلفة الشهرية المتوسطة.</b>':'',quality=!row.reliable?`\n\n<b>دقة النتيجة: تقديرية</b>\n${esc(data.disclaimer)}`:'\n\nدقة النتيجة: تعتمد على تكلفة شهرية وحقول ضريبية مكتملة.';
+  return sendMessage(chatId,`<b>ربحية العميل ${esc(row.name)} — ${data.period}</b>\n\nالبلوك: ${quantity(row.blockQuantity)} حبة — التكلفة ${money(row.blockCost)} ر.س\nالخرسانة: ${quantity(row.concreteQuantity)} م³ — التكلفة ${money(row.concreteCost)} ر.س\n\nصافي المبيعات المستخدم: <b>${money(row.netSalesBeforeVat)} ر.س</b>\nالتكلفة التقديرية: <b>${money(row.estimatedCost)} ر.س</b>\nصافي الربح: <b>${money(row.profit)} ر.س</b>\n${row.marginRate===null?'الهامش: غير متاح':`الهامش: <b>${percentage(row.marginRate)}%</b>`}\nالرصيد المستحق: <b>${money(row.balance)} ر.س</b>${warning}${quality}`);
+}
+async function sendMixes(chatId,identity,query=''){
+  if(!MIX_ROLES.has(identity.role))return sendMessage(chatId,'لا تملك صلاحية عرض تكلفة الخلطات.');
+  let rows=await listLatestMixCosts();if(query){const needle=norm(query);rows=rows.filter(row=>norm(`${row.code} ${row.name} ${row.version_no}`).includes(needle));}
+  if(!rows.length)return sendMessage(chatId,'لا توجد تكلفة خلطة محسوبة. يلزم تطبيق Migration 019 ثم إنشاء المواد والأسعار والخلطات وحسابها.');
+  const salesOnly=identity.role==='concrete_sales',lines=rows.slice(0,12).map(row=>salesOnly?`<b>${esc(row.code)} — ${esc(row.name)}</b>\nالإصدار ${row.version_no} | سعر البيع المعتمد: <b>${money(row.recommended_price)} ر.س/م³</b>`:`<b>${esc(row.code)} — ${esc(row.name)}</b>\nالإصدار ${row.version_no} | تاريخ الأسعار ${esc(row.price_date)}\nتكلفة المتر: <b>${money(row.total_cost_per_m3)} ر.س</b>\nالهامش المستهدف: ${percentage(row.target_margin_percent)}% | السعر المقترح: <b>${money(row.recommended_price)} ر.س</b>\nالحالة: ${esc(row.design_status)} / ${esc(row.calculation_status)}`);
+  return sendMessage(chatId,`<b>تكلفة الخلطات المعيارية</b>\n\n${lines.join('\n\n')}${rows.length>12?`\n\nالمعروض 12 من ${rows.length}.`:''}\n\nالتكلفة معيارية مبنية على وصفة الخلطة والأسعار السارية، وليست بديلًا عن التكلفة الفعلية الشهرية.`);
+}
 async function sendView(message,identity,view,period,query=''){
-  if(denied(identity))return sendMessage(message.chat.id,'لا تملك صلاحية عرض بيانات التكلفة.');
+  if(!identity?.active)return sendMessage(message.chat.id,'حسابك غير نشط.');
+  if(view==='customer')return sendCustomer(message.chat.id,identity,period,query);
+  if(view==='mixes')return sendMixes(message.chat.id,identity,query);
+  if(!STANDARD_ROLES.has(identity.role))return sendMessage(message.chat.id,'لا تملك صلاحية عرض هذا التقرير.');
   const data=await loadCostDecisionData(period);
-  if(view==='decision')return sendDecision(message.chat.id,data);
+  if(view==='decision')return sendDecision(message.chat.id,data,identity);
   if(view==='products')return sendProducts(message.chat.id,data);
   if(view==='trips')return sendTrips(message.chat.id,data);
   if(view==='vehicles')return sendVehicles(message.chat.id,data,query);
@@ -87,6 +113,8 @@ async function sendView(message,identity,view,period,query=''){
 export async function handleCostTextCommand(message,identity,text){
   const raw=String(text||'').trim(),value=norm(raw),period=normalizeCostPeriod(raw);
   if(/^\/(costs|cost)(?:@\w+)?(?:\s+.*)?$/i.test(raw)||/^(التكاليف|نظام التكاليف|قائمه التكاليف|قائمة التكاليف)$/.test(value)){await showCostMenu(message,identity);return true;}
+  if(/^(ربحيه عميل|ربحية عميل)/.test(value)){const query=raw.replace(/^.*?(?:عميل)\s*/,'').replace(/20\d{2}[-/]\d{1,2}/,'').trim();await sendView(message,identity,'customer',period,query);return true;}
+  if(/^(تكلفه خلطه|تكلفة خلطة|تكلفه الخلطات|تكلفة الخلطات)/.test(value)){const query=raw.replace(/^.*?(?:خلطة|خلطه|الخلطات)\s*/,'').trim();await sendView(message,identity,'mixes',period,query);return true;}
   const commands=[
     {re:/^(قرار التكلفه|قرار التكلفة|تحليل التكلفه|تحليل التكلفة)/,view:'decision'},
     {re:/^(ربحيه المنتجات|ربحية المنتجات|تكلفه المنتج|تكلفة المنتج)/,view:'products'},
@@ -103,6 +131,8 @@ export async function handleCostTextCommand(message,identity,text){
 export async function handleCostCallback(message,from,identity,value){
   if(!String(value||'').startsWith('cost_'))return false;
   if(value==='cost_menu'){await showCostMenu({...message,from},identity);return true;}
+  if(value==='cost_customer'){await sendView({...message,from},identity,'customer',currentCostPeriod(),'');return true;}
+  if(value==='cost_mixes'){await sendView({...message,from},identity,'mixes',currentCostPeriod(),'');return true;}
   const map={cost_decision:'decision',cost_products:'products',cost_trips:'trips',cost_vehicles:'vehicles',cost_workers:'workers',cost_breakeven:'breakeven',cost_quality:'quality'};
   if(map[value]){await sendView({...message,from},identity,map[value],currentCostPeriod());return true;}
   return false;
