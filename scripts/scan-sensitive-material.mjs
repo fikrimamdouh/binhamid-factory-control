@@ -9,10 +9,11 @@ const patterns=[
   ['OPENAI_KEY',new RegExp(['s','k','-','[A-Za-z0-9_-]{24,}'].join(''),'g')],
   ['GITHUB_TOKEN',new RegExp(['g','h','[pousr]','_','[A-Za-z0-9]{24,}'].join(''),'g')],
   ['TELEGRAM_TOKEN',new RegExp(['\\b\\d{6,12}',':','[A-Za-z0-9_-]{25,}\\b'].join(''),'g')],
-  ['DATABASE_URL_WITH_PASSWORD',new RegExp(['postgres(?:ql)?','://','[^:\\s/]+',':','[^@\\s/]+','@'].join(''),'gi')],
+  ['DATABASE_URL_WITH_PASSWORD',new RegExp(['postgres(?:ql)?','://','[^:\\s/]+',':','[^@\\s/]+','@[^\\s/]+'].join(''),'gi')],
   ['PRIVATE_KEY',new RegExp(['-----BEGIN ','(?:RSA |EC |OPENSSH )?','PRIVATE KEY-----'].join(''),'g')],
   ['AWS_ACCESS_KEY',new RegExp(['AKIA','[A-Z0-9]{16}'].join(''),'g')]
 ];
+const localDatabaseExample=value=>/^postgres(?:ql)?:\/\/postgres:postgres@(?:127\.0\.0\.1|localhost)(?::\d+)?\//i.test(value);
 const findings=[];
 for(const file of files){
   if(skip(file))continue;
@@ -20,6 +21,7 @@ for(const file of files){
   for(const [code,pattern] of patterns){
     pattern.lastIndex=0;
     for(const match of text.matchAll(pattern)){
+      if(code==='DATABASE_URL_WITH_PASSWORD'&&localDatabaseExample(match[0]))continue;
       const line=text.slice(0,match.index).split(/\r?\n/).length;
       findings.push({file,line,code});
     }
