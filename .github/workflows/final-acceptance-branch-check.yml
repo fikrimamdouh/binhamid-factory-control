@@ -79,6 +79,7 @@ jobs:
           node --check scripts/final-acceptance-database.mjs
           node --check scripts/reversal-ledger-acceptance.mjs
           node --check scripts/isolated-migration-preflight.mjs
+          node --check scripts/apply-isolated-accounting-migrations.mjs
           node --check api/_lib/telegram-webhook-gateway.js
           node --check api/_lib/telegram-webhook-handler.js
           node --check api/_lib/routes/daily-report.js
@@ -107,24 +108,18 @@ jobs:
           SUPABASE_DB_URL: ''
         run: node scripts/restore-drill.mjs
 
-      - name: Apply schema 19-20 to isolated clone atomically
+      - name: Capture isolated preflight
         shell: bash
         run: |
           set -euo pipefail
           manifest="$(find acceptance-backup -type f -name '*.manifest.json' -print -quit)"
           ISOLATED_BACKUP_MANIFEST="$manifest" MIGRATION_PREFLIGHT_PATH=acceptance-preflight.json node scripts/isolated-migration-preflight.mjs
-          current_version="$(node -e "const x=require('./acceptance-preflight.json');process.stdout.write(String(x.currentVersion))")"
-          if [ "$current_version" -lt 20 ]; then
-            : > acceptance-migrations-20.sql
-            for version in $(seq $((current_version + 1)) 20); do
-              file="$(find supabase/migrations -maxdepth 1 -type f -name "$(printf '%03d' "$version")_*.sql" -print -quit)"
-              test -n "$file"
-              cat "$file" >> acceptance-migrations-20.sql
-              printf '\n' >> acceptance-migrations-20.sql
-            done
-            psql "$LOCAL_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction --file acceptance-migrations-20.sql
-            rm -f acceptance-migrations-20.sql
-          fi
+
+      - name: Apply schema 19-20 to isolated clone atomically
+        env:
+          ISOLATED_MIGRATION_TARGET: '20'
+          ISOLATED_MIGRATION_APPLY_RESULT: isolated-migration-apply.json
+        run: node scripts/apply-isolated-accounting-migrations.mjs
 
       - name: Run schema 20 transactional accounting and duplicate acceptance
         env:
@@ -162,6 +157,7 @@ jobs:
             acceptance-backup-source-run.txt
             acceptance-restore.json
             acceptance-preflight.json
+            isolated-migration-apply.json
             acceptance-migration-result.json
             acceptance-database-result.json
             reversal-ledger-result.json
