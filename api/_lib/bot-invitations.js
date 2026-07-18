@@ -72,6 +72,14 @@ async function sendSensitiveLink(chatId,text,markup){
   return telegram('sendMessage',{chat_id:String(chatId),text,parse_mode:'HTML',disable_web_page_preview:true,...(markup||{})});
 }
 function nicknameOf(invitation){return String(invitation?.nickname||invitation?.metadata?.nickname||'').trim().slice(0,80);}
+function invitationActionRows(row){
+  const name=String(row?.full_name||'مستخدم').slice(0,18);
+  if(row?.status==='accepted_pending_approval')return [
+    [{text:`اعتماد: ${name}`,callback_data:`ent:inv|approve|${row.id}`},{text:'تعديل الدور',callback_data:`ent:inv|edit|${row.id}`}],
+    [{text:`رفض: ${name}`,callback_data:`ent:inv|reject|${row.id}`}]
+  ];
+  return [[{text:`إلغاء: ${name}`,callback_data:`ent:inv|revoke|${row.id}`}]];
+}
 async function patchInvitedUser(telegramId,data,nickname=''){
   const preferred=String(nickname||'').trim().slice(0,80);
   try{return await patch('app_users',`external_id=eq.${encodeURIComponent(String(telegramId))}`,{...data,nickname:preferred||null});}
@@ -156,7 +164,7 @@ async function listInvitations(message,identity){
   let rows;try{rows=await select('user_invitations','select=id,phone_normalized,full_name,nickname,metadata,requested_role,status,expires_at,accepted_by_telegram_id,created_at&order=created_at.desc&limit=20');}catch{rows=await select('user_invitations','select=id,phone_normalized,full_name,metadata,requested_role,status,expires_at,accepted_by_telegram_id,created_at&order=created_at.desc&limit=20').catch(()=>[]);}
   if(!rows.length)return sendMessage(message.chat.id,'لا توجد دعوات مسجلة.');
   const text=rows.map((row,index)=>`${index+1}. <b>${esc(row.full_name)}</b>${nicknameOf(row)?` (${esc(nicknameOf(row))})`:''} — ${esc(ROLE_LABELS[row.requested_role]||row.requested_role)}\n${esc(maskInvitationPhone(row.phone_normalized))} | ${esc(row.status)} | ${String(row.expires_at||'').slice(0,16).replace('T',' ')}`).join('\n\n');
-  const buttons=rows.filter(row=>['pending','opened','accepted_pending_approval'].includes(row.status)).slice(0,8).map(row=>[{text:`إلغاء: ${row.full_name.slice(0,18)}`,callback_data:`ent:inv|revoke|${row.id}`}]);buttons.push([{text:'دعوة جديدة',callback_data:'ent:inv|new'}]);return sendMessage(message.chat.id,`<b>آخر الدعوات</b>\n\n${text}`,keyboard(buttons));
+  const buttons=[];for(const row of rows.filter(row=>['pending','opened','accepted_pending_approval'].includes(row.status)).slice(0,8))buttons.push(...invitationActionRows(row));buttons.push([{text:'دعوة جديدة',callback_data:'ent:inv|new'}]);return sendMessage(message.chat.id,`<b>آخر الدعوات</b>\n\n${text}`,keyboard(buttons));
 }
 async function decideInvitation(message,identity,id,decision){
   const invitation=(await select('user_invitations',`id=eq.${encodeURIComponent(id)}&select=*&limit=1`))?.[0];if(!invitation)return sendMessage(message.chat.id,'الدعوة غير موجودة.');
@@ -168,6 +176,7 @@ async function decideInvitation(message,identity,id,decision){
     await patch('user_invitations',`id=eq.${encodeURIComponent(id)}`,{status:'approved',approved_by:actor,approved_at:now()});
     await insert('audit_log',[{actor_type:'telegram',actor_id:actor,action:'user_invitation_approved',entity_type:'app_user',entity_id:user.id,details:{invitation_id:id,nickname:nicknameOf(invitation),new_role:invitation.requested_role,target_telegram_id:invitation.accepted_by_telegram_id}}],{prefer:'return=minimal'}).catch(()=>{});
     if(invitation.employee_external_id)await patch('employees',`external_id=eq.${encodeURIComponent(invitation.employee_external_id)}`,{nickname:nicknameOf(invitation)||null}).catch(()=>{});
+    await clearMaintenanceSession(invitation.accepted_by_telegram_id,invitation.accepted_by_telegram_id).catch(()=>{});
     await sendMessage(invitation.accepted_by_telegram_id,`تم اعتماد حسابك وتفعيله.${nicknameOf(invitation)?`\nالكنية: <b>${esc(nicknameOf(invitation))}</b>`:''}\nالدور: <b>${esc(ROLE_LABELS[invitation.requested_role]||invitation.requested_role)}</b>.\nاستخدم /menu لفتح العمليات.`).catch(()=>{});return sendMessage(message.chat.id,'تم اعتماد المستخدم وتفعيل صلاحياته.');
   }
   await patch('user_invitations',`id=eq.${encodeURIComponent(id)}`,{status:'rejected',revoked_by:actor,revoked_at:now()});await sendMessage(invitation.accepted_by_telegram_id,'تم رفض طلب تفعيل الحساب. راجع الإدارة.').catch(()=>{});return sendMessage(message.chat.id,'تم رفض الدعوة دون تفعيل المستخدم.');
