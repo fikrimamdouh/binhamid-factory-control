@@ -14,7 +14,7 @@ import * as driverWebApp from './_lib/routes/driver-webapp.js';
 import * as resilience from './_lib/routes/resilience.js';
 import * as dailyReport from './_lib/routes/daily-report.js';
 import * as fifo from './_lib/routes/fifo.js';
-import * as accounting from './_lib/routes/accounting.js';
+import * as accounting from './_lib/routes/accounting.js';\nimport * as fleetStatus from './_lib/routes/fleet-status.js';
 
 const routes={
   'admin/groups':admin.groups,
