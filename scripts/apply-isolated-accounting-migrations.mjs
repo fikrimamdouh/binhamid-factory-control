@@ -11,11 +11,13 @@ const redact=value=>String(value||'').replace(/postgres(?:ql)?:\/\/[^\s]+/gi,'[D
 const fail=(code,reason,evidence={})=>{save({ok:false,code,reason,evidence});console.error(`[isolated-migration] ${code}: ${reason}`);process.exit(1);};
 const psql=args=>spawnSync('psql',[databaseUrl,'-X','-v','ON_ERROR_STOP=1',...args],{encoding:'utf8',env:process.env,timeout:600000});
 if(!databaseUrl)fail('LOCAL_DATABASE_URL_EMPTY','The isolated database connection is missing.');
+const roles=spawnSync(process.execPath,['scripts/ensure-isolated-supabase-roles.mjs'],{encoding:'utf8',env:{...process.env,LOCAL_DATABASE_URL:databaseUrl,ISOLATED_ROLE_RESULT:'isolated-role-result.json'},timeout:120000});
+if(roles.error||roles.status!==0)fail('ISOLATED_ROLE_GATE_FAILED','The local Supabase role gate failed.',{exitCode:roles.status??-1,stderr:redact(roles.stderr)});
 const versionResult=psql(['-t','-A','-c','select coalesce(max(version),0) from public.migration_history;']);
 if(versionResult.error||versionResult.status!==0)fail('CURRENT_VERSION_QUERY_FAILED','Could not read the isolated schema version.',{stderr:redact(versionResult.stderr)});
 const currentVersion=Number(String(versionResult.stdout||'').trim());
 if(!Number.isInteger(currentVersion)||currentVersion<1||currentVersion>target)fail('CURRENT_VERSION_INVALID','The isolated schema version is outside the allowed range.',{currentVersion,target});
-if(currentVersion===target){save({ok:true,code:'ALREADY_AT_TARGET',currentVersion,target,applied:[]});console.log(`[isolated-migration] already at ${target}`);process.exit(0);}
+if(currentVersion===target){save({ok:true,code:'ALREADY_AT_TARGET',currentVersion,target,applied:[],rolesReady:true});console.log(`[isolated-migration] already at ${target}`);process.exit(0);}
 const directory=resolve('supabase/migrations'),names=readdirSync(directory).filter(name=>/^\d{3}_.+\.sql$/.test(name));
 const selected=[];
 for(let version=currentVersion+1;version<=target;version++){
@@ -34,6 +36,6 @@ try{
   const after=psql(['-t','-A','-c','select coalesce(max(version),0) from public.migration_history;']);
   const finalVersion=Number(String(after.stdout||'').trim());
   if(after.error||after.status!==0||finalVersion!==target)fail('TARGET_VERSION_NOT_REACHED','The isolated transaction did not reach the target schema.',{currentVersion,finalVersion,target,stderr:redact(after.stderr)});
-  save({ok:true,code:'ISOLATED_MIGRATION_APPLIED',currentVersion,finalVersion,target,applied:selected.map(item=>item.version),files:selected.map(item=>item.name)});
+  save({ok:true,code:'ISOLATED_MIGRATION_APPLIED',currentVersion,finalVersion,target,applied:selected.map(item=>item.version),files:selected.map(item=>item.name),rolesReady:true});
   console.log(`[isolated-migration] ${currentVersion}->${target}; files=${selected.length}`);
 }finally{rmSync(temp,{recursive:true,force:true});}
