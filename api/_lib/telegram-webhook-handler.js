@@ -17,6 +17,7 @@ import { handleSalesTextCommand, continueSalesSession, startSalesAction, confirm
 import { startGuidedSales, continueGuidedSales, handleGuidedSalesCallback } from './bot-sales-guided.js';
 import { handleProcurementTextCommand, continueProcurementSession, handleProcurementCallback, showProcurementMenu } from './bot-procurement.js';
 import { handleEnterpriseTextCommand, continueEnterpriseSession, handleEnterpriseCallback, showRoleHome } from './bot-enterprise.js';
+import { handleInvitationStart } from './bot-invitations.js';
 import { ensureTelegramGroup, ensureTelegramIdentity, storeTelegramMessage } from './bot-webhook-core.js';
 import { sendOperationalDocument } from './bot-documents.js';
 import { sendGpsFleetStatus } from './bot-gps.js';
@@ -25,9 +26,11 @@ import { showAttendanceMenu, continueAttendanceSession, handleAttendanceLocation
 
 const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const norm=value=>String(value||'').toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ًٌٍَُِّْـ]/g,'').replace(/[؟?!.,،؛:]+/g,'').replace(/\s+/g,' ').trim();
+const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
 async function handleText(message,group,identity,text,voicePath='',stored=null){
   const chatId=message.chat.id,role=identity.role||'pending',active=Boolean(identity.active),raw=String(text||'').trim(),normalized=norm(raw),name=displayName(identity,message.from);
+  if(await handleInvitationStart(message,identity,raw))return;
   const builtIn=await handleBuiltInCommand({message,identity,text:raw});
   if(builtIn){if(/^\/start(?:@\w+)?(?:\s+\w+)?$/i.test(raw)&&active)await showRoleHome(message,identity);return;}
   if(!active)return sendMessage(chatId,`مرحبًا ${esc(name)}. فهمت رسالتك وسجلتها، لكن حسابك غير معتمد لتنفيذ الإجراءات. أرسل رقمك من /whoami إلى مدير النظام.`);
@@ -140,11 +143,22 @@ async function handleMessage(update){
   if(message.document){const name=message.document.file_name||'';return /\.(xlsx|xls)$/i.test(name)||/spreadsheet|excel/i.test(message.document.mime_type||'')?handleExcel(message,group,identity,stored):handleAttachment(message,group,identity,stored);}
   if(message.photo?.length){if(await handleAttendancePhoto(message,identity,session))return;return handleAttachment(message,group,identity,stored);}
   if(message.voice){
-    await sendMessage(message.chat.id,'🎙️ تم استلام رسالتك الصوتية، جارٍ فهمها وتنفيذ طلبك...').catch(error=>console.warn('[telegram voice acknowledgement]',{message:String(error?.message||'').slice(0,200)}));
-    const downloaded=await downloadTelegramFile(message.voice.file_id),hash=sha256(downloaded.buffer),path=`telegram/${group.department||'unassigned'}/${new Date().toISOString().slice(0,10)}/voice-${hash.slice(0,16)}.ogg`,contentType=message.voice.mime_type||downloaded.contentType;
-    const [result]=await Promise.all([transcribeTelegramVoice(downloaded.buffer,contentType),uploadObject(path,downloaded.buffer,contentType)]);
-    await patch('telegram_messages',`id=eq.${stored.id}`,{file_path:path,transcription:result.text||null,related_entity_type:result.text?'voice_transcribed':`voice_${result.reason||'failed'}`});
-    return result.text?handleText(message,group,identity,result.text,path,stored):sendMessage(message.chat.id,voiceFailureMessage(result));
+    await sendMessage(message.chat.id,'تم استلام رسالتك الصوتية، جارٍ فهمها وتنفيذ طلبك...').catch(error=>console.warn('[telegram voice acknowledgement]',{message:String(error?.message||'').slice(0,200)}));
+    let downloaded;
+    try{downloaded=await downloadTelegramFile(message.voice.file_id);}
+    catch(error){console.warn('[telegram voice download]',{message:String(error?.message||'').slice(0,220)});return sendMessage(message.chat.id,'تم استلام الرسالة الصوتية، لكن تعذر تنزيلها من Telegram. أعد إرسال التسجيل مرة واحدة.');}
+    const hash=sha256(downloaded.buffer),path=`telegram/${group.department||'unassigned'}/${new Date().toISOString().slice(0,10)}/voice-${hash.slice(0,16)}.ogg`,contentType=message.voice.mime_type||downloaded.contentType;
+    const uploadTask=uploadObject(path,downloaded.buffer,contentType).then(()=>true).catch(error=>{console.warn('[telegram voice upload]',{message:String(error?.message||'').slice(0,220)});return false;});
+    const result=await transcribeTelegramVoice(downloaded.buffer,contentType);
+    const uploaded=await Promise.race([uploadTask,delay(1200).then(()=>false)]);
+    if(stored?.id){
+      const values={transcription:result.text||null,related_entity_type:result.text?'voice_transcribed':`voice_${result.reason||'failed'}`};
+      if(uploaded)values.file_path=path;
+      await patch('telegram_messages',`id=eq.${stored.id}`,values).catch(error=>console.warn('[telegram voice message patch]',{message:String(error?.message||'').slice(0,220)}));
+    }
+    if(!result.text)return sendMessage(message.chat.id,voiceFailureMessage(result));
+    await sendMessage(message.chat.id,`تم فهم التسجيل: <b>${esc(result.text).slice(0,500)}</b>\nجارٍ تنفيذ الطلب...`).catch(()=>{});
+    return handleText(message,group,identity,result.text,uploaded?path:'',stored);
   }
   const text=String(message.text||message.caption||'').trim();
   return handleText(message,group,identity,text,'',stored);
