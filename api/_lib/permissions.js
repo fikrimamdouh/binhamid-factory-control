@@ -20,24 +20,28 @@ export function roleAllows(role,capability){const values=capabilitiesForRole(rol
 function header(req,name){const value=req?.headers?.[name];return Array.isArray(value)?String(value[0]||'').trim():String(value||'').trim();}
 function accessError(message,status,code,extra={}){return Object.assign(new Error(message),{status,code,...extra});}
 
-// Resolve only identities that do not require a database user lookup.
-// A device may act alone solely for its explicitly signed technical capabilities.
-export function resolveCapabilityGateway(gateway,appUserId,capability){
-  const userId=String(appUserId||'').trim();
-  if(gateway?.kind==='admin'&&!userId)return{...gateway,role:'admin',capabilities:['*'],appUserId:null,fullName:'مدير النظام'};
-  if(!userId){
-    if(gateway?.kind==='device'&&gateway.capabilities?.includes(capability))return{...gateway,appUserId:null,fullName:'جهاز المصنع'};
+export function resolveCapabilityGateway(gateway,suppliedAppUserId,capability){
+  const supplied=String(suppliedAppUserId||'').trim(),bound=String(gateway?.appUserId||'').trim();
+  if(gateway?.kind==='admin'){
+    if(!supplied)return{...gateway,role:'admin',capabilities:['*'],appUserId:null,fullName:'مدير النظام'};
+    return{lookupAppUserId:supplied,gateway};
+  }
+  if(gateway?.kind==='device'){
+    if(supplied&&!bound)throw accessError('هذا الجهاز غير مربوط بمستخدم معتمد',403,'DEVICE_USER_NOT_BOUND',{capability});
+    if(supplied&&bound!==supplied)throw accessError('هوية المستخدم لا تطابق المستخدم المرتبط بالجهاز',403,'DEVICE_USER_MISMATCH',{capability});
+    if(bound)return{lookupAppUserId:bound,gateway};
+    if(gateway.capabilities?.includes(capability))return{...gateway,appUserId:null,fullName:'جهاز المصنع'};
     throw accessError('هوية مستخدم معتمد مطلوبة لتنفيذ هذه العملية',401,'APP_USER_REQUIRED',{capability});
   }
-  return null;
+  throw accessError('اعتماد النظام غير صالح',401,'AUTH_GATEWAY_INVALID',{capability});
 }
 
 export async function requireCapability(req,capability){
   if(!String(capability||'').trim())throw accessError('اسم الصلاحية مطلوب',500,'CAPABILITY_NAME_REQUIRED');
-  const gateway=requireAdminOrDevice(req),appUserId=header(req,'x-app-user-id'),resolved=resolveCapabilityGateway(gateway,appUserId,capability);
-  if(resolved)return resolved;
-  const users=await select('app_users',`id=eq.${encodeURIComponent(appUserId)}&active=eq.true&select=id,full_name,role,active&limit=1`),user=users?.[0];
-  if(!user)throw accessError('المستخدم غير معتمد أو موقوف',403,'USER_NOT_ACTIVE');
+  const gateway=requireAdminOrDevice(req),resolution=resolveCapabilityGateway(gateway,header(req,'x-app-user-id'),capability);
+  if(!resolution?.lookupAppUserId)return resolution;
+  const appUserId=resolution.lookupAppUserId,users=await select('app_users',`id=eq.${encodeURIComponent(appUserId)}&active=eq.true&select=id,full_name,role,active&limit=1`),user=users?.[0];
+  if(!user)throw accessError('المستخدم المرتبط بالجهاز غير معتمد أو موقوف',403,'USER_NOT_ACTIVE');
   const [roleRows,userRows]=await Promise.all([
     select('role_capabilities',`role=eq.${encodeURIComponent(user.role)}&allowed=eq.true&select=capability&limit=500`).catch(()=>[]),
     select('user_capabilities',`app_user_id=eq.${encodeURIComponent(user.id)}&select=capability,allowed&limit=500`).catch(()=>[])
@@ -47,5 +51,5 @@ export async function requireCapability(req,capability){
   if(!allowed)throw accessError(`ليست لديك صلاحية ${capability}`,403,'CAPABILITY_REQUIRED',{capability});
   const effective=new Set([...roleCaps].filter(value=>overrides.get(value)!==false));
   for(const [value,isAllowed] of overrides)if(isAllowed)effective.add(value);else effective.delete(value);
-  return{...gateway,appUserId:user.id,fullName:user.full_name,role:user.role,capabilities:[...effective]};
+  return{...resolution.gateway,appUserId:user.id,fullName:user.full_name,role:user.role,capabilities:[...effective]};
 }
