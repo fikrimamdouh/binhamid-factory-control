@@ -22,7 +22,7 @@ const result=spawnSync('psql',[databaseUrl,'-X','-t','-A','-v','ON_ERROR_STOP=1'
 if(result.error||result.status!==0)fail('ACCOUNTING_QUERY_FAILED','The accounting integrity query failed.',{exitCode:result.status??-1});
 let evidence;try{evidence=JSON.parse(String(result.stdout||'').trim());}catch{fail('ACCOUNTING_RESULT_INVALID','The accounting integrity result was not valid JSON.');}
 const journal=evidence.journal||{},blockers=[];
-if(Number(evidence.schemaVersion)!==23)blockers.push('schema_version');
+if(Number(evidence.schemaVersion)!==24)blockers.push('schema_version');
 if(Number(journal.unbalanced_entries||0)!==0)blockers.push('unbalanced_entries');
 if(Number(journal.entries_without_lines||0)!==0)blockers.push('entries_without_lines');
 if(Number(journal.total_debit||0)!==Number(journal.total_credit||0))blockers.push('trial_balance_difference');
