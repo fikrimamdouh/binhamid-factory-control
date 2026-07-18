@@ -27,6 +27,7 @@ export function resolveCapabilityGateway(gateway,appUserId,capability){
     if(gateway?.kind==='device'&&gateway.capabilities?.includes(capability))return{...gateway,appUserId:null,fullName:'جهاز المصنع'};
     throw accessError('هوية مستخدم معتمد مطلوبة لتنفيذ هذه العملية',401,'APP_USER_REQUIRED',{capability});
   }
+  if(gateway?.kind==='device'&&gateway.appUserId&&gateway.appUserId!==userId)throw accessError('جلسة الدخول لا تطابق المستخدم المطلوب',403,'DEVICE_USER_MISMATCH');
   return null;
 }
 
