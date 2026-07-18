@@ -48,6 +48,8 @@ export function roleHomeRows(role){
     rows.push([{text:'⛽ الديزل والأسطول',callback_data:'ent:fuel_menu'},{text:'👥 الموظفون والمهام',callback_data:'ent:people_menu'}]);
     rows.push([{text:'🧪 الجودة والرقابة',callback_data:'ent:quality_menu'},{text:'🔎 الموردون والأسعار',callback_data:'home:suppliers'}]);
     rows.push([{text:'📄 المستندات الفورية',callback_data:'ent:documents'},{text:'🔔 التنبيهات',callback_data:'ent:alerts'}]);
+    rows.push([{text:'📈 تقرير اليوم',callback_data:'report:daily'},{text:'📎 آخر ملف يومي',callback_data:'report:daily_file'}]);
+    rows.push([{text:'👥 تقارير العملاء',callback_data:'ent:customer_menu'},{text:'💸 التكاليف والربحية',callback_data:'ent:cost_menu'}]);
   }else if(role==='accountant'){
     rows.push([{text:'💰 المالية',callback_data:'ent:finance_menu'},{text:'🧾 التحصيلات',callback_data:'ent:collection_menu'}]);
     rows.push([{text:'📦 المخزون والمشتريات',callback_data:'ent:inventory_menu'},{text:'⛽ الديزل',callback_data:'ent:fuel_menu'}]);
@@ -55,6 +57,7 @@ export function roleHomeRows(role){
     rows.push([{text:'📋 مهامي',callback_data:'ent:my_tasks'},{text:'🧭 بحث شامل',callback_data:'ent:search'}]);
     rows.push([{text:'🔧 حالة الورشة',callback_data:'home:workshop'},{text:'🧱 أوامر البيع',callback_data:'home:sales'}]);
     rows.push([{text:'🔎 الموردون والأسعار',callback_data:'home:suppliers'}]);
+    rows.push([{text:'📈 تقرير اليوم',callback_data:'report:daily'},{text:'👥 تقارير العملاء',callback_data:'ent:customer_menu'}]);
   }else if(role==='mechanic'){
     rows.push([{text:'🔧 قائمة الورشة',callback_data:'home:workshop'},{text:'🔎 بحث قطعة أو مورد',callback_data:'home:suppliers'}]);
     rows.push([{text:'📋 مهامي',callback_data:'ent:my_tasks'},{text:'📦 طلب شراء',callback_data:'ent:purchase'}]);
@@ -65,11 +68,13 @@ export function roleHomeRows(role){
     rows.push([{text:'💵 تسجيل تحصيل',callback_data:'ent:collection_receipt'},{text:'👤 عميل جديد',callback_data:'ent:customer'}]);
     rows.push([{text:'📍 متابعة توريد/زيارة',callback_data:'ent:trip_menu'},{text:'📋 مهامي',callback_data:'ent:my_tasks'}]);
     rows.push([{text:'🧭 بحث',callback_data:'ent:search'},{text:'📝 تقريري اليومي',callback_data:'ent:daily_report'}]);
+    rows.push([{text:'👥 كشف حساب عميل',callback_data:'ent:customer_lookup'},{text:'📈 ملخص مبيعات اليوم',callback_data:'report:sales'}]);
   }else if(role==='collector'){
     rows.push([{text:'💵 تسجيل تحصيل',callback_data:'ent:collection_receipt'},{text:'🤝 تسجيل زيارة',callback_data:'ent:collection_visit'}]);
     rows.push([{text:'📅 وعد سداد',callback_data:'ent:collection_promise'},{text:'📵 لم يرد',callback_data:'ent:collection_no_answer'}]);
     rows.push([{text:'📋 مهامي',callback_data:'ent:my_tasks'},{text:'📍 حركة اليوم',callback_data:'ent:trip_menu'}]);
     rows.push([{text:'📝 تقريري اليومي',callback_data:'ent:daily_report'},{text:'🧭 بحث عميل',callback_data:'ent:search'}]);
+    rows.push([{text:'👥 كشف حساب عميل',callback_data:'ent:customer_lookup'},{text:'📈 ملخص التحصيل',callback_data:'report:sales'}]);
   }else rows.push([{text:'📋 مهامي',callback_data:'ent:my_tasks'},{text:'🧭 بحث',callback_data:'ent:search'}]);
   rows.push([{text:'ℹ️ المساعدة',callback_data:'ent:help'}]);
   return rows;

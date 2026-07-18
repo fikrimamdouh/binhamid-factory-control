@@ -103,6 +103,45 @@ async function accountingEvidence(batchId){
   summary.totalDebit=money(summary.totalDebit);summary.totalCredit=money(summary.totalCredit);summary.balanced=summary.unposted===0&&summary.entryCount>0&&summary.totalDebit===summary.totalCredit;return summary;
 }
 
+async function affectedCustomerBalances(payload){
+  const codes=[...new Set([...payload.sales.map(row=>row.customerCode),...payload.cashMovements.filter(row=>row.isCustomerCollection).map(row=>row.accountCode)].filter(Boolean))];
+  if(!codes.length)return[];
+  const orders=await select('sales_orders',`customer_external_id=in.(${codes.map(encodeURIComponent).join(',')})&status=not.in.(cancelled,rejected)&select=customer_external_id,customer_name,total_amount,paid_amount&limit=20000`).catch(()=>[]),byCode=new Map();
+  for(const order of orders||[]){const code=clean(order.customer_external_id,120);if(!code)continue;const row=byCode.get(code)||{customerCode:code,customerName:clean(order.customer_name,500)||code,balance:0};row.balance+=Math.max(0,Number(order.total_amount||0)-Number(order.paid_amount||0));byCode.set(code,row);}
+  return[...byCode.values()].map(row=>({...row,balance:money(row.balance)})).sort((a,b)=>b.balance-a.balance).slice(0,20);
+}
+
+// This is deliberately server-only.  Telegram files are already stored in the
+// imports registry before this runs, so the original workbook and the posting
+// are linked atomically without borrowing a browser/device session.
+export async function commitDailyReportFromTelegram(input={},actor='telegram-bot'){
+  const reportDate=date(input.reportDate),originalName=clean(input.originalName,240)||'daily-report.xlsx',payload=normalizePayload(input.payload||{}),contentHash=clean(input.contentHash,64)||sha(stable(payload)),fileHash=clean(input.fileHash,64)||contentHash,idempotencyKey=clean(input.idempotencyKey,200)||`telegram-daily:${reportDate}:${fileHash}`,importId=clean(input.importId,100);
+  if(!importId)throw Object.assign(new Error('معرف الملف الوارد مطلوب للترحيل الآلي'),{status:422,code:'IMPORT_REQUIRED'});
+  const existing=(await select('daily_report_batches',`report_date=eq.${reportDate}&select=id,report_date,file_hash,content_hash,status,summary,committed_at&limit=1`))?.[0]||null;
+  if(existing){
+    const duplicate=existing.content_hash===contentHash||existing.file_hash===fileHash;
+    await registerAttempt({p_report_date:reportDate,p_original_name:originalName,p_file_hash:fileHash,p_content_hash:contentHash,p_idempotency_key:idempotencyKey,p_status:duplicate?'duplicate':'rejected',p_existing_batch_id:existing.id,p_summary:existing.summary||{},p_errors:duplicate?[]:[{code:'DATE_ALREADY_COMMITTED'}],p_warnings:[],p_actor:actor});
+    if(duplicate)await transitionImport(importId,'posted',actor,'نفس التقرير مرحّل سابقًا',existing.id,{duplicate:true}).catch(()=>{});
+    return{ok:duplicate,duplicate,reason:duplicate?'نفس التقرير مرحّل سابقًا':'يوجد تقرير مختلف معتمد لنفس التاريخ',existingImportId:existing.id,status:existing.status,committedAt:existing.committed_at,accounting:duplicate?await accountingEvidence(existing.id):null,affectedBalances:duplicate?await affectedCustomerBalances(payload):[]};
+  }
+  await transitionImport(importId,'validating',actor,'تحقق خادمي تلقائي من ملف Telegram').catch(error=>{if(!/TRANSITION_INVALID/i.test(String(error?.message||'')))throw error;});
+  const validation=await validatePayload(reportDate,payload);
+  if(validation.errors.length){
+    await registerAttempt({p_report_date:reportDate,p_original_name:originalName,p_file_hash:fileHash,p_content_hash:contentHash,p_idempotency_key:idempotencyKey,p_status:'rejected',p_existing_batch_id:null,p_summary:validation.preview,p_errors:validation.errors,p_warnings:validation.warnings,p_actor:actor});
+    await transitionImport(importId,'validation_failed',actor,'لم يرحّل تلقائيًا: توجد أخطاء تحقق',null,{preview:validation.preview,errors:validation.errors.slice(0,100),warnings:validation.warnings.slice(0,100)}).catch(()=>{});
+    await insert('audit_log',[{actor_type:'telegram',actor_id:actor,action:'daily_report_auto_rejected',entity_type:'daily_report',entity_id:idempotencyKey,details:{report_date:reportDate,file_hash:fileHash,import_id:importId,error_count:validation.errors.length,errors:validation.errors.slice(0,50)}}],{prefer:'return=minimal'}).catch(()=>{});
+    return{ok:false,duplicate:false,valid:false,importId,contentHash,fileHash,idempotencyKey,...validation,affectedBalances:[]};
+  }
+  const original=await resolveStoredOriginal({importId,originalName,fileHash},reportDate,fileHash);
+  try{
+    const resultRaw=await rpc('commit_daily_report_acceptance',{p_report_date:reportDate,p_original_name:originalName,p_file_hash:fileHash,p_content_hash:contentHash,p_payload:{...payload,summary:{...payload.summary,...validation.preview}},p_actor:actor,p_file_storage_path:original.path,p_preview_summary:validation.preview,p_validation_warnings:validation.warnings,p_idempotency_key:idempotencyKey,p_import_id:importId}),result=one(resultRaw),accounting=result?.accounting||{entryCount:0,totalDebit:0,totalCredit:0,balanced:false};
+    return{ok:true,duplicate:Boolean(result?.duplicate),existingImportId:result?.duplicate?result.id:null,importId:result?.id||importId,status:result?.status||'approved',postedBatchId:result?.id||null,accounting,...validation,result,affectedBalances:await affectedCustomerBalances(payload)};
+  }catch(error){
+    await transitionImport(importId,'failed',actor,'فشل الترحيل التلقائي ولم يُسجل اعتماد جزئي',null,{errorCode:String(error?.code||'POSTING_FAILED'),errorMessage:String(error?.message||'').slice(0,1000)}).catch(()=>{});
+    throw error;
+  }
+}
+
 async function previewOrCommit(req,res,input){
   const action=clean(input.action,30)||'preview',identity=await requireCapability(req,action==='commit'?'daily_report.approve':'daily_report.import'),actor=identity.appUserId||identity.actor,reportDate=date(input.reportDate),originalName=clean(input.originalName,240)||'daily-report.xlsx',payload=normalizePayload(input.payload||{}),contentHash=clean(input.contentHash,64)||sha(stable(payload)),fileHash=clean(input.fileHash,64)||contentHash,idempotencyKey=clean(input.idempotencyKey,200)||`daily:${reportDate}:${fileHash}`,importId=clean(input.importId,100);
   const existing=(await select('daily_report_batches',`report_date=eq.${reportDate}&select=id,report_date,file_hash,content_hash,status,summary,committed_at&limit=1`))?.[0]||null;

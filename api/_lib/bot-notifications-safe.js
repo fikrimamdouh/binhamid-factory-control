@@ -1,1 +1,1 @@
-export { processNotificationOutbox, queueDailyReportReminders, retryFailedNotifications, sendManagerBrief, sendMeaningfulAlerts } from './bot-notifications.js';
+export { processNotificationOutbox, queueDailyReportReminders, retryFailedNotifications, sendManagerBrief, sendScheduledManagerBrief, sendWeeklyOperationalExport, sendMeaningfulAlerts } from './bot-notifications.js';

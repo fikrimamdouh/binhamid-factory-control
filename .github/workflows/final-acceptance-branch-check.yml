@@ -115,19 +115,19 @@ jobs:
           manifest="$(find acceptance-backup -type f -name '*.manifest.json' -print -quit)"
           ISOLATED_BACKUP_MANIFEST="$manifest" MIGRATION_PREFLIGHT_PATH=acceptance-preflight.json node scripts/isolated-migration-preflight.mjs
 
-      - name: Apply schema 19-22 to isolated clone atomically
+      - name: Apply schema 19-23 to isolated clone atomically
         env:
-          ISOLATED_MIGRATION_TARGET: '22'
+          ISOLATED_MIGRATION_TARGET: '23'
           ISOLATED_MIGRATION_APPLY_RESULT: isolated-migration-apply.json
         run: node scripts/apply-isolated-accounting-migrations.mjs
 
-      - name: Run schema 22 transactional accounting and duplicate acceptance
+      - name: Run schema 23 transactional accounting and duplicate acceptance
         env:
           TEST_DATABASE_URL: ${{ env.LOCAL_DATABASE_URL }}
           FINAL_ACCEPTANCE_DB_RESULT: acceptance-database-result.json
         run: node scripts/final-acceptance-database.mjs
 
-      - name: Verify isolated schema 22, Telegram runtime and net-zero reversal
+      - name: Verify isolated schema 23, Telegram runtime and net-zero reversal
         env:
           SUPABASE_DB_URL: ${{ env.LOCAL_DATABASE_URL }}
           MIGRATION_PREFLIGHT_PATH: acceptance-preflight.json
@@ -169,7 +169,7 @@ jobs:
           const response=await fetch(`https://api.github.com/repos/${process.env.REPOSITORY}/statuses/${process.env.HEAD_SHA}`,{
             method:'POST',
             headers:{Accept:'application/vnd.github+json',Authorization:`Bearer ${process.env.GITHUB_TOKEN}`,'X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'},
-            body:JSON.stringify({state:success?'success':'failure',context:'final-acceptance-branch',target_url:process.env.RUN_URL,description:success?'Encrypted restore, schema 22 E2E, Telegram and reversal checks passed.':'Isolated final acceptance failed; production was not changed.'})
+            body:JSON.stringify({state:success?'success':'failure',context:'final-acceptance-branch',target_url:process.env.RUN_URL,description:success?'Encrypted restore, schema 23 E2E, Telegram and reversal checks passed.':'Isolated final acceptance failed; production was not changed.'})
           });
           if(!response.ok)throw new Error(`Status publication failed with HTTP ${response.status}`);
           NODE

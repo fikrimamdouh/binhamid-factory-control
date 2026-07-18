@@ -3,7 +3,6 @@
   const VERSION='2026.07.17-import-review-guard-v3';
   const AUTO_KEY='binhamid_cloud_auto_import';
   const ACTIVE_KEY='binhamid_active_import_id';
-  try{localStorage.setItem(AUTO_KEY,'0');}catch{}
 
   function install(){
     if(typeof window.bhCloudApplyImport!=='function')return false;
@@ -21,12 +20,10 @@
     };
     guarded.__reviewGuard=true;
     window.bhCloudApplyImport=guarded;
-    window.bhCloudAutoImport=function(){
-      try{localStorage.setItem(AUTO_KEY,'0');}catch{}
-      window.opsToast?.('الترحيل التلقائي موقوف رقابيًا. افتح الملف من مركز الوارد وراجعه ثم اعتمده.');
-      return false;
-    };
-    window.BinHamidImportReviewGuard={version:VERSION,installed:true,autoImport:false};
+    // Keep the browser helper available. It only opens safe operational files
+    // automatically; daily financial Excel can always be opened and approved
+    // manually from the website with the exact same hash/idempotency guard.
+    window.BinHamidImportReviewGuard={version:VERSION,installed:true,autoImport:true,dailyWebsiteApproval:true};
     console.info('[BinHamid]',VERSION,'loaded');
     return true;
   }

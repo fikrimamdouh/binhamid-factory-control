@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const directory=resolve('supabase/migrations'),files=readdirSync(directory).filter(name=>/^\d{3}_.+\.sql$/.test(name)).sort(),versions=files.map(name=>Number(name.slice(0,3))),errors=[];
-const latest=22;
+const latest=23;
 for(let version=1;version<=latest;version++){if(!versions.includes(version))errors.push(`missing migration ${String(version).padStart(3,'0')}`);}
 if(new Set(versions).size!==versions.length)errors.push('duplicate migration version');
 if(Math.max(...versions)!==latest)errors.push(`latest migration must be ${String(latest).padStart(3,'0')}`);
@@ -24,5 +24,6 @@ for(const file of files){
   if(version===20){for(const marker of ['reverse_journal_entry','accounting_integrity_report','project_sales_audit_event','project_operational_audit_event','trial_balance'])if(!sql.includes(marker))errors.push(`${file}: missing ${marker}`);}
   if(version===21){for(const marker of ["status in ('posted','reversed')",'general_ledger','trial_balance','accounting_integrity_report'])if(!sql.includes(marker))errors.push(`${file}: missing ${marker}`);}
   if(version===22){for(const marker of ['MIGRATION_021_REQUIRED','create extension if not exists pgcrypto','chart_of_accounts','journal_entries','journal_entry_lines','post_daily_report_accounting','reverse_journal_entry','transition_import_status','telegram_update_receipts','commit_daily_report_acceptance'])if(!sql.includes(marker))errors.push(`${file}: missing ${marker}`);}
+  if(version===23){for(const marker of ['MIGRATION_022_REQUIRED','reset_factory_operational_data','RESET_FACTORY_OPERATIONAL_DATA','backupsPreserved','identitiesPreserved'])if(!sql.includes(marker))errors.push(`${file}: missing ${marker}`);}
 }
 if(errors.length){console.error(errors.join('\n'));process.exit(1);}console.log(`MIGRATIONS_OK=${files.length};LATEST=${String(latest).padStart(3,'0')}`);

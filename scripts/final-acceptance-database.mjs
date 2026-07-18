@@ -15,8 +15,8 @@ begin;
 
 do $$
 begin
-  if (select coalesce(max(version),0) from public.migration_history)<>22 then
-    raise exception 'SCHEMA_22_REQUIRED';
+  if (select coalesce(max(version),0) from public.migration_history)<>23 then
+    raise exception 'SCHEMA_23_REQUIRED';
   end if;
 end $$;
 
