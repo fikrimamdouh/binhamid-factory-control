@@ -5,7 +5,7 @@
   const dailyTypes=new Set(['daily_movement','block_daily_movement','concrete_daily_movement']);
   const readSeen=()=>{try{return new Set(JSON.parse(localStorage.getItem(SEEN_KEY)||'[]'));}catch{return new Set();}};
   const writeSeen=set=>{try{localStorage.setItem(SEEN_KEY,JSON.stringify([...set].slice(-500)));}catch{}};
-  const accessToken=()=>String(localStorage.getItem(TOKEN_KEY)||'').trim();
+  const accessToken=()=>{const value=String(localStorage.getItem(TOKEN_KEY)||'').trim();return value==='device-session'?'':value;};
   const toast=(message,bad=false)=>{if(typeof window.opsToast==='function')window.opsToast(message,bad?'err':undefined);else console[bad?'error':'info']('[BinHamid two-way]',message);};
   async function request(path,options={}){
     const token=accessToken();
