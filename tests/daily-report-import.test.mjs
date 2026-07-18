@@ -7,7 +7,7 @@ const rows=[['المبيعات'],[18357,1000,13183,'صالح سالم عبودا
 
 function summary(){
   const sales=parser.parseDirectSales(rows,'ملخص'),collections=parser.parseTreasuryCollections(rows,'ملخص');
-  return{sales,collections,block:sales.filter(row=>row.kind==='بلوك'),concrete:sales.filter(row=>row.kind==='خرسانة')};
+  return{sales,collections,block:sales.filter(row=>row.kind==='بلك'),concrete:sales.filter(row=>row.kind==='خرسانة')};
 }
 
 test('the shared parser reads the real daily workbook layout',()=>{const result=summary();assert.equal(result.sales.length,13);assert.equal(result.sales.reduce((sum,row)=>sum+row.amount,0),25680);assert.equal(result.block.length,6);assert.equal(result.block.reduce((sum,row)=>sum+row.quantity,0),3100);assert.equal(result.block.reduce((sum,row)=>sum+row.amount,0),5505);assert.equal(result.concrete.length,7);assert.equal(result.concrete.reduce((sum,row)=>sum+row.quantity,0),110.5);assert.equal(result.concrete.reduce((sum,row)=>sum+row.amount,0),20175);assert.equal(result.sales.find(row=>row.invoice==='18354').amount,1260);});
