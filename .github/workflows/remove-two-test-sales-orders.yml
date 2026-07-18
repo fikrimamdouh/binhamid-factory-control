@@ -1,0 +1,43 @@
+name: Remove Two Test Sales Orders
+
+on:
+  push:
+    branches:
+      - ops/remove-two-test-sales-orders
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      SUPABASE_POOLER_HOST: ${{ vars.SUPABASE_POOLER_HOST }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+      - name: Install PostgreSQL client
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client
+      - name: Resolve protected database connection
+        env:
+          CONNECTION_DIAGNOSTIC_PATH: cleanup-connection-diagnostic.json
+        run: node scripts/resolve-supabase-connection.mjs
+      - name: Remove guarded test orders
+        run: node scripts/remove-two-test-sales-orders.mjs
+      - name: Upload cleanup evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-sales-order-cleanup-${{ github.run_id }}
+          path: |
+            test-sales-order-cleanup.json
+            cleanup-connection-diagnostic.json
+          if-no-files-found: warn
+          retention-days: 14
