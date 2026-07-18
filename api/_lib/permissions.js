@@ -17,6 +17,19 @@ export const ROLE_CAPABILITIES=Object.freeze({
 
 export function capabilitiesForRole(role){return[...(ROLE_CAPABILITIES[String(role||'pending')]||[])];}
 export function roleAllows(role,capability){const values=capabilitiesForRole(role);return values.includes('*')||values.includes(capability);}
+function capabilitySets(role,roleRows=[],userRows=[]){
+  const roleCaps=new Set([...(ROLE_CAPABILITIES[String(role||'pending')]||[]),...(roleRows||[]).filter(row=>row?.allowed!==false).map(row=>String(row?.capability||'')).filter(Boolean)]);
+  const overrides=new Map((userRows||[]).map(row=>[String(row?.capability||''),Boolean(row?.allowed)]).filter(([value])=>value));
+  return{roleCaps,overrides};
+}
+function allowsCapability(roleCaps,overrides,capability){
+  const explicit=overrides.get(capability),wildcard=overrides.get('*');
+  return explicit!==undefined?explicit:wildcard!==undefined?wildcard:(roleCaps.has('*')||roleCaps.has(capability));
+}
+export function capabilityAllowed(role,capability,roleRows=[],userRows=[]){
+  const {roleCaps,overrides}=capabilitySets(role,roleRows,userRows);
+  return allowsCapability(roleCaps,overrides,capability);
+}
 function header(req,name){const value=req?.headers?.[name];return Array.isArray(value)?String(value[0]||'').trim():String(value||'').trim();}
 function accessError(message,status,code,extra={}){return Object.assign(new Error(message),{status,code,...extra});}
 
@@ -44,8 +57,7 @@ export async function requireCapability(req,capability){
     select('role_capabilities',`role=eq.${encodeURIComponent(user.role)}&allowed=eq.true&select=capability&limit=500`).catch(()=>[]),
     select('user_capabilities',`app_user_id=eq.${encodeURIComponent(user.id)}&select=capability,allowed&limit=500`).catch(()=>[])
   ]);
-  const roleCaps=new Set([...(ROLE_CAPABILITIES[user.role]||[]),...(roleRows||[]).map(row=>row.capability).filter(Boolean)]),overrides=new Map((userRows||[]).map(row=>[String(row.capability||''),Boolean(row.allowed)]));
-  const explicit=overrides.get(capability),wildcard=overrides.get('*'),allowed=explicit!==undefined?explicit:wildcard!==undefined?wildcard:(roleCaps.has('*')||roleCaps.has(capability));
+  const {roleCaps,overrides}=capabilitySets(user.role,roleRows,userRows),allowed=allowsCapability(roleCaps,overrides,capability);
   if(!allowed)throw accessError(`ليست لديك صلاحية ${capability}`,403,'CAPABILITY_REQUIRED',{capability});
   const effective=new Set([...roleCaps].filter(value=>overrides.get(value)!==false));
   for(const [value,isAllowed] of overrides)if(isAllowed)effective.add(value);else effective.delete(value);
