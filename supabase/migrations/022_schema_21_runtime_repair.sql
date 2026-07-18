@@ -9,6 +9,10 @@ do $$ begin
   end if;
 end $$;
 
+-- Public-schema backups intentionally exclude database-level extensions.
+-- Recreate the trusted extension before any restored report identity function runs.
+create extension if not exists pgcrypto;
+
 alter table public.imports add column if not exists processing_started_at timestamptz;
 alter table public.imports add column if not exists completed_at timestamptz;
 alter table public.imports add column if not exists approved_by text;
