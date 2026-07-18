@@ -11,6 +11,8 @@ test('webhook gateway intercepts every role-sensitive callback and session',asyn
   assert.match(gateway,/claim_telegram_update/);
   assert.match(gateway,/req\.body=update;req\.telegramGatewayManaged=true/);
   assert.match(gateway,/await enterpriseHandler\(req,res\);[\s\S]*await rpc\('complete_telegram_update'/);
+  assert.match(gateway,/claim\?\.status==='completed'/);
+  assert.match(gateway,/return json\(res,503,\{ok:false,retryable:true,updateId/);
   assert.match(gateway,/fail_telegram_update/);
 });
 
