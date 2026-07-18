@@ -35,11 +35,11 @@ test('governance page requires authenticated access and exports evidence',async(
   assert.match(entry,/control-center\.html/);assert.match(entry,/مركز إدارة المصنع/);assert.doesNotMatch(entry,/governance\.html/);assert.match(index,/governance-entry\.js/);
 });
 
-test('migration workflow tests through schema 21 with encrypted backups and isolated restore',async()=>{
+test('migration workflow tests through schema 22 with encrypted backups and isolated restore',async()=>{
   const workflow=await read('.github/workflows/apply-pending-migrations.yml'),preflight=await read('scripts/governance-migration-preflight.mjs'),verify=await read('scripts/governance-migration-verify.mjs');
-  for(const marker of ['019_accounting_import_and_telegram_integrity.sql','020_accounting_reversal_and_projection_safety.sql','021_reversal_ledger_balance_fix.sql','pre-migration-backup','post-migration-backup','--single-transaction','Restore production backup to isolated PostgreSQL 17','Run transactional accounting and duplicate acceptance'])assert.ok(workflow.includes(marker),`workflow missing ${marker}`);
-  assert.match(workflow,/current_version \+ 1\)\) 21/);
-  assert.match(preflight,/targetVersion:21/);assert.match(verify,/toVersion:21/);assert.match(verify,/PROTECTED_ROW_COUNT_CHANGED/);assert.match(verify,/ACCOUNTING_INTEGRITY_FAILED/);
+  for(const marker of ['019_accounting_import_and_telegram_integrity.sql','020_accounting_reversal_and_projection_safety.sql','021_reversal_ledger_balance_fix.sql','022_schema_21_runtime_repair.sql','pre-migration-backup','post-migration-backup','--single-transaction','Restore production backup to isolated PostgreSQL 17','Run transactional accounting and duplicate acceptance'])assert.ok(workflow.includes(marker),`workflow missing ${marker}`);
+  assert.match(workflow,/current_version \+ 1\)\) 22/);
+  assert.match(preflight,/targetVersion:22/);assert.match(verify,/toVersion:22/);assert.match(verify,/PROTECTED_ROW_COUNT_CHANGED/);assert.match(verify,/ACCOUNTING_INTEGRITY_FAILED/);
 });
 
 test('financial, credit and maintenance guards are server-side database controls',async()=>{
