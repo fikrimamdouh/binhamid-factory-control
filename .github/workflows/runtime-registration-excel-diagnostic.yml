@@ -13,10 +13,11 @@ permissions:
 jobs:
   diagnose:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       PRODUCTION_URL: https://binhamid-factory-control.vercel.app
       SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      SUPABASE_POOLER_HOST: ${{ vars.SUPABASE_POOLER_HOST }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
     steps:
       - uses: actions/checkout@v4
@@ -30,16 +31,37 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y postgresql-client
 
+      - name: Resolve protected database connection
+        env:
+          CONNECTION_DIAGNOSTIC_PATH: runtime-connection-diagnostic.json
+        run: node scripts/resolve-supabase-connection.mjs
+
       - name: Collect sanitized runtime evidence
+        if: success()
         run: node scripts/runtime-registration-excel-diagnostic.mjs
+
+      - name: Write fallback diagnostic when connection resolution fails
+        if: failure()
+        run: |
+          node <<'NODE'
+          import { existsSync,readFileSync,writeFileSync } from 'node:fs';
+          if(!existsSync('runtime-registration-excel-diagnostic.json')){
+            let connection={ok:false,code:'CONNECTION_DIAGNOSTIC_MISSING'};
+            if(existsSync('runtime-connection-diagnostic.json'))connection=JSON.parse(readFileSync('runtime-connection-diagnostic.json','utf8'));
+            const report={checkedAt:new Date().toISOString(),productionUrl:process.env.PRODUCTION_URL,live:{ok:false,notChecked:true},database:{configured:Boolean(process.env.SUPABASE_DB_URL),ok:false,connection:{ok:Boolean(connection.ok),code:connection.code||'CONNECTION_FAILED',stage:connection.stage||null}},telegram:{tokenConfigured:Boolean(process.env.TELEGRAM_BOT_TOKEN),ok:false,notChecked:true},findings:[{severity:'critical',code:connection.code||'DATABASE_CONNECTION_FAILED'}],summary:{critical:1,warnings:0,registrationReady:false,excelReady:false,webPersistenceReady:false}};
+            writeFileSync('runtime-registration-excel-diagnostic.json',JSON.stringify(report,null,2)+'\n',{mode:0o600});
+          }
+          NODE
 
       - name: Upload diagnostic evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: runtime-registration-excel-diagnostic-${{ github.run_id }}
-          path: runtime-registration-excel-diagnostic.json
-          if-no-files-found: error
+          path: |
+            runtime-registration-excel-diagnostic.json
+            runtime-connection-diagnostic.json
+          if-no-files-found: warn
           retention-days: 7
 
       - name: Publish diagnostic status
