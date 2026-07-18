@@ -1,4 +1,4 @@
-import { requireAdminOrDevice } from '../auth.js';
+import { requireCapability } from '../permissions.js';
 import { json, method, body, errorResponse } from '../http.js';
 import { rpc, select } from '../supabase.js';
 import { sendMessage } from '../telegram.js';
@@ -18,10 +18,11 @@ async function notifySource(row,nextStatus,note=''){
 export async function status(req,res){
   if(!method(req,res,['POST']))return;
   try{
-    const actor=requireAdminOrDevice(req,'imports.manage'),input=await body(req),nextStatus=String(input.status||'');
-    if(!allowed.includes(nextStatus))throw Object.assign(new Error('الحالة غير صحيحة'),{status:400});
+    const input=await body(req),nextStatus=String(input.status||'');
+    if(!allowed.includes(nextStatus))throw Object.assign(new Error('الحالة غير صحيحة'),{status:400,code:'IMPORT_STATUS_INVALID'});
+    const actor=await requireCapability(req,nextStatus==='opened_in_program'?'daily_report.view':'imports.manage');
     const current=(await select('imports',`id=eq.${encodeURIComponent(input.id)}&select=id,source,source_chat_id,source_message_id,original_name,report_type,status,file_hash,file_path,summary&limit=1`))?.[0];
-    if(!current)throw Object.assign(new Error('ملف مركز الوارد غير موجود'),{status:404});
+    if(!current)throw Object.assign(new Error('ملف مركز الوارد غير موجود'),{status:404,code:'IMPORT_NOT_FOUND'});
     const updated=one(await rpc('transition_import_status',{p_import_id:current.id,p_next_status:nextStatus,p_actor:actor.actor,p_note:String(input.note||'').slice(0,500)||null,p_posted_batch_id:input.postedBatchId||null,p_result:input.result&&typeof input.result==='object'?input.result:{}}));
     let telegramNotified=false;
     if(current.status!==nextStatus&&['validating','validation_failed','ready_for_review','opened_in_program','approved','processing','posted','partially_failed','failed','rejected','reversed'].includes(nextStatus))telegramNotified=Boolean(await notifySource({...current,...updated},nextStatus,String(input.note||'')));
