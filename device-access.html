@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ربط الجهاز بالمستخدم — مصنع بن حامد</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f5f1e9;color:#173746;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}.wrap{width:min(900px,94vw);margin:28px auto}.head,.card{background:#fff;border:1px solid #ddd7cc;border-radius:16px;padding:20px;box-shadow:0 10px 30px #17374612}.head{background:#0b2f42;color:#fff}.head h1{margin:0;font-size:24px}.head p{margin:7px 0 0;color:#cbd8de}.card{margin-top:14px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}label{display:grid;gap:6px;font-weight:700;font-size:13px}input,select,button{font:inherit;border-radius:10px;padding:11px 12px;border:1px solid #bdc9cc}input[readonly]{background:#f1f3f3}button{border:0;background:#b8892f;color:#fff;font-weight:900;cursor:pointer}.danger{background:#a13c3c}.alt{background:#173746}.row{display:flex;gap:9px;flex-wrap:wrap;margin-top:15px}.notice{margin-top:13px;padding:12px;border-radius:10px;background:#fff5d7;color:#71550d;white-space:pre-wrap}.notice.ok{background:#e2f3e8;color:#17613c}.notice.bad{background:#ffe6e6;color:#8a2929}.small{font-size:12px;color:#667b84;line-height:1.8}a{color:inherit}@media(max-width:650px){.grid{grid-template-columns:1fr}.row button{flex:1}}
+</style>
+</head>
+<body><main class="wrap">
+<header class="head"><h1>ربط الجهاز بالمستخدم</h1><p>يوقّع الخادم هوية المستخدم داخل جلسة الجهاز. لا يمكن تغيير المستخدم من أدوات المتصفح أو بهيدر يدوي.</p></header>
+<section class="card">
+<div class="grid"><label>معرف الجهاز<input id="deviceId" readonly></label><label>المستخدم المعتمد<select id="user"><option value="">جاري تحميل المستخدمين...</option></select></label></div>
+<div class="row"><button id="bind">ربط الجهاز بالمستخدم</button><button id="revoke" class="danger">إلغاء ربط الجهاز</button><button id="refresh" class="alt">تحديث الحالة</button><a href="/control-center.html">العودة إلى مركز الرقابة</a></div>
+<div id="message" class="notice">جاري فحص جلسة الجهاز...</div>
+<p class="small">يتطلب الربط اعتماد مدير النظام الحقيقي المحفوظ على هذا المتصفح. بعد الربط تُصدر Cookie جديدة من نوع HttpOnly تحمل معرف المستخدم الموقع. الجهاز غير المرتبط يظل قادرًا على المزامنة التقنية فقط ولا يستطيع اعتماد التقارير أو عرض الحوكمة.</p>
+</section></main>
+<script>
+(()=>{'use strict';
+const TOKEN_KEY='binhamid_cloud_access_token',DEVICE_KEY='binhamid_cloud_device_id',device=document.getElementById('deviceId'),user=document.getElementById('user'),message=document.getElementById('message');
+const token=()=>{const value=localStorage.getItem(TOKEN_KEY)||'';return value&&value!=='device-session'?value:'';};
+const headers=()=>({'Content-Type':'application/json',...(token()?{Authorization:'Bearer '+token()}:{})});
+function show(text,type=''){message.className='notice '+type;message.textContent=text;}
+function currentDevice(){return localStorage.getItem(DEVICE_KEY)||'';}
+async function load(){device.value=currentDevice();if(!device.value){show('معرف الجهاز غير موجود. افتح الصفحة الرئيسية أولًا لإنشاء جلسة الجهاز.','bad');return;}if(!token()){show('لا توجد جلسة مدير نظام حقيقية محفوظة. الربط لا يتم بجلسة الجهاز وحدها.','bad');user.innerHTML='<option value="">غير متاح</option>';return;}try{const response=await fetch('/api/dashboard',{credentials:'same-origin',cache:'no-store',headers:{Authorization:'Bearer '+token()}}),data=await response.json();if(!response.ok)throw new Error(data.error||'تعذر قراءة المستخدمين');const users=(data.users||[]).filter(item=>item.active!==false&&item.id);user.replaceChildren(new Option('اختر المستخدم',''));for(const item of users)user.appendChild(new Option((item.full_name||item.external_username||item.id)+' — '+(item.role||'pending'),item.id));show('اختر مستخدمًا ثم نفّذ الربط. المستخدمون غير النشطين غير معروضين.');}catch(error){show(error.message,'bad');}}
+async function act(action){if(!device.value)throw new Error('معرف الجهاز غير موجود');const payload={action,deviceId:device.value};if(action==='bind'){if(!user.value)throw new Error('اختر المستخدم');payload.appUserId=user.value;}const response=await fetch('/api/device/session',{method:'POST',credentials:'same-origin',headers:headers(),body:JSON.stringify(payload)}),data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.error||'تعذر تحديث ربط الجهاز');window.BinHamidCloudDeviceSession=data;show(action==='bind'?'تم ربط الجهاز وإصدار جلسة مستخدم موقعة.':'تم إلغاء الربط وإصدار جلسة تقنية فقط.','ok');}
+document.getElementById('bind').onclick=()=>act('bind').catch(error=>show(error.message,'bad'));document.getElementById('revoke').onclick=()=>act('revoke').catch(error=>show(error.message,'bad'));document.getElementById('refresh').onclick=load;load();
+})();
+</script></body></html>

@@ -6,9 +6,8 @@ import { roleAllows } from '../api/_lib/permissions.js';
 
 const read=path=>readFile(new URL(`../${path}`,import.meta.url),'utf8');
 
-test('factory device can view governance but cannot mutate governance controls',()=>{
-  assert.ok(DEVICE_CAPABILITIES.includes('governance.view'));
-  for(const capability of ['financial_period.manage','credit_override.approve','assets.manage','compliance.manage','custody.approve','handover.manage','restore_test.manage'])assert.equal(DEVICE_CAPABILITIES.includes(capability),false,capability);
+test('factory device cannot view or mutate governance without an active authorized user',()=>{
+  for(const capability of ['governance.view','financial_period.manage','credit_override.approve','assets.manage','compliance.manage','custody.approve','handover.manage','restore_test.manage'])assert.equal(DEVICE_CAPABILITIES.includes(capability),false,capability);
 });
 
 test('governance duties remain separated by role',()=>{
@@ -28,17 +27,18 @@ test('governance API maps sensitive actions to explicit capabilities',async()=>{
   assert.match(route,/requireCapability\(req,'governance\.view'\)/);
 });
 
-test('governance page is read-only on automatic device sessions and exports evidence',async()=>{
+test('governance page requires authorized identity and exports evidence',async()=>{
   const page=await read('governance.html'),entry=await read('assets/governance-entry.js'),index=await read('index.html');
   for(const marker of ['/api/governance','الحوكمة والتسليم المؤسسي','تصدير JSON','مركز الرقابة','device-session'])assert.match(page,new RegExp(marker));
   assert.match(entry,/control-center\.html/);assert.match(entry,/governance\.html/);assert.match(index,/governance-entry\.js/);
 });
 
-test('migration workflow applies through schema 18 with encrypted backups',async()=>{
+test('migration workflow applies through schema 21 with encrypted backups and one transaction',async()=>{
   const workflow=await read('.github/workflows/apply-pending-migrations.yml'),preflight=await read('scripts/governance-migration-preflight.mjs'),verify=await read('scripts/governance-migration-verify.mjs');
-  for(const marker of ['016_enterprise_governance_and_handover.sql','017_governance_control_rpcs.sql','018_governance_safety_refinements.sql','EXPECTED_SCHEMA_VERSION=18','encrypted-pre-migration-backup','encrypted-post-migration-backup','--single-transaction'])assert.ok(workflow.includes(marker),`workflow missing ${marker}`);
-  assert.match(workflow,/current_version \+ 1\)\) 18/);
-  assert.match(preflight,/targetVersion:18/);assert.match(verify,/toVersion:18/);assert.match(verify,/PROTECTED_ROW_COUNT_CHANGED/);
+  for(const marker of ['016_enterprise_governance_and_handover.sql','017_governance_control_rpcs.sql','018_governance_safety_refinements.sql','019_mix_design_and_user_invitations.sql','020_atomic_mix_invitation_and_sales_basis.sql','021_device_identity_binding.sql','EXPECTED_SCHEMA_VERSION=21','encrypted-pre-migration-backup','encrypted-post-migration-backup','--single-transaction'])assert.ok(workflow.includes(marker),`workflow missing ${marker}`);
+  assert.match(workflow,/current_version \+ 1\)\) 21/);
+  assert.match(preflight,/targetVersion=21/);assert.match(verify,/targetVersion=21/);assert.match(verify,/PROTECTED_ROW_COUNT_CHANGED/);
+  assert.match(verify,/userInvitations/);assert.match(verify,/mixCostRuns/);assert.match(verify,/deviceEnrollments/);assert.match(verify,/salesTaxBasisColumns/);
 });
 
 test('financial, credit and maintenance guards are server-side database controls',async()=>{

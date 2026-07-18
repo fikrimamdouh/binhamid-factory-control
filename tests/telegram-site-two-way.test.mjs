@@ -4,26 +4,32 @@ import fs from 'node:fs';
 
 const read=path=>fs.readFileSync(new URL(`../${path}`,import.meta.url),'utf8');
 
-test('device session has inbox capabilities without admin capabilities',()=>{
+test('device session can poll inbox without administrative capabilities',()=>{
   const source=read('api/_lib/device-session.js');
   assert.match(source,/imports\.read/);
-  assert.match(source,/imports\.manage/);
+  assert.match(source,/imports\.status\.sync/);
+  assert.doesNotMatch(source,/imports\.manage/);
   assert.doesNotMatch(source,/admin\/users/);
   assert.doesNotMatch(source,/telegram\/register/);
 });
 
-test('dashboard returns Telegram inbox data used by cloud control',()=>{
+test('dashboard returns a restricted Telegram inbox to a device and full data to a manager',()=>{
   const source=read('api/_lib/routes/manager-dashboard.js');
-  assert.match(source,/safeSelect\('imports'/);
+  assert.match(source,/requireCapability\(req,'dashboard\.manager'\)/);
+  assert.match(source,/requireAdminOrDevice\(req,'imports\.read'\)/);
+  assert.match(source,/deviceInboxOnly/);
+  assert.match(source,/restricted:true/);
+  assert.match(source,/groups:\[\],users:\[\],snapshot:null/);
   assert.match(source,/safeSelect\('telegram_groups'/);
   assert.match(source,/safeSelect\('user_channels'/);
   assert.match(source,/imports,groups,users/);
   assert.match(source,/twoWay:true/);
 });
 
-test('import status transitions are returned to the source Telegram chat',()=>{
+test('only the opened status is technical while business transitions require an active user',()=>{
   const source=read('api/_lib/routes/imports.js');
-  assert.match(source,/requireAdminOrDevice\(req,'imports\.manage'\)/);
+  assert.match(source,/requireAdminOrDevice\(req,'imports\.status\.sync'\)/);
+  assert.match(source,/requireCapability\(req,'imports\.manage'\)/);
   assert.match(source,/source_chat_id/);
   assert.match(source,/import_status_changed/);
   assert.match(source,/opened_in_program/);
@@ -38,8 +44,9 @@ test('Telegram uploads are stored for the site and relayed to the owner',()=>{
   assert.match(source,/file_hash/);
 });
 
-test('website approval sends summary and original file to Telegram',()=>{
+test('website approval requires a user and sends summary and original file to Telegram',()=>{
   const source=read('api/_lib/routes/telegram-admin.js');
+  assert.match(source,/requireCapability\(req,'daily_report\.approve'\)/);
   assert.match(source,/findApprovedBatch/);
   assert.match(source,/linkedImport/);
   assert.match(source,/downloadObject/);
