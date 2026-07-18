@@ -22,3 +22,27 @@ test('public routes stay centralized without a duplicate daily report importer',
 test('the original daily summary and movement screens share one parser extension',async()=>{const index=await read('index.html');const parser=await read('assets/daily-summary-parser.js');const fix=await read('assets/existing-daily-import-fix.js');const cloud=await read('assets/cloud-control.js');assert.match(index,/daily-summary-parser\.js/);assert.match(index,/existing-daily-import-fix\.js/);assert.doesNotMatch(index,/daily-report-import\.js/);for(const marker of ['parseDirectSales','parseTreasuryCollections','treasuryCode'])assert.match(parser,new RegExp(marker));for(const marker of ['opsImportDailySummary','opsImportDailyMovement','sourceFileFingerprint','saveMovementCollections'])assert.match(fix,new RegExp(marker));for(const marker of ['bhReadCookie','bhAutoApply','bhCloudApplyImport'])assert.match(cloud,new RegExp(marker));});
 
 test('activation documents cover schema seven and external activation steps',async()=>{const guide=await read('docs/PHASE_TWO_ACTIVATION.md');const v7=await read('docs/RUNTIME_SCHEMA_7.md');for(let n=1;n<=6;n++)assert.match(guide,new RegExp(`00${n}_`));for(const marker of ['BINHAMID_CRON_SECRET','BINHAMID_CRON_URL','PUBLIC_APP_URL','webhook-v3','ready=true'])assert.match(guide,new RegExp(marker));for(const marker of ['007_procurement_projection_and_permissions.sql','schemaVersion=7','directOperationsSchema=7','purchase_requests'])assert.match(v7,new RegExp(marker));});
+
+test('every approved employee can submit a suggestion or problem that is persisted and sent to management',async()=>{
+  const [{roleHomeRows,SIMPLE_DEFS},forms,bot,handler]=await Promise.all([
+    import('../api/_lib/bot-enterprise-defs.js'),
+    read('api/_lib/bot-enterprise-forms.js'),
+    read('api/_lib/bot-enterprise.js'),
+    read('api/_lib/telegram-webhook-handler.js')
+  ]);
+  const roles=['admin','manager','accountant','mechanic','block_sales','concrete_sales','collector','driver','employee','warehouse','fuel_operator','hr','procurement','quality'];
+  for(const role of roles){
+    const callbacks=roleHomeRows(role).flat().map(button=>button.callback_data);
+    assert.ok(callbacks.includes('ent:management_suggestion'),`missing suggestion for ${role}`);
+    assert.ok(callbacks.includes('ent:management_problem'),`missing problem for ${role}`);
+  }
+  assert.equal(SIMPLE_DEFS.management_suggestion.prefix,'SUG');
+  assert.equal(SIMPLE_DEFS.management_problem.prefix,'PRB');
+  assert.match(bot,/startEnterpriseForm\(message,identity,'management_suggestion'\)/);
+  assert.match(bot,/startEnterpriseForm\(message,identity,'management_problem'\)/);
+  assert.match(forms,/enterprise_operation_created/);
+  assert.match(forms,/active=eq\.true&role=in\.\(admin,manager\)/);
+  assert.match(forms,/management_feedback_received/);
+  assert.match(forms,/notification\.delivered/);
+  assert.match(handler,/result\.text\?handleText\(message,group,identity,result\.text/);
+});
