@@ -162,7 +162,7 @@ revoke all on function public.commit_daily_report_acceptance(date,text,text,text
 grant execute on function public.commit_daily_report(date,text,text,text,jsonb,text),public.register_daily_report_attempt(date,text,text,text,text,text,uuid,jsonb,jsonb,jsonb,text),public.commit_daily_report_acceptance(date,text,text,text,jsonb,text,text,jsonb,jsonb,text,uuid) to service_role;
 
 -- Additional Schema 21 features merged from the same release.
-+-- Bin Hamid Factory Control — bind physical device sessions to approved application users
+-- Bin Hamid Factory Control — bind physical device sessions to approved application users
 -- Additional features for Schema 21, applied after Schema 20.
 -- Idempotent and non-destructive.
 
@@ -240,6 +240,6 @@ grant execute on function public.approve_mix_cost_run(uuid,text) to service_role
 grant execute on function public.approve_device_enrollment(text,uuid,text) to service_role;
 grant execute on function public.revoke_device_enrollment(text,text) to service_role;
 
-+insert into public.migration_history(version,migration_name)
+insert into public.migration_history(version,migration_name)
 values(21,'021_reversal_ledger_balance_fix')
 on conflict(version) do update set migration_name=excluded.migration_name;
