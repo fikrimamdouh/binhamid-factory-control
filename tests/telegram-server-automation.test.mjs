@@ -28,3 +28,23 @@ test('scheduled brief includes optional PDF and weekly operational export withou
   const source=await read('api/_lib/bot-notifications.js'),cron=await read('api/cron/manager-brief.js'),env=await read('.env.example');
   for(const marker of ['htmlToPdf','sendScheduledManagerBrief','sendWeeklyOperationalExport','weekly-operational-export','Telegram conversation history'])assert.match(source,new RegExp(marker));assert.match(cron,/weeklyExport/);assert.match(env,/MANAGER_BRIEF_HOUR=19/);assert.match(env,/WEEKLY_EXPORT_WEEKDAY=5/);
 });
+
+
+test('authorized Telegram daily sender reaches posting only with daily_report.approve',async()=>{
+  const [{ capabilityAllowed },{ dailyReportApprovalDecision }]=await Promise.all([import('../api/_lib/permissions.js'),import('../api/_lib/bot-files.js')]);
+  const canApprove=capabilityAllowed('accountant','daily_report.approve',[],[]);
+  assert.equal(canApprove,true);
+  assert.deepEqual(dailyReportApprovalDecision(true,'ready',canApprove),{shouldPost:true,waitingApproval:false});
+});
+
+test('unauthorized Telegram daily sender stays pending and approvers are notified',async()=>{
+  const [{ capabilityAllowed },{ dailyReportApprovalDecision }]=await Promise.all([import('../api/_lib/permissions.js'),import('../api/_lib/bot-files.js')]);
+  assert.equal(capabilityAllowed('block_sales','daily_report.approve',[],[]),false);
+  assert.equal(capabilityAllowed('manager','daily_report.approve',[],[{capability:'daily_report.approve',allowed:false}]),false);
+  assert.deepEqual(dailyReportApprovalDecision(true,'ready',false),{shouldPost:false,waitingApproval:true});
+  const files=await read('api/_lib/bot-files.js');
+  assert.match(files,/notifyDailyReportApprovers/);
+  assert.match(files,/daily_report_pending_approval/);
+  assert.match(files,/بانتظار الاعتماد/);
+  assert.match(files,/لم تُرحّل أي مبيعات أو تحصيلات/);
+});
