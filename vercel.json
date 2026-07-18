@@ -16,6 +16,8 @@
     {"source":"/api/costs","destination":"/api/router?route=costs"},
     {"source":"/api/mix-designs","destination":"/api/router?route=mix-designs"},
     {"source":"/api/fleet/status","destination":"/api/router?route=fleet/status"},
+    {"source":"/api/auth/request","destination":"/api/router?route=auth/request"},
+    {"source":"/api/auth/verify","destination":"/api/router?route=auth/verify"},
     {"source":"/api/driver/webapp","destination":"/api/router?route=driver/webapp"},
     {"source":"/api/resilience","destination":"/api/router?route=resilience"},
     {"source":"/api/documents/verify","destination":"/api/router?route=documents/verify"},
