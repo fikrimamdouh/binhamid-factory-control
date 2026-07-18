@@ -39,6 +39,10 @@
         const script=doc.createElement('script');script.id=id;script.src=src;script.async=false;script.onload=()=>{script.dataset.loaded='1';resolve(script);};script.onerror=()=>reject(new Error(onerror||`تعذر تحميل ${src}`));doc.body.appendChild(script);
       });
     }
+    function openRequestedWorkspace(win,sequence){
+      const target=new URL(location.href).searchParams.get('open')||'',allowed=['dashboard','movements','custody','fleet','maintenance','inventory','production','deliveries','safety','documents','reports','backup'];
+      if(allowed.includes(target))setTimeout(()=>{if(sequence===loadSequence&&typeof win.opsGo==='function')win.opsGo(target);},100);
+    }
     async function prepareFrame(doc,win,sequence){
       const statuses=[['','غير محدد'],['in_service','في الخدمة'],['parked','مركون / احتياطي'],['stopped','متوقف'],['maintenance','في الصيانة'],['out_of_service','خارج الخدمة'],['sold','مباع / مستبعد']];
       if(!Array.isArray(win.BH4_VEHICLE_STATUSES))win.BH4_VEHICLE_STATUSES=statuses;
@@ -55,8 +59,7 @@
       ];
       await Promise.all(extensions.map(([id,src])=>load(id,src,`تعذر تحميل ${id}`)));
       if(sequence!==loadSequence)return;
-      const target=new URL(location.href).searchParams.get('open')||'',allowed=['dashboard','movements','custody','fleet','maintenance','inventory','production','deliveries','safety','documents','reports','backup'];
-      if(allowed.includes(target))setTimeout(()=>{if(sequence===loadSequence&&typeof win.opsGo==='function')win.opsGo(target);},100);
+      openRequestedWorkspace(win,sequence);
     }
     frame.addEventListener('load',async function(){
       const sequence=++loadSequence;frame.style.visibility='hidden';frame.style.opacity='0';
