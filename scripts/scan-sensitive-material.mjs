@@ -13,7 +13,7 @@ const patterns=[
   ['PRIVATE_KEY',new RegExp(['-----BEGIN ','(?:RSA |EC |OPENSSH )?','PRIVATE KEY-----'].join(''),'g')],
   ['AWS_ACCESS_KEY',new RegExp(['AKIA','[A-Z0-9]{16}'].join(''),'g')]
 ];
-const localDatabaseExample=value=>/^postgres(?:ql)?:\/\/postgres:postgres@(?:127\.0\.0\.1|localhost)(?::\d+)?\//i.test(value);
+const localDatabaseExample=value=>/^postgres(?:ql)?:\/\/postgres:postgres@(?:127\.0\.0\.1|localhost)(?::\d+)?(?:\/|$)/i.test(value);
 const findings=[];
 for(const file of files){
   if(skip(file))continue;
