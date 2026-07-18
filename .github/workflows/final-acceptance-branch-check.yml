@@ -14,7 +14,7 @@ permissions:
 jobs:
   acceptance:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 45
     services:
       postgres:
         image: postgres:17
@@ -53,12 +53,26 @@ jobs:
 
       - name: Audit migration chain
         run: npm run audit:migrations
-      - name: Run unit and contract tests
-        run: npm test
-      - name: Audit API contracts
-        run: npm run check:api
-      - name: Audit Vercel function count
-        run: npm run check:functions
+
+      - name: Run unit and contract tests individually
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in $(find tests -maxdepth 1 -name '*.test.mjs' -print | sort); do
+            echo "::group::Testing $file"
+            node --test "$file"
+            echo "::endgroup::"
+          done
+
+      - name: Audit API contracts and Vercel functions
+        run: |
+          set -euo pipefail
+          npm run check:api
+          npm run check:functions
+
+      - name: Scan repository for sensitive material
+        run: node scripts/scan-sensitive-material.mjs
+
       - name: Check final acceptance JavaScript syntax
         run: |
           set -euo pipefail
@@ -69,6 +83,7 @@ jobs:
           node --check api/_lib/telegram-webhook-handler.js
           node --check api/_lib/routes/daily-report.js
           node --check api/_lib/routes/accounting.js
+          node --check api/_lib/permissions.js
 
       - name: Download latest verified encrypted production backup
         env:
@@ -92,22 +107,24 @@ jobs:
           SUPABASE_DB_URL: ''
         run: node scripts/restore-drill.mjs
 
-      - name: Capture isolated preflight and apply schema 20 atomically
+      - name: Apply schema 19-20 to isolated clone atomically
         shell: bash
         run: |
           set -euo pipefail
           manifest="$(find acceptance-backup -type f -name '*.manifest.json' -print -quit)"
           ISOLATED_BACKUP_MANIFEST="$manifest" MIGRATION_PREFLIGHT_PATH=acceptance-preflight.json node scripts/isolated-migration-preflight.mjs
           current_version="$(node -e "const x=require('./acceptance-preflight.json');process.stdout.write(String(x.currentVersion))")"
-          : > acceptance-migrations-20.sql
-          for version in $(seq $((current_version + 1)) 20); do
-            file="$(find supabase/migrations -maxdepth 1 -type f -name "$(printf '%03d' "$version")_*.sql" -print -quit)"
-            test -n "$file"
-            cat "$file" >> acceptance-migrations-20.sql
-            printf '\n' >> acceptance-migrations-20.sql
-          done
-          psql "$LOCAL_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction --file acceptance-migrations-20.sql
-          rm -f acceptance-migrations-20.sql
+          if [ "$current_version" -lt 20 ]; then
+            : > acceptance-migrations-20.sql
+            for version in $(seq $((current_version + 1)) 20); do
+              file="$(find supabase/migrations -maxdepth 1 -type f -name "$(printf '%03d' "$version")_*.sql" -print -quit)"
+              test -n "$file"
+              cat "$file" >> acceptance-migrations-20.sql
+              printf '\n' >> acceptance-migrations-20.sql
+            done
+            psql "$LOCAL_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction --file acceptance-migrations-20.sql
+            rm -f acceptance-migrations-20.sql
+          fi
 
       - name: Run schema 20 transactional accounting and duplicate acceptance
         env:
@@ -116,20 +133,25 @@ jobs:
         run: node scripts/final-acceptance-database.mjs
 
       - name: Apply schema 21 reversal correction atomically
-        run: psql "$LOCAL_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction --file supabase/migrations/021_reversal_ledger_balance_fix.sql
+        shell: bash
+        run: |
+          set -euo pipefail
+          current_version="$(psql "$LOCAL_DATABASE_URL" -X -t -A -v ON_ERROR_STOP=1 -c 'select coalesce(max(version),0) from public.migration_history;')"
+          if [ "$current_version" -lt 21 ]; then
+            psql "$LOCAL_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction --file supabase/migrations/021_reversal_ledger_balance_fix.sql
+          fi
 
-      - name: Verify isolated schema 21
+      - name: Verify isolated schema 21 and net-zero reversal
         env:
           SUPABASE_DB_URL: ${{ env.LOCAL_DATABASE_URL }}
           MIGRATION_PREFLIGHT_PATH: acceptance-preflight.json
           MIGRATION_RESULT_PATH: acceptance-migration-result.json
-        run: node scripts/governance-migration-verify.mjs
-
-      - name: Verify net-zero reversal in schema 21
-        env:
           TEST_DATABASE_URL: ${{ env.LOCAL_DATABASE_URL }}
           REVERSAL_ACCEPTANCE_RESULT: reversal-ledger-result.json
-        run: node scripts/reversal-ledger-acceptance.mjs
+        run: |
+          set -euo pipefail
+          node scripts/governance-migration-verify.mjs
+          node scripts/reversal-ledger-acceptance.mjs
 
       - name: Upload isolated acceptance evidence
         if: always()
