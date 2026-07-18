@@ -81,3 +81,11 @@ test('structured accounting API and page are present',()=>{
   assert.match(router,/accounting/);
   assert.match(vercel,/api\/accounting/);
 });
+
+test('isolated final database acceptance supports Schema 21 and resolves status transition arguments exactly',()=>{
+  const source=read('scripts/final-acceptance-database.mjs');
+  assert.match(source,/max\(version\),0\) from public\.migration_history\)<20/);
+  assert.match(source,/null::uuid/);
+  assert.match(source,/'processing'::text/);
+  assert.match(source,/'posted'::text/);
+});

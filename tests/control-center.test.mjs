@@ -70,6 +70,6 @@ test('control center stays consolidated in the existing Vercel router',async()=>
   assert.match(router,/control-center/);
   assert.ok(vercel.rewrites.some(item=>item.source==='/api/control-center'&&item.destination.includes('route=control-center')));
   assert.equal(Object.keys(vercel.functions).length,1);
-  for(const marker of ['مركز الرقابة والإدارة','/api/control-center','sessionStorage','طباعة'])assert.match(page,new RegExp(marker));
+  for(const marker of ['مركز الرقابة والإدارة','/api/control-center','sessionStorage','الحسابات والقيود','الخزن والجرد','التقرير اليومي والعملاء','طباعة'])assert.match(page,new RegExp(marker));
   for(const marker of ['control_asset_duplicates','restore_test_runs','handover_acceptance_runs','control_expiring_documents','control_open_custodies'])assert.match(route,new RegExp(marker));
 });

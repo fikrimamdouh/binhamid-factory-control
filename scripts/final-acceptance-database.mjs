@@ -28,7 +28,7 @@ insert into public.imports(source,department,report_type,status,original_name,mi
 values('acceptance','finance','daily_movement','ready','acceptance-${run}.xlsx','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','acceptance/${run}/source.xlsx','HASH-${run}',3,3,0,0,'{}'::jsonb,'acceptance-chat','acceptance-message')
 returning id as import_id \gset
 
-select public.transition_import_status(:'import_id'::uuid,'processing','acceptance-test','بدء اختبار الترحيل',null::uuid,'{}'::jsonb);
+select public.transition_import_status(:'import_id'::uuid,'processing'::text,'acceptance-test'::text,'بدء اختبار الترحيل'::text,null::uuid,'{}'::jsonb);
 
 select public.commit_daily_report(
   date '2099-12-31',
@@ -52,7 +52,7 @@ select public.commit_daily_report(
 
 select (:'first_commit'::jsonb->>'id')::uuid as batch_id \gset
 
-select public.transition_import_status(:'import_id'::uuid,'posted','acceptance-test','تم اختبار الترحيل',:'batch_id'::uuid,jsonb_build_object('acceptance',true));
+select public.transition_import_status(:'import_id'::uuid,'posted'::text,'acceptance-test'::text,'تم اختبار الترحيل'::text,:'batch_id'::uuid,jsonb_build_object('acceptance',true));
 
 select public.commit_daily_report(
   date '2099-12-31','acceptance-${run}.xlsx','HASH-${run}','CONTENT-${run}',

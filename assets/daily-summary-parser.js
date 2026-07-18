@@ -27,7 +27,8 @@
     if(!match)return '';
     return `${match[3]}-${match[2].padStart(2,'0')}-${match[1].padStart(2,'0')}`;
   };
-  const kind=item=>includes(item,'خرسانه','خرسانة')?'خرسانة':includes(item,'بلك','بلوك')?'بلوك':'غير محدد';
+  // «بلك» هو الاسم التشغيلي المعتمد. نقبل «بلوك» من الملفات القديمة فقط ثم نعيد الاسم الموحد.
+  const kind=item=>includes(item,'خرسانه','خرسانة')?'خرسانة':includes(item,'بلك','بلوك')?'بلك':'غير محدد';
   const titleIndex=(rows,predicate,from=0)=>{for(let i=from;i<rows.length;i++)if(predicate(rowText(rows[i]),rows[i]||[]))return i;return -1;};
   const isSalesTitle=text=>text==='المبيعات'||text==='مبيعات'||text.startsWith('المبيعات ');
   const isSectionStop=text=>includes(text,'منتجات تامه','منتجات تامة','خامات','حركه الخزن','حركة الخزن','ما تم فرزه','ماتم فرزه','تحصيلات العملاء');
