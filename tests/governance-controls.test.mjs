@@ -6,9 +6,8 @@ import { roleAllows } from '../api/_lib/permissions.js';
 
 const read=path=>readFile(new URL(`../${path}`,import.meta.url),'utf8');
 
-test('factory device can view governance but cannot mutate governance controls',()=>{
-  assert.ok(DEVICE_CAPABILITIES.includes('governance.view'));
-  for(const capability of ['financial_period.manage','credit_override.approve','assets.manage','compliance.manage','custody.approve','handover.manage','restore_test.manage'])assert.equal(DEVICE_CAPABILITIES.includes(capability),false,capability);
+test('factory device cannot view or mutate governance without an active authorized user',()=>{
+  for(const capability of ['governance.view','financial_period.manage','credit_override.approve','assets.manage','compliance.manage','custody.approve','handover.manage','restore_test.manage'])assert.equal(DEVICE_CAPABILITIES.includes(capability),false,capability);
 });
 
 test('governance duties remain separated by role',()=>{
@@ -28,7 +27,7 @@ test('governance API maps sensitive actions to explicit capabilities',async()=>{
   assert.match(route,/requireCapability\(req,'governance\.view'\)/);
 });
 
-test('governance page is read-only on automatic device sessions and exports evidence',async()=>{
+test('governance page requires authorized identity and exports evidence',async()=>{
   const page=await read('governance.html'),entry=await read('assets/governance-entry.js'),index=await read('index.html');
   for(const marker of ['/api/governance','الحوكمة والتسليم المؤسسي','تصدير JSON','مركز الرقابة','device-session'])assert.match(page,new RegExp(marker));
   assert.match(entry,/control-center\.html/);assert.match(entry,/governance\.html/);assert.match(index,/governance-entry\.js/);
