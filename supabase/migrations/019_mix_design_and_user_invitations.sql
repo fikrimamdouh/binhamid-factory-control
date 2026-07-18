@@ -6,13 +6,13 @@ create extension if not exists pgcrypto;
 
 create table if not exists public.user_invitations (
   id uuid primary key default gen_random_uuid(),
-  phone_normalized text not null,
-  full_name text not null,
+  phone_normalized text not null check (phone_normalized ~ '^\+[1-9][0-9]{7,14}$'),
+  full_name text not null check (char_length(trim(full_name)) between 3 and 160),
   employee_external_id text,
   requested_role text not null check (requested_role in ('admin','manager','accountant','block_sales','concrete_sales','mechanic','fuel_operator','hr','procurement','driver','employee','collector','warehouse','quality')),
   requested_capabilities jsonb not null default '[]'::jsonb check (jsonb_typeof(requested_capabilities)='array'),
   token_hash text not null unique check (token_hash ~ '^[a-f0-9]{64}$'),
-  token_prefix text not null,
+  token_prefix text not null check (char_length(token_prefix) between 6 and 16),
   expires_at timestamptz not null,
   status text not null default 'pending' check (status in ('pending','opened','accepted_pending_approval','approved','expired','revoked','rejected')),
   created_by text not null,
@@ -25,7 +25,7 @@ create table if not exists public.user_invitations (
   revoked_at timestamptz,
   metadata jsonb not null default '{}'::jsonb,
   check (expires_at>created_at),
-  check (requested_capabilities @> '[]'::jsonb and not requested_capabilities ? '*')
+  check (not (requested_capabilities ? '*'))
 );
 create unique index if not exists user_invitations_open_phone_uidx
   on public.user_invitations(phone_normalized)
@@ -40,11 +40,8 @@ begin
   if p_token_hash is null or p_token_hash !~ '^[a-f0-9]{64}$' or nullif(trim(p_telegram_id),'') is null then raise exception 'INVITATION_INPUT_INVALID'; end if;
   select * into v_row from public.user_invitations where token_hash=p_token_hash for update;
   if not found then raise exception 'INVITATION_NOT_FOUND'; end if;
-  if v_row.status in ('approved','revoked','rejected') then raise exception 'INVITATION_NOT_USABLE:%',v_row.status; end if;
-  if v_row.expires_at<=now() then
-    update public.user_invitations set status='expired' where id=v_row.id;
-    raise exception 'INVITATION_EXPIRED';
-  end if;
+  if v_row.status in ('approved','revoked','rejected','expired') then raise exception 'INVITATION_NOT_USABLE:%',v_row.status; end if;
+  if v_row.expires_at<=now() then raise exception 'INVITATION_EXPIRED'; end if;
   if v_row.accepted_by_telegram_id is not null and v_row.accepted_by_telegram_id<>p_telegram_id then raise exception 'INVITATION_ALREADY_ACCEPTED'; end if;
   update public.user_invitations
   set status='accepted_pending_approval',accepted_by_telegram_id=p_telegram_id,accepted_at=coalesce(accepted_at,now()),metadata=metadata||jsonb_build_object('last_opened_at',now())
@@ -85,10 +82,23 @@ create table if not exists public.mix_material_prices (
   approved_by text,
   approved_at timestamptz,
   created_at timestamptz not null default now(),
-  check (effective_to is null or effective_to>=effective_from),
-  unique(material_id,effective_from,price_unit,supplier_id)
+  check (effective_to is null or effective_to>=effective_from)
 );
+create unique index if not exists mix_material_prices_identity_uidx on public.mix_material_prices(material_id,effective_from,price_unit,coalesce(supplier_id,''));
 create index if not exists mix_material_prices_lookup_idx on public.mix_material_prices(material_id,approved,effective_from desc,effective_to);
+
+create or replace function public.guard_mix_material_price_overlap()
+returns trigger language plpgsql set search_path=public as $$
+begin
+  if new.approved and exists(
+    select 1 from public.mix_material_prices p
+    where p.material_id=new.material_id and p.approved and p.id<>new.id
+      and daterange(p.effective_from,coalesce(p.effective_to,'infinity'::date),'[]') && daterange(new.effective_from,coalesce(new.effective_to,'infinity'::date),'[]')
+  ) then raise exception 'MIX_MATERIAL_PRICE_PERIOD_OVERLAP'; end if;
+  return new;
+end $$;
+drop trigger if exists mix_material_price_overlap_guard on public.mix_material_prices;
+create trigger mix_material_price_overlap_guard before insert or update of material_id,effective_from,effective_to,approved on public.mix_material_prices for each row execute function public.guard_mix_material_price_overlap();
 
 create table if not exists public.mix_designs (
   id uuid primary key default gen_random_uuid(),
@@ -112,6 +122,21 @@ create table if not exists public.mix_designs (
   check (effective_to is null or effective_from is null or effective_to>=effective_from)
 );
 create index if not exists mix_designs_status_idx on public.mix_designs(status,code,version_no desc);
+
+create or replace function public.guard_approved_mix_design_update()
+returns trigger language plpgsql set search_path=public as $$
+begin
+  if old.status='approved' and not (
+    new.status='archived' and new.code=old.code and new.name=old.name and new.product_type=old.product_type and
+    new.strength_class is not distinct from old.strength_class and new.unit=old.unit and new.yield_m3=old.yield_m3 and
+    new.version_no=old.version_no and new.effective_from is not distinct from old.effective_from and
+    new.effective_to is not distinct from old.effective_to and new.notes is not distinct from old.notes and
+    new.created_by=old.created_by and new.approved_by is not distinct from old.approved_by and new.approved_at is not distinct from old.approved_at
+  ) then raise exception 'APPROVED_MIX_DESIGN_IMMUTABLE'; end if;
+  return new;
+end $$;
+drop trigger if exists approved_mix_design_update_guard on public.mix_designs;
+create trigger approved_mix_design_update_guard before update on public.mix_designs for each row execute function public.guard_approved_mix_design_update();
 
 create table if not exists public.mix_design_items (
   id uuid primary key default gen_random_uuid(),
