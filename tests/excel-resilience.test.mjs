@@ -22,7 +22,7 @@ test('reads shifted sales columns, repeated headers, formulas and Arabic numbers
   ];
   const workbook=workbookFrom({اليومي:rows,فارغ:[]}),result=parser().parseWorkbook(workbook,XLSX);
   assert.equal(result.sales.length,2);
-  assert.deepEqual(JSON.parse(JSON.stringify(result.sales.map(row=>[row.invoice,row.customerCode,row.kind,row.quantity,row.amount]))),[['18354','13176','بلوك',700,1260],['19001','20001','خرسانة',110.5,20175]]);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.sales.map(row=>[row.invoice,row.customerCode,row.kind,row.quantity,row.amount]))),[['18354','13176','بلك',700,1260],['19001','20001','خرسانة',110.5,20175]]);
   assert.equal(result.collections.length,1);
   assert.equal(result.collections[0].treasuryCode,'101');
   assert.equal(result.collections[0].method,'نقدي');
@@ -61,7 +61,8 @@ test('normalizes Arabic digits and Excel serial dates deterministically',()=>{
   assert.equal(api.isoDate('١٦/٠٧/٢٠٢٦'),'2026-07-16');
   assert.equal(api.isoDate(45500),'2024-07-27');
   assert.equal(api.kind('خرسانة جاهزة'),'خرسانة');
-  assert.equal(api.kind('بلك اسود'),'بلوك');
+  assert.equal(api.kind('بلك اسود'),'بلك');
+  assert.equal(api.kind('بلوك اسود'),'بلك');
 });
 
 test('rejects a missing workbook/parser dependency explicitly',()=>{
