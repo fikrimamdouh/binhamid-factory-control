@@ -4,14 +4,14 @@ import { spawnSync } from 'node:child_process';
 const databaseUrl=String(process.env.SUPABASE_DB_URL||'').trim();
 const preflightPath=process.env.MIGRATION_PREFLIGHT_PATH||'migration-preflight.json';
 const resultPath=process.env.MIGRATION_RESULT_PATH||'migration-result.json';
-const targetVersion=22;
+const targetVersion=23;
 const fail=(code,reason,extra={})=>{writeFileSync(resultPath,`${JSON.stringify({ok:false,code,reason,...extra},null,2)}\n`,{mode:0o600});console.error(`[governance-verify] ${code}: ${reason}`);process.exit(1);};
 const query=sql=>{const result=spawnSync('psql',[databaseUrl,'-X','-t','-A','-v','ON_ERROR_STOP=1','-c',sql],{encoding:'utf8',env:process.env,timeout:120000});if(result.error||result.status!==0)fail('VERIFICATION_QUERY_FAILED','The post-migration verification query failed.',{exitCode:result.status??-1});return String(result.stdout||'').trim();};
 if(!databaseUrl)fail('DATABASE_URL_EMPTY','The resolved database connection is empty.');
 let preflight;try{preflight=JSON.parse(readFileSync(preflightPath,'utf8'));}catch{fail('PREFLIGHT_RESULT_INVALID','The migration preflight result is unavailable.');}
 const state=JSON.parse(query(`select json_build_object(
 'currentVersion',(select coalesce(max(version),0) from public.migration_history),
-'versions',(select json_agg(version order by version) from public.migration_history where version between 16 and 22),
+'versions',(select json_agg(version order by version) from public.migration_history where version between 16 and 23),
 'objects',json_build_object(
 'financialPeriods',to_regclass('public.financial_periods') is not null,
 'creditOverrides',to_regclass('public.credit_override_requests') is not null,
