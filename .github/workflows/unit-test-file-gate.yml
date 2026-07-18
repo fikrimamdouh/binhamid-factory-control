@@ -143,7 +143,7 @@ jobs:
             update public.app_users
             set full_name=v_invitation.full_name,
                 employee_external_id=v_invitation.employee_external_id,
-                role='manager',active=true,updated_at=now()
+                role='manager',active=true
             where external_id=v_invitation.accepted_by_telegram_id
             returning * into v_user;
             if not found then raise exception 'INVITED_MANAGER_USER_NOT_FOUND'; end if;
