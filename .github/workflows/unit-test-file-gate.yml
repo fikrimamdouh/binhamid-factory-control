@@ -63,6 +63,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
+      - uses: actions/checkout@v4
       - name: Resolve authenticated Supabase Session pooler
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
@@ -102,60 +103,7 @@ jobs:
 
       - name: Approve or verify one accepted manager invitation
         shell: bash
-        run: |
-          set -euo pipefail
-          psql "$EFFECTIVE_DB_URL" -X -v ON_ERROR_STOP=1 <<'SQL'
-          begin;
-          do $approval$
-          declare
-            v_pending integer;
-            v_active integer;
-            v_telegram text;
-            v_invitation_id uuid;
-          begin
-            select count(distinct accepted_by_telegram_id) into v_pending
-            from public.user_invitations
-            where requested_role='manager'
-              and accepted_by_telegram_id is not null
-              and status not in ('approved','rejected','revoked','expired');
-
-            if v_pending = 0 then
-              select count(*) into v_active
-              from public.user_invitations i
-              join public.app_users u on u.external_id=i.accepted_by_telegram_id
-              where i.requested_role='manager'
-                and u.role='manager'
-                and u.active=true;
-              if v_active < 1 then raise exception 'NO_ACTIVE_OR_PENDING_MANAGER_INVITATION'; end if;
-              return;
-            end if;
-
-            if v_pending <> 1 then raise exception 'EXPECTED_ONE_PENDING_MANAGER_ACCOUNT_FOUND_%',v_pending; end if;
-
-            select accepted_by_telegram_id,id into v_telegram,v_invitation_id
-            from public.user_invitations
-            where requested_role='manager'
-              and accepted_by_telegram_id is not null
-              and status not in ('approved','rejected','revoked','expired')
-            order by created_at desc
-            limit 1
-            for update;
-
-            update public.app_users
-            set role='manager',active=true
-            where external_id=v_telegram;
-            if not found then raise exception 'INVITED_MANAGER_USER_NOT_FOUND'; end if;
-
-            update public.user_invitations
-            set status='approved',approved_at=now()
-            where id=v_invitation_id;
-
-            delete from public.bot_sessions
-            where channel='telegram' and external_user_id=v_telegram;
-          end
-          $approval$;
-          commit;
-          SQL
+        run: psql "$EFFECTIVE_DB_URL" -X -v ON_ERROR_STOP=1 -f scripts/approve-single-manager.sql
 
       - name: Publish manager approval status
         env:
