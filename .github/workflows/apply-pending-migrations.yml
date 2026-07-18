@@ -12,6 +12,8 @@ on:
       - 'scripts/governance-migration-verify.mjs'
       - 'scripts/final-acceptance-database.mjs'
       - 'scripts/reversal-ledger-acceptance.mjs'
+      - 'scripts/apply-isolated-accounting-migrations.mjs'
+      - 'scripts/ensure-isolated-supabase-roles.mjs'
       - 'scripts/accounting-production-integrity.mjs'
       - 'scripts/restore-drill.mjs'
       - 'scripts/verify-backup-files.mjs'
@@ -64,6 +66,8 @@ jobs:
           node --check scripts/governance-migration-verify.mjs
           node --check scripts/final-acceptance-database.mjs
           node --check scripts/reversal-ledger-acceptance.mjs
+          node --check scripts/apply-isolated-accounting-migrations.mjs
+          node --check scripts/ensure-isolated-supabase-roles.mjs
           node --check scripts/accounting-production-integrity.mjs
           node --check scripts/restore-drill.mjs
           node --check api/_lib/routes/daily-report.js
@@ -129,21 +133,10 @@ jobs:
         run: node scripts/restore-drill.mjs
 
       - name: Apply schema 19-20 to isolated clone atomically
-        shell: bash
-        run: |
-          set -euo pipefail
-          current_version="$(node -e "const x=require('./isolated-restore-before.json');process.stdout.write(String(x.schemaVersion))")"
-          if [ "$current_version" -lt 20 ]; then
-            : > isolated-accounting-migrations.sql
-            for version in $(seq $((current_version + 1)) 20); do
-              file="$(find supabase/migrations -maxdepth 1 -type f -name "$(printf '%03d' "$version")_*.sql" -print -quit)"
-              test -n "$file"
-              cat "$file" >> isolated-accounting-migrations.sql
-              printf '\n' >> isolated-accounting-migrations.sql
-            done
-            psql "$LOCAL_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction --file isolated-accounting-migrations.sql
-            rm -f isolated-accounting-migrations.sql
-          fi
+        env:
+          ISOLATED_MIGRATION_TARGET: '20'
+          ISOLATED_MIGRATION_APPLY_RESULT: isolated-migration-apply.json
+        run: node scripts/apply-isolated-accounting-migrations.mjs
 
       - name: Run transactional accounting and duplicate acceptance
         env:
@@ -249,6 +242,8 @@ jobs:
             migration-connection-diagnostic.json
             migration-preflight.json
             isolated-restore-before.json
+            isolated-role-result.json
+            isolated-migration-apply.json
             isolated-migration-result.json
             isolated-final-acceptance.json
             reversal-ledger-result.json
