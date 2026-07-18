@@ -12,13 +12,13 @@ test('automatic device bootstrap grants no business-data capability',()=>{
   assert.match(source,/DEVICE_CAPABILITY_REQUIRED/);
 });
 
-test('production readiness follows schema 23 and never references schema 15 as current',()=>{
+test('production readiness follows schema 24 and never references schema 15 as current',()=>{
   const workflow=read('.github/workflows/production-readiness.yml');
   const runtime=read('api/_lib/routes/system-runtime.js');
   assert.doesNotMatch(workflow,/directOperationsSchema\)!==15|expected schema 15|schema 15/);
-  assert.match(workflow,/directOperationsSchema\)!==23|directOperationsSchema\)===23|directOperationsSchema===23/);
-  assert.match(runtime,/LATEST_REQUIRED_VERSION=23/);
-  assert.match(runtime,/directOperationsSchema:23/);
+  assert.match(workflow,/directOperationsSchema\)!==24|directOperationsSchema\)===24|directOperationsSchema===24/);
+  assert.match(runtime,/LATEST_REQUIRED_VERSION=24/);
+  assert.match(runtime,/directOperationsSchema:24/);
 });
 
 test('accounting migrations provide balanced journals, ledger, reversal and trial balance',()=>{
