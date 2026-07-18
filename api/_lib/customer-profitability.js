@@ -31,7 +31,7 @@ export function buildCustomerProfitability({sales=[],unitCosts={},customers=[]}=
     if(unitCost>0){const cost=quantity*unitCost;if(type==='block')item.blockCost+=cost;else item.concreteCost+=cost;item.estimatedCost+=cost;}else item.missingUnitCosts.add(type);
     const sale=resolveSaleNetBeforeVat(row);item.recordedSales+=n(row.total_amount);item.netSalesBeforeVat+=sale.netSales;item.taxBasisReliable&&=sale.reliable;item.bases.add(sale.basis);
   }
-  return[...map.values()].map(item=>{item.profit=item.netSalesBeforeVat-item.estimatedCost;item.marginRate=item.netSalesBeforeVat>0?item.profit/item.netSalesBeforeVat*100:null;return{...item,missingUnitCosts:[...item.missingUnitCosts],bases:[...item.bases],reliable:item.taxBasisReliable&&!item.missingUnitCosts.length};}).sort((a,b)=>b.profit-a.profit);
+  return[...map.values()].map(item=>{const missing=[...item.missingUnitCosts],bases=[...item.bases];item.profit=item.netSalesBeforeVat-item.estimatedCost;item.marginRate=item.netSalesBeforeVat>0?item.profit/item.netSalesBeforeVat*100:null;return{...item,missingUnitCosts:missing,bases,reliable:item.taxBasisReliable&&missing.length===0};}).sort((a,b)=>b.profit-a.profit);
 }
 
 export function findCustomerProfitability(rows,query){const q=norm(query);if(!q)return[];return(rows||[]).map(row=>{const code=norm(row.code),name=norm(row.name);let score=0;if(code===q)score=100;else if(name===q)score=95;else if(code.startsWith(q))score=85;else if(name.startsWith(q))score=80;else if(code.includes(q))score=70;else if(name.includes(q))score=65;return{row,score};}).filter(item=>item.score).sort((a,b)=>b.score-a.score||b.row.profit-a.row.profit).map(item=>item.row).slice(0,10);}
