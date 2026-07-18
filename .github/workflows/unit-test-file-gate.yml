@@ -64,9 +64,14 @@ jobs:
     timeout-minutes: 8
     steps:
       - name: Fetch one-time approval scripts
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/scripts/resolve-supabase-pooler.cjs" -o /tmp/resolve-supabase-pooler.cjs
-          curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/scripts/approve-single-manager.sql" -o /tmp/approve-single-manager.sql
+          for item in resolve-supabase-pooler.cjs approve-single-manager.sql; do
+            curl -fsS -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/contents/scripts/${item}?ref=${GITHUB_SHA}" \
+              | jq -r .content | tr -d '\n' | base64 -d > "/tmp/${item}"
+          done
       - name: Resolve Supabase Session pooler
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
