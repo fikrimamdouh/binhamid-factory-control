@@ -19,7 +19,7 @@
   }
 
   function lockRules(){
-    const settings=window.OPS&&window.OPS.settings;
+    const settings=(typeof OPS!=='undefined'&&OPS&&OPS.settings)?OPS.settings:null;
     if(!settings)return;
     settings.fuelExcludedVehicle=CONTROL.excludedVehicle;
     settings.fuelExcludedDriver=CONTROL.excludedDriver;
