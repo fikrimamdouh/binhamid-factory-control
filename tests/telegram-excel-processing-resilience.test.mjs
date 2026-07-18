@@ -16,14 +16,17 @@ test('Excel processing success is not converted into a processing failure when r
   assert.match(source,/تم حفظ ملف Excel وقراءته، لكن تعذر إنشاء تقريري PDF/);
 });
 
-test('Excel failures retain a safe processing stage without exposing internal credentials',()=>{
+test('Excel failures retain safe stages while Storage failure becomes a recoverable warning',()=>{
   const source=read(['..','api','_lib','bot-files.js']);
   assert.match(source,/excelStep\('download'/);
   assert.match(source,/excelStep\('lookup'/);
-  assert.match(source,/excelStep\('storage'/);
+  assert.match(source,/\[telegram excel storage fallback\]/);
+  assert.match(source,/ORIGINAL_STORAGE_FAILED/);
+  assert.match(source,/telegram_file_id:String\(document\.file_id/);
   assert.match(source,/excelStep\('registry'/);
   assert.match(source,/تعذر تنزيل الملف من Telegram بعد إعادة المحاولة/);
   assert.match(source,/تعذر تسجيل الملف في مركز الوارد بعد حفظ النسخة الأصلية/);
+  assert.match(source,/لم تُهمل نتيجة القراءة/);
   assert.doesNotMatch(source,/config\.telegramToken.*console/);
   assert.doesNotMatch(source,/config\.supabaseKey.*console/);
 });

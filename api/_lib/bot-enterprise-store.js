@@ -7,7 +7,7 @@ export const norm=value=>String(value||'').toLowerCase().replace(/[أإآ]/g,'ا
 export const normalizeDigits=value=>String(value||'').replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/٫/g,'.').replace(/٬/g,'');
 export const numberFrom=value=>{const match=normalizeDigits(value).replace(/,/g,'').match(/-?\d+(?:\.\d+)?/);return match?Number(match[0]):0;};
 export const ACTIVE_STATUS=new Set(['open','pending','assigned','in_progress','waiting','overdue','under_review']);
-export const STATUS_LABEL={open:'مفتوح',pending:'ينتظر مراجعة',assigned:'مسند',in_progress:'قيد التنفيذ',waiting:'بانتظار طرف آخر',overdue:'متأخر',under_review:'قيد المراجعة',approved:'معتمد',rejected:'مرفوض',completed:'مكتمل',cancelled:'ملغي',closed:'مغلق'};
+export const STATUS_LABEL={open:'مفتوح',pending:'ينتظر مراجعة',assigned:'مسند',in_progress:'قيد التنفيذ',waiting:'بانتظار طرف آخر',overdue:'متأخر',under_review:'تم الاطلاع وقيد المراجعة',approved:'معتمد',rejected:'مرفوض',completed:'مكتمل',cancelled:'ملغي',closed:'مغلق'};
 export const CATEGORY_LABEL={task:'مهمة',collection:'تحصيل',finance:'عملية مالية',inventory:'حركة مخزون',fuel:'تعبئة ديزل',hr:'موارد بشرية',quality:'جودة ورقابة',trip:'رحلة',purchase:'طلب شراء',customer:'عميل',production:'تقرير إنتاج',administration:'إدارة',governance:'حوكمة ومخاطر',incident:'بلاغ تشغيلي'};
 export const canManage=role=>['admin','manager'].includes(role);
 export const canFinance=role=>['admin','manager','accountant'].includes(role);
@@ -38,11 +38,11 @@ export function reduceEnterpriseOperations(events){
     const id=String(event.entity_id||event.details?.reference_no||'');if(!id)continue;
     const current=map.get(id)||{};
     if(event.action==='enterprise_operation_created')map.set(id,{...event.details,reference_no:id,created_at:event.created_at});
-    else if(event.action==='enterprise_operation_status')map.set(id,{...current,status:event.details?.status||current.status,status_note:event.details?.note||current.status_note,updated_at:event.created_at});
+    else if(event.action==='enterprise_operation_status')map.set(id,{...current,status:event.details?.status||current.status,status_note:event.details?.note||current.status_note,updated_by_name:event.details?.updated_by_name||current.updated_by_name,updated_by_role:event.details?.updated_by_role||current.updated_by_role,seen_at:event.details?.seen_at||current.seen_at,seen_by_name:event.details?.seen_by_name||current.seen_by_name,updated_at:event.created_at});
   }
   return [...map.values()];
 }
 export function formatAmount(value){return Number(value||0).toLocaleString('en-US',{maximumFractionDigits:2});}
 export function operationLine(op){
-  return `• <b>${esc(op.reference_no)}</b> — ${esc(op.title||CATEGORY_LABEL[op.category]||op.category)}\n  ${esc(op.party||op.item||op.asset||op.note||'').slice(0,150)}${op.amount?`\n  المبلغ: ${formatAmount(op.amount)} ر.س`:''}\n  الحالة: ${esc(STATUS_LABEL[op.status]||op.status||'مفتوح')}`;
+  return `• <b>${esc(op.reference_no)}</b> — ${esc(op.title||CATEGORY_LABEL[op.category]||op.category)}\n  ${esc(op.party||op.item||op.asset||op.note||'').slice(0,150)}${op.amount?`\n  المبلغ: ${formatAmount(op.amount)} ر.س`:''}\n  الحالة: ${esc(STATUS_LABEL[op.status]||op.status||'مفتوح')}${op.seen_by_name?`\n  آخر اطلاع: ${esc(op.seen_by_name)}`:''}`;
 }

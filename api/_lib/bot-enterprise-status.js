@@ -6,6 +6,7 @@ const TEAM_ROLES=new Set(['admin','manager','hr']);
 const OPERATIONS_ROLES=new Set(['admin','manager','accountant']);
 const ALERT_ROLES=new Set(['admin','manager']);
 const DAILY_REPORT_ROLES=new Set(['admin','manager','hr']);
+const STATUS_VALUES=new Set(['open','pending','assigned','in_progress','waiting','overdue','under_review','approved','rejected','completed','cancelled','closed']);
 const CATEGORY_ROLES={
   finance:new Set(['admin','manager','accountant']),
   collection:new Set(['admin','manager','accountant','collector']),
@@ -22,16 +23,31 @@ function todayRiyadh(){
   const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Riyadh',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date()),get=type=>parts.find(item=>item.type===type)?.value||'';
   return `${get('year')}-${get('month')}-${get('day')}`;
 }
+function managementFeedback(op){return op?.subtype==='management_suggestion'||op?.subtype==='management_problem';}
+function feedbackEmployeeText(op,status,managerName,updatedAt){
+  const type=op.subtype==='management_problem'?'مشكلتك':'اقتراحك',label=STATUS_LABEL[status]||status,time=new Date(updatedAt).toLocaleString('ar-SA',{timeZone:'Asia/Riyadh'});
+  if(status==='under_review')return `تم اطلاع الإدارة على ${type} <b>${esc(op.reference_no)}</b>.\nاطلع عليه: <b>${esc(managerName)}</b>\nالوقت: <b>${esc(time)}</b>\nالحالة: <b>${esc(label)}</b>.`;
+  if(status==='in_progress')return `بدأت الإدارة معالجة ${type} <b>${esc(op.reference_no)}</b>.\nالمتابع: <b>${esc(managerName)}</b>\nالوقت: <b>${esc(time)}</b>\nالحالة: <b>${esc(label)}</b>.`;
+  if(status==='completed'||status==='closed')return `أغلقت الإدارة ${type} <b>${esc(op.reference_no)}</b>.\nأغلقه: <b>${esc(managerName)}</b>\nالوقت: <b>${esc(time)}</b>\nالحالة: <b>${esc(label)}</b>.`;
+  if(status==='rejected'||status==='cancelled')return `تم تحديث ${type} <b>${esc(op.reference_no)}</b>.\nبواسطة: <b>${esc(managerName)}</b>\nالوقت: <b>${esc(time)}</b>\nالحالة: <b>${esc(label)}</b>.`;
+  return `تم تحديث ${type} <b>${esc(op.reference_no)}</b> بواسطة <b>${esc(managerName)}</b> إلى: <b>${esc(label)}</b>.`;
+}
 
 export async function setEnterpriseOperationStatus(message,from,identity,payload){
   const [reference,status]=String(payload||'').split('|');
-  if(!reference||!status)return sendMessage(message.chat.id,'بيانات الحالة غير صحيحة.');
+  if(!reference||!status||!STATUS_VALUES.has(status))return sendMessage(message.chat.id,'بيانات الحالة غير صحيحة.');
   const ops=reduceEnterpriseOperations(await enterpriseEvents()),op=ops.find(item=>item.reference_no===reference);
   if(!op)return sendMessage(message.chat.id,'لم أجد العملية المطلوبة.');
-  const own=String(op.created_by_user_id||'')===String(identity.user_id||'');
-  if(!own&&!canManage(identity.role)&&identity.role!=='accountant')return sendMessage(message.chat.id,'لا تملك صلاحية تحديث هذه العملية.');
-  await logEnterpriseEvent({identity,message:{...message,from},action:'enterprise_operation_status',entityType:op.category||'operation',entityId:reference,details:{reference_no:reference,status,note:`تحديث من ${identity.full_name||from.first_name||'المستخدم'}`}});
-  return sendMessage(message.chat.id,`تم تحديث <b>${esc(reference)}</b> إلى: <b>${esc(STATUS_LABEL[status]||status)}</b>.`);
+  const feedback=managementFeedback(op),own=String(op.created_by_user_id||'')===String(identity.user_id||'');
+  if(feedback&&!canManage(identity.role))return sendMessage(message.chat.id,'تأكيد الاطلاع وتحديث اقتراحات الموظفين متاح للإدارة فقط.');
+  if(!feedback&&!own&&!canManage(identity.role)&&identity.role!=='accountant')return sendMessage(message.chat.id,'لا تملك صلاحية تحديث هذه العملية.');
+  const updatedAt=new Date().toISOString(),managerName=String(identity.full_name||from.first_name||'الإدارة').trim(),seen=['under_review','in_progress','completed','closed','rejected'].includes(status);
+  await logEnterpriseEvent({identity,message:{...message,from},action:'enterprise_operation_status',entityType:op.category||'operation',entityId:reference,details:{reference_no:reference,status,note:`تحديث من ${managerName}`,updated_by_name:managerName,updated_by_role:identity.role||'',...(seen?{seen_at:updatedAt,seen_by_name:managerName}:{})}});
+  if(feedback){
+    const targetChat=String(op.telegram_user_id||op.chat_id||'');
+    if(targetChat&&targetChat!==String(message.chat.id))await sendMessage(targetChat,feedbackEmployeeText(op,status,managerName,updatedAt),{action_name:'management_feedback_status',action_payload:{reference_no:reference,status,updated_by_name:managerName,updated_at:updatedAt}}).catch(error=>console.warn('[management feedback employee receipt]',{reference,status,message:String(error?.message||'').slice(0,240)}));
+  }
+  return sendMessage(message.chat.id,`تم تحديث <b>${esc(reference)}</b> إلى: <b>${esc(STATUS_LABEL[status]||status)}</b>.${feedback?'\nتم إرسال إشعار الحالة إلى الموظف.':''}`);
 }
 export async function sendEnterpriseTasks(chatId,identity,scope='mine'){
   const ops=reduceEnterpriseOperations(await enterpriseEvents()).filter(item=>item.category==='task'&&ACTIVE_STATUS.has(item.status));
