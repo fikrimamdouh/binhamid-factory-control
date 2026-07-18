@@ -1,0 +1,153 @@
+name: Runtime Registration Excel Diagnostic
+
+on:
+  push:
+    branches:
+      - agent/runtime-registration-excel-diagnostic
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PRODUCTION_URL: https://binhamid-factory-control.vercel.app
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+
+      - name: Install PostgreSQL client
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client
+
+      - name: Collect sanitized runtime evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          import { spawnSync } from 'node:child_process';
+          import { writeFileSync } from 'node:fs';
+
+          const productionUrl=String(process.env.PRODUCTION_URL||'').replace(/\/$/,'');
+          const db=String(process.env.SUPABASE_DB_URL||'').trim();
+          const telegramToken=String(process.env.TELEGRAM_BOT_TOKEN||'').trim();
+          const report={checkedAt:new Date().toISOString(),productionUrl,live:{ok:false},database:{configured:Boolean(db),ok:false},telegram:{tokenConfigured:Boolean(telegramToken),ok:false},findings:[]};
+
+          try{
+            const response=await fetch(`${productionUrl}/api/system/status?t=${Date.now()}`,{headers:{Accept:'application/json'},signal:AbortSignal.timeout(20000)});
+            const body=await response.json().catch(()=>({}));
+            report.live={ok:response.ok&&body?.ok===true,httpStatus:response.status,version:body?.version||null,directOperationsSchema:Number(body?.directOperationsSchema||0),webhookVersion:Number(body?.webhookVersion||0),supabaseConfigured:Boolean(body?.supabaseConfigured),storageConfigured:Boolean(body?.storageConfigured),telegramConfigured:Boolean(body?.telegramConfigured),openaiConfigured:Boolean(body?.openaiConfigured),publicUrlConfigured:Boolean(body?.publicUrlConfigured),gitCommit:body?.gitCommit||null,deploymentId:body?.deploymentId||null};
+            if(!report.live.ok)report.findings.push({severity:'critical',code:'LIVE_STATUS_FAILED'});
+            if(report.live.directOperationsSchema!==24)report.findings.push({severity:'critical',code:'LIVE_SCHEMA_MISMATCH',actual:report.live.directOperationsSchema});
+            if(report.live.webhookVersion!==3)report.findings.push({severity:'critical',code:'LIVE_WEBHOOK_MISMATCH',actual:report.live.webhookVersion});
+            for(const [key,code] of [['supabaseConfigured','SUPABASE_NOT_CONFIGURED'],['storageConfigured','STORAGE_NOT_CONFIGURED'],['telegramConfigured','TELEGRAM_NOT_CONFIGURED'],['publicUrlConfigured','PUBLIC_URL_NOT_CONFIGURED']])if(!report.live[key])report.findings.push({severity:'critical',code});
+            if(!report.live.openaiConfigured)report.findings.push({severity:'warning',code:'OPENAI_NOT_CONFIGURED'});
+            if(!report.live.gitCommit)report.findings.push({severity:'warning',code:'LIVE_COMMIT_NOT_EXPOSED'});
+          }catch(error){report.live={ok:false,errorCode:error?.name||'FETCH_FAILED'};report.findings.push({severity:'critical',code:'LIVE_UNREACHABLE'});}
+
+          if(db){
+            const sql=`select json_build_object(
+              'schemaVersion',(select coalesce(max(version),0) from migration_history),
+              'users',json_build_object(
+                'active',(select count(*) from app_users where active),
+                'pending',(select count(*) from app_users where not active or role='pending'),
+                'activeChannels',(select count(*) from user_channels where active and channel='telegram'),
+                'byRole',(select coalesce(json_object_agg(role,cnt),'{}'::json) from (select role,count(*) cnt from app_users where active group by role order by role) q)
+              ),
+              'invitations',json_build_object(
+                'byStatus',(select coalesce(json_object_agg(status,cnt),'{}'::json) from (select status,count(*) cnt from user_invitations group by status order by status) q),
+                'expiredOpen',(select count(*) from user_invitations where status in ('pending','opened','accepted_pending_approval') and expires_at<now()),
+                'acceptedWaiting',(select count(*) from user_invitations where status='accepted_pending_approval')
+              ),
+              'telegram',json_build_object(
+                'messages24h',(select count(*) from telegram_messages where created_at>=now()-interval '24 hours'),
+                'incoming24h',(select count(*) from telegram_messages where created_at>=now()-interval '24 hours' and coalesce(direction,'incoming')='incoming'),
+                'lastMessageAt',(select max(created_at) from telegram_messages),
+                'receiptsByStatus',(select coalesce(json_object_agg(status,cnt),'{}'::json) from (select status,count(*) cnt from telegram_update_receipts where updated_at>=now()-interval '24 hours' group by status order by status) q),
+                'failedReceipts24h',(select count(*) from telegram_update_receipts where updated_at>=now()-interval '24 hours' and status='failed')
+              ),
+              'excel',json_build_object(
+                'importsTotal',(select count(*) from imports),
+                'byStatus',(select coalesce(json_object_agg(status,cnt),'{}'::json) from (select status,count(*) cnt from imports group by status order by status) q),
+                'lastImportAt',(select max(created_at) from imports),
+                'storageFailures',(select count(*) from imports where last_error_code='ORIGINAL_STORAGE_FAILED'),
+                'processingFailures',(select count(*) from imports where status in ('failed','validation_failed')),
+                'readyForReview',(select count(*) from imports where status='ready_for_review'),
+                'latestErrorCodes',(select coalesce(json_agg(x),'[]'::json) from (select coalesce(last_error_code,'NONE') code,count(*) count from imports where created_at>=now()-interval '7 days' group by coalesce(last_error_code,'NONE') order by count(*) desc limit 12) x),
+                'dailyBatchesByStatus',(select coalesce(json_object_agg(status,cnt),'{}'::json) from (select status,count(*) cnt from daily_report_batches group by status order by status) q)
+              ),
+              'webPersistence',json_build_object(
+                'operationalRecordsTotal',(select count(*) from operational_records),
+                'operationalRecords24h',(select count(*) from operational_records where created_at>=now()-interval '24 hours'),
+                'auditOperations24h',(select count(*) from audit_log where created_at>=now()-interval '24 hours' and entity_type is not null),
+                'lastOperationalAt',(select max(updated_at) from operational_records),
+                'projectionTrigger',(select exists(select 1 from pg_trigger where tgname='audit_operational_projection_trigger' and not tgisinternal))
+              )
+            )::text;`;
+            const result=spawnSync('psql',[db,'-X','-t','-A','-v','ON_ERROR_STOP=1','-c',sql],{encoding:'utf8',timeout:120000,env:process.env});
+            if(result.status===0){report.database={configured:true,ok:true,...JSON.parse(String(result.stdout||'').trim())};}
+            else{report.database={configured:true,ok:false,errorCode:'QUERY_FAILED'};report.findings.push({severity:'critical',code:'DATABASE_QUERY_FAILED'});}
+          }else report.findings.push({severity:'critical',code:'SUPABASE_DB_URL_MISSING_IN_GITHUB'});
+
+          if(report.database.ok){
+            if(Number(report.database.schemaVersion)!==24)report.findings.push({severity:'critical',code:'DATABASE_SCHEMA_MISMATCH',actual:report.database.schemaVersion});
+            if(Number(report.database.users?.active||0)===0)report.findings.push({severity:'critical',code:'NO_ACTIVE_USERS'});
+            if(Number(report.database.users?.activeChannels||0)===0)report.findings.push({severity:'critical',code:'NO_ACTIVE_TELEGRAM_CHANNELS'});
+            if(Number(report.database.invitations?.acceptedWaiting||0)>0)report.findings.push({severity:'warning',code:'INVITATIONS_WAITING_APPROVAL',count:report.database.invitations.acceptedWaiting});
+            if(Number(report.database.invitations?.expiredOpen||0)>0)report.findings.push({severity:'warning',code:'EXPIRED_OPEN_INVITATIONS',count:report.database.invitations.expiredOpen});
+            if(Number(report.database.telegram?.failedReceipts24h||0)>0)report.findings.push({severity:'critical',code:'TELEGRAM_UPDATES_FAILED_24H',count:report.database.telegram.failedReceipts24h});
+            if(Number(report.database.excel?.storageFailures||0)>0)report.findings.push({severity:'critical',code:'EXCEL_STORAGE_FAILURES',count:report.database.excel.storageFailures});
+            if(Number(report.database.excel?.processingFailures||0)>0)report.findings.push({severity:'critical',code:'EXCEL_PROCESSING_FAILURES',count:report.database.excel.processingFailures});
+            if(!report.database.webPersistence?.projectionTrigger)report.findings.push({severity:'critical',code:'WEB_PROJECTION_TRIGGER_MISSING'});
+          }
+
+          if(telegramToken){
+            try{
+              const response=await fetch(`https://api.telegram.org/bot${telegramToken}/getWebhookInfo`,{signal:AbortSignal.timeout(20000)});
+              const data=await response.json().catch(()=>({})),result=data?.result||{};
+              report.telegram={tokenConfigured:true,ok:Boolean(response.ok&&data?.ok),webhookConfigured:Boolean(result.url),webhookHost:(()=>{try{return new URL(result.url).host;}catch{return null;}})(),pendingUpdateCount:Number(result.pending_update_count||0),lastErrorDate:result.last_error_date?new Date(Number(result.last_error_date)*1000).toISOString():null,lastErrorMessage:result.last_error_message?String(result.last_error_message).slice(0,240):null,maxConnections:Number(result.max_connections||0)};
+              if(!report.telegram.ok||!report.telegram.webhookConfigured)report.findings.push({severity:'critical',code:'TELEGRAM_WEBHOOK_NOT_READY'});
+              if(report.telegram.pendingUpdateCount>20)report.findings.push({severity:'critical',code:'TELEGRAM_PENDING_UPDATES_HIGH',count:report.telegram.pendingUpdateCount});
+              if(report.telegram.lastErrorMessage)report.findings.push({severity:'critical',code:'TELEGRAM_WEBHOOK_LAST_ERROR',message:report.telegram.lastErrorMessage});
+            }catch(error){report.telegram={tokenConfigured:true,ok:false,errorCode:error?.name||'FETCH_FAILED'};report.findings.push({severity:'critical',code:'TELEGRAM_WEBHOOK_CHECK_FAILED'});}
+          }else report.findings.push({severity:'warning',code:'TELEGRAM_TOKEN_NOT_AVAILABLE_IN_GITHUB'});
+
+          report.summary={critical:report.findings.filter(x=>x.severity==='critical').length,warnings:report.findings.filter(x=>x.severity==='warning').length,registrationReady:Boolean(report.live.ok&&report.database.ok&&Number(report.database.users?.activeChannels||0)>0&&report.telegram.ok),excelReady:Boolean(report.live.storageConfigured&&report.database.ok&&Number(report.database.excel?.processingFailures||0)===0),webPersistenceReady:Boolean(report.database.webPersistence?.projectionTrigger)};
+          writeFileSync('runtime-registration-excel-diagnostic.json',`${JSON.stringify(report,null,2)}\n`,{mode:0o600});
+          console.log(`[runtime-diagnostic] critical=${report.summary.critical}; warnings=${report.summary.warnings}; registrationReady=${report.summary.registrationReady}; excelReady=${report.summary.excelReady}; webPersistenceReady=${report.summary.webPersistenceReady}`);
+          NODE
+
+      - name: Upload diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-registration-excel-diagnostic-${{ github.run_id }}
+          path: runtime-registration-excel-diagnostic.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Publish diagnostic status
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPORT_PATH: runtime-registration-excel-diagnostic.json
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const report=JSON.parse(readFileSync(process.env.REPORT_PATH,'utf8'));
+          const critical=Number(report.summary?.critical||0),state=critical?'failure':'success';
+          const description=critical?`${critical} runtime blocker(s); inspect sanitized artifact.`:'Registration, Excel and web persistence checks passed.';
+          const response=await fetch(`https://api.github.com/repos/${process.env.GITHUB_REPOSITORY}/statuses/${process.env.GITHUB_SHA}`,{method:'POST',headers:{Accept:'application/vnd.github+json',Authorization:`Bearer ${process.env.GITHUB_TOKEN}`,'X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'},body:JSON.stringify({state,context:'runtime-registration-excel-diagnostic',description,target_url:`${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`})});
+          if(!response.ok)throw new Error(`Status publication failed: ${response.status}`);
+          NODE
