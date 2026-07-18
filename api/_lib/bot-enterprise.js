@@ -12,6 +12,7 @@ import { sendInventoryRisks, sendDebtAnalysis, sendConcreteCapacity } from './bo
 import { handleEmployeeRegistrationAction, handleEmployeeRegistrationTextCommand } from './bot-employee-approvals.js';
 import { handleCostCallback, handleCostTextCommand } from './bot-costs.js';
 import { continueCustomerReportSession, handleCustomerReportCallback, handleCustomerReportTextCommand } from './bot-customer-reports.js';
+import { continueInvitationSession, handleInvitationCallback, handleInvitationTextCommand } from './bot-invitations.js';
 import { sendIntegrationCatalog } from './bot-integrations.js';
 
 function addBeforeHelp(rows,row){rows.splice(Math.max(0,rows.length-1),0,row);}
@@ -22,7 +23,7 @@ export async function showRoleHome(message,identity){
   if(['admin','manager'].includes(role)){
     addBeforeHelp(rows,[{text:'الحضور والمواقع',callback_data:'home:attendance'},{text:'GPS الأسطول',callback_data:'gps:fleet'}]);
     addBeforeHelp(rows,[{text:'التحليلات الرقابية',callback_data:'ent:insights_help'},{text:'تقارير العملاء',callback_data:'ent:customer_menu'}]);
-    addBeforeHelp(rows,[{text:'التكاليف والربحية',callback_data:'ent:cost_menu'}]);
+    addBeforeHelp(rows,[{text:'التكاليف والربحية',callback_data:'ent:cost_menu'},{text:'دعوات المستخدمين',callback_data:'ent:inv|list'}]);
     if(role==='admin')addBeforeHelp(rows,[{text:'التكاملات والمفاتيح',callback_data:'ent:integrations'},{text:'طلبات تسجيل الموظفين',callback_data:'ent:er|list'}]);
   }else if(role==='driver'){
     rows.splice(0,0,[{text:'الحضور وحركة السائق',callback_data:'home:attendance'}],[{text:'GPS الأسطول',callback_data:'gps:fleet'},{text:'مهامي',callback_data:'ent:my_tasks'}]);
@@ -51,6 +52,7 @@ function insightsMenu(){return keyboard([[{text:'تحليل الديزل',callba
 export async function handleEnterpriseTextCommand(message,identity,text){
   const raw=String(text||'').trim(),value=norm(raw);
   if(await handleEmployeeRegistrationTextCommand(message,identity,raw))return true;
+  if(await handleInvitationTextCommand(message,identity,raw))return true;
   if(await handleCostTextCommand(message,identity,raw))return true;
   if(await handleCustomerReportTextCommand(message,identity,raw))return true;
   if(/^\/(integrations|keys)(?:@\w+)?$/i.test(raw)||/^(التكاملات والمفاتيح|مفاتيح البرنامج|حاله التكاملات|حالة التكاملات)$/.test(value)){await sendIntegrationCatalog(message,identity);return true;}
@@ -66,6 +68,7 @@ export async function handleEnterpriseTextCommand(message,identity,text){
 }
 export async function continueEnterpriseSession(message,identity,session,text){
   const value=String(text||'').trim();
+  if(await continueInvitationSession(message,identity,session,value))return true;
   if(/^(الغاء|إلغاء|تراجع|cancel)$/i.test(value)){await clearMaintenanceSession(message.chat.id,identity.external_id||message.from.id);await sendMessage(message.chat.id,'تم إلغاء العملية الحالية.');return true;}
   if(await continueCustomerReportSession(message,identity,session,value))return true;
   if(session.state==='enterprise_search'){await executeEnterpriseSearch(message,identity,value);return true;}
@@ -76,6 +79,7 @@ export async function handleEnterpriseCallback(message,from,identity,action,valu
   if(!identity?.active)return sendMessage(message.chat.id,'حسابك غير معتمد أو غير نشط.');
   if(action==='ent'){
     if(String(value||'').startsWith('er|'))return handleEmployeeRegistrationAction(message,from,identity,value);
+    if(String(value||'').startsWith('inv|'))return handleInvitationCallback(message,from,identity,value);
     if(String(value||'').startsWith('cost_'))return handleCostCallback(message,from,identity,value);
     if(String(value||'').startsWith('customer_'))return handleCustomerReportCallback(message,from,identity,value);
     if(value==='help')return showRoleHome({...message,from},identity);

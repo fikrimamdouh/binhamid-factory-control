@@ -12,7 +12,11 @@ test('device session grants no inbox or administrator capability',()=>{
 
 test('dashboard returns Telegram inbox data only through authenticated access',()=>{
   const source=read('api/_lib/routes/manager-dashboard.js');
-  assert.match(source,/safeSelect\('imports'/);
+  assert.match(source,/requireCapability\(req,'dashboard\.manager'\)/);
+  assert.match(source,/requireAdminOrDevice\(req,'imports\.read'\)/);
+  assert.match(source,/deviceInboxOnly/);
+  assert.match(source,/restricted:true/);
+  assert.match(source,/groups:\[\],users:\[\],snapshot:null/);
   assert.match(source,/safeSelect\('telegram_groups'/);
   assert.match(source,/safeSelect\('user_channels'/);
   assert.match(source,/imports,groups,users/);
@@ -39,8 +43,9 @@ test('Telegram uploads are stored for the site and relayed to the owner',()=>{
   assert.match(source,/file_hash/);
 });
 
-test('website approval sends summary and original file to Telegram',()=>{
+test('website approval requires a user and sends summary and original file to Telegram',()=>{
   const source=read('api/_lib/routes/telegram-admin.js');
+  assert.match(source,/requireCapability\(req,'daily_report\.approve'\)/);
   assert.match(source,/findApprovedBatch/);
   assert.match(source,/linkedImport/);
   assert.match(source,/downloadObject/);

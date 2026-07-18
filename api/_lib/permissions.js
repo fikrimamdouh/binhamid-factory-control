@@ -6,12 +6,13 @@ export const ROLE_CAPABILITIES=Object.freeze({
   manager:['dashboard.manager','daily_report.view','daily_report.approve','imports.read','imports.manage','costs.view','audit.view','governance.view','credit_override.approve','assets.view','compliance.view','handover.view','accounting.view'],
   accountant:['daily_report.view','daily_report.import','daily_report.approve','imports.read','imports.manage','costs.view','costs.calculate','governance.view','financial_period.manage','credit_override.request','custody.manage','custody.approve','accounting.view','accounting.post'],
   block_sales:['daily_report.view'],
-  concrete_sales:['daily_report.view'],
+  concrete_sales:['daily_report.view','mix_design.price.view'],
   mechanic:['maintenance.manage','assets.view'],
   fuel_operator:['fuel.import','assets.view'],
   hr:['costs.view','governance.view','compliance.manage','assets.view'],
   procurement:['maintenance.manage','assets.view'],
-  driver:[],employee:[],collector:[],warehouse:[],quality:[],pending:[]
+  quality:['mix_design.view','mix_design.manage'],
+  driver:[],employee:[],collector:[],warehouse:[],pending:[]
 });
 
 export function capabilitiesForRole(role){return[...(ROLE_CAPABILITIES[String(role||'pending')]||[])];}

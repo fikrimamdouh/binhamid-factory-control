@@ -9,6 +9,7 @@ import * as controlCenter from './_lib/routes/control-center.js';
 import * as governance from './_lib/routes/governance.js';
 import * as deviceSession from './_lib/routes/device-session.js';
 import * as costs from './_lib/routes/costs.js';
+import * as mixDesigns from './_lib/routes/mix-designs.js';
 import * as driverWebApp from './_lib/routes/driver-webapp.js';
 import * as resilience from './_lib/routes/resilience.js';
 import * as dailyReport from './_lib/routes/daily-report.js';
@@ -37,6 +38,7 @@ const routes={
   'telegram/test':telegramAdmin.test,
   'telegram/notify':telegramAdmin.notify,
   'costs':costs.costs,
+  'mix-designs':mixDesigns.mixDesigns,
   'driver/webapp':driverWebApp.driverWebApp,
   'resilience':resilience.resilience
 };

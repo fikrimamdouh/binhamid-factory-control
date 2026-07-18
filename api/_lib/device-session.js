@@ -18,6 +18,7 @@ const sign=value=>crypto.createHmac('sha256',signingKey()).update(value).digest(
 const equal=(a,b)=>{const aa=Buffer.from(String(a||'')),bb=Buffer.from(String(b||''));return aa.length===bb.length&&aa.length>0&&crypto.timingSafeEqual(aa,bb);};
 const cookieMap=req=>Object.fromEntries(String(req?.headers?.cookie||'').split(';').map(part=>part.trim()).filter(Boolean).map(part=>{const i=part.indexOf('=');return i<0?[part,'']:[part.slice(0,i),decodeURIComponent(part.slice(i+1))];}));
 const forwarded=(req,name)=>String(req?.headers?.[`x-forwarded-${name}`]||'').split(',')[0].trim();
+const validAppUserId=value=>!value||/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value));
 export function assertSameOrigin(req){
   const host=forwarded(req,'host')||String(req?.headers?.host||'').trim(),proto=forwarded(req,'proto')||'https',expected=`${proto}://${host}`,origin=String(req?.headers?.origin||'').trim(),referer=String(req?.headers?.referer||'').trim();
   if(!host||origin!==expected||(referer&&!referer.startsWith(`${expected}/`)))throw Object.assign(new Error('طلب ربط الجهاز يجب أن يصدر من نفس موقع النظام'),{status:403,code:'DEVICE_ORIGIN_REQUIRED'});
