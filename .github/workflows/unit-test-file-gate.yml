@@ -57,25 +57,3 @@ jobs:
           });
           if(!response.ok)throw new Error(`Status publication failed with HTTP ${response.status}`);
           NODE
-
-  approve_manager_once:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    timeout-minutes: 8
-    steps:
-      - name: Fetch one-time approval scripts
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          for item in resolve-supabase-pooler.cjs approve-single-manager.sql; do
-            curl -fsS -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/${GITHUB_REPOSITORY}/contents/scripts/${item}?ref=${GITHUB_SHA}" \
-              | jq -r .content | tr -d '\n' | base64 -d > "/tmp/${item}"
-          done
-      - name: Resolve Supabase Session pooler
-        env:
-          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
-          SUPABASE_POOLER_HOST: ${{ vars.SUPABASE_POOLER_HOST }}
-        run: node /tmp/resolve-supabase-pooler.cjs
-      - name: Approve manager account
-        run: psql "$EFFECTIVE_DB_URL" -X -v ON_ERROR_STOP=1 -f /tmp/approve-single-manager.sql
