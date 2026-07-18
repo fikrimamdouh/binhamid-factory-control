@@ -11,7 +11,12 @@ if(!databaseUrl)fail('TEST_DATABASE_URL_EMPTY','The isolated database URL is emp
 const sql=String.raw`
 \set ON_ERROR_STOP on
 begin;
-select case when (select max(version) from public.migration_history)=21 then 1 else 1/0 end;
+do $$
+begin
+  if (select coalesce(max(version),0) from public.migration_history)<>21 then
+    raise exception 'SCHEMA_21_REQUIRED';
+  end if;
+end $$;
 select id as debit_account from public.chart_of_accounts where account_code='110100' \gset
 select id as credit_account from public.chart_of_accounts where account_code='410100' \gset
 insert into public.journal_entries(reference_no,entry_date,description,source_type,source_id,status,posted_by,posted_at)
