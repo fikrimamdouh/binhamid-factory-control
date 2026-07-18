@@ -23,7 +23,8 @@ test('employee self service and specialist controls are separated',async()=>{
   assert.match(forms,/HR_ADMIN_ACTIONS=new Set\(\['hr_expiry','hr_payroll'\]\)/);
   assert.match(forms,/QUALITY_ADMIN_ACTIONS=new Set\(\['quality_check','quality_corrective'\]\)/);
   assert.match(forms,/action==='quality_issue'/);
-  assert.match(forms,/def\.category==='incident'&&action!=='daily_report'/);
+  assert.match(forms,/MANAGEMENT_FEEDBACK_ACTIONS=new Set\(\['management_suggestion','management_problem'\]\)/);
+  assert.ok(forms.includes("if(def.category==='incident'&&!new Set(['daily_report',...MANAGEMENT_FEEDBACK_ACTIONS]).has(action))"));
 });
 
 test('reports validate identity inside execution functions',async()=>{
