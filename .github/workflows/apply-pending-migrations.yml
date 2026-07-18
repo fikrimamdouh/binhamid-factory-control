@@ -135,6 +135,12 @@ jobs:
           SUPABASE_DB_URL: ''
         run: node scripts/restore-drill.mjs
 
+      - name: Prepare isolated PostgreSQL extensions
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql "$LOCAL_DATABASE_URL" -X -v ON_ERROR_STOP=1 -c 'create extension if not exists pgcrypto;'
+
       - name: Apply schema 19-24 to isolated clone atomically
         env:
           ISOLATED_MIGRATION_TARGET: '24'
