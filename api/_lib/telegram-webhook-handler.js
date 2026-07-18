@@ -140,9 +140,9 @@ async function handleMessage(update){
   if(message.document){const name=message.document.file_name||'';return /\.(xlsx|xls)$/i.test(name)||/spreadsheet|excel/i.test(message.document.mime_type||'')?handleExcel(message,group,identity,stored):handleAttachment(message,group,identity,stored);}
   if(message.photo?.length){if(await handleAttendancePhoto(message,identity,session))return;return handleAttachment(message,group,identity,stored);}
   if(message.voice){
-    const downloaded=await downloadTelegramFile(message.voice.file_id),hash=sha256(downloaded.buffer),path=`telegram/${group.department||'unassigned'}/${new Date().toISOString().slice(0,10)}/voice-${hash.slice(0,16)}.ogg`;
-    await uploadObject(path,downloaded.buffer,message.voice.mime_type||downloaded.contentType);
-    const result=await transcribeTelegramVoice(downloaded.buffer,message.voice.mime_type||downloaded.contentType);
+    await sendMessage(message.chat.id,'🎙️ تم استلام رسالتك الصوتية، جارٍ فهمها وتنفيذ طلبك...').catch(error=>console.warn('[telegram voice acknowledgement]',{message:String(error?.message||'').slice(0,200)}));
+    const downloaded=await downloadTelegramFile(message.voice.file_id),hash=sha256(downloaded.buffer),path=`telegram/${group.department||'unassigned'}/${new Date().toISOString().slice(0,10)}/voice-${hash.slice(0,16)}.ogg`,contentType=message.voice.mime_type||downloaded.contentType;
+    const [result]=await Promise.all([transcribeTelegramVoice(downloaded.buffer,contentType),uploadObject(path,downloaded.buffer,contentType)]);
     await patch('telegram_messages',`id=eq.${stored.id}`,{file_path:path,transcription:result.text||null,related_entity_type:result.text?'voice_transcribed':`voice_${result.reason||'failed'}`});
     return result.text?handleText(message,group,identity,result.text,path,stored):sendMessage(message.chat.id,voiceFailureMessage(result));
   }

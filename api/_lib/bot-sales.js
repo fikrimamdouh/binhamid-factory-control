@@ -101,11 +101,12 @@ function orderSummary(order){
 
 export async function startSalesAction(message,identity,action){
   const role=identity?.role||'pending',chatId=message.chat.id,userId=identity?.external_id||message.from.id;
-  if(['summary','overdue','open','mine'].includes(action)){
+  if(['summary','overdue','open','open_block','open_concrete','mine'].includes(action)){
     if(!canViewSales(role))return sendMessage(chatId,'ليست لديك صلاحية عرض أوامر البيع.');
     if(action==='summary')return sendExecutiveSalesStatus(chatId,identity);
     if(action==='overdue')return sendSalesOrdersList(chatId,identity,'overdue');
     if(action==='mine')return sendSalesOrdersList(chatId,identity,'mine');
+    if(action==='open_block'||action==='open_concrete')return sendSalesOrdersList(chatId,identity,action);
     return sendSalesOrdersList(chatId,identity,'open');
   }
   if(action==='update'){
@@ -220,11 +221,13 @@ function scopedOrders(orders,identity,mode){
 export async function sendSalesOrdersList(chatId,identity,mode='open'){
   const today=todayRiyadh();
   let orders=scopedOrders(reduceOrders(await loadOrderEvents()),identity,mode);
+  const product=mode==='open_concrete'?'concrete':mode==='open_block'?'block':'';
+  if(product)orders=orders.filter(order=>order.sales_type===product);
   if(mode==='overdue')orders=orders.filter(order=>!CLOSED.has(order.status)&&order.delivery_date&&order.delivery_date<today);
   else orders=orders.filter(order=>!CLOSED.has(order.status));
   orders.sort((a,b)=>String(a.delivery_date||'9999').localeCompare(String(b.delivery_date||'9999')));
   if(!orders.length)return sendMessage(chatId,mode==='overdue'?'لا توجد أوامر بيع متأخرة ضمن صلاحيتك.':'لا توجد أوامر بيع مفتوحة ضمن صلاحيتك.');
-  const title=mode==='overdue'?'أوامر البيع المتأخرة':mode==='mine'?'طلباتك المفتوحة':'أوامر البيع المفتوحة';
+  const title=mode==='overdue'?'أوامر البيع المتأخرة':mode==='mine'?'طلباتك المفتوحة':mode==='open_concrete'?'أوامر الخرسانة المفتوحة':mode==='open_block'?'أوامر البلوك المفتوحة':'أوامر البيع المفتوحة';
   const body=orders.slice(0,15).map((order,index)=>`${index+1}. ${orderSummary(order)}`).join('\n\n');
   return sendMessage(chatId,`<b>${title}</b> — ${orders.length}\n\n${body}`.slice(0,3900));
 }

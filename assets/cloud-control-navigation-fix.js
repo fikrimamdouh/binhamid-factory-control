@@ -67,7 +67,7 @@
   });
 
   const observer=new MutationObserver(patch);
-  observer.observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['class','style','hidden']});
+  observer.observe(document.documentElement,{childList:true,subtree:true});
   patch();
 
   window.bhOpenCommunicationCenter=function(){
