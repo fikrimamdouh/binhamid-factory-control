@@ -3,15 +3,16 @@ import { select } from './supabase.js';
 
 export const ROLE_CAPABILITIES=Object.freeze({
   admin:['*'],
-  manager:['dashboard.manager','daily_report.view','costs.view','audit.view','governance.view','credit_override.approve','assets.view','compliance.view','handover.view'],
-  accountant:['daily_report.view','daily_report.import','daily_report.approve','costs.view','costs.calculate','governance.view','financial_period.manage','credit_override.request','custody.manage','custody.approve'],
+  manager:['dashboard.manager','daily_report.view','imports.manage','costs.view','costs.customer_profitability.view','mix_design.view','mix_design.calculate','mix_design.approve','users.invite.create','users.invite.view','audit.view','governance.view','credit_override.approve','assets.view','compliance.view','handover.view'],
+  accountant:['daily_report.view','daily_report.import','daily_report.approve','imports.manage','costs.view','costs.calculate','costs.customer_profitability.view','mix_design.view','mix_design.calculate','mix_material_prices.manage','governance.view','financial_period.manage','credit_override.request','custody.manage','custody.approve'],
   block_sales:['daily_report.view'],
-  concrete_sales:['daily_report.view'],
+  concrete_sales:['daily_report.view','mix_design.price.view'],
   mechanic:['maintenance.manage','assets.view'],
   fuel_operator:['fuel.import','assets.view'],
   hr:['costs.view','governance.view','compliance.manage','assets.view'],
   procurement:['maintenance.manage','assets.view'],
-  driver:[],employee:[],collector:[],warehouse:[],quality:[],pending:[]
+  quality:['mix_design.view','mix_design.manage'],
+  driver:[],employee:[],collector:[],warehouse:[],pending:[]
 });
 
 export function capabilitiesForRole(role){return[...(ROLE_CAPABILITIES[String(role||'pending')]||[])];}
@@ -33,7 +34,6 @@ export function resolveCapabilityGateway(gateway,appUserId,capability){
 
 export async function requireCapability(req,capability){
   if(!String(capability||'').trim())throw accessError('اسم الصلاحية مطلوب',500,'CAPABILITY_NAME_REQUIRED');
-  // Authenticate the transport first. Business capability enforcement happens against app_users below.
   const gateway=requireAdminOrDevice(req),appUserId=header(req,'x-app-user-id'),resolved=resolveCapabilityGateway(gateway,appUserId,capability);
   if(resolved)return resolved;
   const users=await select('app_users',`id=eq.${encodeURIComponent(appUserId)}&active=eq.true&select=id,full_name,role,active&limit=1`),user=users?.[0];
