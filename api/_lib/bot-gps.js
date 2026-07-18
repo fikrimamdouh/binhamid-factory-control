@@ -53,8 +53,6 @@ export async function sendGpsFleetStatus(chatId,query='',identity=null){
   text+=`
 
 ${rows.slice(0,28).map(row=>`• <b>${esc(row.vehicle)}</b> — ${esc(status(row))}
-  السائق: ${esc(row.driver)}${row.attendanceAt?` — آخر حركة: ${esc(String(row.attendanceAt).replace('T',' ').slice(0,16))}`:''}`).join('
-
-')}`;
+  السائق: ${esc(row.driver)}${row.attendanceAt?` — آخر حركة: ${esc(String(row.attendanceAt).replace('T',' ').slice(0,16))}`:''}`).join(String.fromCharCode(10,10))}`;
   return sendMessage(chatId,text.slice(0,3900));
 }
