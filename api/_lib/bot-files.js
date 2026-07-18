@@ -7,11 +7,52 @@ import { parseDailyWorkbook } from './daily-summary-parser.js';
 import { generateCumulativeDailyPdfs } from './daily-cumulative-pdf.js';
 import { commitDailyReportFromTelegram } from './routes/daily-report.js';
 import { reportTypeLabel, reportDestination } from './bot-profile.js';
+import { capabilityAllowed } from './permissions.js';
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const plain=v=>String(v??'').replace(/<[^>]+>/g,'');
 const safeFile=v=>String(v||'file').replace(/[^A-Za-z0-9._\-\u0600-\u06FF]/g,'_').slice(0,140);
 const number=value=>Number(value||0).toLocaleString('en-US',{maximumFractionDigits:3});
 const dailyType=type=>['daily_movement','block_daily_movement','concrete_daily_movement'].includes(type);
+const DAILY_APPROVE_CAPABILITY='daily_report.approve';
+export function dailyReportApprovalDecision(recognizedDaily,status,canApprove){
+  const ready=Boolean(recognizedDaily&&status==='ready');
+  return{shouldPost:ready&&Boolean(canApprove),waitingApproval:ready&&!canApprove};
+}
+async function identityCanApproveDailyReport(identity){
+  if(!identity?.active||!identity?.user_id)return false;
+  const role=String(identity.role||'pending'),userId=String(identity.user_id);
+  const [roleRows,userRows]=await Promise.all([
+    select('role_capabilities',`role=eq.${encodeURIComponent(role)}&select=capability,allowed&limit=500`).catch(()=>[]),
+    select('user_capabilities',`app_user_id=eq.${encodeURIComponent(userId)}&select=capability,allowed&limit=500`).catch(()=>[])
+  ]);
+  return capabilityAllowed(role,DAILY_APPROVE_CAPABILITY,roleRows,userRows);
+}
+async function dailyReportApproverChats(excludeChatIds=[]){
+  const excluded=new Set((excludeChatIds||[]).map(value=>String(value||'')).filter(Boolean)),chats=new Set();
+  if(config.telegramOwnerId&&!excluded.has(String(config.telegramOwnerId)))chats.add(String(config.telegramOwnerId));
+  try{
+    const [users,roleRows,userRows]=await Promise.all([
+      select('app_users','active=eq.true&select=id,role&limit=500').catch(()=>[]),
+      select('role_capabilities','select=role,capability,allowed&limit=2000').catch(()=>[]),
+      select('user_capabilities','select=app_user_id,capability,allowed&limit=5000').catch(()=>[])
+    ]);
+    const approverIds=(users||[]).filter(user=>capabilityAllowed(user.role,DAILY_APPROVE_CAPABILITY,(roleRows||[]).filter(row=>String(row.role)===String(user.role)),(userRows||[]).filter(row=>String(row.app_user_id)===String(user.id)))).map(user=>String(user.id)).filter(Boolean);
+    if(approverIds.length){
+      const channels=await select('user_channels',`active=eq.true&channel=eq.telegram&user_id=in.(${approverIds.join(',')})&select=external_id&limit=1000`).catch(()=>[]);
+      for(const row of channels||[]){const chatId=String(row.external_id||'');if(chatId&&!excluded.has(chatId))chats.add(chatId);}
+    }
+  }catch(error){console.warn('[telegram daily approvers lookup]',{message:String(error?.message||'').slice(0,300)});}
+  return[...chats];
+}
+async function notifyDailyReportApprovers(details,excludeChatIds=[]){
+  const chats=await dailyReportApproverChats(excludeChatIds);
+  if(!chats.length)return{recipients:0,delivered:0,failed:0};
+  const text=`<b>ملف يومي جاهز وينتظر الاعتماد</b>\n\nالملف: <b>${esc(details.name)}</b>\nالنوع: <b>${esc(reportTypeLabel(details.reportType))}</b>\nالتاريخ التشغيلي: <b>${esc(details.reportDate)}</b>\nأرسله: <b>${esc(details.senderName||'مستخدم Telegram')}</b>\nالحالة: <b>بانتظار الاعتماد</b>${dailySummaryText(details.summary||{})}\n\nلم تُرحّل أي مبيعات أو تحصيلات. افتح مركز الوارد للمراجعة والاعتماد.`;
+  const sent=await Promise.allSettled(chats.map(chatId=>sendMessage(chatId,text,{action_name:'daily_report_pending_approval',action_payload:{import_id:details.importId,report_date:details.reportDate}})));
+  const delivered=sent.filter(item=>item.status==='fulfilled').length,failed=sent.length-delivered;
+  if(failed)console.warn('[telegram daily approvers notification]',{recipients:chats.length,delivered,failed,importId:details.importId});
+  return{recipients:chats.length,delivered,failed};
+}
 async function excelStep(stage,operation){
   try{return await operation();}
   catch(error){const tagged=error instanceof Error?error:new Error(String(error||'Unknown error'));if(!tagged.excelStage)tagged.excelStage=stage;throw tagged;}
@@ -107,18 +148,25 @@ export async function handleExcel(message,group,identity,stored){
       const rows=await excelStep('registry',register),imp=rows?.[0]||duplicate;
       if(stored?.id&&imp?.id)await patch('telegram_messages',`id=eq.${stored.id}`,{file_path:path,related_entity_type:'import',related_entity_id:imp.id,transcription:null}).catch(error=>console.warn('[telegram excel message link]',error?.message||error));
       const recognizedDaily=dailyType(reportType),reportDate=reportDateFromFile(name,message.date),resultTitle=recheck?'تمت إعادة فحص الملف القديم وتحديث تصنيفه بنجاح.':status==='ready'?'تم فحص الملف وحفظه بنجاح.':'تم حفظ الملف، لكن تعذر فحص محتواه آليًا.';
-      let posting=null;
-      if(recognizedDaily&&status==='ready')posting=await excelStep('posting',()=>commitDailyReportFromTelegram({reportDate,originalName:name,fileHash:hash,contentHash:hash,idempotencyKey:`telegram-daily:${reportDate}:${hash}`,importId:imp.id,payload:autoPayload(dailyAnalysis,reportDate,imp.id)},String(identity.user_id||identity.external_id||'telegram-bot')));
-      const state=status!=='ready'?'حُفظ لكن تعذر الفحص الآلي':posting?.ok?'مرحّل تلقائيًا ومربوط بسجل المستخدم':posting?.duplicate?'ملف مكرر — لم تُكرر أي قيود':recognizedDaily?'يحتاج مراجعة الأخطاء في Mini App':'جاهز للمراجعة';
-      resultText=`${resultTitle}\n\nالاسم: <b>${esc(name)}</b>\nالنوع: <b>${esc(reportTypeLabel(reportType))}</b>\nالتاريخ التشغيلي: <b>${esc(reportDate)}</b>\nالأوراق: ${esc(sheetNames.join('، ')||'تعذر القراءة')}\nالصفوف: <b>${rowCount}</b>${recognizedDaily?dailySummaryText(summary.daily):''}\nالحالة: <b>${state}</b>${posting?`\n\n${autoPostingText(posting)}`:recognizedDaily?'\n\nلم يُرحّل لأن القراءة الآلية لم تكتمل.':'\n\nلم تُرحّل البيانات نهائيًا.'}`;
-      result={duplicate:false,import:imp,reportType,status,path,recognizedDaily,posting,reportDate};
+      let posting=null,senderCanApprove=false;
+      if(recognizedDaily&&status==='ready')senderCanApprove=await excelStep('authorization',()=>identityCanApproveDailyReport(identity));
+      const approval=dailyReportApprovalDecision(recognizedDaily,status,senderCanApprove);
+      if(approval.shouldPost)posting=await excelStep('posting',()=>commitDailyReportFromTelegram({reportDate,originalName:name,fileHash:hash,contentHash:hash,idempotencyKey:`telegram-daily:${reportDate}:${hash}`,importId:imp.id,payload:autoPayload(dailyAnalysis,reportDate,imp.id)},String(identity.user_id||identity.external_id||'telegram-bot')));
+      const state=status!=='ready'?'حُفظ لكن تعذر الفحص الآلي':posting?.ok?'مرحّل تلقائيًا ومربوط بسجل المستخدم':posting?.duplicate?'ملف مكرر — لم تُكرر أي قيود':approval.waitingApproval?'بانتظار الاعتماد':recognizedDaily?'يحتاج مراجعة الأخطاء في Mini App':'جاهز للمراجعة';
+      const noPostingText=approval.waitingApproval?'حُفظ الملف دون ترحيل، وسيُخطر مالك النظام والمستخدمون المخولون بالاعتماد.':recognizedDaily?'لم يُرحّل لأن القراءة الآلية لم تكتمل.':'لم تُرحّل البيانات نهائيًا.';
+      resultText=`${resultTitle}\n\nالاسم: <b>${esc(name)}</b>\nالنوع: <b>${esc(reportTypeLabel(reportType))}</b>\nالتاريخ التشغيلي: <b>${esc(reportDate)}</b>\nالأوراق: ${esc(sheetNames.join('، ')||'تعذر القراءة')}\nالصفوف: <b>${rowCount}</b>${recognizedDaily?dailySummaryText(summary.daily):''}\nالحالة: <b>${state}</b>${posting?`\n\n${autoPostingText(posting)}`:`\n\n${noPostingText}`}`;
+      result={duplicate:false,import:imp,reportType,status,path,recognizedDaily,posting,reportDate,pendingApproval:approval.waitingApproval,pendingApprovalNotice:approval.waitingApproval?{importId:imp.id,name,reportType,reportDate,summary:summary.daily||{},senderName:identity.full_name||identity.external_id}:null};
     }
   }catch(error){
     console.error('[telegram excel import]',{stage:error?.excelStage||'unknown',status:Number(error?.status||error?.upstreamStatus||0),message:String(error?.message||'').slice(0,500)});
     await sendMessage(chatId,`تعذر إكمال معالجة ملف <b>${esc(name)}</b>.\nالسبب: ${esc(excelFailureMessage(error))}\nلم تُرحّل أي بيانات من هذا الملف.`).catch(sendError=>console.error('[telegram excel failure reply]',sendError));
     return null;
   }
-  await relayToOwner(chatId,relay?.buffer,name,relay?.contentType,`ملف وارد من Telegram\n\n${resultText}`,{importId:result?.import?.id});
+  const ownerRelay=await relayToOwner(chatId,relay?.buffer,name,relay?.contentType,`ملف وارد من Telegram\n\n${resultText}`,{importId:result?.import?.id});
+  if(result?.pendingApproval&&result.pendingApprovalNotice){
+    const excluded=[String(chatId)];if(ownerRelay&&config.telegramOwnerId)excluded.push(String(config.telegramOwnerId));
+    result.approvalNotification=await notifyDailyReportApprovers(result.pendingApprovalNotice,excluded);
+  }
   await sendProcessingResult(chatId,resultText,name);
   if(result?.recognizedDaily&&result?.status!=='failed'&&result?.posting?.ok&&!result?.posting?.duplicate)result.pdfReports=await sendCumulativeDailyReports(chatId,dailyAnalysis,name);
   return result;
