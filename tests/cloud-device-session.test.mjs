@@ -4,7 +4,7 @@ import fs from 'node:fs';
 
 const read=path=>fs.readFileSync(new URL(`../${path}`,import.meta.url),'utf8');
 
-test('browser creates an automatic signed bootstrap cookie before cloud control',()=>{
+test('browser creates an automatic signed transport cookie before cloud control',()=>{
   const index=read('index.html'),client=read('assets/cloud-device-autolink.js');
   assert.match(index,/cloud-device-autolink\.js/);
   assert.match(index,/bhCloudDeviceReady/);
@@ -17,24 +17,23 @@ test('device cookie is HttpOnly same-site and grants no business-data capability
   const source=read('api/_lib/device-session.js');
   assert.match(source,/HttpOnly/);
   assert.match(source,/SameSite=Strict/);
+  assert.match(source,/SESSION_VERSION=4/);
+  assert.match(source,/30\*24\*60\*60/);
   assert.match(source,/DEVICE_CAPABILITIES=Object\.freeze\(\[\]\)/);
-  assert.match(source,/bootstrap-only/);
-  assert.match(source,/AUTHENTICATED_USER_REQUIRED/);
-  assert.doesNotMatch(source,/state\.write/);
-  assert.doesNotMatch(source,/daily_report\.approve/);
+  assert.match(source,/transport-only/);
+  for(const capability of ['state.read','state.write','dashboard.manager','imports.manage','daily_report.approve','accounting.view'])assert.doesNotMatch(source,new RegExp(capability.replace('.','\\.')));
 });
 
-test('cloud and Telegram write routes require authenticated admin or user capability',()=>{
-  const state=read('api/state.js'),telegram=read('api/_lib/routes/telegram-admin.js'),admin=read('api/_lib/routes/admin.js'),device=read('api/_lib/device-session.js');
-  assert.match(state,/requireAdminOrDevice/);
-  assert.match(state,/DEVICE_ID_MISMATCH/);
-  assert.match(telegram,/requireAdmin\(req\)/);
-  assert.match(telegram,/requireAdminOrDevice\(req,'daily_report\.approve'\)/);
-  assert.match(admin,/requireAdmin/);
-  assert.match(device,/throw Object\.assign\(new Error\('هذه العملية تتطلب تسجيل دخول مستخدم معتمد\.'/);
+test('device transport alone cannot execute business capabilities',()=>{
+  const device=read('api/_lib/device-session.js'),permissions=read('api/_lib/permissions.js'),imports=read('api/_lib/routes/imports.js');
+  assert.match(device,/DEVICE_CAPABILITY_REQUIRED/);
+  assert.match(permissions,/APP_USER_REQUIRED/);
+  assert.match(permissions,/requireAdminOrDevice\(req\)/);
+  assert.match(imports,/requireCapability/);
+  assert.doesNotMatch(imports,/requireAdminOrDevice/);
 });
 
-test('router and Vercel expose bootstrap session without adding a serverless function',()=>{
+test('router and Vercel expose transport session without adding a serverless function',()=>{
   const router=read('api/router.js'),vercel=read('vercel.json');
   assert.match(router,/'device\/session'/);
   assert.match(vercel,/\/api\/device\/session/);
