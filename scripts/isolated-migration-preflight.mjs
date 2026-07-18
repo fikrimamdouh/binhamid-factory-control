@@ -25,6 +25,6 @@ const result=spawnSync('psql',[databaseUrl,'-X','-t','-A','-v','ON_ERROR_STOP=1'
 if(result.error||result.status!==0)fail('PREFLIGHT_QUERY_FAILED','The isolated preflight query failed.');
 const state=JSON.parse(String(result.stdout||'').trim());
 if(Number(state.currentVersion)!==Number(manifest.schemaVersion))fail('RESTORED_SCHEMA_MISMATCH','The restored clone does not match the backup manifest.');
-const report={ok:true,currentVersion:Number(state.currentVersion),targetVersion:20,counts:state.counts,backup:{fileName:manifest.fileName,checksumSha256:manifest.checksumSha256,schemaVersion:Number(manifest.schemaVersion),encrypted:true},isolated:true};
+const report={ok:true,currentVersion:Number(state.currentVersion),targetVersion:22,counts:state.counts,backup:{fileName:manifest.fileName,checksumSha256:manifest.checksumSha256,schemaVersion:Number(manifest.schemaVersion),encrypted:true},isolated:true};
 writeFileSync(output,`${JSON.stringify(report,null,2)}\n`,{mode:0o600});
 console.log(`[isolated-preflight] READY ${report.currentVersion}->20`);
