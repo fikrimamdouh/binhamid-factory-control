@@ -10,9 +10,16 @@ export async function ensureTelegramGroup(chat){
   if(old){const rows=await patch('telegram_groups',`chat_id=eq.${encodeURIComponent(id)}`,{title:chat.title||old.title,last_seen_at:now(),updated_at:now()});return rows?.[0]||old;}
   return(await insert('telegram_groups',[{chat_id:id,title:chat.title||'مجموعة تيليجرام',department:inferDepartment(chat.title),active:false,status:'pending',last_seen_at:now()}]))?.[0];
 }
+async function syncEmployeeMaster(identity,from){
+  if(!identity?.active||identity.role==='admin')return null;
+  const externalId=String(identity.employee_external_id||`TG-${identity.external_id||from.id}`).slice(0,200),fullName=String(identity.full_name||[from.first_name,from.last_name].filter(Boolean).join(' ')||externalId).slice(0,500);
+  const values={external_id:externalId,employee_no:externalId,full_name:fullName,phone:identity.phone||null,role:identity.role||'employee',active:true,nickname:identity.nickname||null,updated_at:now()};
+  try{return(await upsert('employees',[values],'external_id'))?.[0]||values;}
+  catch(error){console.warn('[telegram employee master sync]',{role:identity.role,message:String(error?.message||'').slice(0,220)});return null;}
+}
 export async function ensureTelegramIdentity(from){
   const raw=await rpc('register_telegram_identity',{p_external_id:String(from.id),p_username:String(from.username||''),p_full_name:[from.first_name,from.last_name].filter(Boolean).join(' ')||String(from.id),p_make_owner:Boolean(config.telegramOwnerId&&String(from.id)===config.telegramOwnerId)});
-  return enrichIdentity(raw,from);
+  const identity=await enrichIdentity(raw,from);await syncEmployeeMaster(identity,from);return identity;
 }
 export async function storeTelegramMessage(updateId,message,group,identity){
   const type=message.voice?'voice':message.document?'document':message.photo?'photo':message.location?'location':message.contact?'contact':message.text?'text':'other';
