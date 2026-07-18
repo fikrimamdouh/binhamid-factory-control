@@ -317,7 +317,7 @@ revoke all on function public.fail_telegram_update(text,text,text,boolean) from 
 grant execute on function public.assert_journal_entry_balanced(uuid),public.post_daily_report_accounting(uuid,text),public.transition_import_status(uuid,text,text,text,uuid,jsonb),public.claim_telegram_update(text,text),public.complete_telegram_update(text),public.fail_telegram_update(text,text,text,boolean) to service_role;
 
 -- Additional Schema 19 features merged from the same release.
-+-- Bin Hamid Factory Control — secure Telegram invitations and mix design costing
+-- Bin Hamid Factory Control — secure Telegram invitations and mix design costing
 -- Run after 018_governance_safety_refinements.sql.
 -- Idempotent and non-destructive. Existing production rows are never deleted.
 
@@ -519,6 +519,6 @@ insert into public.role_capabilities(role,capability) values
   ('manager','users.invite.create'),('manager','users.invite.view')
 on conflict(role,capability) do update set allowed=true;
 
-+insert into public.migration_history(version,migration_name)
+insert into public.migration_history(version,migration_name)
 values(19,'019_accounting_import_and_telegram_integrity')
 on conflict(version) do update set migration_name=excluded.migration_name;
