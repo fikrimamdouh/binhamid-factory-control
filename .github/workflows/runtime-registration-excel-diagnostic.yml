@@ -38,7 +38,9 @@ jobs:
 
       - name: Collect sanitized runtime evidence
         if: success()
-        run: node scripts/runtime-registration-excel-diagnostic.mjs
+        run: |
+          node scripts/runtime-registration-excel-diagnostic.mjs
+          node scripts/telegram-failure-diagnostic.mjs
 
       - name: Write fallback diagnostic when connection resolution fails
         if: failure()
@@ -61,6 +63,7 @@ jobs:
           path: |
             runtime-registration-excel-diagnostic.json
             runtime-connection-diagnostic.json
+            telegram-failure-diagnostic.json
           if-no-files-found: warn
           retention-days: 7
 
