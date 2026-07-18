@@ -28,6 +28,9 @@ export const envSpec=Object.freeze({
   BACKUP_STORAGE_PREFIX:{requiredFor:[],description:'بادئة مسار النسخ'},
   MAX_IMPORT_FILE_BYTES:{requiredFor:[],description:'الحد الأقصى لملف الاستيراد'},
   TELEGRAM_WEBAPP_MAX_AGE_SECONDS:{requiredFor:[],description:'عمر جلسة WebApp'}
+  ,MANAGER_BRIEF_HOUR:{requiredFor:[],description:'ساعة التقرير اليومي بتوقيت الرياض'}
+  ,WEEKLY_EXPORT_WEEKDAY:{requiredFor:[],description:'يوم التصدير الأسبوعي (0 الأحد)'}
+  ,WEEKLY_EXPORT_HOUR:{requiredFor:[],description:'ساعة التصدير الأسبوعي بتوقيت الرياض'}
 });
 
 export const config=Object.freeze({
@@ -40,6 +43,9 @@ export const config=Object.freeze({
   telegramSecret:text('TELEGRAM_WEBHOOK_SECRET'),
   telegramOwnerId:text('TELEGRAM_OWNER_ID'),
   telegramWebAppMaxAgeSeconds:integer(process.env.TELEGRAM_WEBAPP_MAX_AGE_SECONDS,600,60,3600),
+  managerBriefHour:integer(process.env.MANAGER_BRIEF_HOUR,19,0,23),
+  weeklyExportWeekday:integer(process.env.WEEKLY_EXPORT_WEEKDAY,5,0,6),
+  weeklyExportHour:integer(process.env.WEEKLY_EXPORT_HOUR,20,0,23),
   openaiKey:text('OPENAI_API_KEY'),
   transcribeModel:text('OPENAI_TRANSCRIBE_MODEL')||'gpt-4o-mini-transcribe',
   textModel:text('OPENAI_TEXT_MODEL')||'gpt-5.4-mini',

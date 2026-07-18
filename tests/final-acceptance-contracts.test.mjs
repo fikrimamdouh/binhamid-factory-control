@@ -12,13 +12,13 @@ test('automatic device bootstrap grants no business-data capability',()=>{
   assert.match(source,/DEVICE_CAPABILITY_REQUIRED/);
 });
 
-test('production readiness follows schema 22 and never references schema 15 as current',()=>{
+test('production readiness follows schema 23 and never references schema 15 as current',()=>{
   const workflow=read('.github/workflows/production-readiness.yml');
   const runtime=read('api/_lib/routes/system-runtime.js');
   assert.doesNotMatch(workflow,/directOperationsSchema\)!==15|expected schema 15|schema 15/);
-  assert.match(workflow,/directOperationsSchema\)!==22|directOperationsSchema\)===22|directOperationsSchema===22/);
-  assert.match(runtime,/LATEST_REQUIRED_VERSION=22/);
-  assert.match(runtime,/directOperationsSchema:22/);
+  assert.match(workflow,/directOperationsSchema\)!==23|directOperationsSchema\)===23|directOperationsSchema===23/);
+  assert.match(runtime,/LATEST_REQUIRED_VERSION=23/);
+  assert.match(runtime,/directOperationsSchema:23/);
 });
 
 test('accounting migrations provide balanced journals, ledger, reversal and trial balance',()=>{
@@ -61,11 +61,13 @@ test('security-definer acceptance RPCs are not executable by PUBLIC',()=>{
   assert.match(sql,/grant execute[\s\S]*to service_role/);
 });
 
-test('automatic import is disabled and import IDs persist until daily approval completes',()=>{
+test('website and Telegram imports coexist while daily approval keeps one import identity',()=>{
   const review=read('assets/import-review-guard.js');
   const integrity=read('assets/daily-approval-integrity-guard.js');
-  assert.match(review,/localStorage\.setItem\(AUTO_KEY,'0'\)/);
-  assert.match(review,/الترحيل التلقائي موقوف رقابيًا/);
+  assert.match(review,/dailyWebsiteApproval:true/);
+  assert.match(review,/autoImport:true/);
+  assert.doesNotMatch(review,/localStorage\.setItem\(AUTO_KEY,'0'\)/);
+  assert.doesNotMatch(review,/الترحيل التلقائي موقوف رقابيًا/);
   assert.match(review,/sessionStorage\.setItem\(ACTIVE_KEY,importId\)/);
   assert.doesNotMatch(review,/finally\s*\{[\s\S]*removeItem\(ACTIVE_KEY\)/);
   assert.match(integrity,/payload\.importId=importId/);
@@ -82,9 +84,9 @@ test('structured accounting API and page are present',()=>{
   assert.match(vercel,/api\/accounting/);
 });
 
-test('isolated final database acceptance requires Schema 22 and resolves status transition arguments exactly',()=>{
+test('isolated final database acceptance requires Schema 23 and resolves status transition arguments exactly',()=>{
   const source=read('scripts/final-acceptance-database.mjs');
-  assert.match(source,/max\(version\),0\) from public\.migration_history\)<>22/);
+  assert.match(source,/max\(version\),0\) from public\.migration_history\)<>23/);
   assert.match(source,/null::uuid/);
   assert.match(source,/'processing'::text/);
   assert.match(source,/'posted'::text/);

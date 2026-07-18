@@ -5,7 +5,11 @@
   const dailyTypes=new Set(['daily_movement','block_daily_movement','concrete_daily_movement']);
   const readSeen=()=>{try{return new Set(JSON.parse(localStorage.getItem(SEEN_KEY)||'[]'));}catch{return new Set();}};
   const writeSeen=set=>{try{localStorage.setItem(SEEN_KEY,JSON.stringify([...set].slice(-500)));}catch{}};
-  const accessToken=()=>String(localStorage.getItem(TOKEN_KEY)||'').trim();
+  // "device-session" belongs to the browser transport only and must never be
+  // presented as an administrator token.  Waiting for an authenticated owner
+  // is intentional: a Telegram import is opened for review, never approved by
+  // a browser session alone.
+  const accessToken=()=>{const value=String(localStorage.getItem(TOKEN_KEY)||'').trim();return value==='device-session'?'':value;};
   const toast=(message,bad=false)=>{if(typeof window.opsToast==='function')window.opsToast(message,bad?'err':undefined);else console[bad?'error':'info']('[BinHamid two-way]',message);};
   async function request(path,options={}){
     const token=accessToken();
@@ -16,7 +20,10 @@
   }
   async function setStatus(row,status,note){return request('/api/imports/status',{method:'POST',body:JSON.stringify({id:row.id,status,note})});}
   function uiBusy(){return Boolean(document.querySelector('.modal.on,.bh-login.on,[role="dialog"][open]'));}
-  function eligible(row,seen){return row&&row.id&&row.source==='telegram'&&row.status==='ready'&&dailyTypes.has(String(row.report_type||''))&&row.file_path&&!seen.has(row.id);}
+  // The stream remains live for dashboard refresh, notices and review. File
+  // opening is owned by cloud-control so two browser scripts never race on the
+  // same import. Financial daily workbooks are still posted in the webhook.
+  function eligible(){return false;}
   async function applyRow(row,seen){
     if(typeof window.bhCloudApplyImport!=='function')return false;
     try{

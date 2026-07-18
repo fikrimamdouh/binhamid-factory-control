@@ -2,6 +2,7 @@ import { keyboard, sendMessage } from './telegram.js';
 import { breakEvenEconomics, costDataQuality, currentCostPeriod, loadCostDecisionData, normalizeCostPeriod, productEconomics, tripEconomics, vehicleEconomics, workerEconomics } from './bot-costs-data.js';
 import { findCustomerProfitability, loadCustomerProfitability } from './customer-profitability.js';
 import { listLatestMixCosts } from './mix-design-costing.js';
+import { config } from './config.js';
 
 const STANDARD_ROLES=new Set(['admin','manager','accountant','hr']);
 const MIX_ROLES=new Set(['admin','manager','accountant','quality','concrete_sales']);
@@ -90,7 +91,10 @@ async function sendCustomer(chatId,identity,period,query=''){
 async function sendMixes(chatId,identity,query=''){
   if(!MIX_ROLES.has(identity.role))return sendMessage(chatId,'لا تملك صلاحية عرض تكلفة الخلطات.');
   let rows=await listLatestMixCosts();if(query){const needle=norm(query);rows=rows.filter(row=>norm(`${row.code} ${row.name} ${row.version_no}`).includes(needle));}
-  if(!rows.length)return sendMessage(chatId,'لا توجد تكلفة خلطة محسوبة. يلزم تطبيق Migration 019 ثم إنشاء المواد والأسعار والخلطات وحسابها.');
+  if(!rows.length){
+    const mixPage=config.publicAppUrl?`\n\nافتح شاشة الخلطات: ${esc(`${config.publicAppUrl.replace(/\/$/,'')}/mix-designs.html`)}`:'';
+    return sendMessage(chatId,`لا توجد خلطة محسوبة ومعتمدة حتى الآن. Migration 019 مطبّق ضمن Schema 22؛ لا يلزم تشغيله مرة أخرى.\n\nالخطوات: أضف المواد الخام → سجّل الأسعار واعتمدها → أنشئ خلطة بلوك أو خرسانة → أضف المكونات → «احسب واحفظ» ثم «اعتماد».${mixPage}`);
+  }
   const salesOnly=identity.role==='concrete_sales',lines=rows.slice(0,12).map(row=>salesOnly?`<b>${esc(row.code)} — ${esc(row.name)}</b>\nالإصدار ${row.version_no} | سعر البيع المعتمد: <b>${money(row.recommended_price)} ر.س/م³</b>`:`<b>${esc(row.code)} — ${esc(row.name)}</b>\nالإصدار ${row.version_no} | تاريخ الأسعار ${esc(row.price_date)}\nتكلفة المتر: <b>${money(row.total_cost_per_m3)} ر.س</b>\nالهامش المستهدف: ${percentage(row.target_margin_percent)}% | السعر المقترح: <b>${money(row.recommended_price)} ر.س</b>\nالحالة: ${esc(row.design_status)} / ${esc(row.calculation_status)}`);
   return sendMessage(chatId,`<b>تكلفة الخلطات المعيارية</b>\n\n${lines.join('\n\n')}${rows.length>12?`\n\nالمعروض 12 من ${rows.length}.`:''}\n\nالتكلفة معيارية مبنية على وصفة الخلطة والأسعار السارية، وليست بديلًا عن التكلفة الفعلية الشهرية.`);
 }

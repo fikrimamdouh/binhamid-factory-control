@@ -3,8 +3,8 @@ import { select } from './supabase.js';
 
 export const ROLE_CAPABILITIES=Object.freeze({
   admin:['*'],
-  manager:['dashboard.manager','daily_report.view','daily_report.approve','imports.read','imports.manage','costs.view','audit.view','governance.view','credit_override.approve','assets.view','compliance.view','handover.view','accounting.view'],
-  accountant:['daily_report.view','daily_report.import','daily_report.approve','imports.read','imports.manage','costs.view','costs.calculate','governance.view','financial_period.manage','credit_override.request','custody.manage','custody.approve','accounting.view','accounting.post'],
+  manager:['dashboard.manager','daily_report.view','daily_report.approve','imports.read','imports.manage','costs.view','audit.view','governance.view','credit_override.approve','assets.view','compliance.view','handover.view','accounting.view','mix_design.view','mix_design.manage','mix_design.calculate','mix_design.approve','mix_material_prices.manage'],
+  accountant:['daily_report.view','daily_report.import','daily_report.approve','imports.read','imports.manage','costs.view','costs.calculate','governance.view','financial_period.manage','credit_override.request','custody.manage','custody.approve','accounting.view','accounting.post','mix_design.view','mix_design.manage','mix_design.calculate','mix_design.approve','mix_material_prices.manage'],
   block_sales:['daily_report.view'],
   concrete_sales:['daily_report.view','mix_design.price.view'],
   mechanic:['maintenance.manage','assets.view'],
@@ -27,6 +27,7 @@ export function resolveCapabilityGateway(gateway,appUserId,capability){
     if(gateway?.kind==='device'&&gateway.capabilities?.includes(capability))return{...gateway,appUserId:null,fullName:'جهاز المصنع'};
     throw accessError('هوية مستخدم معتمد مطلوبة لتنفيذ هذه العملية',401,'APP_USER_REQUIRED',{capability});
   }
+  if(gateway?.kind==='device'&&gateway.appUserId&&gateway.appUserId!==userId)throw accessError('جلسة الدخول لا تطابق المستخدم المطلوب',403,'DEVICE_USER_MISMATCH');
   return null;
 }
 

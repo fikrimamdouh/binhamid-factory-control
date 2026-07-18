@@ -112,6 +112,10 @@ export async function handleBuiltInCommand({message,identity,text}){
     if(!active||!allowed(role,'report')){await sendMessage(chatId,'عرض التقارير متاح لمدير المصنع ومدير النظام فقط.');return true;}
     await sendMessage(chatId,`حاضر يا ${name}. اختر التقرير المطلوب:`,reportKeyboard());return true;
   }
+  if(/^\/report(?:@\w+)?\s+(today|اليوم)$/i.test(raw)){
+    if(!active||!allowed(role,'report')){await sendMessage(chatId,'عرض التقرير متاح لمدير المصنع ومدير النظام فقط.');return true;}
+    await sendReport(chatId,'daily');return true;
+  }
   const analytical=/^(حلل لي وضع المصنع اليوم|حلل وضع المصنع اليوم|تحليل وضع المصنع اليوم|حلل وضع المصنع|اعمل تحليل للمصنع اليوم)$/.test(t);
   if(analytical){if(!active||!allowed(role,'report'))await sendMessage(chatId,'تحليل وضع المصنع متاح لمدير المصنع ومدير النظام فقط.');else await factoryAnalysis(chatId);return true;}
   if(/^(هل استهلاك الديزل اليوم مرتفع|حلل استهلاك الديزل اليوم|تحليل الديزل اليوم|استهلاك الديزل اليوم مرتفع|قارن ديزل اليوم)$/.test(t)){

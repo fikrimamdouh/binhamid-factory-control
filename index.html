@@ -9,7 +9,7 @@
     html,body{height:100%;margin:0;background:#f7f3ec;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#163746;overflow:hidden}
     .boot{position:fixed;inset:0;z-index:2;display:grid;place-items:center;padding:24px;text-align:center;background:#f7f3ec}
     .boot-card{width:min(520px,92vw);background:#fff;border:1px solid #e2dcd1;border-radius:16px;padding:28px;box-shadow:0 18px 50px rgba(11,34,51,.12)}
-    .boot-mark{width:56px;height:56px;border-radius:15px;margin:0 auto 14px;background:#0b2233;color:#e6c982;display:grid;place-items:center;font-weight:900;font-size:22px}
+    .boot-mark{display:block;width:min(255px,72vw);height:auto;max-height:108px;object-fit:contain;margin:0 auto 14px}
     .boot h1{font-size:20px;margin:0 0 8px}.boot p{font-size:13px;color:#697b84;margin:0;line-height:1.8}
     .boot-line{height:4px;background:#edf1f2;border-radius:8px;overflow:hidden;margin-top:18px}.boot-line:before{content:"";display:block;width:35%;height:100%;background:#a97926;animation:load 1s infinite alternate ease-in-out}@keyframes load{to{transform:translateX(-185%)}}
     .boot-error{color:#922f2f;background:#fff1f1;border:1px solid #edcccc;padding:12px;border-radius:10px;margin-top:14px;display:none;white-space:pre-wrap;text-align:right}
@@ -19,7 +19,7 @@
 <body>
   <main class="boot" id="bootScreen">
     <section class="boot-card">
-      <div class="boot-mark">BH</div>
+      <img class="boot-mark" src="/assets/branding/binhamid-factory-logo.png" alt="مصنع بن حامد للبلوك والخرسانة الجاهزة">
       <h1>نظام رقابة مصنع بن حامد</h1>
       <p>تحميل النسخة التشغيلية وربط طبقة الحفظ السحابي ومركز الاتصال.</p>
       <div class="boot-line"></div>
@@ -48,6 +48,7 @@
           injectScript('binhamid-cloud-navigation-fix','/assets/cloud-control-navigation-fix.js?v=20260716-4',function(){console.error('[BinHamid] تعذر تحميل إصلاح تنقل مركز الاتصال.');});
           injectScript('binhamid-attendance-control','/assets/attendance-control.js?v=20260716-2',function(){console.error('[BinHamid] تعذر تحميل إدارة الحضور والسائقين.');});
           injectScript('binhamid-conversation-control','/assets/cloud-conversations.js?v=20260716-2',function(){console.error('[BinHamid] تعذر تحميل سجل المحادثات.');});
+          injectScript('binhamid-bot-activity-dashboard','/assets/bot-activity-dashboard.js?v=20260718-1',function(){console.error('[BinHamid] تعذر تحميل تحليلات البوت.');});
           injectScript('binhamid-operations-control','/assets/cloud-operations.js?v=20260716-2',function(){console.error('[BinHamid] تعذر تحميل مركز العمليات.');});
           injectScript('binhamid-operations-actions','/assets/cloud-operations-actions.js?v=20260716-1',function(){console.error('[BinHamid] تعذر تحميل إجراءات مركز العمليات.');});
           injectScript('binhamid-reports-control','/assets/cloud-reports.js?v=20260716-1',function(){console.error('[BinHamid] تعذر تحميل مركز التقارير.');});
@@ -58,6 +59,11 @@
           injectScript('binhamid-import-review-guard','/assets/import-review-guard.js?v=20260717-1',function(){console.error('[BinHamid] تعذر تحميل حارس مراجعة الملفات الواردة.');});
           injectScript('binhamid-daily-report-source','/assets/daily-report-source-of-truth.js?v=20260717-final-acceptance-19',function(){console.error('[BinHamid] تعذر تحميل حارس الاعتماد السحابي للتقرير اليومي.');});
           injectScript('binhamid-telegram-site-two-way','/assets/telegram-site-two-way.js?v=20260717-1',function(){console.error('[BinHamid] تعذر تحميل الأتمتة الثنائية بين Telegram والموقع.');});
+          injectScript('binhamid-owner-web-login','/assets/owner-web-login.js?v=20260718-3',function(){console.error('[BinHamid] تعذر تحميل شاشة دخول المالك.');});
+          injectScript('binhamid-factory-reset-cloud','/assets/factory-reset-cloud.js?v=20260718-1',function(){console.error('[BinHamid] تعذر تحميل إعادة ضبط المصنع السحابية.');});
+          injectScript('binhamid-customer-opening-balances','/assets/customer-opening-balances.js?v=20260718-1',function(){console.error('[BinHamid] تعذر تحميل أرصدة العملاء الافتتاحية.');});
+          injectScript('binhamid-fleet-attendance-status','/assets/fleet-attendance-status.js?v=20260718-1',function(){console.error('[BinHamid] تعذر تحميل حالة الأسطول بالحضور والانصراف.');});
+          injectScript('binhamid-internal-fuel-control','/assets/internal-fuel-control.js?v=20260718-1',function(){console.error('[BinHamid] تعذر تحميل قواعد رقابة الديزل الداخلية.');});
           injectScript('binhamid-governance-entry','/assets/governance-entry.js?v=20260717-final-acceptance-19',function(){console.error('[BinHamid] تعذر تحميل روابط مركز الرقابة والحوكمة.');});
         }
         function openRequestedWorkspace(){

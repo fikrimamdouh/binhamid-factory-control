@@ -86,7 +86,7 @@ export async function handleCustomerReportTextCommand(message,identity,text){
   if(/^(ملخص العملاء|اجمالي العملاء|إجمالي العملاء)$/.test(value)){if(!canView(identity))await deny(message.chat.id);else await sendSummary(message.chat.id,identity);return true;}
   if(/^(اكبر المديونيات|أكبر المديونيات|مديونيات العملاء)$/.test(value)){if(!canView(identity))await deny(message.chat.id);else await sendTopDebt(message.chat.id,identity);return true;}
   if(/^(اعمار الديون|أعمار الديون|تحليل اعمار الديون|تحليل أعمار الديون)$/.test(value)){if(!canView(identity))await deny(message.chat.id);else await sendAging(message.chat.id,identity);return true;}
-  const direct=raw.match(/^(?:كشف عميل|تقرير عميل|مديونية عميل|حساب عميل)\s+(.{2,})$/i);
+  const direct=raw.match(/^(?:\/client(?:@\w+)?|كشف عميل|تقرير عميل|مديونية عميل|حساب عميل)\s+(.{2,})$/i);
   if(direct){if(!canView(identity))await deny(message.chat.id);else await sendCustomerStatement(message.chat.id,identity,direct[1]);return true;}
   return false;
 }

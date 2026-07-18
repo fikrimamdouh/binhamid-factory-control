@@ -91,9 +91,9 @@ test('sync conflict and Telegram WebApp validation remain server-side',async()=>
   assert.match(driver,/vehicleFor/);assert.match(driver,/client_event_id/);assert.match(driver,/receiptDataUrl/);assert.match(driver,/مركبة مسندة/);
 });
 
-test('readiness requires schema 22 and reports accounting and governance gaps',async()=>{
+test('readiness requires schema 23 and reports accounting, governance and reset gaps',async()=>{
   const readiness=await read('api/_lib/routes/system-runtime.js');
-  assert.match(readiness,/LATEST_REQUIRED_VERSION=22/);
+  assert.match(readiness,/LATEST_REQUIRED_VERSION=23/);
   for(const marker of ['missingTables','missingColumns','missingMigrations','migration_history.sequence','collectDatabaseReadiness','financial_periods','credit_override_requests','unified_assets','compliance_documents','handover_acceptance_runs','control_asset_duplicates','credit_override_id','chart_of_accounts','journal_entries','journal_entry_lines','general_ledger','trial_balance','accounting_integrity_report','telegram_update_receipts'])assert.match(readiness,new RegExp(marker));
   assert.doesNotMatch(readiness,/ready:\s*true,\s*schemaVersion/);
 });

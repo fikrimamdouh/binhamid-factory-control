@@ -1,6 +1,6 @@
 import { requireAdmin } from '../auth.js';
 import { body, errorResponse, json, method } from '../http.js';
-import { assertSameOrigin, issueDeviceSession } from '../device-session.js';
+import { assertSameOrigin, issueDeviceSession, readDeviceSession } from '../device-session.js';
 import { insert, patch, rpc, select } from '../supabase.js';
 
 const validDevice=value=>/^dev-[A-Za-z0-9-]{8,150}$/.test(String(value||''));
@@ -26,7 +26,7 @@ export async function deviceSession(req,res){
     if(input.action==='revoke'){
       const admin=requireAdmin(req);await rpc('revoke_device_enrollment',{p_device_id:deviceId,p_actor:admin.actor});const session=issueDeviceSession(req,res,deviceId,'');return json(res,200,{ok:true,mode:'revoked-device-session',deviceId:session.deviceId,bound:false,needsApproval:true,expiresAt:new Date(session.exp*1000).toISOString()});
     }
-    const binding=await approvedBinding(deviceId);await recordPending(req,deviceId);const session=issueDeviceSession(req,res,deviceId,binding?.user?.id||'');
+    const binding=await approvedBinding(deviceId),current=readDeviceSession(req),existingUser=current?.deviceId===deviceId?current.appUserId:'';await recordPending(req,deviceId);const session=issueDeviceSession(req,res,deviceId,binding?.user?.id||existingUser||'');
     json(res,200,{ok:true,mode:binding?'approved-device-session':'automatic-device-session',deviceId:session.deviceId,bound:Boolean(session.appUserId),needsApproval:!session.appUserId,expiresAt:new Date(session.exp*1000).toISOString()});
   }catch(error){errorResponse(res,error);}
 }

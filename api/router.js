@@ -15,6 +15,10 @@ import * as resilience from './_lib/routes/resilience.js';
 import * as dailyReport from './_lib/routes/daily-report.js';
 import * as fifo from './_lib/routes/fifo.js';
 import * as accounting from './_lib/routes/accounting.js';
+import * as fleetStatus from './_lib/routes/fleet-status.js';
+import * as webAuth from './_lib/routes/web-auth.js';
+import * as factoryReset from './_lib/routes/factory-reset.js';
+import * as telegramMiniApp from './_lib/routes/telegram-mini-app.js';
 
 const routes={
   'admin/groups':admin.groups,
@@ -40,7 +44,12 @@ const routes={
   'costs':costs.costs,
   'mix-designs':mixDesigns.mixDesigns,
   'driver/webapp':driverWebApp.driverWebApp,
-  'resilience':resilience.resilience
+  'resilience':resilience.resilience,
+  'fleet/status':fleetStatus.fleetStatus,
+  'auth/request':webAuth.requestWebLogin,
+  'auth/verify':webAuth.verifyWebLogin,
+  'factory-reset':factoryReset.factoryReset,
+  'telegram/mini-app':telegramMiniApp.telegramMiniApp
 };
 
 export default async function handler(req,res){

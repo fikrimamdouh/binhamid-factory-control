@@ -47,11 +47,12 @@ test('workshop and attendance wrappers revalidate permissions in every step',asy
   assert.match(attendance,/fuelconfirm/);
 });
 
-test('GPS enforces role and limits a driver to the assigned vehicle',async()=>{
+test('fleet status enforces role and limits a driver to the assigned vehicle without GPS tracking',async()=>{
   const gps=await read('api/_lib/bot-gps.js');
   assert.match(gps,/GPS_ROLES/);
   assert.match(gps,/employee_assignments/);
   assert.match(gps,/identity\.role==='driver'/);
   assert.match(gps,/vehicle_external_id/);
-  assert.match(gps,/المركبة المرتبطة بك غير مطابقة/);
+  assert.match(gps,/attendance_events/);
+  assert.match(gps,/ليست تتبع GPS/);
 });

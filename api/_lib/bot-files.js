@@ -5,6 +5,7 @@ import { sendMessage, sendDocumentBuffer, downloadTelegramFile } from './telegra
 import { classifyFile, sha256 } from './domain.js';
 import { parseDailyWorkbook } from './daily-summary-parser.js';
 import { generateCumulativeDailyPdfs } from './daily-cumulative-pdf.js';
+import { commitDailyReportFromTelegram } from './routes/daily-report.js';
 import { reportTypeLabel, reportDestination } from './bot-profile.js';
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const plain=v=>String(v??'').replace(/<[^>]+>/g,'');
@@ -31,6 +32,29 @@ function excelFailureMessage(error){
 function dailySummaryText(summary={}){
   if(!summary.invoiceCount&&!summary.collectionCount)return'';
   return `\n\n<b>ملخص القراءة:</b>\nالفواتير: <b>${number(summary.invoiceCount)}</b>\nإجمالي المبيعات: <b>${number(summary.salesTotal)} ر.س</b>\nالبلوك: <b>${number(summary.blockQuantity)} قطعة — ${number(summary.blockSales)} ر.س</b>\nالخرسانة: <b>${number(summary.concreteQuantity)} م³ — ${number(summary.concreteSales)} ر.س</b>\nالتحصيلات: <b>${number(summary.collectionCount)} حركة — ${number(summary.collectionTotal)} ر.س</b>`;
+}
+function reportDateFromFile(name,messageDate){
+  const value=String(name||'').replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d));
+  let match=value.match(/(20\d{2})[./_-](\d{1,2})[./_-](\d{1,2})/);
+  if(match)return`${match[1]}-${String(match[2]).padStart(2,'0')}-${String(match[3]).padStart(2,'0')}`;
+  match=value.match(/(\d{1,2})[./_-](\d{1,2})[./_-](20\d{2})/);
+  if(match)return`${match[3]}-${String(match[2]).padStart(2,'0')}-${String(match[1]).padStart(2,'0')}`;
+  const epoch=Number(messageDate||0)*1000;
+  return new Date(epoch||Date.now()).toLocaleDateString('en-CA',{timeZone:'Asia/Riyadh'});
+}
+function autoPayload(analysis,reportDate,importId){
+  return{
+    sales:(analysis?.sales||[]).map((row,index)=>({sourceRowNo:row.row||index+1,invoiceNo:row.invoice,salesType:row.kind==='بلوك'?'block':row.kind==='خرسانة'?'concrete':'',customerCode:row.customerCode,customerName:row.customer,item:row.item,quantity:row.quantity,amount:row.amount,paymentTerms:null})),
+    cashMovements:(analysis?.collections||[]).map((row,index)=>({sourceRowNo:row.row||index+1,treasuryCode:row.treasuryCode,treasuryName:row.treasuryName,debit:row.amount,credit:0,accountName:row.customer,accountCode:row.customerCode,movementType:'استلام عميل',voucherNo:`TG-${String(importId||'file').slice(0,12)}-${row.row||index+1}`,movementDate:reportDate,isCustomerCollection:true})),
+    treasuries:[],inventory:[],summary:{totalSales:analysis?.summary?.salesTotal||0}
+  };
+}
+function autoPostingText(result={}){
+  const preview=result.preview||{},errors=(result.errors||[]).slice(0,5),balances=(result.affectedBalances||[]).slice(0,5);
+  if(result.duplicate)return`<b>لم يُسجل تكرار.</b> هذا الملف مرحّل سابقًا بنفس البصمة.\nالمرجع: <b>${esc(result.existingImportId||'—')}</b>`;
+  if(!result.ok)return`<b>حُفظ الملف ولم يُرحّل.</b>\nالأخطاء: <b>${number(errors.length||preview.errorCount||0)}</b>\n${errors.map((error,index)=>`${index+1}. ${esc(error.message||error.code||'خطأ تحقق')}`).join('\n')}\n\nافتح Mini App من البوت لمراجعة الأخطاء؛ لم يُنشأ أي قيد أو مبيعات جزئية.`;
+  const accounting=result.accounting||{};
+  return`<b>تم ترحيل التقرير تلقائيًا بنجاح.</b>\nالفواتير: <b>${number(preview.invoiceCount)}</b>\nالمبيعات: <b>${number(preview.salesTotal)} ر.س</b>\nالتحصيلات: <b>${number(preview.collectionTotal)} ر.س</b>\nالخزينة 101: <b>${number(preview.treasury101)} ر.س</b> — الخزينة 104: <b>${number(preview.treasury104)} ر.س</b>\nالقيود: <b>${number(accounting.entryCount)}</b> ${accounting.balanced?'ومتوازنة':'تحتاج مراجعة'}\n${balances.length?`\n<b>الأرصدة المتأثرة:</b>\n${balances.map(row=>`• ${esc(row.customerName)} (${esc(row.customerCode)}): <b>${number(row.balance)} ر.س</b>`).join('\n')}`:''}`;
 }
 async function sendProcessingResult(chatId,text,name){
   try{return await sendMessage(chatId,text);}
@@ -82,9 +106,12 @@ export async function handleExcel(message,group,identity,stored){
       const register=async()=>duplicate?await patch('imports',`id=eq.${encodeURIComponent(duplicate.id)}`,values):insert('imports',[{source:'telegram',...values}]);
       const rows=await excelStep('registry',register),imp=rows?.[0]||duplicate;
       if(stored?.id&&imp?.id)await patch('telegram_messages',`id=eq.${stored.id}`,{file_path:path,related_entity_type:'import',related_entity_id:imp.id,transcription:null}).catch(error=>console.warn('[telegram excel message link]',error?.message||error));
-      const recognizedDaily=dailyType(reportType),state=status!=='ready'?'حُفظ لكن تعذر الفحص الآلي':recognizedDaily?'محفوظ وجاهز للمراجعة والاعتماد من شاشة التقرير اليومي':'جاهز للمراجعة',footer=recognizedDaily?'لم يتم اعتماد التقرير أو إنشاء أي قيود تلقائيًا؛ الاعتماد يتم من البرنامج بعد المراجعة.':'لم تُرحّل البيانات نهائيًا.',resultTitle=recheck?'تمت إعادة فحص الملف القديم وتحديث تصنيفه بنجاح.':status==='ready'?'تم فحص الملف وحفظه بنجاح.':'تم حفظ الملف، لكن تعذر فحص محتواه آليًا.';
-      resultText=`${resultTitle}\n\nالاسم: ${esc(name)}\nالنوع: <b>${esc(reportTypeLabel(reportType))}</b>\nالمسار: <b>${esc(reportDestination(reportType,group.department))}</b>\nالأوراق: ${esc(sheetNames.join('، ')||'تعذر القراءة')}\nالصفوف: <b>${rowCount}</b>${recognizedDaily?dailySummaryText(summary.daily):''}\nالحالة: <b>${state}</b>\n\n${footer}`;
-      result={duplicate:false,import:imp,reportType,status,path,recognizedDaily};
+      const recognizedDaily=dailyType(reportType),reportDate=reportDateFromFile(name,message.date),resultTitle=recheck?'تمت إعادة فحص الملف القديم وتحديث تصنيفه بنجاح.':status==='ready'?'تم فحص الملف وحفظه بنجاح.':'تم حفظ الملف، لكن تعذر فحص محتواه آليًا.';
+      let posting=null;
+      if(recognizedDaily&&status==='ready')posting=await excelStep('posting',()=>commitDailyReportFromTelegram({reportDate,originalName:name,fileHash:hash,contentHash:hash,idempotencyKey:`telegram-daily:${reportDate}:${hash}`,importId:imp.id,payload:autoPayload(dailyAnalysis,reportDate,imp.id)},String(identity.user_id||identity.external_id||'telegram-bot')));
+      const state=status!=='ready'?'حُفظ لكن تعذر الفحص الآلي':posting?.ok?'مرحّل تلقائيًا ومربوط بسجل المستخدم':posting?.duplicate?'ملف مكرر — لم تُكرر أي قيود':recognizedDaily?'يحتاج مراجعة الأخطاء في Mini App':'جاهز للمراجعة';
+      resultText=`${resultTitle}\n\nالاسم: <b>${esc(name)}</b>\nالنوع: <b>${esc(reportTypeLabel(reportType))}</b>\nالتاريخ التشغيلي: <b>${esc(reportDate)}</b>\nالأوراق: ${esc(sheetNames.join('، ')||'تعذر القراءة')}\nالصفوف: <b>${rowCount}</b>${recognizedDaily?dailySummaryText(summary.daily):''}\nالحالة: <b>${state}</b>${posting?`\n\n${autoPostingText(posting)}`:recognizedDaily?'\n\nلم يُرحّل لأن القراءة الآلية لم تكتمل.':'\n\nلم تُرحّل البيانات نهائيًا.'}`;
+      result={duplicate:false,import:imp,reportType,status,path,recognizedDaily,posting,reportDate};
     }
   }catch(error){
     console.error('[telegram excel import]',{stage:error?.excelStage||'unknown',status:Number(error?.status||error?.upstreamStatus||0),message:String(error?.message||'').slice(0,500)});
@@ -93,7 +120,7 @@ export async function handleExcel(message,group,identity,stored){
   }
   await relayToOwner(chatId,relay?.buffer,name,relay?.contentType,`ملف وارد من Telegram\n\n${resultText}`,{importId:result?.import?.id});
   await sendProcessingResult(chatId,resultText,name);
-  if(result?.recognizedDaily&&result?.status!=='failed')result.pdfReports=await sendCumulativeDailyReports(chatId,result.duplicate?{}:dailyAnalysis,name);
+  if(result?.recognizedDaily&&result?.status!=='failed'&&result?.posting?.ok&&!result?.posting?.duplicate)result.pdfReports=await sendCumulativeDailyReports(chatId,dailyAnalysis,name);
   return result;
 }
 export async function handleAttachment(message,group,identity,stored){
