@@ -24,7 +24,7 @@ export async function loadCostDecisionData(periodValue){
   const [report,setup,ledger,driverEvents,attendance,employees,assignments,vehicles]=await Promise.all([
     getCostReport(period),
     getCostSetup().catch(()=>({assetAssignments:[],employeeAssignments:[]})),
-    select('cost_ledger',`period_start=eq.${start}&posted_status=eq.posted&select=entry_type,cost_center,source_type,amount,quantity,metadata,occurred_at&order=occurred_at.asc&limit=5000`).catch(()=>[]),
+    select('cost_ledger',`period_start=eq.${start}&posted_status=eq.posted&select=entry_type,cost_center,source_type,source_reference,amount,quantity,metadata,occurred_at&order=occurred_at.asc&limit=5000`).catch(()=>[]),
     select('driver_events',`${range}&select=app_user_id,employee_external_id,vehicle_external_id,event_type,odometer,fuel_liters,fuel_amount,occurred_at&order=occurred_at.asc&limit=5000`).catch(()=>[]),
     select('attendance_events',`${range}&select=app_user_id,employee_external_id,event_type,occurred_at&order=occurred_at.asc&limit=5000`).catch(()=>[]),
     select('employees','active=eq.true&select=external_id,employee_no,full_name,salary,role&order=full_name.asc&limit=5000').catch(()=>[]),
@@ -45,7 +45,7 @@ export function productEconomics(data){
 function workerIndexes(data){
   const byExternal=new Map(data.employees.map(row=>[String(row.external_id),row]));
   const assignmentByUser=new Map(data.assignments.map(row=>[String(row.app_user_id),row]));
-  const salaryByEmployee=new Map(),daysByEmployee=new Map(),tripsByEmployee=new Map();
+  const salaryByEmployee=new Map(),daysByEmployee=new Map(),tripsByEmployee=new Map(),fuelByEmployee=new Map();
   for(const row of data.ledger){
     if(row.source_type!=='salary_allocation')continue;
     const key=String(meta(row).employee_external_id||'');
@@ -59,49 +59,68 @@ function workerIndexes(data){
     daysByEmployee.get(key).add(String(row.occurred_at||'').slice(0,10));
   }
   for(const row of data.driverEvents){
-    if(row.event_type!=='trip_end')continue;
     const assignment=assignmentByUser.get(String(row.app_user_id));
     const key=String(row.employee_external_id||assignment?.employee_external_id||'');
-    if(key)tripsByEmployee.set(key,(tripsByEmployee.get(key)||0)+1);
+    if(!key)continue;
+    if(row.event_type==='trip_end')tripsByEmployee.set(key,(tripsByEmployee.get(key)||0)+1);
+    if(n(row.fuel_amount)>0||n(row.fuel_liters)>0){const current=fuelByEmployee.get(key)||{amount:0,liters:0,events:0};current.amount+=n(row.fuel_amount);current.liters+=n(row.fuel_liters);current.events+=1;fuelByEmployee.set(key,current);}
   }
-  return{byExternal,salaryByEmployee,daysByEmployee,tripsByEmployee};
+  return{byExternal,salaryByEmployee,daysByEmployee,tripsByEmployee,fuelByEmployee};
 }
 
 export function workerEconomics(data){
   const indexes=workerIndexes(data),costAssigned=new Set((data.setup.employeeAssignments||[]).map(row=>String(row.employee_external_id))),vehicleByEmployee=new Map(data.assignments.map(row=>[String(row.employee_external_id||''),String(row.vehicle_external_id||'')]));
   return data.employees.map(employee=>{
-    const key=String(employee.external_id),allocated=indexes.salaryByEmployee.get(key),monthlyCost=allocated===undefined?n(employee.salary):allocated,attendanceDays=indexes.daysByEmployee.get(key)?.size||0,completedTrips=indexes.tripsByEmployee.get(key)||0;
-    return{key,name:employee.full_name||employee.employee_no||key,vehicle:vehicleByEmployee.get(key)||'',monthlyCost,costSource:allocated===undefined?'salary_master':'cost_engine',attendanceDays,completedTrips,costPerDay:attendanceDays?monthlyCost/attendanceDays:null,costPerTrip:completedTrips?monthlyCost/completedTrips:null,costAssigned:costAssigned.has(key)};
+    const key=String(employee.external_id),allocated=indexes.salaryByEmployee.get(key),monthlyCost=allocated===undefined?n(employee.salary):allocated,attendanceDays=indexes.daysByEmployee.get(key)?.size||0,completedTrips=indexes.tripsByEmployee.get(key)||0,fuel=indexes.fuelByEmployee.get(key)||{amount:0,liters:0,events:0};
+    return{key,name:employee.full_name||employee.employee_no||key,vehicle:vehicleByEmployee.get(key)||'',monthlyCost,costSource:allocated===undefined?'salary_master':'cost_engine',attendanceDays,completedTrips,costPerDay:attendanceDays?monthlyCost/attendanceDays:null,costPerTrip:completedTrips?monthlyCost/completedTrips:null,costAssigned:costAssigned.has(key),responsibleFuelCost:fuel.amount,responsibleFuelLiters:fuel.liters,fuelEvents:fuel.events};
   }).sort((a,b)=>b.monthlyCost-a.monthlyCost);
+}
+
+export function analyzeOdometer(events=[],options={}){
+  const maxKmPerDay=n(options.maxKmPerDay)||2000,minJumpThreshold=n(options.minJumpThreshold)||500;
+  const readings=(events||[]).map((row,index)=>({value:n(row.odometer),time:Date.parse(row.occurred_at||''),index})).filter(row=>row.value>0).sort((a,b)=>Number.isFinite(a.time)&&Number.isFinite(b.time)?a.time-b.time:a.index-b.index);
+  if(readings.length<2)return{distance:0,reliable:false,readingCount:readings.length,decreases:0,jumps:0,ignored:0,reason:'insufficient_readings'};
+  let distance=0,decreases=0,jumps=0,ignored=0,previous=readings[0];
+  for(let index=1;index<readings.length;index++){
+    const current=readings[index],delta=current.value-previous.value;
+    if(delta<0){decreases+=1;ignored+=1;previous=current;continue;}
+    if(delta===0){previous=current;continue;}
+    const elapsedDays=Number.isFinite(current.time)&&Number.isFinite(previous.time)&&current.time>previous.time?(current.time-previous.time)/86400000:null,maxAllowed=elapsedDays===null?5000:Math.max(minJumpThreshold,maxKmPerDay*Math.max(elapsedDays,1/24));
+    if(delta>maxAllowed){jumps+=1;ignored+=1;previous=current;continue;}
+    distance+=delta;previous=current;
+  }
+  const reliable=distance>0&&decreases===0&&jumps===0;
+  return{distance,reliable,readingCount:readings.length,decreases,jumps,ignored,reason:reliable?'ok':decreases?'odometer_decrease':jumps?'unreasonable_jump':'no_positive_distance'};
 }
 
 export function vehicleEconomics(data){
   const workers=workerEconomics(data),workerByVehicle=new Map();
   for(const worker of workers){if(!worker.vehicle)continue;if(!workerByVehicle.has(worker.vehicle))workerByVehicle.set(worker.vehicle,[]);workerByVehicle.get(worker.vehicle).push(worker);}
-  const map=new Map(),get=key=>{if(!map.has(key))map.set(key,{key,fuel:0,maintenance:0,other:0,trips:0,odometers:[]});return map.get(key);};
+  const map=new Map(),get=key=>{if(!map.has(key))map.set(key,{key,fuel:0,fuelLiters:0,maintenance:0,maintenanceOrders:new Set(),other:0,trips:0,odometerEvents:[]});return map.get(key);};
   for(const row of data.ledger){
     const details=meta(row),key=text(details.vehicle_external_id,details.plate_or_asset);
     if(!key)continue;
     const item=get(key),amount=n(row.amount);
-    if(row.source_type==='driver_fuel_event')item.fuel+=amount;
-    else if(row.source_type==='maintenance_order')item.maintenance+=amount;
+    if(row.source_type==='driver_fuel_event'){item.fuel+=amount;item.fuelLiters+=n(row.quantity||details.fuel_liters);}
+    else if(row.source_type==='maintenance_order'){item.maintenance+=amount;if(row.source_reference)item.maintenanceOrders.add(String(row.source_reference));}
     else if(row.entry_type!=='revenue')item.other+=amount;
   }
   for(const row of data.driverEvents){
     const key=String(row.vehicle_external_id||'').trim();if(!key)continue;
-    const item=get(key);if(row.event_type==='trip_end')item.trips+=1;if(n(row.odometer)>0)item.odometers.push(n(row.odometer));
+    const item=get(key);if(row.event_type==='trip_end')item.trips+=1;if(n(row.odometer)>0)item.odometerEvents.push(row);
+    if(n(row.fuel_liters)>0&&item.fuelLiters===0)item.fuelLiters+=n(row.fuel_liters);
   }
   const infoById=new Map(data.vehicles.map(row=>[String(row.external_id),row]));
   return[...map.values()].map(item=>{
     const info=infoById.get(item.key)||data.vehicles.find(row=>String(row.plate_no||'')===item.key||String(row.asset_no||'')===item.key)||{};
-    const linkedWorkers=workerByVehicle.get(item.key)||[],labor=total(linkedWorkers,row=>row.monthlyCost),direct=item.fuel+item.maintenance+item.other,distance=item.odometers.length>1?Math.max(...item.odometers)-Math.min(...item.odometers):0,operatingCost=direct+labor;
-    return{...item,label:text(info.plate_no,info.asset_no,item.key),workers:linkedWorkers.map(row=>row.name),labor,direct,distance,operatingCost,costPerTrip:item.trips?operatingCost/item.trips:null,costPerKm:distance>0?operatingCost/distance:null};
+    const linkedWorkers=workerByVehicle.get(item.key)||[],labor=total(linkedWorkers,row=>row.monthlyCost),direct=item.fuel+item.maintenance+item.other,odometer=analyzeOdometer(item.odometerEvents),operatingCost=direct+labor;
+    return{...item,maintenanceOrders:item.maintenanceOrders.size,label:text(info.plate_no,info.asset_no,item.key),assetNo:String(info.asset_no||''),vehicleType:String(info.vehicle_type||''),workers:linkedWorkers.map(row=>row.name),labor,direct,distance:odometer.distance,distanceReliable:odometer.reliable,odometerQuality:odometer,operatingCost,costPerTrip:item.trips?operatingCost/item.trips:null,costPerKm:odometer.reliable&&odometer.distance>0?operatingCost/odometer.distance:null};
   }).sort((a,b)=>b.operatingCost-a.operatingCost);
 }
 
 export function tripEconomics(data){
-  const vehicles=vehicleEconomics(data),completedTrips=total(vehicles,row=>row.trips),directCost=total(vehicles,row=>row.direct),laborCost=total(vehicles,row=>row.labor),distance=total(vehicles,row=>row.distance),operatingCost=directCost+laborCost;
-  return{vehicles,completedTrips,directCost,laborCost,distance,operatingCost,averageTripCost:completedTrips?operatingCost/completedTrips:null,averageKmCost:distance>0?operatingCost/distance:null,costWithoutTrips:vehicles.filter(row=>row.operatingCost>0&&!row.trips).length};
+  const vehicles=vehicleEconomics(data),completedTrips=total(vehicles,row=>row.trips),directCost=total(vehicles,row=>row.direct),laborCost=total(vehicles,row=>row.labor),distance=total(vehicles,row=>row.distanceReliable?row.distance:0),operatingCost=directCost+laborCost,reliableDistanceVehicles=vehicles.filter(row=>row.distanceReliable).length;
+  return{vehicles,completedTrips,directCost,laborCost,distance,operatingCost,averageTripCost:completedTrips?operatingCost/completedTrips:null,averageKmCost:distance>0?operatingCost/distance:null,costWithoutTrips:vehicles.filter(row=>row.operatingCost>0&&!row.trips).length,reliableDistanceVehicles,unreliableDistanceVehicles:vehicles.length-reliableDistanceVehicles};
 }
 
 export function breakEvenEconomics(data){
