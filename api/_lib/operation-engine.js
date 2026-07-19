@@ -26,7 +26,8 @@ export function lifecycleForStatus(status=''){
 export function buildIdempotencyKey(input={}){
   const explicit=clean(input.idempotencyKey??input.idempotency_key,240);
   if(explicit)return explicit;
-  const basis={operationType:clean(input.operationType??input.operation_type,120),source:clean(input.source,30),sourceReference:clean(input.sourceReference??input.source_reference,240),referenceNo:clean(input.referenceNo??input.reference_no,120),payload:input.payload&&typeof input.payload==='object'?input.payload:{}};
+  const operationType=clean(input.operationType??input.operation_type,120),source=clean(input.source,30),sourceReference=clean(input.sourceReference??input.source_reference,240);
+  const basis=sourceReference?{operationType,source,sourceReference}:{operationType,source,referenceNo:clean(input.referenceNo??input.reference_no,120),payload:input.payload&&typeof input.payload==='object'?input.payload:{}};
   return`op:${crypto.createHash('sha256').update(stableStringify(basis)).digest('hex')}`;
 }
 
@@ -42,9 +43,10 @@ function normalizeNotifications(notifications=[],key=''){
   return(Array.isArray(notifications)?notifications:[]).filter(item=>item&&item.message).map((item,index)=>({type:clean(item.type,80)||'operation',userId:clean(item.userId,120)||null,chatId:clean(item.chatId,120)||null,title:clean(item.title,300)||null,message:clean(item.message,12000),scheduledAt:clean(item.scheduledAt,80)||null,dedupeKey:clean(item.dedupeKey,240)||`${key}:notification:${index+1}`,payload:item.payload&&typeof item.payload==='object'?item.payload:{}}));
 }
 function rpcUnavailable(error){return/PGRST202|Could not find the function|execute_unified_operation|transition_unified_operation/i.test(`${error?.message||''} ${JSON.stringify(error?.data||{})}`);}
+async function chatForUser(userId){const value=clean(userId,120);if(!value)return null;return(await select('user_channels',`user_id=eq.${encodeURIComponent(value)}&channel=eq.telegram&active=eq.true&select=external_id&order=last_seen_at.desc&limit=1`).catch(()=>[]))?.[0]?.external_id||null;}
 
 async function compatibilityExecute(envelope,notifications){
-  const existing=(await select('operational_records',`entity_type=eq.${encodeURIComponent(envelope.entity_type)}&reference_no=eq.${encodeURIComponent(String(envelope.reference_no||''))}&select=*&limit=1`).catch(()=>[]))?.[0];
+  const byKey=(await select('operational_records',`payload->>idempotency_key=eq.${encodeURIComponent(envelope.idempotency_key)}&select=*&order=created_at.desc&limit=1`).catch(()=>[]))?.[0],byReference=byKey?null:(await select('operational_records',`entity_type=eq.${encodeURIComponent(envelope.entity_type)}&reference_no=eq.${encodeURIComponent(String(envelope.reference_no||''))}&select=*&limit=1`).catch(()=>[]))?.[0],existing=byKey||byReference;
   if(existing&&existing.payload?.idempotency_key===envelope.idempotency_key)return{ok:true,duplicate:true,operationId:existing.id,referenceNo:existing.reference_no,status:existing.status,lifecycleStatus:existing.payload?.lifecycle_status||lifecycleForStatus(existing.status),outboxIds:[],compatibilityMode:true};
   const reference=envelope.reference_no||`OP-${envelope.idempotency_key.slice(-16).toUpperCase()}`,stamp=now(),payload={...envelope.payload,operation_type:envelope.operation_type,idempotency_key:envelope.idempotency_key,lifecycle_status:envelope.lifecycle_status,source:envelope.source,source_reference:envelope.source_reference};
   const row={reference_no:reference,entity_type:envelope.entity_type,department:envelope.department,status:envelope.status,title:envelope.title,summary:envelope.summary,amount:envelope.amount,payload,created_by:envelope.created_by_user_id||null,assigned_to:envelope.assigned_to_user_id||null,source_channel:envelope.source,source_chat_id:envelope.source_chat_id,source_message_id:envelope.source_message_id,created_at:stamp,updated_at:stamp,closed_at:terminal.has(envelope.lifecycle_status)?stamp:null};
@@ -90,9 +92,9 @@ export async function dispatchOperationNotifications(outboxIds=[]){
   const ids=[...new Set((Array.isArray(outboxIds)?outboxIds:[]).map(String).filter(Boolean))];if(!ids.length)return{queued:0,sent:0,failed:0,deadLetter:0};
   const rows=await select('notification_outbox',`id=in.(${ids.map(encodeURIComponent).join(',')})&status=in.(pending,failed,retrying)&select=*&order=created_at.asc&limit=500`).catch(()=>[]),result={queued:rows.length,sent:0,failed:0,deadLetter:0};
   for(const row of rows){
-    const attempts=Number(row.attempt_count||0)+1,started=now();await patchOutbox(row.id,{status:'retrying',attempt_count:attempts,last_attempt_at:started,error_text:null},{status:'retrying',error_text:null}).catch(()=>{});
-    try{if(!row.recipient_chat_id)throw new Error('RECIPIENT_CHAT_REQUIRED');const options=row.payload?.telegram_options&&typeof row.payload.telegram_options==='object'?row.payload.telegram_options:{};await sendMessage(row.recipient_chat_id,row.message,options);await patchOutbox(row.id,{status:'sent',sent_at:now(),error_text:null},{status:'sent',sent_at:now(),error_text:null});result.sent++;}
-    catch(error){const dead=attempts>=5,status=dead?'dead_letter':'failed',message=clean(error?.message||error,1000);await patchOutbox(row.id,{status,error_text:message,next_attempt_at:dead?null:new Date(Date.now()+Math.min(3600000,attempts*300000)).toISOString(),dead_letter_at:dead?now():null},{status,error_text:message});if(dead)result.deadLetter++;else result.failed++;}
+    const attempts=Number(row.attempt_count||row.attempts||0)+1,started=now();await patchOutbox(row.id,{status:'retrying',attempt_count:attempts,attempts,last_attempt_at:started,error_text:null},{status:'processing',attempts,last_attempt_at:started,error_text:null}).catch(()=>{});
+    try{const chatId=row.recipient_chat_id||await chatForUser(row.recipient_user_id);if(!chatId)throw new Error('RECIPIENT_CHAT_REQUIRED');const options=row.payload?.telegram_options&&typeof row.payload.telegram_options==='object'?row.payload.telegram_options:{};await sendMessage(chatId,row.message,options);await patchOutbox(row.id,{status:'sent',sent_at:now(),recipient_chat_id:String(chatId),error_text:null},{status:'sent',sent_at:now(),recipient_chat_id:String(chatId),error_text:null});result.sent++;}
+    catch(error){const dead=attempts>=5,status=dead?'dead_letter':'failed',message=clean(error?.message||error,1000);await patchOutbox(row.id,{status,error_text:message,next_attempt_at:dead?null:new Date(Date.now()+Math.min(3600000,attempts*300000)).toISOString(),dead_letter_at:dead?now():null,attempt_count:attempts,attempts},{status:dead?'failed':'failed',error_text:message,attempts});if(dead)result.deadLetter++;else result.failed++;}
   }
   return result;
 }
