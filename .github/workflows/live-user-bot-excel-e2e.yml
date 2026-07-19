@@ -101,16 +101,13 @@ jobs:
             raw=excluded.raw,
             created_at=excluded.created_at;
 
-          do $$
-          declare
-            user_count integer;
-            message_count integer;
-          begin
-            select count(*) into user_count from app_users where external_id=:'test_external_id' and active=true and role='manager';
-            select count(*) into message_count from telegram_messages where chat_id=:'test_external_id' and message_id='e2e-user-message-v1' and direction='incoming';
-            if user_count<>1 then raise exception 'Test user was not created correctly'; end if;
-            if message_count<>1 then raise exception 'Incoming bot message was not stored correctly'; end if;
-          end $$;
+          select 1 / case when count(*)=1 then 1 else 0 end as test_user_assertion
+          from app_users
+          where external_id=:'test_external_id' and active=true and role='manager';
+
+          select 1 / case when count(*)=1 then 1 else 0 end as test_message_assertion
+          from telegram_messages
+          where chat_id=:'test_external_id' and message_id='e2e-user-message-v1' and direction='incoming';
 
           select json_build_object(
             'test_user_created',exists(select 1 from app_users where external_id=:'test_external_id' and active=true),
