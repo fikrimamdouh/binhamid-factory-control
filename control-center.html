@@ -8,13 +8,14 @@
 *{box-sizing:border-box}body{margin:0;background:#eef2f3;color:#173746;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}.shell{max-width:1440px;margin:auto;padding:18px}.top{display:flex;justify-content:space-between;gap:16px;align-items:center;background:#123b50;color:#fff;border-radius:16px;padding:18px 22px}.top h1{margin:0;font-size:24px}.top p{margin:6px 0 0;color:#d8e4e8}.actions{display:flex;flex-wrap:wrap;gap:8px}button,input{font:inherit;border-radius:9px;padding:10px 12px;border:1px solid #c8d4d7}button{cursor:pointer;background:#fff;color:#123b50;font-weight:800}.primary{background:#d2aa45;color:#172f3d;border-color:#d2aa45}.danger{background:#8a2929;color:#fff;border-color:#8a2929}.login{margin-top:14px;background:#fff;border:1px solid #d5dddf;border-radius:14px;padding:16px;display:flex;gap:10px;align-items:center}.login input{flex:1}.hidden{display:none!important}.decision{margin-top:14px;border-radius:16px;padding:18px;background:#fff;border:1px solid #d5dddf;display:grid;grid-template-columns:150px 1fr;gap:18px;align-items:center}.score{font-size:42px;font-weight:900;text-align:center;border-left:1px solid #d5dddf}.decision.ready{border-right:8px solid #24764e}.decision.conditional{border-right:8px solid #b7791f}.decision.blocked{border-right:8px solid #a33232}.decision h2{margin:0 0 6px}.muted{color:#647980;font-size:13px}.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:14px}.card{background:#fff;border:1px solid #d5dddf;border-radius:14px;padding:15px}.card h3{font-size:13px;color:#667b82;margin:0 0 8px}.value{font-size:25px;font-weight:900}.section{margin-top:14px;background:#fff;border:1px solid #d5dddf;border-radius:14px;padding:16px}.section h2{font-size:18px;margin:0 0 12px}.workspaces{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.workspace{display:block;text-decoration:none;color:#173746;border:1px solid #d5dddf;border-radius:12px;padding:13px;background:#f8fbfb;font-weight:800}.workspace:hover{border-color:#a67b28;background:#fffaf0}.workspace span{display:block;color:#647980;font-size:12px;font-weight:500;margin-top:5px}.findings{display:grid;gap:9px}.finding{border:1px solid #dce3e5;border-radius:10px;padding:12px}.finding.blocker{border-right:6px solid #a33232;background:#fff8f8}.finding.warning{border-right:6px solid #b7791f;background:#fffaf0}.finding b{display:block;margin-bottom:4px}.statusline{display:flex;gap:8px;flex-wrap:wrap}.pill{padding:6px 9px;border-radius:999px;background:#edf2f3;font-size:12px;font-weight:800}.tablewrap{overflow:auto}table{width:100%;border-collapse:collapse;min-width:700px}th,td{text-align:right;padding:9px;border-bottom:1px solid #e1e7e9;font-size:13px}th{background:#f5f8f8}.empty{padding:18px;text-align:center;color:#667b82}@media(max-width:900px){.grid,.workspaces{grid-template-columns:repeat(2,minmax(0,1fr))}.top{display:block}.actions{margin-top:12px}.decision{grid-template-columns:1fr}.score{border:0;border-bottom:1px solid #d5dddf;padding-bottom:12px}}@media(max-width:520px){.grid,.workspaces{grid-template-columns:1fr}.login{display:grid}.shell{padding:10px}}@media print{.actions,.login{display:none!important}body{background:#fff}.shell{max-width:none}.card,.section,.decision{break-inside:avoid}}
 </style>
 </head>
-<body>
+<body><script src="/assets/admin-nav.js?v=20260719-1"></script>
 <main class="shell">
 <header class="top">
 <div><h1>مركز الرقابة والإدارة</h1><p>قرار موحد لحالة المصنع والمخاطر والاستثناءات</p></div>
-<div class="actions"><input id="day" type="date"><button class="primary" id="refresh">تحديث</button><button onclick="print()">طباعة</button><button class="danger" id="logout">فصل الجهاز</button></div>
+<div class="actions"><input id="day" type="date"><button class="primary" id="refresh">تحديث</button><button onclick="print()">طباعة</button><button id="altLoginToggle" title="دخول بديل لو تعذّر الدخول عبر Telegram">دخول برمز النظام</button><button class="danger" id="logout">فصل الجهاز</button></div>
 </header>
-<section id="login" class="login"><b>رمز الإدارة</b><input id="token" type="password" autocomplete="off" placeholder="أدخل رمز ربط الجهاز"><button class="primary" id="connect">فتح مركز الرقابة</button></section>
+<p class="muted" id="ownerHint" style="margin:8px 2px 0">جارٍ التحقق من جلسة المالك عبر Telegram…</p>
+<section id="login" class="login hidden"><b>رمز الإدارة</b><input id="token" type="password" autocomplete="off" placeholder="أدخل رمز ربط الجهاز"><button class="primary" id="connect">فتح مركز الرقابة</button></section>
 <div id="content" class="hidden">
 <section id="decision" class="decision"><div class="score"><span id="score">—</span><small>/100</small></div><div><h2 id="decisionText">جاري التحميل</h2><div class="statusline"><span class="pill" id="databaseStatus">قاعدة البيانات</span><span class="pill" id="cloudStatus">السحابة</span><span class="pill" id="telegramStatus">Telegram</span><span class="pill" id="updatedAt">آخر تحديث</span></div></div></section>
 <section class="section"><h2>أقسام المصنع المرتبطة</h2><div class="workspaces"><a class="workspace" href="/accounting.html">الحسابات والقيود<span>القيود اليومية، الأستاذ، ميزان المراجعة وفحص التوازن</span></a><a class="workspace" href="/mix-designs.html">المواد والأسعار والخلطات<span>خامات، أسعار سارية، خلطات خرسانة وبلوك، تكلفة واعتماد</span></a><a class="workspace" href="/?open=inventory">الخزن والجرد<span>الوارد والصرف والتحويل ومطابقة الأصناف</span></a><a class="workspace" href="/?open=deliveries">التقرير اليومي والعملاء<span>المبيعات والتحصيلات والذمم من الموقع وTelegram</span></a><a class="workspace" href="/?open=reports">التقارير والطباعة<span>المبيعات والتكلفة والمخرجات الإدارية</span></a><a class="workspace" href="/?open=backup">النسخ والاستعادة<span>حماية البيانات ومراجعة آخر نسخة</span></a><a class="workspace" href="/governance.html">الحوكمة والتسليم<span>للصلاحيات والاعتمادات الحساسة فقط</span></a></div><p class="muted">ملفات Telegram تظهر في الموقع للمراجعة ثم الاعتماد؛ لا يعتمد أي ملف تلقائيًا من جلسة الجهاز.</p></section>
@@ -32,9 +33,13 @@
 <section class="section"><h2>أحدث أحداث سجل التدقيق</h2><div class="tablewrap"><table><thead><tr><th>الوقت</th><th>المستخدم</th><th>الإجراء</th><th>النوع</th><th>المرجع</th></tr></thead><tbody id="audit"></tbody></table></div></section>
 </div>
 </main>
+<script src="/assets/owner-web-login.js?v=20260718-3"></script>
 <script>
 const $=id=>document.getElementById(id),money=value=>Number(value||0).toLocaleString('ar-SA',{minimumFractionDigits:2,maximumFractionDigits:2}),number=value=>Number(value||0).toLocaleString('ar-SA'),esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 $('day').value=new Date().toISOString().slice(0,10);$('token').value=sessionStorage.getItem('binhamid_admin_token')||'';
+function ownerUserId(){try{return localStorage.getItem('binhamid_cloud_app_user_id')||'';}catch{return '';}}
+function hasAnyAuth(){return !!(sessionStorage.getItem('binhamid_admin_token')||ownerUserId());}
+$('altLoginToggle').onclick=()=>{$('login').classList.toggle('hidden');if(!$('login').classList.contains('hidden'))$('token').focus();};
 function hours(value){return value===null||value===undefined?'غير متاح':`${Number(value).toFixed(1)} ساعة`;}
 function setText(id,value){$(id).textContent=value;}
 function render(data){
@@ -45,12 +50,37 @@ function render(data){
  const findings=a.findings||[];$('findings').innerHTML=findings.length?findings.map(x=>`<article class="finding ${esc(x.severity)}"><b>${esc(x.title)}</b><span class="muted">${esc(x.code)}</span></article>`).join(''):'<div class="empty">لا توجد مخالفات مفتوحة وفق قواعد مركز الرقابة.</div>';
  const audits=data.audit?.recent||[];$('audit').innerHTML=audits.length?audits.slice(0,50).map(x=>`<tr><td>${esc(new Date(x.created_at).toLocaleString('ar-SA',{timeZone:'Asia/Riyadh'}))}</td><td>${esc(x.actor_id||x.actor_type||'—')}</td><td>${esc(x.action)}</td><td>${esc(x.entity_type||'—')}</td><td>${esc(x.entity_id||'—')}</td></tr>`).join(''):'<tr><td colspan="5" class="empty">لا توجد أحداث تدقيق.</td></tr>';
 }
-async function load(){
- const token=$('token').value.trim()||sessionStorage.getItem('binhamid_admin_token')||'';if(!token){$('login').classList.remove('hidden');return;}
- sessionStorage.setItem('binhamid_admin_token',token);try{localStorage.setItem('binhamid_cloud_access_token',token);}catch{}$('refresh').disabled=true;
- try{const response=await fetch(`/api/control-center?day=${encodeURIComponent($('day').value)}`,{headers:{Authorization:`Bearer ${token}`},cache:'no-store'}),data=await response.json();if(!response.ok)throw new Error(data.error||'تعذر فتح مركز الرقابة');render(data);}catch(error){$('content').classList.add('hidden');$('login').classList.remove('hidden');alert(error.message);}finally{$('refresh').disabled=false;}
+async function load(tokenOverride){
+ const explicit=(tokenOverride||'').trim();
+ if(explicit){sessionStorage.setItem('binhamid_admin_token',explicit);try{localStorage.setItem('binhamid_cloud_access_token',explicit);}catch{}}
+ const savedToken=sessionStorage.getItem('binhamid_admin_token')||'';
+ // بوابة الدخول الأساسية جلسة المالك عبر Telegram (owner-web-login.js)؛ رمز الإدارة اليدوي مجرد خيار احتياطي.
+ if(!savedToken&&!ownerUserId()){$('ownerHint').textContent='ادخل بحساب المالك على Telegram لفتح مركز الرقابة تلقائيًا.';if(typeof window.bhCloudLogin==='function')window.bhCloudLogin();return;}
+ $('ownerHint').classList.add('hidden');$('refresh').disabled=true;
+ try{
+  const headers=savedToken?{Authorization:`Bearer ${savedToken}`}:{};
+  const response=await fetch(`/api/control-center?day=${encodeURIComponent($('day').value)}`,{headers,credentials:'same-origin',cache:'no-store'}),data=await response.json();
+  if(!response.ok)throw new Error(data.error||'تعذر فتح مركز الرقابة');
+  render(data);
+ }catch(error){
+  $('content').classList.add('hidden');
+  if(savedToken){sessionStorage.removeItem('binhamid_admin_token');$('login').classList.remove('hidden');}
+  else if(typeof window.bhCloudLogin==='function')window.bhCloudLogin();
+  alert(error.message);
+ }finally{$('refresh').disabled=false;}
 }
-$('connect').onclick=load;$('refresh').onclick=load;$('logout').onclick=()=>{sessionStorage.removeItem('binhamid_admin_token');try{localStorage.removeItem('binhamid_cloud_access_token');}catch{}$('token').value='';$('content').classList.add('hidden');$('login').classList.remove('hidden');};$('token').onkeydown=event=>{if(event.key==='Enter')load();};if($('token').value)load();
+$('connect').onclick=()=>load($('token').value.trim());
+$('refresh').onclick=()=>load();
+$('logout').onclick=()=>{
+ sessionStorage.removeItem('binhamid_admin_token');
+ try{localStorage.removeItem('binhamid_cloud_access_token');localStorage.removeItem('binhamid_cloud_app_user_id');}catch{}
+ $('token').value='';$('content').classList.add('hidden');$('login').classList.add('hidden');
+ $('ownerHint').textContent='تم فصل الجهاز. ادخل بحساب المالك على Telegram من جديد.';$('ownerHint').classList.remove('hidden');
+ if(typeof window.bhCloudLogin==='function')window.bhCloudLogin();
+};
+$('token').onkeydown=event=>{if(event.key==='Enter')load($('token').value.trim());};
+window.addEventListener('binhamid-owner-authenticated',()=>load());
+if(hasAnyAuth())load();else if(typeof window.bhCloudLogin==='function')window.bhCloudLogin();
 </script>
 </body>
 </html>
