@@ -35,9 +35,12 @@ test('opening balances are combined with later customer movements without aging 
 
 test('legacy customer trial-balance export is recognized without changing its headers',async()=>{
   const source=await read('assets/customer-opening-balances.js');
-  for(const marker of ["format:'legacy_trial_balance'","exactHeaderIndex(header,['العميل'])","name:explicitName>=0?explicitName:customer+1","exactHeaderIndex(header,['ما قبله'","exactHeaderIndex(header,['مدين'])","exactHeaderIndex(header,['دائن'])","exactHeaderIndex(header,['الشيكات','شيكات'])","cellDates:true","raw:true",'sourceHash','openingBalanceCheques'])assert.ok(source.includes(marker),`missing ${marker}`);
+  for(const marker of ["format:'legacy_trial_balance'","exactHeaderIndex(header,['العميل'])","name:explicitName>=0?explicitName:customer+1","exactHeaderIndex(header,['ما قبله'","exactHeaderIndex(header,['مدين'])","exactHeaderIndex(header,['دائن'])","exactHeaderIndex(header,['الشيكات','شيكات'])","cellDates:true","raw:true",'sourceHash','openingBalanceCheques','isRepeatedPageHeader','duplicatePageRows','ignoredPageRows','seen.get(customerCode)===signature'])assert.ok(source.includes(marker),`missing ${marker}`);
+  assert.match(source,/codeLabel\.includes\('ميزان مراجعه'\)/);
+  assert.match(source,/codeLabel==='العميل'&&balanceLabel==='الرصيد'/);
   assert.match(source,/previous\+debit-credit/);
   assert.match(source,/Math\.abs\(difference\)>0\.01/);
+  assert.match(source,/مكرر بقيم مختلفة داخل الملف/);
   assert.match(source,/الأرصدة الافتتاحية لا تدخل أعمار الديون/);
 });
 
