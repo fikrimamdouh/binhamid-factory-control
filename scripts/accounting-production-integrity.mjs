@@ -16,13 +16,15 @@ const sql=`select json_build_object(
   'staleProcessingImports',(select count(*) from public.imports where status='processing' and processing_started_at<now()-interval '20 minutes'),
   'failedRetryableTelegramUpdates',(select count(*) from public.telegram_update_receipts where status='failed' and retryable=true),
   'salesWithoutSource',(select count(*) from public.sales_orders where nullif(reference_no,'') is null),
-  'collectionsWithoutSource',(select count(*) from public.collection_events where nullif(reference_no,'') is null)
+  'collectionsWithoutSource',(select count(*) from public.collection_events where nullif(reference_no,'') is null),
+  'operationsWithoutIdempotency',(select count(*) from public.operational_records where nullif(idempotency_key,'') is null and created_at>=(select applied_at from public.migration_history where version=25)),
+  'outboxDuplicateKeys',(select count(*) from (select dedupe_key from public.notification_outbox where nullif(dedupe_key,'') is not null group by dedupe_key having count(*)>1) x)
 )::text;`;
 const result=spawnSync('psql',[databaseUrl,'-X','-t','-A','-v','ON_ERROR_STOP=1','-c',sql],{encoding:'utf8',env:process.env,timeout:120000});
 if(result.error||result.status!==0)fail('ACCOUNTING_QUERY_FAILED','The accounting integrity query failed.',{exitCode:result.status??-1});
 let evidence;try{evidence=JSON.parse(String(result.stdout||'').trim());}catch{fail('ACCOUNTING_RESULT_INVALID','The accounting integrity result was not valid JSON.');}
 const journal=evidence.journal||{},blockers=[];
-if(Number(evidence.schemaVersion)!==24)blockers.push('schema_version');
+if(Number(evidence.schemaVersion)!==25)blockers.push('schema_version');
 if(Number(journal.unbalanced_entries||0)!==0)blockers.push('unbalanced_entries');
 if(Number(journal.entries_without_lines||0)!==0)blockers.push('entries_without_lines');
 if(Number(journal.total_debit||0)!==Number(journal.total_credit||0))blockers.push('trial_balance_difference');
@@ -32,6 +34,8 @@ if(Number(evidence.postedDailyImportsWithoutBatch||0)!==0)blockers.push('posted_
 if(Number(evidence.staleProcessingImports||0)!==0)blockers.push('stale_processing_imports');
 if(Number(evidence.salesWithoutSource||0)!==0)blockers.push('sales_without_source');
 if(Number(evidence.collectionsWithoutSource||0)!==0)blockers.push('collections_without_source');
+if(Number(evidence.operationsWithoutIdempotency||0)!==0)blockers.push('operations_without_idempotency');
+if(Number(evidence.outboxDuplicateKeys||0)!==0)blockers.push('outbox_duplicate_keys');
 const report={ok:blockers.length===0,checkedAt:new Date().toISOString(),code:blockers.length?'ACCOUNTING_INTEGRITY_FAILED':'ACCOUNTING_INTEGRITY_PASSED',blockers,evidence};write(report);
 if(blockers.length){console.error(`[accounting-integrity] blockers=${blockers.join(',')}`);process.exit(1);}
 console.log(`[accounting-integrity] PASSED entries=${journal.posted_entries||0} debit=${journal.total_debit||0} credit=${journal.total_credit||0}`);
