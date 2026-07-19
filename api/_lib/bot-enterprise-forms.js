@@ -103,7 +103,7 @@ function permission(identity,action,def){
 function mapMethod(value){return({cash:'نقدي',transfer:'تحويل',cheque:'شيك'}[value]||value);}
 function mapPriority(value){return({normal:'عادي',urgent:'عاجل',critical:'حرج'}[value]||value);}
 function summaryLine(key,value){
-  const labels={party:'الطرف/المسؤول',amount:'المبلغ',method:'الطريقة',note:'البيان',item:'الصنف/الخدمة',quantity:'الكمية',priority:'الأولوية',asset:'المركبة/الأصل',odometer:'قراءة العداد',expected:'الاستهلاك المتوقع',location:'الموقع',employee:'الموظف',document:'المستند',expiry:'تاريخ الانتهاء',result:'النتيجة',action:'الإجراء',from:'من',to:'إلى',start:'وقت البداية',end:'وقت النهاية',title:'العنوان',due_date:'تاريخ الاستحقاق',report_date:'تاريخ التقرير',delivery_time:'موعد التشغيل',produced:'المنتج فعليًا',delivered:'المورد فعليًا',waste:'الهالك/المرفوض',pumps:'المضخات',delays:'التأخيرات',requirements:'المتطلبات',attendees:'الحضور',decisions:'القرارات',owner:'المسؤول',renewal_date:'موعد التجديد',risk:'الخطر',impact:'الأثر',mitigation:'الإجراء الوقائي'};
+  const labels={party:'الطرف/المسؤول',amount:'المبلغ',method:'الطريقة',note:'البيان',item:'الصنف/الخلطة',quantity:'المخطط',expected:'المتوقع',asset:'اللوحة/الأصل',odometer:'العداد',priority:'الأولوية',date_from:'من',date_to:'إلى',due_date:'الموعد',report_date:'تاريخ التقرير',delivery_time:'موعد التشغيل',pumps:'المضخات',produced:'المنتج فعليًا',delivered:'المورد فعليًا',waste:'الهالك/المرفوض',delays:'التأخيرات',requirements:'المتطلبات',location:'الموقع',result:'النتيجة',phone:'الجوال',title:'العنوان',next_date:'المتابعة'};
   let shown=value;if(key==='method')shown=mapMethod(value);if(key==='priority')shown=mapPriority(value);
   return `${labels[key]||key}: <b>${esc(shown)}</b>`;
 }
