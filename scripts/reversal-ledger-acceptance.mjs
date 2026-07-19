@@ -13,8 +13,8 @@ const sql=String.raw`
 begin;
 do $$
 begin
-  if (select coalesce(max(version),0) from public.migration_history)<>24 then
-    raise exception 'SCHEMA_24_REQUIRED';
+  if (select coalesce(max(version),0) from public.migration_history)<>25 then
+    raise exception 'SCHEMA_25_REQUIRED';
   end if;
 end $$;
 select id as debit_account from public.chart_of_accounts where account_code='110100' \gset
@@ -40,16 +40,7 @@ writeFileSync(file,sql,{mode:0o600});
 try{
   const result=spawnSync('psql',[databaseUrl,'-X','-q','-t','-A','-f',file],{encoding:'utf8',env:process.env,timeout:120000});
   if(result.error||result.status!==0)fail('REVERSAL_SQL_FAILED','The isolated reversal acceptance transaction failed.',{exitCode:result.status??-1,stderr:String(result.stderr||'').split(/\r?\n/).filter(Boolean).slice(-6)});
-  const line=String(result.stdout||'').split(/\r?\n/).map(value=>value.trim()).find(value=>value.startsWith('{')&&value.endsWith('}'));
-  if(!line)fail('REVERSAL_RESULT_MISSING','The reversal result is missing.');
-  const evidence=JSON.parse(line),blockers=[];
-  if(Number(evidence.schemaVersion)!==24)blockers.push('schema_version');
-  if(Number(evidence.ledgerRows)!==4)blockers.push('ledger_rows');
-  if(Number(evidence.maximumAccountDifference)!==0)blockers.push('non_zero_reversal_effect');
-  if(evidence.originalStatus!=='reversed'||evidence.reversalStatus!=='posted')blockers.push('reversal_status');
-  if(Number(evidence.unbalanced)!==0)blockers.push('unbalanced_entry');
-  const report={ok:blockers.length===0,checkedAt:new Date().toISOString(),transactionRolledBack:true,blockers,evidence};
-  writeFileSync(output,`${JSON.stringify(report,null,2)}\n`,{mode:0o600});
-  if(blockers.length){console.error(`[reversal-acceptance] blockers=${blockers.join(',')}`);process.exit(1);}
-  console.log('[reversal-acceptance] PASSED net-zero reversal');
+  const line=String(result.stdout||'').split(/\r?\n/).map(value=>value.trim()).find(value=>value.startsWith('{')&&value.endsWith('}'));if(!line)fail('REVERSAL_RESULT_MISSING','The reversal result is missing.');
+  const evidence=JSON.parse(line),blockers=[];if(Number(evidence.schemaVersion)!==25)blockers.push('schema_version');if(Number(evidence.ledgerRows)!==4)blockers.push('ledger_rows');if(Number(evidence.maximumAccountDifference)!==0)blockers.push('non_zero_reversal_effect');if(evidence.originalStatus!=='reversed'||evidence.reversalStatus!=='posted')blockers.push('reversal_status');if(Number(evidence.unbalanced)!==0)blockers.push('unbalanced_entry');
+  const report={ok:blockers.length===0,checkedAt:new Date().toISOString(),transactionRolledBack:true,blockers,evidence};writeFileSync(output,`${JSON.stringify(report,null,2)}\n`,{mode:0o600});if(blockers.length){console.error(`[reversal-acceptance] blockers=${blockers.join(',')}`);process.exit(1);}console.log('[reversal-acceptance] PASSED net-zero reversal');
 }finally{rmSync(file,{force:true});}
