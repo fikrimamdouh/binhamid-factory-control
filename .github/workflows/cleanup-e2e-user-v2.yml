@@ -1,0 +1,77 @@
+name: Cleanup E2E Test Identity V2
+
+on:
+  push:
+    branches:
+      - test/cleanup-e2e-user-v2
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TEST_EXTERNAL_ID: '9900000001'
+      TEST_EMPLOYEE_ID: TEST-E2E-001
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+      - name: Resolve database endpoint
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const {appendFileSync}=require('node:fs');
+          const {spawnSync}=require('node:child_process');
+          const configured=new URL(String(process.env.SUPABASE_DB_URL||''));
+          const probe=value=>{const target=new URL(value);target.searchParams.set('sslmode','require');target.searchParams.set('connect_timeout','5');const r=spawnSync('psql',[target.toString(),'-X','-t','-A','-v','ON_ERROR_STOP=1','-c','select 1;'],{encoding:'utf8',timeout:10000,stdio:['ignore','pipe','pipe']});return !r.error&&r.status===0&&String(r.stdout||'').trim()==='1'?target.toString():'';};
+          let effective=probe(configured.toString());
+          if(!effective){const match=configured.hostname.match(/^db\.([a-z0-9]+)\.supabase\.co$/i);if(!match)throw new Error('Database endpoint cannot be derived');const regions=['eu-central-1','ap-southeast-1','us-east-1','eu-west-1','ap-south-1','us-west-1','us-west-2','us-east-2','ca-central-1','eu-west-2','eu-west-3','eu-central-2','eu-north-1','ap-northeast-1','ap-northeast-2','ap-southeast-2','sa-east-1'];for(const host of regions.flatMap(region=>[`aws-0-${region}.pooler.supabase.com`,`aws-1-${region}.pooler.supabase.com`])){const candidate=new URL(configured.toString());candidate.protocol='postgresql:';candidate.username=`postgres.${match[1]}`;candidate.password=decodeURIComponent(configured.password);candidate.hostname=host;candidate.port='5432';effective=probe(candidate.toString());if(effective)break;}}
+          if(!effective)throw new Error('Authenticated Session pooler not found');
+          process.stdout.write(`::add-mask::${effective}\n`);appendFileSync(process.env.GITHUB_ENV,`SUPABASE_DB_URL=${effective}\n`,{mode:0o600});
+          NODE
+      - name: Deactivate synthetic identity
+        run: |
+          set -euo pipefail
+          psql "$SUPABASE_DB_URL" -X -v ON_ERROR_STOP=1 -v test_external_id="$TEST_EXTERNAL_ID" -v test_employee_id="$TEST_EMPLOYEE_ID" <<'SQL'
+          update app_users
+          set active=false,updated_at=now()
+          where id in (
+            select user_id from user_channels
+            where channel='telegram' and external_id=:'test_external_id'
+          );
+          update user_channels
+          set active=false
+          where channel='telegram' and external_id=:'test_external_id';
+          update employees
+          set active=false,updated_at=now()
+          where external_id=:'test_employee_id';
+          delete from telegram_messages
+          where sender_external_id=:'test_external_id'
+            and action_name='e2e_test_message';
+          SQL
+      - name: Verify cleanup
+        run: |
+          set -euo pipefail
+          active="$(psql "$SUPABASE_DB_URL" -X -v ON_ERROR_STOP=1 -Atc "select count(*) from user_channels c join app_users u on u.id=c.user_id where c.channel='telegram' and c.external_id='${TEST_EXTERNAL_ID}' and (c.active=true or u.active=true)")"
+          messages="$(psql "$SUPABASE_DB_URL" -X -v ON_ERROR_STOP=1 -Atc "select count(*) from telegram_messages where sender_external_id='${TEST_EXTERNAL_ID}' and action_name='e2e_test_message'")"
+          test "$active" = "0"
+          test "$messages" = "0"
+      - name: Publish result
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          node <<'NODE'
+          const success=process.env.JOB_STATUS==='success';const response=await fetch(`https://api.github.com/repos/${process.env.REPOSITORY}/statuses/${process.env.HEAD_SHA}`,{method:'POST',headers:{Accept:'application/vnd.github+json',Authorization:`Bearer ${process.env.GITHUB_TOKEN}`,'X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'},body:JSON.stringify({state:success?'success':'failure',context:'cleanup-e2e-test-user-v2',target_url:process.env.RUN_URL,description:success?'Synthetic manager identity deactivated and messages removed.':'Synthetic identity cleanup failed.'})});if(!response.ok)throw new Error(`Status ${response.status}`);
+          NODE
