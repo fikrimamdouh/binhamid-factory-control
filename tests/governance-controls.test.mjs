@@ -12,44 +12,36 @@ test('factory transport device cannot read or mutate governance data',()=>{
 });
 
 test('governance duties remain separated by role',()=>{
-  assert.equal(roleAllows('manager','credit_override.approve'),true);
-  assert.equal(roleAllows('manager','financial_period.manage'),false);
-  assert.equal(roleAllows('accountant','financial_period.manage'),true);
-  assert.equal(roleAllows('accountant','credit_override.request'),true);
-  assert.equal(roleAllows('accountant','credit_override.approve'),false);
-  assert.equal(roleAllows('hr','compliance.manage'),true);
-  assert.equal(roleAllows('fuel_operator','assets.manage'),false);
+  assert.equal(roleAllows('manager','credit_override.approve'),true);assert.equal(roleAllows('manager','financial_period.manage'),false);assert.equal(roleAllows('accountant','financial_period.manage'),true);assert.equal(roleAllows('accountant','credit_override.request'),true);assert.equal(roleAllows('accountant','credit_override.approve'),false);assert.equal(roleAllows('hr','compliance.manage'),true);assert.equal(roleAllows('fuel_operator','assets.manage'),false);
 });
 
 test('governance API maps sensitive actions to explicit capabilities',async()=>{
   const route=await read('api/_lib/routes/governance.js');
   const expected={financial_period_close:'financial_period.manage',credit_override_request:'credit_override.request',credit_override_decide:'credit_override.approve',asset_upsert:'assets.manage',compliance_upsert:'compliance.manage',custody_request:'custody.manage',custody_decide:'custody.approve',restore_test_record:'restore_test.manage',handover_start:'handover.manage',handover_signoff:'handover.manage'};
-  for(const [action,capability] of Object.entries(expected)){assert.ok(route.includes(`${action}:'${capability}'`),`${action} must require ${capability}`);}
+  for(const [action,capability] of Object.entries(expected))assert.ok(route.includes(`${action}:'${capability}'`),`${action} must require ${capability}`);
   assert.match(route,/requireCapability\(req,'governance\.view'\)/);
 });
 
 test('governance page requires authenticated access and exports evidence',async()=>{
   const page=await read('governance.html'),entry=await read('assets/governance-entry.js'),index=await read('index.html');
   for(const marker of ['/api/governance','الحوكمة والتسليم المؤسسي','تصدير JSON','مركز الرقابة'])assert.match(page,new RegExp(marker));
-  assert.match(page,/401|403|رمز|تسجيل دخول/);
-  assert.match(entry,/control-center\.html/);assert.match(entry,/مركز إدارة المصنع/);assert.doesNotMatch(entry,/governance\.html/);assert.match(index,/governance-entry\.js/);
+  assert.match(page,/401|403|رمز|تسجيل دخول/);assert.match(entry,/control-center\.html/);assert.match(entry,/مركز إدارة المصنع/);assert.doesNotMatch(entry,/governance\.html/);assert.match(index,/governance-entry\.js/);
 });
 
-test('migration workflow tests through schema 24 with encrypted backups and isolated restore',async()=>{
+test('migration workflow tests through schema 25 with encrypted backups and isolated restore',async()=>{
   const workflow=await read('.github/workflows/apply-pending-migrations.yml'),preflight=await read('scripts/governance-migration-preflight.mjs'),verify=await read('scripts/governance-migration-verify.mjs'),reversal=await read('scripts/reversal-ledger-acceptance.mjs'),accounting=await read('scripts/accounting-production-integrity.mjs');
-  for(const marker of ['019_accounting_import_and_telegram_integrity.sql','020_accounting_reversal_and_projection_safety.sql','021_reversal_ledger_balance_fix.sql','022_schema_21_runtime_repair.sql','023_factory_reset_operational_data.sql','024_employee_nickname_and_financial_command_center.sql','pre-migration-backup','post-migration-backup','--single-transaction','Restore production backup to isolated PostgreSQL 17','Run transactional accounting and duplicate acceptance'])assert.ok(workflow.includes(marker),`workflow missing ${marker}`);
-  assert.match(workflow,/current_version \+ 1\)\) 24/);
-  assert.ok(workflow.includes("psql \"$LOCAL_DATABASE_URL\" -X -v ON_ERROR_STOP=1 -c 'create extension if not exists pgcrypto;'"));
-  assert.match(preflight,/targetVersion:24/);assert.match(verify,/const targetVersion=24/);assert.match(verify,/between 16 and 24/);assert.match(verify,/toVersion:24/);assert.match(verify,/PROTECTED_ROW_COUNT_CHANGED/);assert.match(verify,/ACCOUNTING_INTEGRITY_FAILED/);
-  assert.match(reversal,/migration_history\)<>24/);assert.match(reversal,/Number\(evidence\.schemaVersion\)!==24/);assert.doesNotMatch(reversal,/SCHEMA_23_REQUIRED/);
-  assert.match(accounting,/Number\(evidence\.schemaVersion\)!==24/);assert.doesNotMatch(accounting,/schemaVersion\)!==23/);
+  for(const marker of ['019_accounting_import_and_telegram_integrity.sql','020_accounting_reversal_and_projection_safety.sql','021_reversal_ledger_balance_fix.sql','022_schema_21_runtime_repair.sql','023_factory_reset_operational_data.sql','024_employee_nickname_and_financial_command_center.sql','025_unified_operation_engine.sql','pre-migration-backup','post-migration-backup','--single-transaction','Restore production backup to isolated PostgreSQL 17','Run transactional operation, accounting and duplicate acceptance'])assert.ok(workflow.includes(marker),`workflow missing ${marker}`);
+  assert.match(workflow,/current_version \+ 1\)\) 25/);assert.ok(workflow.includes("psql \"$LOCAL_DATABASE_URL\" -X -v ON_ERROR_STOP=1 -c 'create extension if not exists pgcrypto;'"));
+  assert.match(preflight,/targetVersion=25/);assert.match(verify,/targetVersion=25/);assert.match(verify,/between 16 and 25/);assert.match(verify,/toVersion:targetVersion/);assert.match(verify,/operationEvents/);assert.match(verify,/executeOperationFunction/);assert.match(verify,/PROTECTED_ROW_COUNT_CHANGED/);assert.match(verify,/ACCOUNTING_INTEGRITY_FAILED/);
+  assert.match(reversal,/migration_history\)<>25/);assert.match(reversal,/Number\(evidence\.schemaVersion\)!==25/);assert.doesNotMatch(reversal,/SCHEMA_24_REQUIRED/);
+  assert.match(accounting,/Number\(evidence\.schemaVersion\)!==25/);assert.match(accounting,/operationsWithoutIdempotency/);assert.match(accounting,/outboxDuplicateKeys/);
 });
 
 test('financial, credit and maintenance guards are server-side database controls',async()=>{
   const foundation=await read('supabase/migrations/016_enterprise_governance_and_handover.sql'),controls=await read('supabase/migrations/017_governance_control_rpcs.sql'),safety=await read('supabase/migrations/018_governance_safety_refinements.sql');
   for(const marker of ['FINANCIAL_PERIOD_CLOSED','sales_orders_financial_period_guard','collection_events_financial_period_guard','daily_report_batches_financial_period_guard'])assert.match(foundation,new RegExp(marker));
   for(const marker of ['sales_orders_credit_limit_guard','CREDIT_LIMIT_EXCEEDED','CREDIT_OVERRIDE_INVALID','maintenance_closure_control_trigger','MAINTENANCE_DIAGNOSIS_REQUIRED','MAINTENANCE_ATTACHMENT_REQUIRED'])assert.match(controls,new RegExp(marker));
-  for(const marker of ['flag_daily_report_credit_breach','daily_report_credit_breach_flag','control_asset_duplicates','like \'DR-%\'','CUSTODY_SETTLEMENT_EXCEEDS_OUTSTANDING','HANDOVER_BLOCKERS_OPEN'])assert.ok(safety.includes(marker),`safety migration missing ${marker}`);
+  for(const marker of ['flag_daily_report_credit_breach','daily_report_credit_breach_flag','control_asset_duplicates',"like 'DR-%'",'CUSTODY_SETTLEMENT_EXCEEDS_OUTSTANDING','HANDOVER_BLOCKERS_OPEN'])assert.ok(safety.includes(marker),`safety migration missing ${marker}`);
 });
 
 test('backup is limited to the independently restorable public application schema',async()=>{
@@ -62,6 +54,5 @@ test('restore drill runs after verified backup and never restores production',as
   const workflow=await read('.github/workflows/backup-restore-drill.yml'),script=await read('scripts/restore-drill.mjs');
   for(const marker of ['postgres:17','Encrypted Database Backup','encrypted-database-backup-${run_id}','databaseScope','LOCAL_DATABASE_URL','Assert plaintext cleanup','restore-drill-result.json'])assert.ok(workflow.includes(marker),`restore workflow missing ${marker}`);
   for(const marker of ['createDecipheriv','aes-256-gcm','BH01','gunzipSync','rmSync(plaintextPath','productionEvidenceRecorded'])assert.ok(script.includes(marker),`restore script missing ${marker}`);
-  assert.match(script,/command\('psql',\[localDb,'-X','-v','ON_ERROR_STOP=1','-f',plaintextPath\]/);
-  assert.doesNotMatch(script,/command\('psql',\[productionDb,[^\]]*'-f'/);
+  assert.match(script,/command\('psql',\[localDb,'-X','-v','ON_ERROR_STOP=1','-f',plaintextPath\]/);assert.doesNotMatch(script,/command\('psql',\[productionDb,[^\]]*'-f'/);
 });
