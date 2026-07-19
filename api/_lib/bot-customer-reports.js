@@ -37,7 +37,14 @@ export function customerReportsMenu(){return keyboard([
   [{text:'💵 أكبر الأرصدة الدائنة',callback_data:'ent:customer_credit'},{text:'🎯 تركيز المديونية',callback_data:'ent:customer_concentration'}],
   [{text:'📅 أعمار الديون',callback_data:'ent:customer_aging'},{text:'⚠️ العملاء المتأخرون',callback_data:'ent:customer_overdue'}],
   [{text:'😴 بدون حركة',callback_data:'ent:customer_no_movement'},{text:'⚪ الحسابات الصفرية',callback_data:'ent:customer_zero'}],
-  [{text:'🧮 أوامر فلترة الأرصدة',callback_data:'ent:customer_filter_help'}]
+  [{text:'━━━ نطاقات الأرصدة السريعة ━━━',callback_data:'ent:customer_filter_help'}],
+  [{text:'عملاء 0 – 10',callback_data:'ent:customer_range|0|10'},{text:'عملاء 10 – 20',callback_data:'ent:customer_range|10|20'}],
+  [{text:'عملاء 20 – 100',callback_data:'ent:customer_range|20|100'},{text:'عملاء 100 – 1000',callback_data:'ent:customer_range|100|1000'}],
+  [{text:'عملاء 1000 – 5000',callback_data:'ent:customer_range|1000|5000'},{text:'عملاء أكبر من 5000',callback_data:'ent:customer_gt|5000'}],
+  [{text:'━━━ أصغر / أكبر عدد ━━━',callback_data:'ent:customer_filter_help'}],
+  [{text:'أصغر 5 عملاء',callback_data:'ent:customer_small|5'},{text:'أصغر 10 عملاء',callback_data:'ent:customer_small|10'},{text:'أصغر 20 عميل',callback_data:'ent:customer_small|20'}],
+  [{text:'أكبر 15 عميل',callback_data:'ent:customer_top|15'},{text:'أكبر 30 عميل',callback_data:'ent:customer_top|30'},{text:'أكبر 50 عميل',callback_data:'ent:customer_top|50'}],
+  [{text:'🧮 أوامر فلترة الأرصدة (كتابة يدوية)',callback_data:'ent:customer_filter_help'}]
 ]);}
 async function deny(chatId){return sendMessage(chatId,'تقارير العملاء متاحة للإدارة والمحاسب والمبيعات والتحصيل وفق نطاق كل دور.');}
 export async function sendCustomerReportsMenu(chatId,identity){
@@ -158,6 +165,10 @@ export async function handleCustomerReportCallback(message,from,identity,value){
     if(!canCreate(identity))return sendMessage(message.chat.id,'ليست لديك صلاحية إنشاء العملاء.');const session=(await select('bot_sessions',`channel=eq.telegram&chat_id=eq.${encodeURIComponent(String(message.chat.id))}&external_user_id=eq.${encodeURIComponent(String(identity.external_id||from.id))}&select=*&limit=1`))?.[0];if(session?.state!=='enterprise_customer_create_confirm'||!session.context?.draft)return sendMessage(message.chat.id,'انتهت جلسة إنشاء العميل. ابدأ من جديد.');return createCustomer({...message,from},identity,session.context.draft);
   }
   if(!canView(identity))return deny(message.chat.id);
+  if(value.startsWith('customer_range|')){const[,minRaw,maxRaw]=value.split('|');return sendBalanceFilter(message.chat.id,identity,'between',Number(minRaw),Number(maxRaw));}
+  if(value.startsWith('customer_gt|')){const[,minRaw]=value.split('|');return sendBalanceFilter(message.chat.id,identity,'gt',Number(minRaw));}
+  if(value.startsWith('customer_small|')){const[,countRaw]=value.split('|');return sendSmallestOrLargest(message.chat.id,identity,Number(countRaw)||10,null,null);}
+  if(value.startsWith('customer_top|')){const[,countRaw]=value.split('|');return sendTopDebt(message.chat.id,identity,Number(countRaw)||15);}
   if(value.startsWith('customer_page|')){
     const[,kind,pageRaw,extra='']=value.split('|'),page=Math.max(0,Number(pageRaw)||0),expired=()=>sendMessage(message.chat.id,'انتهت صلاحية هذه الصفحة (ربما بسبب تحديث النظام). أعد كتابة نفس الطلب من جديد.');
     if(kind==='topdebt')return sendTopDebt(message.chat.id,identity,extra?Number(extra):null,page);
