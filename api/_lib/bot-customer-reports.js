@@ -38,7 +38,7 @@ export function customerReportsMenu(){return keyboard([
   [{text:'📅 أعمار الديون',callback_data:'ent:customer_aging'},{text:'⚠️ العملاء المتأخرون',callback_data:'ent:customer_overdue'}],
   [{text:'😴 بدون حركة',callback_data:'ent:customer_no_movement'},{text:'⚪ الحسابات الصفرية',callback_data:'ent:customer_zero'}],
   [{text:'📱 دليل هواتف العملاء',callback_data:'ent:customer_phones'},{text:'📵 بدون رقم جوال',callback_data:'ent:customer_no_phone'}],
-  [{text:'🚨 التقرير الرقابي (عملاء مشكوك بهم)',callback_data:'ent:customer_risky'}],
+  [{text:'🚨 التقرير الرقابي (عملاء مشكوك بهم)',callback_data:'ent:customer_risky'},{text:'🔀 أرقام جوال شاذة',callback_data:'ent:customer_phone_issues'}],
   [{text:'━━━ نطاقات الأرصدة السريعة ━━━',callback_data:'ent:customer_filter_help'}],
   [{text:'عملاء 0 – 10',callback_data:'ent:customer_range|0|10'},{text:'عملاء 10 – 20',callback_data:'ent:customer_range|10|20'}],
   [{text:'عملاء 20 – 100',callback_data:'ent:customer_range|20|100'},{text:'عملاء 100 – 1000',callback_data:'ent:customer_range|100|1000'}],
@@ -123,6 +123,30 @@ async function sendRiskyCustomers(chatId,identity,page=0){
   const formatRow=(item,index)=>{const row=item.row;return `${index+1}. <b>${esc(row.name)}</b>${row.code?` — <code>${esc(row.code)}</code>`:''}\nالرصيد: <b>${money(row.debitBalance)}</b>\n${item.flags.join('\n')}`;};
   const built=sendPage(chatId,'🚨 التقرير الرقابي — عملاء عليهم شك أو مخاطرة',rows,formatRow,page,`عدد العملاء المُشار إليهم: <b>${rows.length}</b>`);
   return sendMessage(chatId,built.text,paginationButtons('risky',built.page,built.totalPages));
+}
+// تحقق من رقم الجوال السعودي: 05xxxxxxxx أو 9665xxxxxxxx أو 5xxxxxxxx (بعد
+// حذف أي رموز). أي شكل غير ده يُعتبر رقم شاذ (ناقص أو زيادة أو غلط).
+function phoneIssue(phone){
+  const digits=String(phone||'').replace(/\D/g,'');
+  if(!digits)return null;
+  if(/^05\d{8}$/.test(digits)||/^9665\d{8}$/.test(digits)||/^5\d{8}$/.test(digits))return null;
+  return `رقم غير مكتمل أو غير صحيح — ${digits.length} رقم فقط (${esc(phone)})`;
+}
+function nameEmbeddedPhone(name){
+  const match=String(name||'').match(/\d{7,}/);
+  return match?match[0]:'';
+}
+async function sendAnomalousPhones(chatId,identity,page=0){
+  const data=await loadCustomerAnalytics(identity),flagged=[];
+  for(const row of data.rows){
+    const issue=phoneIssue(row.phone),embedded=nameEmbeddedPhone(row.name);
+    if(issue)flagged.push({row,note:`📵 ${issue}`});
+    else if(embedded)flagged.push({row,note:`✏️ الرقم مكتوب داخل اسم العميل (${esc(embedded)}) بدل حقل الجوال المخصص`});
+  }
+  if(!flagged.length)return sendMessage(chatId,'لا توجد أرقام جوال شاذة ضمن نطاق صلاحيتك. 👍');
+  const formatRow=(item,index)=>`${index+1}. <b>${esc(item.row.name)}</b>${item.row.code?` — <code>${esc(item.row.code)}</code>`:''}\n${item.note}`;
+  const built=sendPage(chatId,'🔀 تقرير أرقام الجوال الشاذة',flagged,formatRow,page,'يشمل: أرقام ناقصة/غير صحيحة في حقل الجوال، وأسماء عملاء مكتوب بداخلها رقم بدل الحقل المخصص.');
+  return sendMessage(chatId,built.text,paginationButtons('phoneissue',built.page,built.totalPages));
 }
 async function sendMissingPhone(chatId,identity,page=0){
   const data=await loadCustomerAnalytics(identity),rows=data.rows.filter(x=>!x.phone).sort((a,b)=>a.name.localeCompare(b.name,'ar'));
@@ -214,11 +238,12 @@ export async function handleCustomerReportCallback(message,from,identity,value){
     if(kind==='phonedir')return sendPhoneDirectory(message.chat.id,identity,page);
     if(kind==='missingphone')return sendMissingPhone(message.chat.id,identity,page);
     if(kind==='risky')return sendRiskyCustomers(message.chat.id,identity,page);
+    if(kind==='phoneissue')return sendAnomalousPhones(message.chat.id,identity,page);
     if(kind==='balance'){const[mode,minRaw,maxRaw='']=extra.split(':');if(!['gt','lt','between'].includes(mode)||!Number.isFinite(Number(minRaw)))return expired();return sendBalanceFilter(message.chat.id,identity,mode,Number(minRaw),maxRaw?Number(maxRaw):null,page);}
     if(kind==='smallest'){const[countRaw,filterMode,thresholdRaw='']=extra.split(':');if(!Number.isFinite(Number(countRaw)))return expired();return sendSmallestOrLargest(message.chat.id,identity,Number(countRaw)||100,thresholdRaw?Number(thresholdRaw):null,filterMode||null,page);}
     return sendMessage(message.chat.id,'انتهت صلاحية هذه الصفحة. أعد طلب التقرير من جديد.');
   }
-  if(value==='customer_menu')return sendCustomerReportsMenu(message.chat.id,identity);if(value==='customer_summary')return sendSummary(message.chat.id,identity);if(value==='customer_debt')return sendTopDebt(message.chat.id,identity);if(value==='customer_credit')return sendTopCredits(message.chat.id,identity);if(value==='customer_concentration')return sendConcentration(message.chat.id,identity);if(value==='customer_aging')return sendAging(message.chat.id,identity);if(value==='customer_overdue')return sendOverdue(message.chat.id,identity);if(value==='customer_no_movement')return sendNoMovement(message.chat.id,identity);if(value==='customer_zero')return sendZeroBalances(message.chat.id,identity);if(value==='customer_phones')return sendPhoneDirectory(message.chat.id,identity);if(value==='customer_no_phone')return sendMissingPhone(message.chat.id,identity);if(value==='customer_risky')return sendRiskyCustomers(message.chat.id,identity);if(value==='customer_filter_help')return sendMessage(message.chat.id,'🧮 <b>أوامر الفلترة</b>\n• عملاء أكبر من 50000\n• عملاء أقل من 1000\n• عملاء بين 1000 و 5000\n• أكبر 20 عميل\n• أصغر 100 عميل تحت 200\n• رصيد 10001\n• كشف حساب مؤسسة بن حامد\n• بحث عميل 05xxxxxxxx (يبحث بالجوال أيضًا)\n• دليل هواتف العملاء\n• عملاء بدون رقم جوال');if(value==='customer_lookup')return startCustomerLookup({...message,from},identity);return false;
+  if(value==='customer_menu')return sendCustomerReportsMenu(message.chat.id,identity);if(value==='customer_summary')return sendSummary(message.chat.id,identity);if(value==='customer_debt')return sendTopDebt(message.chat.id,identity);if(value==='customer_credit')return sendTopCredits(message.chat.id,identity);if(value==='customer_concentration')return sendConcentration(message.chat.id,identity);if(value==='customer_aging')return sendAging(message.chat.id,identity);if(value==='customer_overdue')return sendOverdue(message.chat.id,identity);if(value==='customer_no_movement')return sendNoMovement(message.chat.id,identity);if(value==='customer_zero')return sendZeroBalances(message.chat.id,identity);if(value==='customer_phones')return sendPhoneDirectory(message.chat.id,identity);if(value==='customer_no_phone')return sendMissingPhone(message.chat.id,identity);if(value==='customer_risky')return sendRiskyCustomers(message.chat.id,identity);if(value==='customer_phone_issues')return sendAnomalousPhones(message.chat.id,identity);if(value==='customer_filter_help')return sendMessage(message.chat.id,'🧮 <b>أوامر الفلترة</b>\n• عملاء أكبر من 50000\n• عملاء أقل من 1000\n• عملاء بين 1000 و 5000\n• أكبر 20 عميل\n• أصغر 100 عميل تحت 200\n• رصيد 10001\n• كشف حساب مؤسسة بن حامد\n• بحث عميل 05xxxxxxxx (يبحث بالجوال أيضًا)\n• دليل هواتف العملاء\n• عملاء بدون رقم جوال');if(value==='customer_lookup')return startCustomerLookup({...message,from},identity);return false;
 }
 export async function handleCustomerReportTextCommand(message,identity,text){
   const raw=String(text||'').trim(),value=norm(raw);
@@ -236,6 +261,7 @@ export async function handleCustomerReportTextCommand(message,identity,text){
   if(/^(دليل هواتف العملاء|دليل الهواتف|هواتف العملاء|ارقام العملاء|أرقام العملاء)$/.test(value)){if(!canView(identity))await deny(message.chat.id);else await sendPhoneDirectory(message.chat.id,identity);return true;}
   if(/^(عملاء بدون رقم جوال|عملاء بدون جوال|عملاء ناقص رقم الجوال|عملاء ناقصين رقم الجوال|بدون رقم جوال|رقم الجوال ناقص)$/.test(value)){if(!canView(identity))await deny(message.chat.id);else await sendMissingPhone(message.chat.id,identity);return true;}
   if(/(عملاء.{0,6}(شك|مشكوك|مشبوه|مخاطره|مخاطرة|رقابي|رقابية)|تقرير رقابي|تقارير رقابيه|تقارير رقابية|التقرير الرقابي)/.test(value)){if(!canView(identity))await deny(message.chat.id);else await sendRiskyCustomers(message.chat.id,identity);return true;}
+  if(/(شواذ|شاذه|شاذة|ارقام غلط|أرقام غلط|جوال ناقص|جوالات ناقصه|جوالات ناقصة|ارقام ناقصه|أرقام ناقصة)/.test(value)){if(!canView(identity))await deny(message.chat.id);else await sendAnomalousPhones(message.chat.id,identity);return true;}
   const smallest=latinDigits(raw).match(/^(?:ال)?(اصغر|أصغر)\s+(\d+)\s+(?:عميل|عملاء)(?:\s+(تحت|فوق|اقل من|أقل من|اكبر من|أكبر من))?\s*([\d.,٬،٫-]+)?\s*(?:ريال|ر\.س|رس)?$/i);
   if(smallest){
     if(!canView(identity)){await deny(message.chat.id);return true;}
