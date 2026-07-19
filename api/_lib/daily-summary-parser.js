@@ -68,14 +68,46 @@ function parseTreasuryCollections(rows,sheetName){
   }
   return collections;
 }
+// أقسام المخزون (منتجات تامة/خامات): نفس هيكل الأعمدة — كود الصنف، الصنف،
+// الوحدة، الرصيد الافتتاحي، وارد، منصرف، رصيد — لكل من "منتجات تامة" (تحرّك
+// البلوك والخرسانة الجاهزة) و"خامات" (أسمنت/بحص/بطحاء...).
+const INVENTORY_ALIASES={itemCode:['كود الصنف'],itemName:['الصنف'],unit:['الوحدة','الوحده'],opening:['الرصيد الافتتاحي','الرصيد الأفتتاحي','الرصيد'],received:['وارد'],issued:['منصرف'],closing:['رصيد الصنف','رصيد']};
+const isFinishedGoodsTitle=text=>text==='منتجات تامه'||text.startsWith('منتجات تامه');
+const isRawMaterialsTitle=text=>text==='خامات'||text.startsWith('خامات ');
+function inventoryColumns(row){
+  const columns=Object.fromEntries(Object.entries(INVENTORY_ALIASES).map(([key,aliases])=>[key,headerIndex(row,aliases)]));
+  return columns.itemCode>=0&&columns.itemName>=0?columns:null;
+}
+function parseInventorySection(rows,sheetName,titleTest){
+  const items=[];let cursor=0;
+  while(cursor<rows.length){
+    const start=titleIndex(rows,titleTest,cursor);if(start<0)break;
+    let end=rows.length;for(let index=start+1;index<rows.length;index++){if(isSectionStop(rowText(rows[index]))){end=index;break;}}
+    let headerRow=-1,columns=null;
+    for(let index=start+1;index<Math.min(end,start+5);index++){const detected=inventoryColumns(rows[index]||[]);if(detected){headerRow=index;columns=detected;break;}}
+    if(columns){
+      for(let index=headerRow+1;index<end;index++){
+        const row=rows[index]||[];if(inventoryColumns(row))continue;
+        const itemCode=code(row[columns.itemCode]),itemName=clean(row[columns.itemName],500);
+        if(!itemName)continue;
+        const opening=number(row[columns.opening])||0,received=number(row[columns.received])||0,issued=number(row[columns.issued])||0,closingRaw=columns.closing>=0?number(row[columns.closing]):null,closing=closingRaw!==null?closingRaw:round(opening+received-issued,3);
+        items.push({sheet:sheetName,row:index+1,itemCode,itemName,unit:clean(row[columns.unit],50),opening:round(opening,3),received:round(received,3),issued:round(issued,3),closing:round(closing,3)});
+      }
+    }
+    cursor=Math.max(end,start+1);
+  }
+  return items;
+}
 const unique=(rows,keyFn)=>{const seen=new Set();return rows.filter(row=>{const key=keyFn(row);if(seen.has(key))return false;seen.add(key);return true;});};
 export function parseDailyWorkbook(workbook,xlsx){
-  const sales=[],collections=[],samples=[];let rowCount=0;
+  const sales=[],collections=[],finishedGoods=[],rawMaterials=[],samples=[];let rowCount=0;
   for(const sheetName of workbook?.SheetNames||[]){
-    const rows=xlsx.utils.sheet_to_json(workbook.Sheets[sheetName],{header:1,defval:'',raw:false,blankrows:false});rowCount+=rows.length;samples.push(...rows.slice(0,250));sales.push(...parseDirectSales(rows,sheetName));collections.push(...parseTreasuryCollections(rows,sheetName));
+    const rows=xlsx.utils.sheet_to_json(workbook.Sheets[sheetName],{header:1,defval:'',raw:false,blankrows:false});rowCount+=rows.length;samples.push(...rows.slice(0,250));sales.push(...parseDirectSales(rows,sheetName));collections.push(...parseTreasuryCollections(rows,sheetName));finishedGoods.push(...parseInventorySection(rows,sheetName,isFinishedGoodsTitle));rawMaterials.push(...parseInventorySection(rows,sheetName,isRawMaterialsTitle));
   }
   const cleanSales=unique(sales,row=>[row.sheet,row.row,row.invoice,row.customerCode,norm(row.item),row.quantity,row.amount].join('|'));
   const cleanCollections=unique(collections,row=>[row.sheet,row.row,row.treasuryCode,row.customerCode,row.amount].join('|'));
+  const cleanFinishedGoods=unique(finishedGoods,row=>[row.sheet,row.row,row.itemCode,norm(row.itemName)].join('|'));
+  const cleanRawMaterials=unique(rawMaterials,row=>[row.sheet,row.row,row.itemCode,norm(row.itemName)].join('|'));
   const block=cleanSales.filter(row=>row.kind==='بلوك'),concrete=cleanSales.filter(row=>row.kind==='خرسانة');
-  return{sales:cleanSales,collections:cleanCollections,rowCount,contentText:samples.map(row=>(row||[]).join(' ')).join(' ').slice(0,60000),summary:{invoiceCount:cleanSales.length,salesTotal:round(cleanSales.reduce((sum,row)=>sum+row.amount,0),2),blockSales:round(block.reduce((sum,row)=>sum+row.amount,0),2),concreteSales:round(concrete.reduce((sum,row)=>sum+row.amount,0),2),blockQuantity:round(block.reduce((sum,row)=>sum+row.quantity,0),3),concreteQuantity:round(concrete.reduce((sum,row)=>sum+row.quantity,0),3),collectionCount:cleanCollections.length,collectionTotal:round(cleanCollections.reduce((sum,row)=>sum+row.amount,0),2)}};
+  return{sales:cleanSales,collections:cleanCollections,finishedGoods:cleanFinishedGoods,rawMaterials:cleanRawMaterials,rowCount,contentText:samples.map(row=>(row||[]).join(' ')).join(' ').slice(0,60000),summary:{invoiceCount:cleanSales.length,salesTotal:round(cleanSales.reduce((sum,row)=>sum+row.amount,0),2),blockSales:round(block.reduce((sum,row)=>sum+row.amount,0),2),concreteSales:round(concrete.reduce((sum,row)=>sum+row.amount,0),2),blockQuantity:round(block.reduce((sum,row)=>sum+row.quantity,0),3),concreteQuantity:round(concrete.reduce((sum,row)=>sum+row.quantity,0),3),collectionCount:cleanCollections.length,collectionTotal:round(cleanCollections.reduce((sum,row)=>sum+row.amount,0),2),finishedGoodsCount:cleanFinishedGoods.length,finishedGoodsIssued:round(cleanFinishedGoods.reduce((sum,row)=>sum+row.issued,0),3),rawMaterialsCount:cleanRawMaterials.length,rawMaterialsReceived:round(cleanRawMaterials.reduce((sum,row)=>sum+row.received,0),3)}};
 }

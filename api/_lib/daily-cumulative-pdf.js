@@ -28,7 +28,7 @@ function statusBadge(row){
   return chips.join(' ');
 }
 
-export function cumulativeDepartmentHtml({type,data,sourceFile,reportDate,latestApprovedDate}){
+export function cumulativeDepartmentHtml({type,data,sourceFile,reportDate,latestApprovedDate,finishedGoods=[],rawMaterials=[]}){
   const rows=data?.rows||[],totals=data?.totals||{};
   const boughtToday=rows.filter(r=>Number(r.currentSales||0)>0),paidToday=rows.filter(r=>Number(r.currentApplied||0)>0),stillDue=rows.filter(r=>Number(r.closingBalance||0)>0),advanceToday=rows.filter(r=>Number(r.currentUnallocated||0)>0);
   const advanceTotal=advanceToday.reduce((sum,r)=>sum+Number(r.currentUnallocated||0),0);
@@ -88,14 +88,27 @@ export function cumulativeDepartmentHtml({type,data,sourceFile,reportDate,latest
     </div>
     <h2>📊 كشف العملاء التراكمي</h2>${customers}
     <h2>🧾 فواتير القسم في الملف الحالي</h2>${currentInvoiceRows(rows)}
+    ${inventorySection(type,finishedGoods,rawMaterials)}
     <div class="footer">المعادلة: الرصيد المتوقع = الرصيد السابق + مبيعات الملف − التحصيل الموزع على فواتير القسم. أي تحصيل غير موزع يظهر للتنبيه ولا يُخصم من رصيد القسم حتى يتم تخصيصه.</div>
   </body></html>`;
+}
+
+function inventoryTable(rows,cols){
+  if(!rows.length)return'';
+  return `<table><thead><tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead><tbody>${rows.map(row=>`<tr><td>${esc(row.itemCode||'—')}</td><td>${esc(row.itemName)}</td><td>${esc(row.unit||'—')}</td><td>${qty(row.opening)}</td><td>${qty(row.received)}</td><td>${qty(row.issued)}</td><td><strong>${qty(row.closing)}</strong></td></tr>`).join('')}</tbody></table>`;
+}
+function inventorySection(type,finishedGoods=[],rawMaterials=[]){
+  const departmentFinished=finishedGoods.filter(row=>type==='block'?/بلك|بلوك/.test(row.itemName):/خرسانه|خرسانة/.test(row.itemName));
+  const cols=['كود الصنف','الصنف','الوحدة','رصيد سابق','وارد','منصرف','رصيد حالي'];
+  const finishedHtml=departmentFinished.length?inventoryTable(departmentFinished,cols):'<p class="empty">📭 لا توجد حركة مخزون منتج تام لهذا القسم في الملف.</p>';
+  const materialsHtml=rawMaterials.length?inventoryTable(rawMaterials,cols):'<p class="empty">📭 لا توجد حركة خامات في الملف.</p>';
+  return `<h2>📦 حركة المنتج التام (${type==='block'?'البلوك':'الخرسانة'})</h2>${finishedHtml}<h2>🧱 حركة الخامات المشتركة</h2>${materialsHtml}`;
 }
 
 export async function generateCumulativeDailyPdfs(analysis={},sourceFile='daily-report.xlsx'){
   const reportDate=riyadhDate(),projection=await loadProjectedCumulativeDailyReport(analysis,reportDate);
   return Promise.all(['block','concrete'].map(async type=>{
-    const html=cumulativeDepartmentHtml({type,data:projection.departments[type],sourceFile,reportDate,latestApprovedDate:projection.latestApprovedDate});
+    const html=cumulativeDepartmentHtml({type,data:projection.departments[type],sourceFile,reportDate,latestApprovedDate:projection.latestApprovedDate,finishedGoods:analysis?.finishedGoods,rawMaterials:analysis?.rawMaterials});
     const pdf=await htmlToPdf(html,{filename:`${slug(type)}-cumulative-${reportDate}`,landscape:true});
     return{type,pdf,filename:`${slug(type)}-cumulative-${reportDate}.pdf`,caption:`${icon(type)} ${title(type)} — مسودة حتى ${reportDate}`,summary:projection.departments[type].totals};
   }));

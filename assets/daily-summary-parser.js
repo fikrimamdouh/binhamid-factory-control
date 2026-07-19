@@ -104,12 +104,43 @@
   const collectionKey=row=>[row.sheet,row.row,row.treasuryCode,row.customerCode,row.receipt,round(row.amount,2)].join('|');
   const unique=(rows,keyFn)=>{const seen=new Set();return rows.filter(row=>{const key=keyFn(row);if(seen.has(key))return false;seen.add(key);return true;});};
 
+  // أقسام المخزون (منتجات تامة/خامات): كود الصنف، الصنف، الوحدة، الرصيد
+  // الافتتاحي، وارد، منصرف، رصيد — نفس بنية الأعمدة في القسمين.
+  const INVENTORY_ALIASES={itemCode:['كود الصنف'],itemName:['الصنف'],unit:['الوحدة','الوحده'],opening:['الرصيد الافتتاحي','الرصيد الأفتتاحي','الرصيد'],received:['وارد'],issued:['منصرف'],closing:['رصيد الصنف','رصيد']};
+  const isFinishedGoodsTitle=text=>text==='منتجات تامه'||text.startsWith('منتجات تامه');
+  const isRawMaterialsTitle=text=>text==='خامات'||text.startsWith('خامات ');
+  function inventoryColumns(row){
+    const columns=Object.fromEntries(Object.entries(INVENTORY_ALIASES).map(([key,aliases])=>[key,headerIndex(row,aliases)]));
+    return columns.itemCode>=0&&columns.itemName>=0?columns:null;
+  }
+  function parseInventorySection(rows,sheetName,titleTest){
+    const items=[];let cursor=0;
+    while(cursor<rows.length){
+      const start=titleIndex(rows,titleTest,cursor);if(start<0)break;
+      let end=rows.length;for(let i=start+1;i<rows.length;i++){if(isSectionStop(rowText(rows[i]))){end=i;break;}}
+      let headerRow=-1,columns=null;
+      for(let i=start+1;i<Math.min(end,start+5);i++){const detected=inventoryColumns(rows[i]||[]);if(detected){headerRow=i;columns=detected;break;}}
+      if(columns){
+        for(let i=headerRow+1;i<end;i++){
+          const row=rows[i]||[];if(inventoryColumns(row))continue;
+          const itemCode=code(row[columns.itemCode]),itemName=clean(row[columns.itemName],500);
+          if(!itemName)continue;
+          const opening=number(row[columns.opening])||0,received=number(row[columns.received])||0,issued=number(row[columns.issued])||0,closingRaw=columns.closing>=0?number(row[columns.closing]):null,closing=closingRaw!==null?closingRaw:round(opening+received-issued,3);
+          items.push({sheet:sheetName,row:i+1,itemCode,itemName,unit:clean(row[columns.unit],50),opening:round(opening,3),received:round(received,3),issued:round(issued,3),closing:round(closing,3)});
+        }
+      }
+      cursor=Math.max(end,start+1);
+    }
+    return items;
+  }
+  const inventoryKey=row=>[row.sheet,row.row,row.itemCode,norm(row.itemName)].join('|');
+
   function parseWorkbook(workbook,xlsx){
     const lib=xlsx||root.XLSX;if(!workbook||!lib?.utils?.sheet_to_json)throw new Error('Excel parser is not available');
-    const sales=[],collections=[];
-    for(const sheetName of workbook.SheetNames||[]){const rows=lib.utils.sheet_to_json(workbook.Sheets[sheetName],{header:1,defval:'',raw:false,blankrows:false});sales.push(...parseDirectSales(rows,sheetName));collections.push(...parseTreasuryCollections(rows,sheetName));}
-    return{sales:unique(sales,saleKey),collections:unique(collections,collectionKey)};
+    const sales=[],collections=[],finishedGoods=[],rawMaterials=[];
+    for(const sheetName of workbook.SheetNames||[]){const rows=lib.utils.sheet_to_json(workbook.Sheets[sheetName],{header:1,defval:'',raw:false,blankrows:false});sales.push(...parseDirectSales(rows,sheetName));collections.push(...parseTreasuryCollections(rows,sheetName));finishedGoods.push(...parseInventorySection(rows,sheetName,isFinishedGoodsTitle));rawMaterials.push(...parseInventorySection(rows,sheetName,isRawMaterialsTitle));}
+    return{sales:unique(sales,saleKey),collections:unique(collections,collectionKey),finishedGoods:unique(finishedGoods,inventoryKey),rawMaterials:unique(rawMaterials,inventoryKey)};
   }
 
-  return{parseWorkbook,parseDirectSales,parseTreasuryCollections,number,norm,kind,isoDate,salesColumns};
+  return{parseWorkbook,parseDirectSales,parseTreasuryCollections,parseInventorySection,number,norm,kind,isoDate,salesColumns};
 });

@@ -63,7 +63,25 @@ function excelFailureMessage(error){
   if(stage==='registry')return'تعذر تسجيل الملف في مركز الوارد بعد حفظ النسخة الأصلية.';
   return'تعذر إكمال معالجة الملف في الخادم.';
 }
-function dailySummaryText(summary={}){if(!summary.invoiceCount&&!summary.collectionCount)return'';return`\n\n<b>ملخص القراءة:</b>\nالفواتير: <b>${number(summary.invoiceCount)}</b>\nإجمالي المبيعات: <b>${number(summary.salesTotal)} ر.س</b>\nالبلوك: <b>${number(summary.blockQuantity)} قطعة — ${number(summary.blockSales)} ر.س</b>\nالخرسانة: <b>${number(summary.concreteQuantity)} م³ — ${number(summary.concreteSales)} ر.س</b>\nالتحصيلات: <b>${number(summary.collectionCount)} حركة — ${number(summary.collectionTotal)} ر.س</b>`;}
+function importStatusText(status){
+  const map={
+    ready:'جاهز — لم يُعتمد بعد',
+    ready_for_review:'ينتظر المراجعة — لم يُعتمد بعد',
+    opened_in_program:'فُتح في المستورد لكن لم يُعتمد بعد',
+    validating:'قيد التحقق',
+    validation_failed:'فشل التحقق — يحتاج مراجعة',
+    failed:'فشلت القراءة — يحتاج مراجعة',
+    posted:'مُعتمد ومُرحّل نهائيًا ✅',
+    approved:'مُعتمد ومُرحّل نهائيًا ✅'
+  };
+  const posted=status==='posted'||status==='approved';
+  return{label:map[status]||esc(status)||'غير معروف',posted,callToAction:posted?'':'\nلم يُعتمد بعد. افتح مركز الوارد على الموقع وادخل عليه من "فتح في المستورد" ثم اضغط اعتماد ليصبح نهائيًا.'};
+}
+function dailySummaryText(summary={}){
+  if(!summary.invoiceCount&&!summary.collectionCount&&!summary.finishedGoodsCount&&!summary.rawMaterialsCount)return'';
+  const inventoryLine=(summary.finishedGoodsCount||summary.rawMaterialsCount)?`\nالمنتجات التامة: <b>${number(summary.finishedGoodsCount||0)} صنف — منصرف ${number(summary.finishedGoodsIssued||0)}</b>\nالخامات: <b>${number(summary.rawMaterialsCount||0)} صنف — وارد ${number(summary.rawMaterialsReceived||0)}</b>`:'';
+  return`\n\n<b>ملخص القراءة:</b>\nالفواتير: <b>${number(summary.invoiceCount)}</b>\nإجمالي المبيعات: <b>${number(summary.salesTotal)} ر.س</b>\nالبلوك: <b>${number(summary.blockQuantity)} قطعة — ${number(summary.blockSales)} ر.س</b>\nالخرسانة: <b>${number(summary.concreteQuantity)} م³ — ${number(summary.concreteSales)} ر.س</b>\nالتحصيلات: <b>${number(summary.collectionCount)} حركة — ${number(summary.collectionTotal)} ر.س</b>${inventoryLine}`;
+}
 function reportDateFromFile(name,messageDate){
   const value=String(name||'').replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d));let match=value.match(/(20\d{2})[./_-](\d{1,2})[./_-](\d{1,2})/);if(match)return`${match[1]}-${String(match[2]).padStart(2,'0')}-${String(match[3]).padStart(2,'0')}`;match=value.match(/(\d{1,2})[./_-](\d{1,2})[./_-](20\d{2})/);if(match)return`${match[3]}-${String(match[2]).padStart(2,'0')}-${String(match[1]).padStart(2,'0')}`;const epoch=Number(messageDate||0)*1000;return new Date(epoch||Date.now()).toLocaleDateString('en-CA',{timeZone:'Asia/Riyadh'});
 }
@@ -78,7 +96,12 @@ export async function handleExcel(message,group,identity,stored){
   try{
     const downloaded=await excelStep('download',()=>downloadTelegramFile(document.file_id,{expectedSize:document.file_size,maxBytes:config.maxImportFileBytes}));relay={buffer:downloaded.buffer,contentType:document.mime_type||downloaded.contentType};const hash=sha256(downloaded.buffer);
     const duplicate=(await excelStep('lookup',()=>select('imports',`file_hash=eq.${hash}&select=id,status,original_name,report_type,summary,file_path&limit=1`)))?.[0],storagePending=duplicate?.summary?.storage?.saved===false,recheck=Boolean(duplicate&&(duplicate.report_type==='unknown_excel'||duplicate.status==='failed'||!duplicate.report_type||storagePending));
-    if(duplicate&&!recheck){const recognizedDaily=dailyType(duplicate.report_type);resultText=`هذا الملف سبق استلامه.\nالملف: <b>${esc(duplicate.original_name)}</b>\nالنوع: <b>${esc(reportTypeLabel(duplicate.report_type))}</b>\nالحالة: <b>${esc(duplicate.status)}</b>${dailySummaryText(duplicate.summary?.daily||duplicate.summary||{})}`;result={duplicate:true,import:duplicate,reportType:duplicate.report_type,status:duplicate.status,recognizedDaily};}
+    if(duplicate&&!recheck){
+      const recognizedDaily=dailyType(duplicate.report_type),statusInfo=importStatusText(duplicate.status);
+      try{const workbook=XLSX.read(downloaded.buffer,{type:'buffer',cellDates:true});dailyAnalysis=parseDailyWorkbook(workbook,XLSX);}catch{dailyAnalysis=null;}
+      resultText=`هذا الملف سبق استلامه.\nالملف: <b>${esc(duplicate.original_name)}</b>\nالنوع: <b>${esc(reportTypeLabel(duplicate.report_type))}</b>\nحالة الاعتماد: <b>${statusInfo.label}</b>${statusInfo.callToAction}${dailySummaryText(duplicate.summary?.daily||duplicate.summary||{})}`;
+      result={ok:statusInfo.posted,duplicate:true,import:duplicate,reportType:duplicate.report_type,status:duplicate.status==='failed'?'failed':'ready',recognizedDaily};
+    }
     else{
       let sheetNames=[],rowCount=0,summary={},contentText='',status='ready',errorCount=0;
       try{const workbook=XLSX.read(downloaded.buffer,{type:'buffer',cellDates:true});dailyAnalysis=parseDailyWorkbook(workbook,XLSX);sheetNames=workbook.SheetNames;rowCount=dailyAnalysis.rowCount;contentText=dailyAnalysis.contentText;summary={sheetNames,daily:dailyAnalysis.summary};}catch(error){status='failed';errorCount=1;summary={error:String(error?.message||'تعذر قراءة المصنف').slice(0,500)};}
@@ -108,7 +131,7 @@ export async function handleExcel(message,group,identity,stored){
   // التلقائي — أغلب مرسلي الملف اليومي مندوبو مبيعات وليسوا معتمدين، فكان
   // الشرط القديم (posting?.ok) يمنع إرسالهما في كل تلك الحالات. الآن يُرسلان
   // فورًا لأي ملف يومي جديد قُرئ بنجاح، سواء رُحّل تلقائيًا أو ينتظر الاعتماد.
-  if(result?.recognizedDaily&&result?.status!=='failed'&&!result?.duplicate)result.pdfReports=await sendCumulativeDailyReports(chatId,dailyAnalysis,name);
+  if(result?.recognizedDaily&&result?.status!=='failed')result.pdfReports=await sendCumulativeDailyReports(chatId,dailyAnalysis,name);
   return result;
 }
 

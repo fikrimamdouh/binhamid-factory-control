@@ -9,6 +9,7 @@
 </head>
 <body><script src="/assets/admin-nav.js?v=20260719-1"></script><main class="wrap">
 <header class="head"><h1>ربط الجهاز بالمستخدم</h1><p>يوقّع الخادم هوية المستخدم داخل جلسة الجهاز. لا يمكن تغيير المستخدم من أدوات المتصفح أو بهيدر يدوي.</p></header>
+<script src="/assets/owner-web-login.js?v=20260718-3"></script>
 <section class="card">
 <div class="grid"><label>معرف الجهاز<input id="deviceId" readonly></label><label>المستخدم المعتمد<select id="user"><option value="">جاري تحميل المستخدمين...</option></select></label></div>
 <div class="row"><button id="bind">ربط الجهاز بالمستخدم</button><button id="revoke" class="danger">إلغاء ربط الجهاز</button><button id="refresh" class="alt">تحديث الحالة</button><a href="/control-center.html">العودة إلى مركز الرقابة</a></div>
@@ -18,12 +19,44 @@
 <script>
 (()=>{'use strict';
 const TOKEN_KEY='binhamid_cloud_access_token',DEVICE_KEY='binhamid_cloud_device_id',device=document.getElementById('deviceId'),user=document.getElementById('user'),message=document.getElementById('message');
-const token=()=>{const value=localStorage.getItem(TOKEN_KEY)||'';return value&&value!=='device-session'?value:'';};
-const headers=()=>({'Content-Type':'application/json',...(token()?{Authorization:'Bearer '+token()}:{})});
-function show(text,type=''){message.className='notice '+type;message.textContent=text;}
+// رمز BINHAMID_ADMIN_TOKEN مطلوب فعليًا وبشكل مقصود لعمليتي الربط والإلغاء
+// فقط (لأنه إسناد هوية مستخدم بالكامل لجهاز — عملية حساسة يفرضها الخادم
+// نفسه)، لكن عرض قائمة المستخدمين لا يحتاجه إطلاقًا ويعمل مباشرة بجلسة
+// المالك عبر Telegram الموجودة بالفعل.
+function adminToken(){const raw=sessionStorage.getItem('binhamid_admin_token')||localStorage.getItem(TOKEN_KEY)||'';return raw&&raw!=='device-session'?raw:'';}
+function askAdminToken(){
+  const value=(prompt('عملية ربط/إلغاء الجهاز تتطلب رمز BINHAMID_ADMIN_TOKEN (يُحفظ في هذا المتصفح فقط لهذه الجلسة):','')||'').trim();
+  if(!value)return'';
+  sessionStorage.setItem('binhamid_admin_token',value);try{localStorage.setItem(TOKEN_KEY,value);}catch{}
+  return value;
+}
 function currentDevice(){return localStorage.getItem(DEVICE_KEY)||'';}
-async function load(){device.value=currentDevice();if(!device.value){show('معرف الجهاز غير موجود. افتح الصفحة الرئيسية أولًا لإنشاء جلسة الجهاز.','bad');return;}if(!token()){show('لا توجد جلسة مدير نظام حقيقية محفوظة. الربط لا يتم بجلسة الجهاز وحدها.','bad');user.innerHTML='<option value="">غير متاح</option>';return;}try{const response=await fetch('/api/dashboard',{credentials:'same-origin',cache:'no-store',headers:{Authorization:'Bearer '+token()}}),data=await response.json();if(!response.ok)throw new Error(data.error||'تعذر قراءة المستخدمين');const users=(data.users||[]).filter(item=>item.active!==false&&item.id);user.replaceChildren(new Option('اختر المستخدم',''));for(const item of users)user.appendChild(new Option((item.full_name||item.external_username||item.id)+' — '+(item.role||'pending'),item.id));show('اختر مستخدمًا ثم نفّذ الربط. المستخدمون غير النشطين غير معروضين.');}catch(error){show(error.message,'bad');}}
-async function act(action){if(!device.value)throw new Error('معرف الجهاز غير موجود');const payload={action,deviceId:device.value};if(action==='bind'){if(!user.value)throw new Error('اختر المستخدم');payload.appUserId=user.value;}const response=await fetch('/api/device/session',{method:'POST',credentials:'same-origin',headers:headers(),body:JSON.stringify(payload)}),data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.error||'تعذر تحديث ربط الجهاز');window.BinHamidCloudDeviceSession=data;show(action==='bind'?'تم ربط الجهاز وإصدار جلسة مستخدم موقعة.':'تم إلغاء الربط وإصدار جلسة تقنية فقط.','ok');}
-document.getElementById('bind').onclick=()=>act('bind').catch(error=>show(error.message,'bad'));document.getElementById('revoke').onclick=()=>act('revoke').catch(error=>show(error.message,'bad'));document.getElementById('refresh').onclick=load;load();
+function show(text,type=''){message.className='notice '+type;message.textContent=text;}
+async function load(){
+  device.value=currentDevice();
+  if(!device.value){show('معرف الجهاز غير موجود. افتح الصفحة الرئيسية أولًا لإنشاء جلسة الجهاز.','bad');return;}
+  try{
+    const token=adminToken(),headers=token?{Authorization:'Bearer '+token}:{};
+    const response=await fetch('/api/dashboard',{credentials:'same-origin',cache:'no-store',headers}),data=await response.json();
+    if(!response.ok)throw new Error(data.error||'تعذر قراءة المستخدمين');
+    const users=(data.users||[]).filter(item=>item.active!==false&&item.id);
+    user.replaceChildren(new Option('اختر المستخدم',''));
+    for(const item of users)user.appendChild(new Option((item.full_name||item.external_username||item.id)+' — '+(item.role||'pending'),item.id));
+    show('اختر مستخدمًا ثم نفّذ الربط. سيُطلب منك رمز المدير عند تنفيذ الربط أو الإلغاء فقط. المستخدمون غير النشطين غير معروضين.');
+  }catch(error){show(error.message,'bad');}
+}
+async function act(action){
+  if(!device.value)throw new Error('معرف الجهاز غير موجود');
+  let token=adminToken();if(!token)token=askAdminToken();if(!token)throw new Error('رمز المدير مطلوب لتنفيذ هذه العملية.');
+  const payload={action,deviceId:device.value};if(action==='bind'){if(!user.value)throw new Error('اختر المستخدم');payload.appUserId=user.value;}
+  const response=await fetch('/api/device/session',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify(payload)}),data=await response.json().catch(()=>({}));
+  if(!response.ok){if(response.status===401){sessionStorage.removeItem('binhamid_admin_token');try{localStorage.removeItem(TOKEN_KEY);}catch{}}throw new Error(data.error||'تعذر تحديث ربط الجهاز');}
+  window.BinHamidCloudDeviceSession=data;show(action==='bind'?'تم ربط الجهاز وإصدار جلسة مستخدم موقعة.':'تم إلغاء الربط وإصدار جلسة تقنية فقط.','ok');
+}
+document.getElementById('bind').onclick=()=>act('bind').catch(error=>show(error.message,'bad'));
+document.getElementById('revoke').onclick=()=>act('revoke').catch(error=>show(error.message,'bad'));
+document.getElementById('refresh').onclick=load;
+window.addEventListener('binhamid-owner-authenticated',load);
+load();
 })();
 </script></body></html>
