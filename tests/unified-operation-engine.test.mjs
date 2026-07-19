@@ -26,6 +26,8 @@ test('shared server service owns operation identity, lifecycle and outbox dispat
   assert.match(source,/rpc\('transition_unified_operation'/);
   assert.match(source,/dispatchOperationNotifications/);
   assert.match(source,/dead_letter/);
+  assert.match(source,/duplicateTransitionResult/);
+  assert.match(source,/allowSameStatus/);
   assert.match(source,/compatibilityMode:true/);
 });
 
@@ -37,6 +39,8 @@ test('Telegram form confirmation saves through the shared engine before notifica
   assert.doesNotMatch(source,/action:'enterprise_operation_created'/);
   assert.match(source,/domainRecord=details\.category==='task'/);
   assert.match(source,/العملية .* محفوظة مسبقًا/);
+  assert.match(source,/item:'الصنف\/الخلطة'/);
+  assert.match(source,/phone:'الجوال'/);
 });
 
 test('Telegram status changes use the same transition service and outbox',async()=>{
@@ -45,6 +49,14 @@ test('Telegram status changes use the same transition service and outbox',async(
   assert.match(source,/transitionOperation/);
   assert.match(source,/dispatchOperationNotifications/);
   assert.doesNotMatch(source,/logEnterpriseEvent/);
+});
+
+test('Telegram read models include legacy and unified operation events',async()=>{
+  const source=await read('api/_lib/bot-enterprise-store.js');
+  assert.match(source,/unified_operation_created/);
+  assert.match(source,/unified_operation_status/);
+  assert.match(source,/enterprise_operation_created/);
+  assert.match(source,/enterprise_operation_status/);
 });
 
 test('website management actions use the same operation service',async()=>{
