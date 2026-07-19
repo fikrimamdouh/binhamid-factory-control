@@ -4,7 +4,8 @@ import { sendMessage, keyboard } from './telegram.js';
 import { displayName, roleLabel } from './bot-profile.js';
 import { clearMaintenanceSession } from './bot-maintenance.js';
 import { SIMPLE_DEFS, optionsKeyboard, statusKeyboard } from './bot-enterprise-defs.js';
-import { canFinance, esc, getEnterpriseSession, logEnterpriseEvent, nextEnterpriseReference, numberFrom, setEnterpriseSession, STATUS_LABEL } from './bot-enterprise-store.js';
+import { canFinance, esc, getEnterpriseSession, nextEnterpriseReference, numberFrom, setEnterpriseSession, STATUS_LABEL } from './bot-enterprise-store.js';
+import { dispatchOperationNotifications, executeOperation } from './operation-engine.js';
 
 const ACTIVE_ROLES=new Set(['admin','manager','accountant','mechanic','block_sales','concrete_sales','collector','driver','employee','warehouse','fuel_operator','hr','procurement','quality']);
 const COLLECTION_ROLES=new Set(['admin','manager','accountant','collector','block_sales','concrete_sales']);
@@ -45,39 +46,26 @@ function managementFeedbackKeyboard(reference){return keyboard([
   [{text:'تم الاطلاع',callback_data:`entstatus:${reference}|under_review`},{text:'بدأت المعالجة',callback_data:`entstatus:${reference}|in_progress`}],
   [{text:'تم الرد والإغلاق',callback_data:`entstatus:${reference}|completed`},{text:'رفض الاقتراح/البلاغ',callback_data:`entstatus:${reference}|rejected`}]
 ]);}
-async function notifyFinancialControl(details,message,identity){
-  const chats=await managementFeedbackChats(message.chat.id);
-  if(!chats.length)return{recipients:0,delivered:0,failed:0};
+async function financialControlNotifications(details,message,identity){
+  const chats=await managementFeedbackChats(message.chat.id);if(!chats.length)return[];
   const employee=details.created_by_name||displayName(identity,message.from),role=roleLabel(identity?.role||'pending');
   const fields=[['الطرف',details.party],['البند/مركز التكلفة',details.item],['المبلغ',details.amount?`${details.amount} ر.س`:''],['الاستحقاق',details.due_date],['الأولوية',details.priority],['البيان',details.note]].filter(([,value])=>value!==undefined&&value!=='');
   const text=`<b>رقابة مالية جديدة — ${esc(details.title)}</b>\n\nالمرجع: <b>${esc(details.reference_no)}</b>\nالمسجل: <b>${esc(employee)}</b> — ${esc(role)}\n\n${fields.map(([label,value])=>`• ${label}: <b>${esc(value)}</b>`).join('\n')}\n\nراجع التغطية والمستندات ومركز التكلفة قبل التنفيذ.`;
-  const sent=await Promise.allSettled(chats.map(chatId=>sendMessage(chatId,text,{...statusKeyboard(details.reference_no),action_name:'financial_control_received',action_payload:{reference_no:details.reference_no,subtype:details.subtype,created_by_user_id:details.created_by_user_id}})));
-  const delivered=sent.filter(item=>item.status==='fulfilled').length,failed=sent.length-delivered;
-  if(failed)console.warn('[telegram financial control delivery]',{reference:details.reference_no,recipients:chats.length,delivered,failed});
-  return{recipients:chats.length,delivered,failed};
+  return chats.map((chatId,index)=>({type:'financial_control',chatId,title:details.title,message:text,dedupeKey:`${details.reference_no}:financial:${chatId}:${index}`,payload:{telegram_options:{...statusKeyboard(details.reference_no),action_name:'financial_control_received',action_payload:{reference_no:details.reference_no,subtype:details.subtype,created_by_user_id:details.created_by_user_id}}}}));
 }
-async function notifyProductionReport(details,message,identity){
-  const chats=await managementFeedbackChats(message.chat.id);
-  if(!chats.length)return{recipients:0,delivered:0,failed:0};
+async function productionReportNotifications(details,message,identity){
+  const chats=await managementFeedbackChats(message.chat.id);if(!chats.length)return[];
   const product=details.subtype?.startsWith('concrete_')?'الخرسانة':'البلوك',kind=details.subtype?.includes('_pre_')?'تقرير تجهيز مسبق':'تقرير اليوم',employee=details.created_by_name||displayName(identity,message.from),role=roleLabel(identity?.role||'pending');
   const fields=[['التاريخ',details.report_date],['العميل/الموقع',details.party],['الصنف أو الخلطة',details.item],['المخطط',details.quantity],['المنتج فعليًا',details.produced],['المورد فعليًا',details.delivered],['الهالك/المرفوض',details.waste],['موعد التشغيل',details.delivery_time],['المضخات',details.pumps],['التأخيرات',details.delays],['المتطلبات',details.requirements]].filter(([,value])=>value!==undefined&&value!=='');
   const text=`<b>${esc(kind)} — ${esc(product)}</b>\n\nالمرجع: <b>${esc(details.reference_no)}</b>\nالموظف: <b>${esc(employee)}</b> — ${esc(role)}\n\n${fields.map(([label,value])=>`• ${label}: <b>${esc(value)}</b>`).join('\n')}\n\n<b>إجراء الإدارة:</b> راجع المتطلبات وجهّز المواد والمضخات والسيارات والعمالة قبل موعد التشغيل.`;
-  const sent=await Promise.allSettled(chats.map(chatId=>sendMessage(chatId,text,{...statusKeyboard(details.reference_no),action_name:'production_report_received',action_payload:{reference_no:details.reference_no,subtype:details.subtype,created_by_user_id:details.created_by_user_id}})));
-  const delivered=sent.filter(item=>item.status==='fulfilled').length,failed=sent.length-delivered;
-  if(failed)console.warn('[telegram production report delivery]',{reference:details.reference_no,recipients:chats.length,delivered,failed});
-  return{recipients:chats.length,delivered,failed};
+  return chats.map((chatId,index)=>({type:'production_report',chatId,title:`${kind} — ${product}`,message:text,dedupeKey:`${details.reference_no}:production:${chatId}:${index}`,payload:{telegram_options:{...statusKeyboard(details.reference_no),action_name:'production_report_received',action_payload:{reference_no:details.reference_no,subtype:details.subtype,created_by_user_id:details.created_by_user_id}}}}));
 }
-async function notifyManagementFeedback(details,message,identity){
-  const chats=await managementFeedbackChats(message.chat.id);
-  if(!chats.length)return{recipients:0,delivered:0,failed:0};
+async function managementFeedbackNotifications(details,message,identity){
+  const chats=await managementFeedbackChats(message.chat.id);if(!chats.length)return[];
   const type=details.subtype==='management_problem'?'مشكلة':'اقتراح',employee=details.created_by_name||displayName(identity,message.from),role=roleLabel(identity?.role||'pending'),source=message.chat.title||'محادثة خاصة';
   const text=`<b>${esc(type)} جديد من موظف</b>\n\nالمرجع: <b>${esc(details.reference_no)}</b>\nالموظف: <b>${esc(employee)}</b>\nالدور: <b>${esc(role)}</b>\nTelegram: <code>${esc(message.from.id)}</code>\nالمصدر: <b>${esc(source)}</b>${details.priority&&details.priority!=='normal'?`\nدرجة التأثير: <b>${esc(details.priority==='critical'?'حرجة':'تحتاج تدخل')}</b>`:''}\n\n<b>التفاصيل:</b>\n${esc(details.note||'').slice(0,2200)}\n\nاضغط «تم الاطلاع» ليصل للموظف إثبات باسمك ووقت الاطلاع.`;
-  const sent=await Promise.allSettled(chats.map(chatId=>sendMessage(chatId,text,{...managementFeedbackKeyboard(details.reference_no),action_name:'management_feedback_received',action_payload:{reference_no:details.reference_no,subtype:details.subtype,created_by_user_id:details.created_by_user_id}})));
-  const delivered=sent.filter(item=>item.status==='fulfilled').length,failed=sent.length-delivered;
-  if(failed)console.warn('[telegram management feedback delivery]',{reference:details.reference_no,recipients:chats.length,delivered,failed});
-  return{recipients:chats.length,delivered,failed};
+  return chats.map((chatId,index)=>({type:'management_feedback',chatId,title:`${type} ${details.reference_no}`,message:text,dedupeKey:`${details.reference_no}:feedback:${chatId}:${index}`,payload:{telegram_options:{...managementFeedbackKeyboard(details.reference_no),action_name:'management_feedback_received',action_payload:{reference_no:details.reference_no,subtype:details.subtype,created_by_user_id:details.created_by_user_id}}}}));
 }
-
 function permission(identity,action,def){
   const role=identity?.role||'';
   if(!identity?.active||!ACTIVE_ROLES.has(role))return'حسابك غير معتمد أو غير نشط.';
@@ -112,11 +100,10 @@ function permission(identity,action,def){
   if(def.category==='incident'&&!new Set(['daily_report',...MANAGEMENT_FEEDBACK_ACTIONS]).has(action))return'نوع التقرير غير مسموح.';
   return'';
 }
-
 function mapMethod(value){return({cash:'نقدي',transfer:'تحويل',cheque:'شيك'}[value]||value);}
 function mapPriority(value){return({normal:'عادي',urgent:'عاجل',critical:'حرج'}[value]||value);}
 function summaryLine(key,value){
-  const labels={party:'الطرف/المسؤول',amount:'المبلغ',method:'الطريقة',note:'البيان',item:'الصنف/الخلطة',quantity:'المخطط',expected:'المتوقع',asset:'اللوحة/الأصل',odometer:'العداد',priority:'الأولوية',date_from:'من',date_to:'إلى',due_date:'الموعد',report_date:'تاريخ التقرير',delivery_time:'موعد التشغيل',pumps:'المضخات',produced:'المنتج فعليًا',delivered:'المورد فعليًا',waste:'الهالك/المرفوض',delays:'التأخيرات',requirements:'المتطلبات',location:'الموقع',result:'النتيجة',phone:'الجوال',title:'العنوان',next_date:'المتابعة'};
+  const labels={party:'الطرف/المسؤول',amount:'المبلغ',method:'الطريقة',note:'البيان',item:'الصنف/الخدمة',quantity:'الكمية',priority:'الأولوية',asset:'المركبة/الأصل',odometer:'قراءة العداد',expected:'الاستهلاك المتوقع',location:'الموقع',employee:'الموظف',document:'المستند',expiry:'تاريخ الانتهاء',result:'النتيجة',action:'الإجراء',from:'من',to:'إلى',start:'وقت البداية',end:'وقت النهاية',title:'العنوان',due_date:'تاريخ الاستحقاق',report_date:'تاريخ التقرير',delivery_time:'موعد التشغيل',produced:'المنتج فعليًا',delivered:'المورد فعليًا',waste:'الهالك/المرفوض',pumps:'المضخات',delays:'التأخيرات',requirements:'المتطلبات',attendees:'الحضور',decisions:'القرارات',owner:'المسؤول',renewal_date:'موعد التجديد',risk:'الخطر',impact:'الأثر',mitigation:'الإجراء الوقائي'};
   let shown=value;if(key==='method')shown=mapMethod(value);if(key==='priority')shown=mapPriority(value);
   return `${labels[key]||key}: <b>${esc(shown)}</b>`;
 }
@@ -141,7 +128,7 @@ export async function advanceEnterpriseForm(message,identity,session,value){
     if(nextField[2])await sendMessage(message.chat.id,nextField[1],optionsKeyboard(action,nextField[2]));else await sendMessage(message.chat.id,nextField[1]);
     return true;
   }
-  const reference=await nextEnterpriseReference(def.prefix),managementFeedback=MANAGEMENT_FEEDBACK_ACTIONS.has(action),productionReport=PRODUCTION_REPORT_ACTIONS.has(action),financialControl=FINANCIAL_CONTROL_ACTIONS.has(action),status=def.category==='task'?'assigned':financialControl?'under_review':def.category==='quality'&&data.priority==='critical'?'under_review':'open';
+  const reference=await nextEnterpriseReference(def.prefix),managementFeedback=MANAGEMENT_FEEDBACK_ACTIONS.has(action),financialControl=FINANCIAL_CONTROL_ACTIONS.has(action),status=def.category==='task'?'assigned':financialControl?'under_review':def.category==='quality'&&data.priority==='critical'?'under_review':'open';
   const details={reference_no:reference,category:def.category,subtype:def.subtype,title:def.title,status,priority:data.priority||'normal',created_by_user_id:String(identity.user_id||''),created_by_name:displayName(identity,message.from),assigned_to:managementFeedback?'الإدارة':data.party||displayName(identity,message.from),...data};
   await setEnterpriseSession(message.chat.id,identity.external_id||message.from.id,'enterprise_confirm',{action,reference,details,startedAt:new Date().toISOString(),roleAtStart:session.context?.roleAtStart||identity.role});
   const lines=Object.entries(data).map(([keyName,fieldValue])=>summaryLine(keyName,fieldValue)).join('\n');
@@ -152,11 +139,16 @@ export async function confirmEnterpriseForm(message,from,identity,reference){
   const session=await getEnterpriseSession(message.chat.id,identity.external_id||from.id),details=session?.context?.details,action=session?.context?.action,def=SIMPLE_DEFS[action];
   if(session?.state!=='enterprise_confirm'||!details||!def||String(details.reference_no)!==String(reference))return sendMessage(message.chat.id,'انتهت جلسة التأكيد. ابدأ العملية من جديد.');
   const denied=permission(identity,action,def);if(denied){await clearMaintenanceSession(message.chat.id,identity.external_id||from.id);return sendMessage(message.chat.id,denied);}
-  await logEnterpriseEvent({identity,message:{...message,from},action:'enterprise_operation_created',entityType:details.category,entityId:reference,details});
-  if(details.category==='quality'&&details.priority==='critical')await insert('discrepancies',[{reference_no:reference,source_type:'telegram_quality',discrepancy_type:details.subtype,severity:'critical',title:details.title,actual_value:details,status:'open',reason:details.note||'',assigned_to:null}]);
-  const managementFeedback=MANAGEMENT_FEEDBACK_ACTIONS.has(action),productionReport=PRODUCTION_REPORT_ACTIONS.has(action),financialControl=FINANCIAL_CONTROL_ACTIONS.has(action),notification=managementFeedback?await notifyManagementFeedback(details,{...message,from},identity):productionReport?await notifyProductionReport(details,{...message,from},identity):financialControl?await notifyFinancialControl(details,{...message,from},identity):null;
+  const managementFeedback=MANAGEMENT_FEEDBACK_ACTIONS.has(action),productionReport=PRODUCTION_REPORT_ACTIONS.has(action),financialControl=FINANCIAL_CONTROL_ACTIONS.has(action);
+  const notifications=managementFeedback?await managementFeedbackNotifications(details,{...message,from},identity):productionReport?await productionReportNotifications(details,{...message,from},identity):financialControl?await financialControlNotifications(details,{...message,from},identity):[];
+  const domainRecord=details.category==='task'?{kind:'operational_task',title:details.title,description:details.note||'',department:details.department||'general',priority:details.priority||'normal',dueAt:details.due_date||null,relatedEntityType:'assigned_to_name',relatedEntityId:details.assigned_to||''}:{};
+  const operation=await executeOperation({operationType:action,entityType:details.category,referenceNo:reference,department:details.category,status:details.status,title:details.title,summary:details.note||details.item||details.party||'',amount:details.amount||0,payload:details,domainRecord,source:'telegram',sourceReference:`telegram:${message.chat.id}:${message.message_id}:${reference}`,sourceChatId:message.chat.id,sourceMessageId:message.message_id,actorId:identity.user_id||identity.external_id||from.id,actorRole:identity.role,createdByUserId:identity.user_id||null,afterData:details,notifications});
+  if(!operation.duplicate&&details.category==='quality'&&details.priority==='critical')await insert('discrepancies',[{reference_no:reference,source_type:'telegram_quality',discrepancy_type:details.subtype,severity:'critical',title:details.title,actual_value:details,status:'open',reason:details.note||'',assigned_to:null}]).catch(error=>{if(Number(error?.upstreamStatus)!==409)throw error;});
+  const delivery=await dispatchOperationNotifications(operation.outboxIds||[]);
   await clearMaintenanceSession(message.chat.id,identity.external_id||from.id);
-  const delivery=(managementFeedback||productionReport||financialControl)?(notification.delivered?(managementFeedback?`\nوصل التنبيه إلى <b>${notification.delivered}</b> حساب إداري. هذا إثبات تسليم فقط، وليس إثبات مشاهدة. سيصلك إشعار باسم المدير ووقت الاطلاع عند ضغطه «تم الاطلاع» أو تغيير الحالة.`:`\nتم إرساله فورًا إلى الإدارة: <b>${notification.delivered}</b> مستلم.`):'\nتم حفظه في لوحة التشغيل، لكن تعذر إرسال تنبيه Telegram للإدارة.') :'';
-  return sendMessage(message.chat.id,`تم حفظ ${esc(details.title)} رسميًا.\nالمرجع: <b>${esc(reference)}</b>\nالحالة: <b>${esc(STATUS_LABEL[details.status]||details.status)}</b>.${delivery}`,managementFeedback?{}:statusKeyboard(reference));
+  if(operation.duplicate)return sendMessage(message.chat.id,`العملية <b>${esc(reference)}</b> محفوظة مسبقًا، ولم يتم إنشاء نسخة مكررة.`);
+  const notified=managementFeedback||productionReport||financialControl;
+  const deliveryText=notified?(delivery.sent?(managementFeedback?`\nوصل التنبيه إلى <b>${delivery.sent}</b> حساب إداري. هذا إثبات تسليم فقط، وليس إثبات مشاهدة. سيصلك إشعار باسم المدير ووقت الاطلاع عند تغيير الحالة.`:`\nتم إرساله إلى الإدارة: <b>${delivery.sent}</b> مستلم.`):`\nتم حفظ العملية، وتعذر إرسال ${delivery.failed+delivery.deadLetter} إشعار. بقيت العملية محفوظة في الـOutbox لإعادة المحاولة.`):'';
+  return sendMessage(message.chat.id,`تم حفظ ${esc(details.title)} رسميًا.\nالمرجع: <b>${esc(reference)}</b>\nالحالة: <b>${esc(STATUS_LABEL[details.status]||details.status)}</b>.${deliveryText}`,managementFeedback?{}:statusKeyboard(reference));
 }
 export async function cancelEnterpriseForm(message,from,identity){await clearMaintenanceSession(message.chat.id,identity.external_id||from.id);return sendMessage(message.chat.id,'تم إلغاء العملية المؤقتة.');}
