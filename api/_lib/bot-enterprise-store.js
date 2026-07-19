@@ -30,15 +30,15 @@ export async function logEnterpriseEvent({identity,message,action,entityType,ent
   }]);
 }
 export async function enterpriseEvents(limit=700){
-  return await select('audit_log',`action=in.(enterprise_operation_created,enterprise_operation_status)&select=action,entity_type,entity_id,details,created_at&order=created_at.desc&limit=${limit}`)||[];
+  return await select('audit_log',`action=in.(enterprise_operation_created,enterprise_operation_status,unified_operation_created,unified_operation_status)&select=action,entity_type,entity_id,details,created_at&order=created_at.desc&limit=${limit}`)||[];
 }
 export function reduceEnterpriseOperations(events){
   const map=new Map();
   for(const event of [...events].reverse()){
     const id=String(event.entity_id||event.details?.reference_no||'');if(!id)continue;
-    const current=map.get(id)||{};
-    if(event.action==='enterprise_operation_created')map.set(id,{...event.details,reference_no:id,created_at:event.created_at});
-    else if(event.action==='enterprise_operation_status')map.set(id,{...current,status:event.details?.status||current.status,status_note:event.details?.note||current.status_note,updated_by_name:event.details?.updated_by_name||current.updated_by_name,updated_by_role:event.details?.updated_by_role||current.updated_by_role,seen_at:event.details?.seen_at||current.seen_at,seen_by_name:event.details?.seen_by_name||current.seen_by_name,updated_at:event.created_at});
+    const current=map.get(id)||{},created=['enterprise_operation_created','unified_operation_created'].includes(event.action),updated=['enterprise_operation_status','unified_operation_status'].includes(event.action);
+    if(created)map.set(id,{...event.details,reference_no:id,created_at:event.created_at});
+    else if(updated)map.set(id,{...current,status:event.details?.status||current.status,lifecycle_status:event.details?.lifecycle_status||current.lifecycle_status,status_note:event.details?.note||current.status_note,updated_by_name:event.details?.updated_by_name||current.updated_by_name,updated_by_role:event.details?.updated_by_role||event.details?.actor_role||current.updated_by_role,seen_at:event.details?.seen_at||current.seen_at,seen_by_name:event.details?.seen_by_name||current.seen_by_name,updated_at:event.created_at});
   }
   return [...map.values()];
 }
