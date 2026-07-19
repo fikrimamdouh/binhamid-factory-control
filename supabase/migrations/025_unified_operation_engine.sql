@@ -173,6 +173,7 @@ begin
   if nullif(p_operation->>'source','') is null then raise exception 'OPERATION_SOURCE_REQUIRED'; end if;
   if v_reference is null then v_reference := concat('OP-',upper(substr(encode(digest(v_key,'sha256'),'hex'),1,16))); end if;
 
+  perform pg_advisory_xact_lock(hashtextextended(v_key,0));
   select * into v_existing from public.operational_records where idempotency_key=v_key limit 1 for update;
   if found then
     update public.operational_records set attempt_count=attempt_count+1,updated_at=now() where id=v_existing.id;
