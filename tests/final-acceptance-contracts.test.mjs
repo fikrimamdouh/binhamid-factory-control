@@ -15,11 +15,10 @@ test('automatic device bootstrap grants no business-data capability',()=>{
 test('production readiness follows schema 25, six functions and manual migration confirmation',()=>{
   const workflow=read('.github/workflows/production-readiness.yml'),migrations=read('.github/workflows/apply-pending-migrations.yml'),preflight=read('scripts/governance-migration-preflight.mjs'),verify=read('scripts/governance-migration-verify.mjs'),runtime=read('api/_lib/routes/system-runtime.js');
   assert.doesNotMatch(workflow,/directOperationsSchema\)!==15|expected schema 15|schema 15/);
-  assert.match(workflow,/directOperationsSchema\)!==25|directOperationsSchema\)===25|directOperationsSchema===25/);
-  assert.match(workflow,/expectedFunctionCount=6/);assert.match(workflow,/vercelFunctionsExpected\)!==expectedFunctionCount/);assert.match(workflow,/functions=\$\{report\.vercelFunctionsExpected/);
-  assert.match(runtime,/LATEST_REQUIRED_VERSION=25/);assert.match(runtime,/directOperationsSchema:25/);assert.match(runtime,/vercelFunctionsExpected:6/);
-  assert.match(migrations,/025_unified_operation_engine\.sql/);assert.ok(migrations.includes("ISOLATED_MIGRATION_TARGET: '25'"));assert.ok(migrations.includes('$(seq $((current_version + 1)) 25)'));assert.match(migrations,/EXPECTED_SCHEMA_VERSION=25/);
-  assert.doesNotMatch(migrations,/\n  push:/);assert.match(migrations,/APPLY_SCHEMA_25/);assert.match(migrations,/maintenance_window_confirmed/);
+  for(const marker of ['report.directOperationsSchema===25','const expectedFunctionCount=6','Number(report.vercelFunctionsExpected)!==expectedFunctionCount','functions=${report.vercelFunctionsExpected||0}','report.unifiedOperationEngine!==true'])assert.ok(workflow.includes(marker),`production readiness missing ${marker}`);
+  for(const marker of ['LATEST_REQUIRED_VERSION=25','directOperationsSchema:25','vercelFunctionsExpected:6'])assert.ok(runtime.includes(marker),`runtime missing ${marker}`);
+  for(const marker of ['025_unified_operation_engine.sql',"ISOLATED_MIGRATION_TARGET: '25'",'$(seq $((current_version + 1)) 25)','EXPECTED_SCHEMA_VERSION=25','APPLY_SCHEMA_25','maintenance_window_confirmed','Confirm protected maintenance window'])assert.ok(migrations.includes(marker),`migration workflow missing ${marker}`);
+  assert.doesNotMatch(migrations,/\n  push:/);
   assert.match(preflight,/targetVersion=25/);assert.match(verify,/targetVersion=25/);
   for(const marker of ['operationEvents','operationIdempotencyColumn','operationLifecycleColumn','outboxDedupeColumn','executeOperationFunction','transitionOperationFunction'])assert.match(verify,new RegExp(marker));
 });
