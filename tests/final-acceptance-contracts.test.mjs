@@ -12,12 +12,14 @@ test('automatic device bootstrap grants no business-data capability',()=>{
   assert.match(source,/DEVICE_CAPABILITY_REQUIRED/);
 });
 
-test('production readiness follows schema 25 and never references schema 15 as current',()=>{
+test('production readiness follows schema 25, six functions and manual migration confirmation',()=>{
   const workflow=read('.github/workflows/production-readiness.yml'),migrations=read('.github/workflows/apply-pending-migrations.yml'),preflight=read('scripts/governance-migration-preflight.mjs'),verify=read('scripts/governance-migration-verify.mjs'),runtime=read('api/_lib/routes/system-runtime.js');
   assert.doesNotMatch(workflow,/directOperationsSchema\)!==15|expected schema 15|schema 15/);
   assert.match(workflow,/directOperationsSchema\)!==25|directOperationsSchema\)===25|directOperationsSchema===25/);
-  assert.match(runtime,/LATEST_REQUIRED_VERSION=25/);assert.match(runtime,/directOperationsSchema:25/);
+  assert.match(workflow,/expectedFunctionCount=6/);assert.match(workflow,/vercelFunctionsExpected\)!==expectedFunctionCount/);assert.match(workflow,/functions=\$\{report\.vercelFunctionsExpected/);
+  assert.match(runtime,/LATEST_REQUIRED_VERSION=25/);assert.match(runtime,/directOperationsSchema:25/);assert.match(runtime,/vercelFunctionsExpected:6/);
   assert.match(migrations,/025_unified_operation_engine\.sql/);assert.ok(migrations.includes("ISOLATED_MIGRATION_TARGET: '25'"));assert.ok(migrations.includes('$(seq $((current_version + 1)) 25)'));assert.match(migrations,/EXPECTED_SCHEMA_VERSION=25/);
+  assert.doesNotMatch(migrations,/\n  push:/);assert.match(migrations,/APPLY_SCHEMA_25/);assert.match(migrations,/maintenance_window_confirmed/);
   assert.match(preflight,/targetVersion=25/);assert.match(verify,/targetVersion=25/);
   for(const marker of ['operationEvents','operationIdempotencyColumn','operationLifecycleColumn','outboxDedupeColumn','executeOperationFunction','transitionOperationFunction'])assert.match(verify,new RegExp(marker));
 });
@@ -28,7 +30,7 @@ test('accounting migrations provide balanced journals, ledger, reversal and tria
 
 test('unified operation migration provides atomic identity, lifecycle, event history and outbox',()=>{
   const sql=read('supabase/migrations/025_unified_operation_engine.sql');
-  for(const marker of ['operational_records_idempotency_uidx','operation_events','notification_outbox_dedupe_uidx','execute_unified_operation','transition_unified_operation','operation_transition_allowed','queue_operation_notifications'])assert.match(sql,new RegExp(marker));
+  for(const marker of ['operational_records_idempotency_uidx','pg_advisory_xact_lock','operation_events','notification_outbox_dedupe_uidx','execute_unified_operation','transition_unified_operation','operation_transition_allowed','queue_operation_notifications'])assert.match(sql,new RegExp(marker));
   for(const name of ['execute_unified_operation','transition_unified_operation','queue_operation_notifications'])assert.match(sql,new RegExp(`revoke all on function public\\.${name}[\\s\\S]{0,300}from public,anon,authenticated`));
 });
 
