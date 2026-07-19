@@ -108,7 +108,7 @@ async function sendSmallestOrLargest(chatId,identity,count,thresholdValue,filter
   const total=rows.reduce((sum,row)=>sum+row.debitBalance,0);
   const title=`🔎 أصغر ${rows.length} عميل${thresholdValue!==null?` ${filterMode==='gt'?'فوق':'تحت'} ${money(thresholdValue)}`:''}`;
   const formatRow=(row,index)=>`${index+1}. <b>${esc(row.name)}</b>${row.code?` — <code>${esc(row.code)}</code>`:''} — ${money(row.debitBalance)}`;
-  const built=sendPage(chatId,title,rows,formatRow,page,`إجمالي أرصدتهم مجتمعة: <b>${money(total)} ر.س</b>`);
+  const built=sendPage(chatId,title,rows,formatRow,page,`إجمالي أرصدتهم مجتمعة: <b>${money(total)}</b>`);
   return sendMessage(chatId,built.text,paginationButtons('smallest',built.page,built.totalPages,`${count}:${filterMode||''}:${thresholdValue??''}`));
 }
 async function sendBalanceFilter(chatId,identity,mode,min,max=null,page=0){
@@ -118,7 +118,7 @@ async function sendBalanceFilter(chatId,identity,mode,min,max=null,page=0){
   const total=rows.reduce((sum,row)=>sum+row.debitBalance,0);
   const label=mode==='gt'?`أكبر من ${money(min)}`:mode==='lt'?`أقل من ${money(min)}`:`بين ${money(Math.min(min,max))} و${money(Math.max(min,max))}`;
   const formatRow=(row,index)=>`${index+1}. <b>${esc(row.name)}</b>${row.code?` — <code>${esc(row.code)}</code>`:''} — ${money(row.debitBalance)}`;
-  const built=sendPage(chatId,`🧮 عملاء برصيد ${label}`,rows,formatRow,page,`إجمالي أرصدتهم مجتمعة: <b>${money(total)} ر.س</b>`);
+  const built=sendPage(chatId,`🧮 عملاء برصيد ${label}`,rows,formatRow,page,`إجمالي أرصدتهم مجتمعة: <b>${money(total)}</b>`);
   return sendMessage(chatId,built.text,paginationButtons('balance',built.page,built.totalPages,`${mode}:${min}:${max??''}`));
 }
 function invoiceLine(row){const type=salesTypeLabel[row.sales_type]||row.sales_type||'';return `• <b>${esc(row.reference_no||'فاتورة')}</b> — ${esc(type)}\n  الإجمالي ${money(row.total)} | المتبقي ${money(row.outstanding)}${row.daysLate?` | تأخير ${row.daysLate} يوم`:''}`;}
