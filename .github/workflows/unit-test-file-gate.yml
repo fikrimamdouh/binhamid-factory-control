@@ -36,7 +36,7 @@ jobs:
             set -e
             if [ "$status" -ne 0 ]; then
               failed="$file"
-              failure_name="$(grep -m1 '^not ok ' test-evidence/current.log | sed -E 's/^not ok [0-9]+ - //' | cut -c1-100 || true)"
+              failure_name="$(grep -Em1 'not ok |SyntaxError|AssertionError|ReferenceError|TypeError|Error:' test-evidence/current.log | sed -E 's/^[[:space:]#-]*//' | cut -c1-120 || true)"
               break
             fi
           done
