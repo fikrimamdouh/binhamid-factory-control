@@ -27,14 +27,19 @@ jobs:
           set -uo pipefail
           mkdir -p test-evidence
           failed=''
+          failure_name=''
           for file in $(find tests -maxdepth 1 -name '*.test.mjs' -print | sort); do
             echo "Testing $file"
-            if ! node --test "$file"; then
+            node --test "$file" 2>&1 | tee test-evidence/current.log
+            status=${PIPESTATUS[0]}
+            if [ "$status" -ne 0 ]; then
               failed="$file"
+              failure_name="$(grep -m1 '^not ok ' test-evidence/current.log | sed -E 's/^not ok [0-9]+ - //' | cut -c1-100)"
               break
             fi
           done
           printf '%s\n' "${failed:-all-tests-passed}" > test-evidence/result.txt
+          printf '%s\n' "${failure_name:-none}" > test-evidence/failure-name.txt
           test -z "$failed"
       - name: Publish file-level test status
         if: always()
@@ -48,12 +53,14 @@ jobs:
           node <<'NODE'
           import { existsSync,readFileSync } from 'node:fs';
           const raw=existsSync('test-evidence/result.txt')?readFileSync('test-evidence/result.txt','utf8').trim():'unknown';
+          const failure=existsSync('test-evidence/failure-name.txt')?readFileSync('test-evidence/failure-name.txt','utf8').trim():'unknown test';
           const label=raw.split('/').pop().replace(/[^A-Za-z0-9_.-]/g,'-').slice(0,65);
           const success=process.env.JOB_STATUS==='success';
+          const description=success?'All Node test files passed.':`Failing: ${failure||label}`.slice(0,140);
           const response=await fetch(`https://api.github.com/repos/${process.env.REPOSITORY}/statuses/${process.env.HEAD_SHA}`,{
             method:'POST',
             headers:{Accept:'application/vnd.github+json',Authorization:`Bearer ${process.env.GITHUB_TOKEN}`,'X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'},
-            body:JSON.stringify({state:success?'success':'failure',context:`unit-tests:${label}`,target_url:process.env.RUN_URL,description:success?'All Node test files passed.':`Failing test file: ${label}`})
+            body:JSON.stringify({state:success?'success':'failure',context:`unit-tests:${label}`,target_url:process.env.RUN_URL,description})
           });
           if(!response.ok)throw new Error(`Status publication failed with HTTP ${response.status}`);
           NODE
