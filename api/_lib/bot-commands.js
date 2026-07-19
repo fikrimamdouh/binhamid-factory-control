@@ -6,8 +6,10 @@ import { welcomeMessage, helpMessage, jobCatalogMessage } from './bot-help.js';
 import { registrationKeyboard, startRegistration, registrationStatus } from './bot-registration.js';
 import { reportKeyboard, sendReport } from './bot-reports.js';
 import { showAttendanceMenu } from './bot-attendance.js';
+import { startDriverRegistration } from './bot-driver-registration.js';
 
 const norm=value=>String(value||'').toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ًٌٍَُِّْـ]/g,'').replace(/[؟?!.,،؛:]+/g,'').replace(/\s+/g,' ').trim();
+const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const num=value=>Number(value||0)||0;
 function riyadhDate(value=new Date()){
   const parts=new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Riyadh',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date(value));
@@ -82,6 +84,14 @@ async function salesCollectionGap(chatId){
 
 export async function handleBuiltInCommand({message,identity,text}){
   const chatId=message.chat.id,raw=String(text||'').trim(),t=norm(text),role=identity?.role||'pending',active=Boolean(identity?.active),name=displayName(identity,message.from);
+  // رابط تسجيل السواقين المستقل: t.me/<bot>?start=driver يبدأ فورم تسجيل
+  // السائق مباشرة بدل شاشة اختيار الوظيفة العامة — أي حد يدخل منه هيتسجل
+  // كسائق مباشرة وينتظر اعتماد مدير النظام.
+  if(/^\/start(?:@\w+)?\s+(driver|سائق|سواق)$/i.test(raw)){
+    if(active)await sendMessage(chatId,`أنت مسجّل بالفعل بوظيفة <b>${esc(roleLabel(role))}</b>. لو محتاج تتسجل كسائق تواصل مع مدير النظام.`);
+    else await startDriverRegistration(message,identity,{});
+    return true;
+  }
   if(/^\/start(?:@\w+)?\s+attendance$/i.test(raw)){
     if(!active)await sendMessage(chatId,welcomeMessage(identity,message.from),registrationKeyboard());else await showAttendanceMenu(message,identity);
     return true;
