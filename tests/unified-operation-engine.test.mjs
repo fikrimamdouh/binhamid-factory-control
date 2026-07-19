@@ -46,3 +46,13 @@ test('Telegram status changes use the same transition service and outbox',async(
   assert.match(source,/dispatchOperationNotifications/);
   assert.doesNotMatch(source,/logEnterpriseEvent/);
 });
+
+test('website management actions use the same operation service',async()=>{
+  const source=await read('api/_lib/routes/management.js');
+  assert.match(source,/executeOperation/);
+  assert.match(source,/transitionOperation/);
+  assert.match(source,/dispatchOperationNotifications/);
+  assert.match(source,/operationType:'management_task'/);
+  assert.match(source,/operationType:'manual_notification'/);
+  assert.doesNotMatch(source,/action:'enterprise_operation_created'/);
+});
