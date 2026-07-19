@@ -95,6 +95,22 @@ async function sendZeroBalances(chatId,identity,page=0){
   const built=sendPage(chatId,'⚪ الحسابات الصفرية',rows,formatRow,page,'تُعامل الفروق الأقل من هللة كصفر.');
   return sendMessage(chatId,built.text,paginationButtons('zerobal',built.page,built.totalPages));
 }
+// "أصغر 100 عميل تحت 200 ريال" / "أصغر 30 عميل فوق 500" — عدد محدد مع حد
+// مبلغ اختياري معًا. الترتيب دائمًا تصاعدي (الأصغر أولًا)؛ حد المبلغ (تحت/فوق)
+// مستقل عن الترتيب.
+async function sendSmallestOrLargest(chatId,identity,count,thresholdValue,filterMode,page=0){
+  const data=await loadCustomerAnalytics(identity);let rows=data.rows.filter(row=>row.debitBalance>0.009);
+  if(filterMode==='lt'&&thresholdValue!==null)rows=rows.filter(row=>row.debitBalance<thresholdValue);
+  else if(filterMode==='gt'&&thresholdValue!==null)rows=rows.filter(row=>row.debitBalance>thresholdValue);
+  if(!rows.length)return sendMessage(chatId,'لا يوجد عملاء يطابقون الشرط.');
+  rows.sort((a,b)=>a.debitBalance-b.debitBalance);
+  rows=rows.slice(0,count);
+  const total=rows.reduce((sum,row)=>sum+row.debitBalance,0);
+  const title=`🔎 أصغر ${rows.length} عميل${thresholdValue!==null?` ${filterMode==='gt'?'فوق':'تحت'} ${money(thresholdValue)}`:''}`;
+  const formatRow=(row,index)=>`${index+1}. <b>${esc(row.name)}</b>${row.code?` — <code>${esc(row.code)}</code>`:''} — ${money(row.debitBalance)}`;
+  const built=sendPage(chatId,title,rows,formatRow,page,`إجمالي أرصدتهم مجتمعة: <b>${money(total)} ر.س</b>`);
+  return sendMessage(chatId,built.text,paginationButtons('smallest',built.page,built.totalPages,`${count}:${filterMode||''}:${thresholdValue??''}`));
+}
 async function sendBalanceFilter(chatId,identity,mode,min,max=null,page=0){
   const data=await loadCustomerAnalytics(identity);let rows=data.rows.filter(row=>row.debitBalance>0.009);
   if(mode==='gt')rows=rows.filter(row=>row.debitBalance>min);else if(mode==='lt')rows=rows.filter(row=>row.debitBalance<min);else rows=rows.filter(row=>row.debitBalance>=Math.min(min,max)&&row.debitBalance<=Math.max(min,max));
@@ -149,9 +165,10 @@ export async function handleCustomerReportCallback(message,from,identity,value){
     if(kind==='nomovement')return sendNoMovement(message.chat.id,identity,page);
     if(kind==='zerobal')return sendZeroBalances(message.chat.id,identity,page);
     if(kind==='balance'){const[mode,minRaw,maxRaw='']=extra.split(':');return sendBalanceFilter(message.chat.id,identity,mode,Number(minRaw),maxRaw?Number(maxRaw):null,page);}
+    if(kind==='smallest'){const[countRaw,filterMode,thresholdRaw='']=extra.split(':');return sendSmallestOrLargest(message.chat.id,identity,Number(countRaw)||100,thresholdRaw?Number(thresholdRaw):null,filterMode||null,page);}
     return sendMessage(message.chat.id,'انتهت صلاحية هذه الصفحة. أعد طلب التقرير من جديد.');
   }
-  if(value==='customer_menu')return sendCustomerReportsMenu(message.chat.id,identity);if(value==='customer_summary')return sendSummary(message.chat.id,identity);if(value==='customer_debt')return sendTopDebt(message.chat.id,identity);if(value==='customer_credit')return sendTopCredits(message.chat.id,identity);if(value==='customer_concentration')return sendConcentration(message.chat.id,identity);if(value==='customer_aging')return sendAging(message.chat.id,identity);if(value==='customer_overdue')return sendOverdue(message.chat.id,identity);if(value==='customer_no_movement')return sendNoMovement(message.chat.id,identity);if(value==='customer_zero')return sendZeroBalances(message.chat.id,identity);if(value==='customer_filter_help')return sendMessage(message.chat.id,'أوامر الفلترة:\n• عملاء أكبر من 50000\n• عملاء أقل من 1000\n• عملاء بين 1000 و 5000\n• أكبر 20 عميل\n• رصيد 10001\n• كشف حساب مؤسسة بن حامد');if(value==='customer_lookup')return startCustomerLookup({...message,from},identity);return false;
+  if(value==='customer_menu')return sendCustomerReportsMenu(message.chat.id,identity);if(value==='customer_summary')return sendSummary(message.chat.id,identity);if(value==='customer_debt')return sendTopDebt(message.chat.id,identity);if(value==='customer_credit')return sendTopCredits(message.chat.id,identity);if(value==='customer_concentration')return sendConcentration(message.chat.id,identity);if(value==='customer_aging')return sendAging(message.chat.id,identity);if(value==='customer_overdue')return sendOverdue(message.chat.id,identity);if(value==='customer_no_movement')return sendNoMovement(message.chat.id,identity);if(value==='customer_zero')return sendZeroBalances(message.chat.id,identity);if(value==='customer_filter_help')return sendMessage(message.chat.id,'🧮 <b>أوامر الفلترة</b>\n• عملاء أكبر من 50000\n• عملاء أقل من 1000\n• عملاء بين 1000 و 5000\n• أكبر 20 عميل\n• أصغر 100 عميل تحت 200\n• رصيد 10001\n• كشف حساب مؤسسة بن حامد');if(value==='customer_lookup')return startCustomerLookup({...message,from},identity);return false;
 }
 export async function handleCustomerReportTextCommand(message,identity,text){
   const raw=String(text||'').trim(),value=norm(raw);
@@ -166,6 +183,14 @@ export async function handleCustomerReportTextCommand(message,identity,text){
   if(/^(العملاء المتاخرون|العملاء المتأخرون|مديونيات متاخره|مديونيات متأخرة)$/.test(value)){if(!canView(identity))await deny(message.chat.id);else await sendOverdue(message.chat.id,identity);return true;}
   if(/^(عملاء بدون حركه|عملاء بدون حركة|بدون حركه|بدون حركة)$/.test(value)){if(!canView(identity))await deny(message.chat.id);else await sendNoMovement(message.chat.id,identity);return true;}
   if(/^(الحسابات الصفريه|الحسابات الصفرية|عملاء رصيد صفر|ارصده صفريه|أرصدة صفرية)$/.test(value)){if(!canView(identity))await deny(message.chat.id);else await sendZeroBalances(message.chat.id,identity);return true;}
+  const smallest=latinDigits(raw).match(/^(?:ال)?(اصغر|أصغر)\s+(\d+)\s+(?:عميل|عملاء)(?:\s+(تحت|فوق|اقل من|أقل من|اكبر من|أكبر من))?\s*([\d.,٬،٫-]+)?\s*(?:ريال|ر\.س|رس)?$/i);
+  if(smallest){
+    if(!canView(identity)){await deny(message.chat.id);return true;}
+    const count=Math.max(1,Math.min(500,Number(smallest[2])||100)),thresholdWord=smallest[3]||'',thresholdValue=smallest[4]?parseMoney(smallest[4]):null;
+    const filterMode=thresholdValue===null?null:(/فوق|اكبر من|أكبر من/.test(thresholdWord)?'gt':'lt');
+    await sendSmallestOrLargest(message.chat.id,identity,count,thresholdValue,filterMode);
+    return true;
+  }
   const between=latinDigits(raw).match(/^(?:ال)?عملاء\s+بين\s+([\d.,٬،٫-]+)\s+(?:و|الى|إلى)\s+([\d.,٬،٫-]+)$/i);if(between){if(!canView(identity))await deny(message.chat.id);else await sendBalanceFilter(message.chat.id,identity,'between',parseMoney(between[1]),parseMoney(between[2]));return true;}
   const compare=latinDigits(raw).match(/^(?:ال)?عملاء\s+(اكبر|أكبر|اكتر|أكتر|اقل|أقل)(?:\s+من)?(?:\s+([\d.,٬،٫-]+))?$/i);
   if(compare){
