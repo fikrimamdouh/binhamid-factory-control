@@ -176,7 +176,9 @@ function cfg(){
     ['رمز دخول النظام',c.adminTokenConfigured,'BINHAMID_ADMIN_TOKEN'],
     ['بوت Telegram',c.telegramConfigured,'BOT TOKEN + WEBHOOK SECRET'],
     ['الصوت الذكي',c.openaiConfigured,'OPENAI_API_KEY اختياري'],
-    ['مخزن الملفات',c.storageConfigured,'factory-documents']
+    ['مخزن الملفات',c.storageConfigured,'factory-documents'],
+    ['تحويل تقارير PDF',c.pdfConfigured,'PDF_API_URL + PDF_API_KEY — بدونها لن تُنشأ تقارير البلوك/الخرسانة'],
+    ['المهام المجدولة (Cron)',c.cronConfigured,'CRON_SECRET — يجب أن يطابق سر GitHub Actions نفسه']
   ].map(x=>'<div class="bh-status-row"><div><b>'+x[0]+'</b><small>'+x[2]+'</small></div>'+pill(x[1])+'</div>').join('');
 }
 function importRow(r){
