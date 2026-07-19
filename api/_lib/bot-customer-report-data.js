@@ -69,7 +69,7 @@ export function buildCustomerAnalytics({customers=[],sales=[],collections=[],ope
   };
   const scopedKeys=new Set();
   for(const row of openingBalances||[]){
-    const key=resolve(row.clientId||row.customerCode,row.customerName),agg=aggregates.get(key);if(!agg)continue;
+    const key=resolve(row.customerCode||row.clientId,row.customerName),agg=aggregates.get(key);if(!agg)continue;
     const opening=money(row.amount),rowScope=segmentScope(row.segment||agg.segment);agg.openingBalance=money(agg.openingBalance+opening);agg.openingDate=newest(agg.openingDate,String(row.date||row.balanceDate||'').slice(0,10));agg.openingCheques=money(agg.openingCheques+n(row.cheques));agg.openingPrevious=money(agg.openingPrevious+n(row.previous));agg.openingDebitTurnover=money(agg.openingDebitTurnover+n(row.debit));agg.openingCreditTurnover=money(agg.openingCreditTurnover+n(row.credit));agg.openingSource=String(row.sourceFile||row.sourceHash||agg.openingSource||'');agg.openingCount+=1;agg.balance=money(agg.balance+opening);agg.unagedOpening=money(agg.unagedOpening+Math.max(0,opening));
     if(scope==='all'||rowScope==='all'||rowScope===scope)scopedKeys.add(key);
   }
