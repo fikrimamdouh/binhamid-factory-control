@@ -16,7 +16,7 @@
     if(!text||!/[0-9]/.test(text))return blank;
     const parsed=Number(text);return Number.isFinite(parsed)?(negative?-Math.abs(parsed):parsed):blank;
   };
-  const escape=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#39;'}[char]));
+  const escape=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
   const fallbackDate=()=>typeof opsToday==='function'?opsToday():new Date().toISOString().slice(0,10);
   const isoDate=value=>{
     if(value instanceof Date&&!Number.isNaN(value.getTime()))return `${value.getFullYear()}-${String(value.getMonth()+1).padStart(2,'0')}-${String(value.getDate()).padStart(2,'0')}`;
