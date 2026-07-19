@@ -159,13 +159,13 @@ export async function handleCustomerReportCallback(message,from,identity,value){
   }
   if(!canView(identity))return deny(message.chat.id);
   if(value.startsWith('customer_page|')){
-    const[,kind,pageRaw,extra='']=value.split('|'),page=Math.max(0,Number(pageRaw)||0);
+    const[,kind,pageRaw,extra='']=value.split('|'),page=Math.max(0,Number(pageRaw)||0),expired=()=>sendMessage(message.chat.id,'انتهت صلاحية هذه الصفحة (ربما بسبب تحديث النظام). أعد كتابة نفس الطلب من جديد.');
     if(kind==='topdebt')return sendTopDebt(message.chat.id,identity,extra?Number(extra):null,page);
     if(kind==='overdue')return sendOverdue(message.chat.id,identity,page);
     if(kind==='nomovement')return sendNoMovement(message.chat.id,identity,page);
     if(kind==='zerobal')return sendZeroBalances(message.chat.id,identity,page);
-    if(kind==='balance'){const[mode,minRaw,maxRaw='']=extra.split(':');return sendBalanceFilter(message.chat.id,identity,mode,Number(minRaw),maxRaw?Number(maxRaw):null,page);}
-    if(kind==='smallest'){const[countRaw,filterMode,thresholdRaw='']=extra.split(':');return sendSmallestOrLargest(message.chat.id,identity,Number(countRaw)||100,thresholdRaw?Number(thresholdRaw):null,filterMode||null,page);}
+    if(kind==='balance'){const[mode,minRaw,maxRaw='']=extra.split(':');if(!['gt','lt','between'].includes(mode)||!Number.isFinite(Number(minRaw)))return expired();return sendBalanceFilter(message.chat.id,identity,mode,Number(minRaw),maxRaw?Number(maxRaw):null,page);}
+    if(kind==='smallest'){const[countRaw,filterMode,thresholdRaw='']=extra.split(':');if(!Number.isFinite(Number(countRaw)))return expired();return sendSmallestOrLargest(message.chat.id,identity,Number(countRaw)||100,thresholdRaw?Number(thresholdRaw):null,filterMode||null,page);}
     return sendMessage(message.chat.id,'انتهت صلاحية هذه الصفحة. أعد طلب التقرير من جديد.');
   }
   if(value==='customer_menu')return sendCustomerReportsMenu(message.chat.id,identity);if(value==='customer_summary')return sendSummary(message.chat.id,identity);if(value==='customer_debt')return sendTopDebt(message.chat.id,identity);if(value==='customer_credit')return sendTopCredits(message.chat.id,identity);if(value==='customer_concentration')return sendConcentration(message.chat.id,identity);if(value==='customer_aging')return sendAging(message.chat.id,identity);if(value==='customer_overdue')return sendOverdue(message.chat.id,identity);if(value==='customer_no_movement')return sendNoMovement(message.chat.id,identity);if(value==='customer_zero')return sendZeroBalances(message.chat.id,identity);if(value==='customer_filter_help')return sendMessage(message.chat.id,'🧮 <b>أوامر الفلترة</b>\n• عملاء أكبر من 50000\n• عملاء أقل من 1000\n• عملاء بين 1000 و 5000\n• أكبر 20 عميل\n• أصغر 100 عميل تحت 200\n• رصيد 10001\n• كشف حساب مؤسسة بن حامد');if(value==='customer_lookup')return startCustomerLookup({...message,from},identity);return false;
