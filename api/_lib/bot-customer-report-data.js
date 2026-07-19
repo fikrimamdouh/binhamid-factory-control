@@ -6,6 +6,11 @@ const norm=value=>String(value||'').toLowerCase().replace(/[أإآ]/g,'ا').repl
 const dayMs=86_400_000;
 const closedStatus=new Set(['cancelled','rejected']);
 const PAGE_SIZE=1000;
+// حسابات تحكم/تجميع عامة موجودة في ميزان المراجعة المستورد من البرنامج
+// القديم وليست عملاء حقيقيين — تُستبعد من كل تقارير وبحث العملاء نهائيًا.
+const EXCLUDED_CUSTOMER_CODES=new Set(['13115']);
+const EXCLUDED_CUSTOMER_NAMES=new Set(['ذمم مدينة عملاء'].map(value=>norm(value)));
+const isExcludedCustomer=(code,name)=>EXCLUDED_CUSTOMER_CODES.has(String(code||'').trim())||EXCLUDED_CUSTOMER_NAMES.has(norm(name));
 
 export function customerReportScope(role=''){
   if(role==='block_sales')return'block';
@@ -54,6 +59,10 @@ function mergeLocalCustomers(customers=[],payload={}){
 function openingRows(payload={}){return Array.isArray(payload?.ops?.customerOpeningBalances)?payload.ops.customerOpeningBalances:[];}
 
 export function buildCustomerAnalytics({customers=[],sales=[],collections=[],openingBalances=[],role='admin',asOf=riyadhToday()}={}){
+  customers=(customers||[]).filter(c=>!isExcludedCustomer(c.external_id||c.customer_code,c.customer_name));
+  openingBalances=(openingBalances||[]).filter(r=>!isExcludedCustomer(r.customerCode||r.clientId,r.customerName));
+  sales=(sales||[]).filter(r=>!isExcludedCustomer(r.customer_external_id,r.customer_name));
+  collections=(collections||[]).filter(r=>!isExcludedCustomer(r.customer_external_id,r.customer_name));
   const scope=customerReportScope(role),aggregates=new Map(),codeMap=new Map(),nameCandidates=new Map();
   for(const customer of customers||[]){
     const key=canonicalKey(customer),existing=aggregates.get(key),agg=existing||baseAggregate(customer,key);if(existing){agg.name=agg.name==='عميل غير مسمى'&&customer.customer_name?String(customer.customer_name):agg.name;agg.segment=agg.segment||String(customer.segment||'');agg.phone=agg.phone||String(customer.phone||'');}else aggregates.set(key,agg);
