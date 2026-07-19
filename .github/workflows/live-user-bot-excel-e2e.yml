@@ -1,0 +1,160 @@
+name: Live User Bot Excel E2E
+
+on:
+  push:
+    branches:
+      - test/live-user-bot-excel-e2e
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      APP_URL: https://binhamid-factory-control.vercel.app
+      TEST_EXTERNAL_ID: '9900000001'
+      TEST_EMPLOYEE_ID: TEST-E2E-001
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+
+      - name: Install project dependencies
+        run: npm install --ignore-scripts --no-audit --no-fund
+
+      - name: Run repository tests
+        run: npm test
+
+      - name: Verify live website and runtime version
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const base=process.env.APP_URL;
+          const root=await fetch(`${base}/`,{headers:{'cache-control':'no-cache'}});
+          const html=await root.text();
+          if(!root.ok)throw new Error(`Root HTTP ${root.status}`);
+          if(!/legacy\.html/.test(html))throw new Error('Operational iframe is missing from live root');
+          const legacy=await fetch(`${base}/legacy.html?e2e=${Date.now()}`,{headers:{'cache-control':'no-cache'}});
+          if(!legacy.ok)throw new Error(`Legacy HTTP ${legacy.status}`);
+          const statusResponse=await fetch(`${base}/api/system/status`,{headers:{'cache-control':'no-cache'}});
+          const status=await statusResponse.json();
+          if(!statusResponse.ok||!status.ok)throw new Error(`Status HTTP ${statusResponse.status}`);
+          if(Number(status.directOperationsSchema)!==24)throw new Error(`Live schema is ${status.directOperationsSchema}, expected 24`);
+          if(Number(status.webhookVersion)!==3)throw new Error(`Webhook version is ${status.webhookVersion}, expected 3`);
+          console.log(JSON.stringify({root:true,legacy:true,version:status.version,schema:status.directOperationsSchema,webhookVersion:status.webhookVersion,telegramConfigured:status.telegramConfigured,conversationHistory:status.conversationHistory,dailyReportImport:status.dailyReportImport},null,2));
+          NODE
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+
+      - name: Create isolated test user and verify bot records
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_DB_URL:-}" || { echo 'SUPABASE_DB_URL secret is missing'; exit 1; }
+          psql "$SUPABASE_DB_URL" -X -v ON_ERROR_STOP=1 -v test_external_id="$TEST_EXTERNAL_ID" -v test_employee_id="$TEST_EMPLOYEE_ID" <<'SQL'
+          select approve_telegram_user(
+            :'test_external_id',
+            'مستخدم اختبار النظام',
+            'manager',
+            true,
+            :'test_employee_id'
+          );
+
+          insert into telegram_messages(
+            update_id,chat_id,message_id,sender_user_id,sender_external_id,sender_name,
+            chat_type,message_type,text,direction,delivery_status,action_name,action_payload,raw,created_at
+          )
+          select
+            'e2e-user-message-v1',
+            :'test_external_id',
+            'e2e-user-message-v1',
+            u.id,
+            :'test_external_id',
+            'مستخدم اختبار النظام',
+            'private',
+            'text',
+            'اختبار آلي لسجل رسائل البوت',
+            'incoming',
+            'received',
+            'e2e_test_message',
+            jsonb_build_object('source','github-actions','safe',true),
+            jsonb_build_object('test',true),
+            now()
+          from app_users u
+          where u.external_id=:'test_external_id'
+          on conflict (chat_id,message_id) do update set
+            sender_user_id=excluded.sender_user_id,
+            sender_name=excluded.sender_name,
+            direction=excluded.direction,
+            delivery_status=excluded.delivery_status,
+            action_name=excluded.action_name,
+            action_payload=excluded.action_payload,
+            raw=excluded.raw,
+            created_at=excluded.created_at;
+
+          do $$
+          declare
+            user_count integer;
+            message_count integer;
+          begin
+            select count(*) into user_count from app_users where external_id=:'test_external_id' and active=true and role='manager';
+            select count(*) into message_count from telegram_messages where chat_id=:'test_external_id' and message_id='e2e-user-message-v1' and direction='incoming';
+            if user_count<>1 then raise exception 'Test user was not created correctly'; end if;
+            if message_count<>1 then raise exception 'Incoming bot message was not stored correctly'; end if;
+          end $$;
+
+          select json_build_object(
+            'test_user_created',exists(select 1 from app_users where external_id=:'test_external_id' and active=true),
+            'test_user_role',(select role from app_users where external_id=:'test_external_id' limit 1),
+            'real_bot_messages_30d',(select count(*) from telegram_messages where created_at>=now()-interval '30 days'),
+            'real_incoming_30d',(select count(*) from telegram_messages where created_at>=now()-interval '30 days' and coalesce(direction,'incoming')<>'outgoing'),
+            'real_outgoing_30d',(select count(*) from telegram_messages where created_at>=now()-interval '30 days' and direction='outgoing'),
+            'active_telegram_users',(select count(*) from app_users where active=true and external_id is not null),
+            'excel_imports_30d',(select count(*) from imports where created_at>=now()-interval '30 days' and lower(coalesce(original_name,'')) ~ '\.(xlsx|xls)$'),
+            'excel_failed_30d',(select count(*) from imports where created_at>=now()-interval '30 days' and lower(coalesce(original_name,'')) ~ '\.(xlsx|xls)$' and status='failed'),
+            'excel_ready_or_posted_30d',(select count(*) from imports where created_at>=now()-interval '30 days' and lower(coalesce(original_name,'')) ~ '\.(xlsx|xls)$' and status in ('ready','ready_for_review','approved','posted','completed'))
+          ) as sanitized_evidence;
+
+          select coalesce(last_error_code,'NONE') as error_code,count(*) as occurrences
+          from imports
+          where created_at>=now()-interval '30 days'
+            and lower(coalesce(original_name,'')) ~ '\.(xlsx|xls)$'
+          group by coalesce(last_error_code,'NONE')
+          order by occurrences desc,error_code
+          limit 10;
+          SQL
+
+      - name: Verify website dashboard query can see test activity
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          psql "$SUPABASE_DB_URL" -X -v ON_ERROR_STOP=1 -Atc "select count(*) from telegram_messages where created_at>=now()-interval '30 days' and sender_external_id='${TEST_EXTERNAL_ID}' and direction='incoming' and action_name='e2e_test_message'" | grep -qx '1'
+
+      - name: Publish verification status
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          node <<'NODE'
+          const success=process.env.JOB_STATUS==='success';
+          const response=await fetch(`https://api.github.com/repos/${process.env.REPOSITORY}/statuses/${process.env.HEAD_SHA}`,{
+            method:'POST',
+            headers:{Accept:'application/vnd.github+json',Authorization:`Bearer ${process.env.GITHUB_TOKEN}`,'X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'},
+            body:JSON.stringify({state:success?'success':'failure',context:'live-user-bot-excel-e2e',target_url:process.env.RUN_URL,description:success?'Live site, test user, bot log, and Excel evidence passed.':'Live user, bot log, or Excel verification failed.'})
+          });
+          if(!response.ok)throw new Error(`Status publication failed with HTTP ${response.status}`);
+          NODE
