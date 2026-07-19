@@ -205,7 +205,7 @@ function groups(){
 function users(){
   const rows=dash?.users||[];
   if(!rows.length)return'<div class="bh-empty">لسه مفيش مستخدم مسجّل. اطلب من الموظف إرسال أمر /whoami للبوت ليظهر هنا وتحدد دوره.</div>';
-  return '<div class="bh-table-wrap"><table class="bh-table"><thead><tr><th>الاسم</th><th>Telegram ID</th><th>الدور</th><th>الحالة</th><th></th></tr></thead><tbody>'+rows.map(r=>'<tr><td>'+esc(r.full_name||r.external_username)+'</td><td>'+esc(r.external_id)+'</td><td>'+esc(r.role)+'</td><td>'+pill(r.active)+'</td><td><button class="bh-btn ghost" onclick="bhCloudApproveUser(\''+r.external_id+'\',\''+esc(r.full_name||'')+'\')">تحديد الدور</button></td></tr>').join('')+'</tbody></table></div>';
+  return '<div class="bh-table-wrap"><table class="bh-table"><thead><tr><th>الاسم</th><th>Telegram ID</th><th>الدور</th><th>الحالة</th><th></th></tr></thead><tbody>'+rows.map(r=>'<tr><td>'+esc(r.full_name||r.external_username)+'</td><td>'+esc(r.external_id)+'</td><td>'+esc(r.role)+'</td><td>'+pill(r.active)+'</td><td><button class="bh-btn ghost" onclick="bhCloudApproveUser(\''+r.external_id+'\',\''+esc(r.full_name||'')+'\',\''+esc(r.role||'pending')+'\','+(r.active!==false)+',\''+esc(r.nickname||'')+'\')">تحديد الدور</button></td></tr>').join('')+'</tbody></table></div>';
 }
 
 /* ============================================================

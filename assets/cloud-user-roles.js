@@ -38,11 +38,11 @@
     document.head.appendChild(element);
   }
 
-  async function save(externalId,fullName,role,active){
+  async function save(externalId,fullName,role,active,nickname){
     const response=await fetch('/api/admin/users',{
       method:'POST',
       headers:{'Content-Type':'application/json',...(token()?{Authorization:`Bearer ${token()}`}:{})},
-      body:JSON.stringify({externalId,fullName,role,active})
+      body:JSON.stringify({externalId,fullName,role,active,nickname})
     });
     const data=await response.json().catch(()=>({}));
     if(!response.ok)throw new Error(data.error||'تعذر حفظ صلاحية المستخدم');
@@ -56,11 +56,11 @@
     },300);
   }
 
-  function open(externalId,currentName='',currentRole='pending',currentActive=true){
+  function open(externalId,currentName='',currentRole='pending',currentActive=true,currentNickname=''){
     style();
     const modal=document.createElement('div');
     modal.className='bh-role-modal';
-    modal.innerHTML=`<section class="bh-role-card"><div class="bh-role-head"><h3>اعتماد مستخدم Telegram</h3><button data-close>إغلاق</button></div><div class="bh-role-form"><label>Telegram ID<input id="bhRoleExternal" value="${esc(externalId)}" readonly></label><label>اسم الموظف<input id="bhRoleName" maxlength="200" value="${esc(currentName)}"></label><label>الدور<select id="bhRoleSelect">${ROLES.map(([value,label])=>`<option value="${value}" ${value===currentRole?'selected':''}>${label}</option>`).join('')}</select></label><label><span><input id="bhRoleActive" type="checkbox" ${currentActive!==false?'checked':''} style="width:auto"> الحساب نشط ومسموح له باستخدام البوت</span></label><div class="bh-role-note">تغيير الدور يوقف الجلسات الحساسة القديمة تلقائيًا عند الخطوة التالية. اربط الموقع والوردية والمركبة من شاشة الحضور والسائقين.</div><div id="bhRoleResult"></div></div><div class="bh-role-actions"><button class="alt" data-close>إلغاء</button><button id="bhRoleSave">حفظ الدور</button></div></section>`;
+    modal.innerHTML=`<section class="bh-role-card"><div class="bh-role-head"><h3>اعتماد مستخدم Telegram</h3><button data-close>إغلاق</button></div><div class="bh-role-form"><label>Telegram ID<input id="bhRoleExternal" value="${esc(externalId)}" readonly></label><label>اسم الموظف<input id="bhRoleName" maxlength="200" value="${esc(currentName)}"></label><label>الاسم المستعار (اختياري — هذا ما يخاطب البوت الشخص به بدلاً من اسمه الكامل)<input id="bhRoleNickname" maxlength="120" placeholder="مثال: أبو فلاح" value="${esc(currentNickname)}"></label><label>الدور<select id="bhRoleSelect">${ROLES.map(([value,label])=>`<option value="${value}" ${value===currentRole?'selected':''}>${label}</option>`).join('')}</select></label><label><span><input id="bhRoleActive" type="checkbox" ${currentActive!==false?'checked':''} style="width:auto"> الحساب نشط ومسموح له باستخدام البوت</span></label><div class="bh-role-note">تغيير الدور يوقف الجلسات الحساسة القديمة تلقائيًا عند الخطوة التالية. اربط الموقع والوردية والمركبة من شاشة الحضور والسائقين.</div><div id="bhRoleResult"></div></div><div class="bh-role-actions"><button class="alt" data-close>إلغاء</button><button id="bhRoleSave">حفظ الدور</button></div></section>`;
     document.body.appendChild(modal);
     modal.querySelectorAll('[data-close]').forEach(button=>button.onclick=()=>modal.remove());
     modal.onclick=event=>{if(event.target===modal)modal.remove();};
@@ -68,7 +68,7 @@
       const button=modal.querySelector('#bhRoleSave'),result=modal.querySelector('#bhRoleResult');
       button.disabled=true;result.textContent='';
       try{
-        await save(externalId,modal.querySelector('#bhRoleName').value.trim(),modal.querySelector('#bhRoleSelect').value,modal.querySelector('#bhRoleActive').checked);
+        await save(externalId,modal.querySelector('#bhRoleName').value.trim(),modal.querySelector('#bhRoleSelect').value,modal.querySelector('#bhRoleActive').checked,modal.querySelector('#bhRoleNickname').value.trim());
         result.innerHTML='<div class="bh-role-note">تم حفظ الدور بنجاح.</div>';
         setTimeout(()=>{modal.remove();refreshCurrentPage();},600);
       }catch(error){button.disabled=false;result.innerHTML=`<div class="bh-role-error">${esc(error.message)}</div>`;}
@@ -77,7 +77,7 @@
 
   function install(){
     if(window.bhCloudApproveUser&&window.bhCloudApproveUser.__controlledRoles)return;
-    const controlled=function(externalId,currentName='',currentRole='pending',currentActive=true){return open(String(externalId||''),String(currentName||''),String(currentRole||'pending'),currentActive);};
+    const controlled=function(externalId,currentName='',currentRole='pending',currentActive=true,currentNickname=''){return open(String(externalId||''),String(currentName||''),String(currentRole||'pending'),currentActive,String(currentNickname||''));};
     controlled.__controlledRoles=true;
     window.bhCloudApproveUser=controlled;
   }
