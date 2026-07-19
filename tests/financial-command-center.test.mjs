@@ -20,30 +20,19 @@ test('financial and administrative modules are directly available from Telegram'
   const financeCallbacks=callbacks(financeMenu()),adminCallbacks=callbacks(administrationMenu()),systemCallbacks=callbacks(systemsMenu('manager'));
   for(const action of ['ent:cfo_menu','ent:finance_budget_request','ent:finance_supplier_commitment','ent:finance_expense_claim','ent:finance_custody_request'])assert.ok(financeCallbacks.includes(action),`missing finance callback ${action}`);
   for(const action of ['ent:admin_decision','ent:admin_meeting','ent:admin_policy','ent:contract_renewal','ent:risk_register'])assert.ok(adminCallbacks.includes(action),`missing admin callback ${action}`);
-  assert.ok(systemCallbacks.includes('ent:cfo_menu'));
-  assert.ok(systemCallbacks.includes('ent:admin_menu'));
+  assert.ok(systemCallbacks.includes('ent:cfo_menu'));assert.ok(systemCallbacks.includes('ent:admin_menu'));
 });
 
-test('financial control requests notify management and administrative forms enforce roles',async()=>{
+test('financial control requests use the shared outbox and administrative forms enforce roles',async()=>{
   const [forms,enterprise,voice]=await Promise.all([read('api/_lib/bot-enterprise-forms.js'),read('api/_lib/bot-enterprise.js'),read('api/_lib/bot-voice.js')]);
-  for(const marker of ['FINANCIAL_CONTROL_ACTIONS','ADMINISTRATION_ACTIONS','ADMINISTRATION_ROLES','GOVERNANCE_ACTIONS','GOVERNANCE_ROLES','notifyFinancialControl','financial_control_received'])assert.match(forms,new RegExp(marker));
-  assert.match(forms,/financialControl\?'under_review'/);
-  assert.match(forms,/active=eq\.true&role=in\.\(admin,manager\)/);
-  assert.match(enterprise,/handleFinancialDirectorTextCommand/);
-  assert.match(enterprise,/handleFinancialDirectorCallback/);
-  assert.match(enterprise,/administrationMenu/);
+  for(const marker of ['FINANCIAL_CONTROL_ACTIONS','ADMINISTRATION_ACTIONS','ADMINISTRATION_ROLES','GOVERNANCE_ACTIONS','GOVERNANCE_ROLES','financialControlNotifications','financial_control_received','executeOperation','dispatchOperationNotifications'])assert.match(forms,new RegExp(marker));
+  assert.match(forms,/financialControl\?'under_review'/);assert.match(forms,/active=eq\.true&role=in\.\(admin,manager\)/);assert.doesNotMatch(forms,/notifyFinancialControl/);
+  assert.match(enterprise,/handleFinancialDirectorTextCommand/);assert.match(enterprise,/handleFinancialDirectorCallback/);assert.match(enterprise,/administrationMenu/);
   for(const phrase of ['مدير مالي','طلب ميزانية','التزام مورد','مطالبة مصروف','كنية الموظف'])assert.match(voice,new RegExp(phrase));
 });
 
-test('schema 024 exposes employee nickname and financial command center readiness',async()=>{
+test('schema 024 identity remains and schema 025 becomes the required runtime',async()=>{
   const [migration,audit,runtime]=await Promise.all([read('supabase/migrations/024_employee_nickname_and_financial_command_center.sql'),read('scripts/audit-migrations.mjs'),read('api/_lib/routes/system-runtime.js')]);
-  assert.match(migration,/values\(24,'024_employee_nickname_and_financial_command_center'\)/);
-  assert.match(audit,/const latest=24/);
-  assert.match(audit,/version===24/);
-  assert.match(runtime,/LATEST_REQUIRED_VERSION=24/);
-  assert.match(runtime,/app_users:\['nickname'\]/);
-  assert.match(runtime,/employees:\['nickname'\]/);
-  assert.match(runtime,/user_invitations:\['nickname'\]/);
-  assert.match(runtime,/financialDirector:true/);
-  assert.match(runtime,/administrativeControlCenter:true/);
+  assert.match(migration,/values\(24,'024_employee_nickname_and_financial_command_center'\)/);assert.match(audit,/const latest=25/);assert.match(audit,/version===24/);assert.match(audit,/version===25/);assert.match(runtime,/LATEST_REQUIRED_VERSION=25/);
+  assert.match(runtime,/app_users:\['nickname'\]/);assert.match(runtime,/employees:\['nickname'\]/);assert.match(runtime,/user_invitations:\['nickname'\]/);assert.match(runtime,/financialDirector:true/);assert.match(runtime,/administrativeControlCenter:true/);assert.match(runtime,/unifiedOperationEngine:true/);
 });
