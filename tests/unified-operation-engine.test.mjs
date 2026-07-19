@@ -1,0 +1,48 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+
+const read=path=>readFile(new URL(`../${path}`,import.meta.url),'utf8');
+
+test('migration 025 creates an atomic idempotent operation envelope and durable outbox',async()=>{
+  const sql=await read('supabase/migrations/025_unified_operation_engine.sql');
+  assert.match(sql,/begin;/);
+  assert.match(sql,/operational_records_idempotency_uidx/);
+  assert.match(sql,/create table if not exists public\.operation_events/);
+  assert.match(sql,/notification_outbox_dedupe_uidx/);
+  assert.match(sql,/execute_unified_operation/);
+  assert.match(sql,/transition_unified_operation/);
+  assert.match(sql,/operation_transition_allowed/);
+  assert.match(sql,/queue_operation_notifications/);
+  assert.match(sql,/commit;/);
+});
+
+test('shared server service owns operation identity, lifecycle and outbox dispatch',async()=>{
+  const source=await read('api/_lib/operation-engine.js');
+  assert.match(source,/buildIdempotencyKey/);
+  assert.match(source,/buildOperationEnvelope/);
+  assert.match(source,/lifecycleForStatus/);
+  assert.match(source,/rpc\('execute_unified_operation'/);
+  assert.match(source,/rpc\('transition_unified_operation'/);
+  assert.match(source,/dispatchOperationNotifications/);
+  assert.match(source,/dead_letter/);
+  assert.match(source,/compatibilityMode:true/);
+});
+
+test('Telegram form confirmation saves through the shared engine before notifications',async()=>{
+  const source=await read('api/_lib/bot-enterprise-forms.js');
+  const executeIndex=source.indexOf('await executeOperation('),dispatchIndex=source.indexOf('await dispatchOperationNotifications(');
+  assert.ok(executeIndex>0);
+  assert.ok(dispatchIndex>executeIndex);
+  assert.doesNotMatch(source,/action:'enterprise_operation_created'/);
+  assert.match(source,/domainRecord=details\.category==='task'/);
+  assert.match(source,/العملية .* محفوظة مسبقًا/);
+});
+
+test('Telegram status changes use the same transition service and outbox',async()=>{
+  const source=await read('api/_lib/bot-enterprise-status.js');
+  assert.match(source,/getOperationByReference/);
+  assert.match(source,/transitionOperation/);
+  assert.match(source,/dispatchOperationNotifications/);
+  assert.doesNotMatch(source,/logEnterpriseEvent/);
+});
