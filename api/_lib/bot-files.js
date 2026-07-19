@@ -91,17 +91,26 @@ function autoPayload(analysis,reportDate,importId){return{sales:(analysis?.sales
 function autoPostingText(result={}){const preview=result.preview||{},errors=(result.errors||[]).slice(0,5),warnings=(result.warnings||[]).slice(0,5),balances=(result.affectedBalances||[]).slice(0,5);if(result.duplicate)return`<b>لم يُسجل تكرار.</b> هذا الملف مرحّل سابقًا بنفس البصمة.\nالمرجع: <b>${esc(result.existingImportId||'—')}</b>`;if(!result.ok)return`<b>حُفظ الملف ولم يُرحّل.</b>\nالأخطاء: <b>${number(errors.length||preview.errorCount||0)}</b>\n${errors.map((error,index)=>`${index+1}. ${esc(error.message||error.code||'خطأ تحقق')}`).join('\n')}\n\nافتح مركز الوارد لمراجعة الأخطاء؛ لم يُنشأ أي قيد أو مبيعات جزئية.`;const accounting=result.accounting||{};return`<b>تم ترحيل التقرير تلقائيًا بنجاح.</b>\nالفواتير: <b>${number(preview.invoiceCount)}</b>\nالمبيعات: <b>${number(preview.salesTotal)} ر.س</b>\nالتحصيلات: <b>${number(preview.collectionTotal)} ر.س</b>\nالخزينة 101: <b>${number(preview.treasury101)} ر.س</b> — الخزينة 104: <b>${number(preview.treasury104)} ر.س</b>\nالقيود: <b>${number(accounting.entryCount)}</b> ${accounting.balanced?'ومتوازنة':'تحتاج مراجعة'}\n${balances.length?`\n<b>الأرصدة المتأثرة:</b>\n${balances.map(row=>`• ${esc(row.customerName)} (${esc(row.customerCode)}): <b>${number(row.balance)} ر.س</b>`).join('\n')}`:''}${warnings.length?`\n\n💰 <b>ملاحظات (لا تمنع الترحيل):</b>\n${warnings.map((warning,index)=>`${index+1}. ${esc(warning.message||warning.code||'')}`).join('\n')}`:''}`;}
 async function sendProcessingResult(chatId,text,name){try{return await sendMessage(chatId,text);}catch(error){console.error('[telegram excel result reply]',{status:Number(error?.status||0),message:String(error?.message||'').slice(0,300)});try{return await sendMessage(chatId,`تمت معالجة ملف <b>${esc(name)}</b> وحفظ نتيجته، لكن تعذر إرسال تفاصيل القراءة. افتح مركز الوارد لمراجعته.`);}catch(fallbackError){console.error('[telegram excel result fallback]',{status:Number(fallbackError?.status||0),message:String(fallbackError?.message||'').slice(0,300)});return null;}}}
 async function relayToOwner(sourceChatId,buffer,name,contentType,caption,actionPayload={}){const owner=String(config.telegramOwnerId||'');if(!owner||owner===String(sourceChatId)||!buffer?.length)return null;try{return await sendDocumentBuffer(owner,buffer,name,contentType,plain(caption).slice(0,900));}catch(error){console.warn('[telegram owner file relay]',{name,status:Number(error?.status||0),message:String(error?.message||'').slice(0,300),actionPayload});return null;}}
+// أي تقرير PDF يتولّد ويُرسل لمُرسل الملف (بلوك/خرسانة/محفظة عملاء/ديزل)
+// تتوصل الإدارة (TELEGRAM_OWNER_ID) نسخة منه تلقائيًا كمان، إلا لو هي نفسها
+// اللي بعتت الملف أصلًا (تفاديًا لتكرار الرسائل عندها).
+async function relayPdfToOwner(sourceChatId,pdf,filename,caption){
+  const owner=String(config.telegramOwnerId||'');
+  if(!owner||owner===String(sourceChatId)||!pdf?.length)return null;
+  try{return await sendDocumentBuffer(owner,pdf,filename,'application/pdf',plain(caption).slice(0,900));}
+  catch(error){console.warn('[telegram owner pdf relay]',{filename,status:Number(error?.status||0),message:String(error?.message||'').slice(0,300)});return null;}
+}
 async function sendCumulativeDailyReports(chatId,analysis,name){
   try{
     await sendMessage(chatId,'جارٍ إعداد تقرير البلوك وتقرير الخرسانة من الأرصدة السابقة وحركة الملف الحالي.');
     const reports=await generateCumulativeDailyPdfs(analysis||{},name);
-    for(const report of reports)await sendDocumentBuffer(chatId,report.pdf,report.filename,'application/pdf',report.caption);
+    for(const report of reports){await sendDocumentBuffer(chatId,report.pdf,report.filename,'application/pdf',report.caption);await relayPdfToOwner(chatId,report.pdf,report.filename,`نسخة إدارة — ${report.caption}`);}
     // نفس إقرار "مسؤولية محفظة عملاء" الموجود في الموقع (المندوب، القطاع،
     // قيمة التوريدات، المدفوع، المتبقي) — يُبنى هنا من نفس نص البنود المحفوظ
     // ونفس أرصدة العملاء، فتخرج نتيجة تليجرام مطابقة لنتيجة الموقع.
     try{
       const portfolios=await generateCustomerPortfolioPdfs(analysis||{},name);
-      for(const portfolio of portfolios)await sendDocumentBuffer(chatId,portfolio.pdf,portfolio.filename,'application/pdf',portfolio.caption);
+      for(const portfolio of portfolios){await sendDocumentBuffer(chatId,portfolio.pdf,portfolio.filename,'application/pdf',portfolio.caption);await relayPdfToOwner(chatId,portfolio.pdf,portfolio.filename,`نسخة إدارة — ${portfolio.caption}`);}
     }catch(portfolioError){
       console.error('[telegram customer portfolio pdf]',{code:portfolioError?.code||null,message:String(portfolioError?.message||'').slice(0,500)});
       await sendMessage(chatId,'تم إرسال تقريري البلوك والخرسانة، لكن تعذر إنشاء إقراري محفظة العملاء.\nالسبب: '+esc(String(portfolioError?.message||'').slice(0,300))).catch(()=>null);
@@ -123,6 +132,7 @@ async function sendFuelReport(chatId,buffer,name){
     const{pdf,filename,caption,report,rowCount}=await generateFuelReportPdf(workbook,XLSX,name);
     if(!rowCount){await sendMessage(chatId,'لم أجد صفوف ديزل صالحة (برقم لوحة ومبلغ أو كمية) في هذا الملف.');return null;}
     await sendDocumentBuffer(chatId,pdf,filename,'application/pdf',caption);
+    await relayPdfToOwner(chatId,pdf,filename,`نسخة إدارة — ${caption}`);
     const t=report.totals;
     await sendMessage(chatId,`⛽ تم تحليل ${t.fillCount} تعبئة على ${t.plateCount} لوحة.\nإجمالي اللترات: ${t.liters}\nإجمالي المبلغ: ${t.amount} ر.س\nالملاحظات: ${t.danger} حرجة، ${t.warn} تنبيه.`);
     return report;
