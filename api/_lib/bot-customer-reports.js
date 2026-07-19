@@ -80,8 +80,9 @@ async function sendBalanceFilter(chatId,identity,mode,min,max=null){
   const data=await loadCustomerAnalytics(identity);let rows=data.rows.filter(row=>row.debitBalance>0.009);
   if(mode==='gt')rows=rows.filter(row=>row.debitBalance>min);else if(mode==='lt')rows=rows.filter(row=>row.debitBalance<min);else rows=rows.filter(row=>row.debitBalance>=Math.min(min,max)&&row.debitBalance<=Math.max(min,max));
   rows.sort((a,b)=>b.debitBalance-a.debitBalance);if(!rows.length)return sendMessage(chatId,'لا يوجد عملاء يطابقون شرط الرصيد.');
+  const total=rows.reduce((sum,row)=>sum+row.debitBalance,0);
   const label=mode==='gt'?`أكبر من ${money(min)}`:mode==='lt'?`أقل من ${money(min)}`:`بين ${money(Math.min(min,max))} و${money(Math.max(min,max))}`,body=rows.slice(0,40).map((row,index)=>`${index+1}. <b>${esc(row.name)}</b>${row.code?` — <code>${esc(row.code)}</code>`:''} — ${money(row.debitBalance)}`).join('\n');
-  return sendMessage(chatId,`<b>عملاء برصيد ${label}</b>\nالعدد المطابق: <b>${rows.length}</b>\n\n${body}`.slice(0,3900));
+  return sendMessage(chatId,`<b>عملاء برصيد ${label}</b>\nالعدد المطابق: <b>${rows.length}</b>\nإجمالي أرصدتهم مجتمعة: <b>${money(total)} ر.س</b>\n\n${body}${rows.length>40?`\n\n...و<b>${rows.length-40}</b> عميل إضافي غير معروض هنا لكنه محسوب في الإجمالي.`:''}`.slice(0,3900));
 }
 function invoiceLine(row){const type=salesTypeLabel[row.sales_type]||row.sales_type||'';return `• <b>${esc(row.reference_no||'فاتورة')}</b> — ${esc(type)}\n  الإجمالي ${money(row.total)} | المتبقي ${money(row.outstanding)}${row.daysLate?` | تأخير ${row.daysLate} يوم`:''}`;}
 function collectionLine(row){return `• <b>${esc(row.reference_no||'تحصيل')}</b> — ${money(row.amount)}${row.unallocated?` | غير موزع ${money(row.unallocated)}`:''}\n  ${esc(String(row.occurred_at||row.created_at||'').slice(0,10)||'بدون تاريخ')}`;}
@@ -125,7 +126,7 @@ export async function handleCustomerReportCallback(message,from,identity,value){
 export async function handleCustomerReportTextCommand(message,identity,text){
   const raw=String(text||'').trim(),value=norm(raw);
   if(/^(تسجيل عميل|اضافه عميل|إضافة عميل|عميل جديد)$/.test(value)){await startCustomerCreate(message,identity);return true;}
-  if(/^\/(customers|clients)(?:@\w+)?$/i.test(raw)||/^(تقارير العملاء|تقرير العملاء|عملاء المصنع)$/.test(value)){await sendCustomerReportsMenu(message.chat.id,identity);return true;}
+  if(/^\/(customers|clients)(?:@\w+)?$/i.test(raw)||/^(تقارير العملاء|تقرير العملاء|عملاء المصنع|العملاء|عملاء)$/.test(value)){await sendCustomerReportsMenu(message.chat.id,identity);return true;}
   if(/^(ملخص العملاء|اجمالي العملاء|إجمالي العملاء|الملخص التنفيذي للعملاء)$/.test(value)){if(!canView(identity))await deny(message.chat.id);else await sendSummary(message.chat.id,identity);return true;}
   const top=latinDigits(raw).match(/^(?:اكبر|أكبر)\s+(10|20|50)\s+(?:عميل|عملاء)(?:\s+مديونيه|\s+مديونية)?$/i);if(top){if(!canView(identity))await deny(message.chat.id);else await sendTopDebt(message.chat.id,identity,Number(top[1]));return true;}
   if(/^(اكبر المديونيات|أكبر المديونيات|مديونيات العملاء|اكبر العملاء|أكبر العملاء)$/.test(value)){if(!canView(identity))await deny(message.chat.id);else await sendTopDebt(message.chat.id,identity);return true;}

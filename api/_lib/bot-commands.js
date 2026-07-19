@@ -3,7 +3,7 @@ import { sendMessage } from './telegram.js';
 import { allowed, reportSummary } from './domain.js';
 import { displayName, roleLabel } from './bot-profile.js';
 import { welcomeMessage, helpMessage, jobCatalogMessage } from './bot-help.js';
-import { registrationKeyboard, startRegistration, registrationStatus } from './bot-registration.js';
+import { registrationKeyboard, startRegistration, registrationStatus, startWorkshopRegistration } from './bot-registration.js';
 import { reportKeyboard, sendReport } from './bot-reports.js';
 import { showAttendanceMenu } from './bot-attendance.js';
 import { startDriverRegistration } from './bot-driver-registration.js';
@@ -92,6 +92,14 @@ export async function handleBuiltInCommand({message,identity,text}){
     else await startDriverRegistration(message,identity,{});
     return true;
   }
+  // رابط تسجيل موظفي الورشة المستقل: t.me/<bot>?start=workshop يبدأ فورم
+  // التسجيل العادي لكن بوظيفة "الورشة / ميكانيكي" مثبّتة مسبقًا — يتخطى
+  // خطوة اختيار الوظيفة تمامًا، وأي حد يدخل منه هيتسجل كموظف ورشة فقط.
+  if(/^\/start(?:@\w+)?\s+(workshop|ورشة|ورشه)$/i.test(raw)){
+    if(active)await sendMessage(chatId,`أنت مسجّل بالفعل بوظيفة <b>${esc(roleLabel(role))}</b>. لو محتاج تتسجل كموظف ورشة تواصل مع مدير النظام.`);
+    else await startWorkshopRegistration(message,identity);
+    return true;
+  }
   if(/^\/start(?:@\w+)?\s+attendance$/i.test(raw)){
     if(!active)await sendMessage(chatId,welcomeMessage(identity,message.from),registrationKeyboard());else await showAttendanceMenu(message,identity);
     return true;
@@ -135,7 +143,7 @@ export async function handleBuiltInCommand({message,identity,text}){
     if(!active||!allowed(role,'report'))await sendMessage(chatId,'مقارنة المبيعات والتحصيل متاحة لمدير المصنع ومدير النظام فقط.');else await salesCollectionGap(chatId);return true;
   }
   if(/كم مركبه متوقفه|كم سيارة متوقفة|كم امر اصلاح مفتوح|المركبات المتوقفه/.test(t)){
-    if(!active||!allowed(role,'report'))await sendMessage(chatId,'تقرير الورشة متاح لمدير المصنع ومدير النظام فقط.');else await sendReport(chatId,'workshop');return true;
+    if(!active||!(allowed(role,'report')||role==='mechanic'))await sendMessage(chatId,'تقرير الورشة متاح لمدير المصنع ومدير النظام وموظفي الورشة.');else await sendReport(chatId,'workshop');return true;
   }
   const reports=[
     {re:/^(ملخص اليوم|تقرير اليوم|الوضع اليوم|ملخص المصنع)$/,kind:'daily'},

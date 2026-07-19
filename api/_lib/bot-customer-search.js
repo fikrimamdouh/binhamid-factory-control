@@ -1,7 +1,8 @@
-import { sendMessage, keyboard } from './telegram.js';
+import { sendMessage, sendDocumentBuffer, keyboard } from './telegram.js';
 import { clearMaintenanceSession } from './bot-maintenance.js';
 import { esc, formatAmount, norm, setEnterpriseSession } from './bot-enterprise-store.js';
 import { findCustomers, loadCustomerAnalytics } from './bot-customer-report-data.js';
+import { generateCustomerStatementPdf } from './customer-statement-pdf.js';
 
 const REPORT_ROLES=new Set(['admin','manager','accountant','block_sales','concrete_sales','collector']);
 const canView=identity=>Boolean(identity?.active&&REPORT_ROLES.has(identity.role));
@@ -16,7 +17,28 @@ function collectionLine(row){return `• ${esc(String(row.occurred_at||row.creat
 async function sendStatement(chatId,identity,row){
   const recentSales=row.sales.slice(0,10),recentCollections=row.collectionRows.slice(0,10),movementCount=row.invoiceCount+row.collectionCount;
   const text=`<b>كشف حساب عميل — مصنع بن حامد</b>\n━━━━━━━━━━━━━━\n<b>${esc(row.name)}</b>${row.code?`\nرقم الحساب: <code>${esc(row.code)}</code>`:''}${row.phone?`\nالجوال: ${esc(row.phone)}`:''}\nحتى تاريخ: <b>${esc(new Date().toISOString().slice(0,10))}</b>\n━━━━━━━━━━━━━━\n<b>ملخص الحساب</b>\nالرصيد الافتتاحي: <b>${money(row.openingBalance)}</b>\nإجمالي المبيعات بعد الافتتاح: <b>${money(row.grossSales)}</b>\nإجمالي التحصيلات: <b>${money(row.collections)}</b>\nالرصيد الحالي: <b>${money(currentBalance(row))}</b>\nمديونية على العميل: <b>${money(row.debitBalance)}</b>\nرصيد دائن للعميل: <b>${money(row.creditBalance)}</b>\nالمتأخر المؤرخ: <b>${money(row.overdue)}</b>\nعدد الحركات الجديدة: <b>${movementCount}</b>\nالحالة الائتمانية: <b>${esc(decisionLabel[row.decision]||row.decision)}</b>${recentSales.length?`\n\n<b>أحدث الفواتير</b>\n${recentSales.map(invoiceLine).join('\n')}`:'\n\nلا توجد فواتير بعد الرصيد الافتتاحي.'}${recentCollections.length?`\n\n<b>أحدث التحصيلات</b>\n${recentCollections.map(collectionLine).join('\n')}`:'\n\nلا توجد تحصيلات بعد الرصيد الافتتاحي.'}\n\n<i>الحركات المعتمدة من التقرير اليومي تظهر تلقائيًا في هذا الكشف.</i>`;
-  return sendMessage(chatId,text.slice(0,3900));
+  await setEnterpriseSession(chatId,identity.external_id||chatId,'enterprise_customer_last_statement',{code:row.code||'',name:row.name||'',startedAt:new Date().toISOString()});
+  return sendMessage(chatId,text.slice(0,3900),keyboard([[{text:'📄 كشف حساب PDF احترافي',callback_data:'ent:customer_pdf'}]]));
+}
+// يبني نفس بيانات الكشف النصي في تصميم PDF احترافي (شعار، بطاقات KPI، جدول
+// أعمار ديون، فواتير وتحصيلات) ويرسله كملف — بيُستدعى من زر تحت نتيجة البحث.
+export async function sendStatementPdf(chatId,identity){
+  if(!canView(identity))return sendMessage(chatId,'ليست لديك صلاحية عرض حسابات العملاء.');
+  const { select }=await import('./supabase.js');
+  const session=(await select('bot_sessions',`channel=eq.telegram&chat_id=eq.${encodeURIComponent(String(chatId))}&external_user_id=eq.${encodeURIComponent(String(identity.external_id||chatId))}&select=*&limit=1`).catch(()=>[]))?.[0];
+  const ref=session?.state==='enterprise_customer_last_statement'?session.context:null;
+  if(!ref||(!ref.code&&!ref.name))return sendMessage(chatId,'ابحث عن عميل أولًا (اكتب اسمه أو رقم حسابه) ثم اطلب الكشف بصيغة PDF.');
+  const data=await loadCustomerAnalytics(identity),matches=findCustomers(data,ref.code||ref.name);
+  const row=matches.find(item=>String(item.code||'')===String(ref.code||''))||matches[0];
+  if(!row)return sendMessage(chatId,'تعذر تحميل بيانات العميل. أعد البحث من جديد.');
+  try{
+    const{pdf,filename,caption}=await generateCustomerStatementPdf(row);
+    await sendDocumentBuffer(chatId,pdf,filename,'application/pdf',caption);
+  }catch(error){
+    console.error('[telegram customer statement pdf]',{code:error?.code||null,message:String(error?.message||'').slice(0,300)});
+    const reason=error?.code==='PDF_SERVICE_NOT_CONFIGURED'?'خدمة PDF غير مضبوطة على الخادم.':String(error?.message||'تعذر إنشاء الملف').slice(0,250);
+    await sendMessage(chatId,`تعذر إنشاء كشف الحساب بصيغة PDF.\nالسبب: ${esc(reason)}`);
+  }
 }
 
 async function searchAndChoose(message,identity,query){
