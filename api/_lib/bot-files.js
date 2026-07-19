@@ -11,7 +11,18 @@ import { capabilityAllowed } from './permissions.js';
 import { handleProductImage } from './bot-product-assistant.js';
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const plain=v=>String(v??'').replace(/<[^>]+>/g,'');
-const safeFile=v=>String(v||'file').replace(/[^A-Za-z0-9._\-\u0600-\u06FF]/g,'_').slice(0,140);
+// Supabase Storage object keys must be ASCII-safe. Arabic (or any non-ASCII)
+// characters in the original Telegram file name used to be kept here, which
+// produced keys like ".../ملخص_العمل_اليومي2.xlsx" and Supabase rejected the
+// upload with "Invalid key" — the file was read correctly but never saved,
+// and every later "فتح في المستورد" attempt failed with it. The human-
+// readable name is preserved separately in imports.original_name for the UI
+// and downloads; this value is only used inside the storage path itself.
+const safeFile=v=>{
+  let base=String(v||'file').replace(/[^\x00-\x7F]/g,'_').replace(/[^A-Za-z0-9._-]/g,'_').replace(/_+/g,'_').replace(/^_+|_+$/g,'');
+  if(!base||base.startsWith('.'))base='file'+base;
+  return base.slice(0,140);
+};
 const number=value=>Number(value||0).toLocaleString('en-US',{maximumFractionDigits:3});
 const dailyType=type=>['daily_movement','block_daily_movement','concrete_daily_movement'].includes(type);
 const DAILY_APPROVE_CAPABILITY='daily_report.approve';
@@ -92,7 +103,13 @@ export async function handleExcel(message,group,identity,stored){
       result={duplicate:false,import:imp,reportType,status,path,recognizedDaily,posting,postingFailure,storageSaved,storageFailure,reportDate,pendingApproval:approval.waitingApproval||Boolean(postingFailure),pendingApprovalNotice:(approval.waitingApproval||postingFailure)?{importId:imp.id,name,reportType,reportDate,summary:summary.daily||{},senderName:identity.full_name||identity.external_id}:null};
     }
   }catch(error){console.error('[telegram excel import]',{stage:error?.excelStage||'unknown',status:Number(error?.status||error?.upstreamStatus||0),message:String(error?.message||'').slice(0,500)});await sendMessage(chatId,`تعذر إكمال معالجة ملف <b>${esc(name)}</b>.\nالسبب: ${esc(excelFailureMessage(error))}\nلم تُرحّل أي بيانات من هذا الملف.`).catch(sendError=>console.error('[telegram excel failure reply]',sendError));return null;}
-  const ownerRelay=await relayToOwner(chatId,relay?.buffer,name,relay?.contentType,`ملف وارد من Telegram\n\n${resultText}`,{importId:result?.import?.id});if(result?.pendingApproval&&result.pendingApprovalNotice){const excluded=[String(chatId)];if(ownerRelay&&config.telegramOwnerId)excluded.push(String(config.telegramOwnerId));result.approvalNotification=await notifyDailyReportApprovers(result.pendingApprovalNotice,excluded);}await sendProcessingResult(chatId,resultText,name);if(result?.recognizedDaily&&result?.status!=='failed'&&result?.posting?.ok&&!result?.posting?.duplicate)result.pdfReports=await sendCumulativeDailyReports(chatId,dailyAnalysis,name);return result;
+  const ownerRelay=await relayToOwner(chatId,relay?.buffer,name,relay?.contentType,`ملف وارد من Telegram\n\n${resultText}`,{importId:result?.import?.id});if(result?.pendingApproval&&result.pendingApprovalNotice){const excluded=[String(chatId)];if(ownerRelay&&config.telegramOwnerId)excluded.push(String(config.telegramOwnerId));result.approvalNotification=await notifyDailyReportApprovers(result.pendingApprovalNotice,excluded);}  await sendProcessingResult(chatId,resultText,name);
+  // تقريرا البلوك والخرسانة التراكميان "مسودة" وليسا مرتبطين بنجاح الترحيل
+  // التلقائي — أغلب مرسلي الملف اليومي مندوبو مبيعات وليسوا معتمدين، فكان
+  // الشرط القديم (posting?.ok) يمنع إرسالهما في كل تلك الحالات. الآن يُرسلان
+  // فورًا لأي ملف يومي جديد قُرئ بنجاح، سواء رُحّل تلقائيًا أو ينتظر الاعتماد.
+  if(result?.recognizedDaily&&result?.status!=='failed'&&!result?.duplicate)result.pdfReports=await sendCumulativeDailyReports(chatId,dailyAnalysis,name);
+  return result;
 }
 
 export async function handleAttachment(message,group,identity,stored){
