@@ -145,13 +145,17 @@ function nameEmbeddedPhone(name){
 async function sendAnomalousPhones(chatId,identity,page=0){
   const data=await loadCustomerAnalytics(identity),flagged=[];
   for(const row of data.rows){
-    const issue=phoneIssue(row.phone),embedded=nameEmbeddedPhone(row.name);
+    // كتابة الرقم داخل اسم العميل نفسه هي الطريقة المعتادة عندهم (مفيش خانة
+    // تليفون منفصلة أصلًا) — ده مش عيب يُبلّغ عنه. الإبلاغ بس لو الرقم نفسه
+    // (سواء في الاسم أو في حقل الجوال لو موجود) ناقص أو غير صحيح فعليًا.
+    const source=row.phone||nameEmbeddedPhone(row.name);
+    if(!source)continue;
+    const issue=phoneIssue(source);
     if(issue)flagged.push({row,note:`📵 ${issue}`});
-    else if(embedded)flagged.push({row,note:`✏️ الرقم مكتوب داخل اسم العميل (${esc(embedded)}) بدل حقل الجوال المخصص`});
   }
-  if(!flagged.length)return sendMessage(chatId,'لا توجد أرقام جوال شاذة ضمن نطاق صلاحيتك. 👍');
+  if(!flagged.length)return sendMessage(chatId,'لا توجد أرقام جوال ناقصة أو غير صحيحة ضمن نطاق صلاحيتك. 👍');
   const formatRow=(item,index)=>`${index+1}. <b>${esc(item.row.name)}</b>${item.row.code?` — <code>${esc(item.row.code)}</code>`:''}\n${item.note}`;
-  const built=sendPage(chatId,'🔀 تقرير أرقام الجوال الشاذة',flagged,formatRow,page,'يشمل: أرقام ناقصة/غير صحيحة في حقل الجوال، وأسماء عملاء مكتوب بداخلها رقم بدل الحقل المخصص.');
+  const built=sendPage(chatId,'🔀 أرقام جوال ناقصة أو غير صحيحة',flagged,formatRow,page,'يفحص الرقم من حقل الجوال أو من داخل اسم العميل إن وُجد — يُبلّغ فقط لو الرقم نفسه غير مكتمل.');
   return sendMessage(chatId,built.text,paginationButtons('phoneissue',built.page,built.totalPages));
 }
 async function sendMissingPhone(chatId,identity,page=0){
