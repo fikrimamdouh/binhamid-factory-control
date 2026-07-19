@@ -1,14 +1,19 @@
 (function customerOpeningBalanceEncryptedBootstrap(){
   'use strict';
 
-  const VERSION='2026.07.19-customer-opening-encrypted-bootstrap-v1';
+  const VERSION='2026.07.19-customer-opening-encrypted-bootstrap-v2-auth-resume';
   const HASH_PARAM='customer-seed';
   const PACKAGE_MARKER='binhamid-customer-opening-package-v1';
   const IMPORT_MARKER='binhamid_customer_seed_20260719';
+  const PENDING_KEY='binhamid_customer_seed_pending_v1';
+  let running=false,loginRequested=false;
 
   const clean=value=>String(value??'').trim();
   const code=value=>clean(value).replace(/\.0+$/,'').replace(/\s+/g,'');
   const money=value=>Math.abs(Number(value)||0)<0.005?0:Math.round((Number(value)+Number.EPSILON)*100)/100;
+  const hostWindow=()=>window.parent&&window.parent!==window?window.parent:window;
+  const validPackage=pack=>Boolean(pack?.marker===PACKAGE_MARKER&&pack?.key&&pack?.envelope);
+  const storage=()=>{try{return hostWindow().sessionStorage;}catch{return window.sessionStorage;}};
   const b64url=value=>{
     const text=clean(value).replace(/-/g,'+').replace(/_/g,'/');
     const padded=text+'='.repeat((4-text.length%4)%4);
@@ -17,19 +22,21 @@
     return bytes;
   };
   const hex=buffer=>[...new Uint8Array(buffer)].map(value=>value.toString(16).padStart(2,'0')).join('');
+  function rememberPackage(pack){if(validPackage(pack))storage().setItem(PENDING_KEY,JSON.stringify(pack));}
+  function pendingPackage(){try{const pack=JSON.parse(storage().getItem(PENDING_KEY)||'null');return validPackage(pack)?pack:null;}catch{return null;}}
+  function clearPackage(){try{storage().removeItem(PENDING_KEY);}catch{}}
   function readPackage(){
-    const host=window.parent&&window.parent!==window?window.parent:window;
-    const rawHash=host.location.hash||'',hash=rawHash.startsWith('#')?rawHash.slice(1):rawHash;
-    const params=new URLSearchParams(hash);
-    if(params.get(HASH_PARAM)!=='1')return null;
+    const host=hostWindow(),rawHash=host.location.hash||'',hash=rawHash.startsWith('#')?rawHash.slice(1):rawHash,params=new URLSearchParams(hash);
     let pack=null;
-    try{pack=JSON.parse(host.name||'');}catch{}
-    params.delete(HASH_PARAM);
-    const next=params.toString();
-    host.history.replaceState(null,'',host.location.pathname+host.location.search+(next?`#${next}`:''));
-    try{host.name='';}catch{}
-    if(pack?.marker!==PACKAGE_MARKER||!pack?.key||!pack?.envelope)return null;
-    return pack;
+    if(params.get(HASH_PARAM)==='1'){
+      try{pack=JSON.parse(host.name||'');}catch{}
+      if(validPackage(pack))rememberPackage(pack);
+      params.delete(HASH_PARAM);
+      const next=params.toString();
+      host.history.replaceState(null,'',host.location.pathname+host.location.search+(next?`#${next}`:''));
+      try{host.name='';}catch{}
+    }
+    return validPackage(pack)?pack:pendingPackage();
   }
   async function gunzip(bytes){
     if(typeof DecompressionStream!=='function')throw new Error('المتصفح لا يدعم فك ضغط حزمة العملاء. استخدم Chrome أو Edge محدثًا.');
@@ -62,7 +69,7 @@
   async function stateRequest(path,options={}){
     const response=await fetch(path,{credentials:'same-origin',...options,headers:{'Content-Type':'application/json',...(options.headers||{})}});
     const data=await response.json().catch(()=>({}));
-    if(!response.ok)throw new Error(data.error||data.message||`HTTP ${response.status}`);
+    if(!response.ok){const error=new Error(data.error||data.message||`HTTP ${response.status}`);error.status=response.status;error.code=data.code||'';throw error;}
     return data;
   }
   function ensurePayload(remote){
@@ -108,21 +115,37 @@
     payload.ops.settings.customerOpeningBalanceImport={fileName:seed.src,sourceHash:seed.sha,sourceFormat:'legacy_trial_balance',reportDate:seed.date,rowCount:Number(rowCount),warningCount:Number(warningCount),duplicatePageRows:Number(duplicatePageRows),ignoredPageRows:Number(ignoredPageRows),debitTotal:Number(debitTotal),creditTotal:Number(creditTotal),netTotal:Number(netTotal),chequesTotal:Number(chequesTotal),importedAt:stamp,encryptedBootstrap:true};
     return{already:false,payload,summary:payload.ops.settings.customerOpeningBalanceImport};
   }
+  function requestOwnerLogin(pack){
+    rememberPackage(pack);
+    if(loginRequested)return;
+    loginRequested=true;
+    window.addEventListener('binhamid-owner-authenticated',()=>{loginRequested=false;setTimeout(run,300);},{once:true});
+    const openLogin=()=>{if(typeof window.bhCloudLogin==='function')window.bhCloudLogin();else setTimeout(openLogin,250);};
+    openLogin();
+  }
   async function run(){
+    if(running)return;
     const pack=readPackage();
     if(!pack)return;
+    running=true;
     try{
       const seed=await decryptSeed(pack.key,pack.envelope),session=await deviceReady(),remote=await stateRequest('/api/state',{method:'GET',cache:'no-store'}),merged=mergeSeed(ensurePayload(remote),seed);
-      if(merged.already){localStorage.setItem(IMPORT_MARKER,seed.sha);alert('بيانات العملاء موجودة بالفعل في النظام ولم يتم تكرارها.');return;}
+      if(merged.already){clearPackage();localStorage.setItem(IMPORT_MARKER,seed.sha);alert('بيانات العملاء والأرصدة موجودة بالفعل في النظام ولم يتم تكرارها.');return;}
       const result=await stateRequest('/api/state',{method:'PUT',body:JSON.stringify({baseRevision:Number(remote.revision||0),reason:`استيراد مشفر لأرصدة ${seed.r.length} عميل من البرنامج القديم`,deviceId:session.deviceId,payload:merged.payload})});
       localStorage.setItem('binhamid_v1',JSON.stringify(merged.payload.legacy));
       localStorage.setItem('binhamid_factory_control_v3',JSON.stringify(merged.payload.ops));
       localStorage.setItem('binhamid_cloud_revision',String(result.revision||0));
       localStorage.setItem(IMPORT_MARKER,seed.sha);
+      clearPackage();
       alert(`تم دمج ${merged.summary.rowCount} عميل ورصيد افتتاحي في قاعدة النظام بنجاح.\nصافي رصيد العملاء: ${Number(merged.summary.netTotal).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})} ر.س`);
       location.reload();
-    }catch(error){console.error('[BinHamid]',VERSION,error);alert(`تعذر دمج بيانات العملاء: ${error.message||error}`);}
+    }catch(error){
+      console.error('[BinHamid]',VERSION,error);
+      if(error?.status===401||error?.status===403){requestOwnerLogin(pack);return;}
+      alert(`تعذر دمج بيانات العملاء: ${error.message||error}`);
+    }finally{running=false;}
   }
   run();
+  window.addEventListener('binhamid-owner-authenticated',()=>setTimeout(run,300));
   console.info('[BinHamid]',VERSION,'ready');
 })();
