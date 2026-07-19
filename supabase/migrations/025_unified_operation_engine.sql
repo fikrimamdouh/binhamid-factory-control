@@ -171,34 +171,17 @@ begin
   if v_key is null then raise exception 'IDEMPOTENCY_KEY_REQUIRED'; end if;
   if v_operation_type is null then raise exception 'OPERATION_TYPE_REQUIRED'; end if;
   if nullif(p_operation->>'source','') is null then raise exception 'OPERATION_SOURCE_REQUIRED'; end if;
-  if v_reference is null then
-    v_reference := concat('OP-',upper(substr(encode(digest(v_key,'sha256'),'hex'),1,16)));
-  end if;
+  if v_reference is null then v_reference := concat('OP-',upper(substr(encode(digest(v_key,'sha256'),'hex'),1,16))); end if;
 
   select * into v_existing from public.operational_records where idempotency_key=v_key limit 1 for update;
   if found then
-    update public.operational_records
-    set attempt_count=attempt_count+1,updated_at=now()
-    where id=v_existing.id;
-    insert into public.operation_events(
-      operation_record_id,action,from_status,to_status,from_lifecycle_status,to_lifecycle_status,
-      actor_id,actor_role,source_channel,source_reference,note,before_data,after_data
-    ) values (
-      v_existing.id,'duplicate_attempt',v_existing.status,v_existing.status,v_existing.lifecycle_status,v_existing.lifecycle_status,
-      p_operation->>'actor_id',p_operation->>'actor_role',p_operation->>'source',p_operation->>'source_reference',
-      'Duplicate request ignored',v_existing.before_data,v_existing.after_data
-    );
+    update public.operational_records set attempt_count=attempt_count+1,updated_at=now() where id=v_existing.id;
+    insert into public.operation_events(operation_record_id,action,from_status,to_status,from_lifecycle_status,to_lifecycle_status,actor_id,actor_role,source_channel,source_reference,note,before_data,after_data)
+    values(v_existing.id,'duplicate_attempt',v_existing.status,v_existing.status,v_existing.lifecycle_status,v_existing.lifecycle_status,p_operation->>'actor_id',p_operation->>'actor_role',p_operation->>'source',p_operation->>'source_reference','Duplicate request ignored',v_existing.before_data,v_existing.after_data);
     return jsonb_build_object('ok',true,'duplicate',true,'operationId',v_existing.id,'referenceNo',v_existing.reference_no,'status',v_existing.status,'lifecycleStatus',v_existing.lifecycle_status,'outboxIds','[]'::jsonb);
   end if;
 
-  v_payload := v_payload||jsonb_build_object(
-    'operation_id',v_id,
-    'operation_type',v_operation_type,
-    'idempotency_key',v_key,
-    'source',p_operation->>'source',
-    'source_reference',p_operation->>'source_reference'
-  );
-
+  v_payload := v_payload||jsonb_build_object('operation_id',v_id,'operation_type',v_operation_type,'idempotency_key',v_key,'source',p_operation->>'source','source_reference',p_operation->>'source_reference');
   insert into public.operational_records(
     id,reference_no,entity_type,operation_type,department,status,lifecycle_status,title,summary,amount,payload,
     created_by,assigned_to,source_channel,source_chat_id,source_message_id,source_reference,actor_id,actor_role,
@@ -213,36 +196,15 @@ begin
   );
 
   if v_domain->>'kind'='operational_task' then
-    insert into public.operational_tasks(
-      reference_no,title,description,department,priority,status,due_at,created_by,assigned_to,
-      related_entity_type,related_entity_id,source_chat_id,source_message_id,created_at,updated_at
-    ) values (
-      v_reference,coalesce(nullif(v_domain->>'title',''),coalesce(nullif(p_operation->>'title',''),'مهمة تشغيلية')),
-      nullif(v_domain->>'description',''),coalesce(nullif(v_domain->>'department',''),'general'),
-      coalesce(nullif(v_domain->>'priority',''),'normal'),v_status,public.safe_timestamptz(v_domain->>'dueAt',null),
-      public.safe_uuid(p_operation->>'created_by_user_id'),public.safe_uuid(v_domain->>'assignedToUserId'),
-      nullif(v_domain->>'relatedEntityType',''),nullif(v_domain->>'relatedEntityId',''),
-      nullif(p_operation->>'source_chat_id',''),nullif(p_operation->>'source_message_id',''),now(),now()
-    ) on conflict(reference_no) do update set
-      title=excluded.title,description=excluded.description,department=excluded.department,priority=excluded.priority,
-      status=excluded.status,due_at=excluded.due_at,assigned_to=coalesce(excluded.assigned_to,public.operational_tasks.assigned_to),updated_at=now();
+    insert into public.operational_tasks(reference_no,title,description,department,priority,status,due_at,created_by,assigned_to,related_entity_type,related_entity_id,source_chat_id,source_message_id,created_at,updated_at)
+    values(v_reference,coalesce(nullif(v_domain->>'title',''),coalesce(nullif(p_operation->>'title',''),'مهمة تشغيلية')),nullif(v_domain->>'description',''),coalesce(nullif(v_domain->>'department',''),'general'),coalesce(nullif(v_domain->>'priority',''),'normal'),v_status,public.safe_timestamptz(v_domain->>'dueAt',null),public.safe_uuid(p_operation->>'created_by_user_id'),public.safe_uuid(v_domain->>'assignedToUserId'),nullif(v_domain->>'relatedEntityType',''),nullif(v_domain->>'relatedEntityId',''),nullif(p_operation->>'source_chat_id',''),nullif(p_operation->>'source_message_id',''),now(),now())
+    on conflict(reference_no) do update set title=excluded.title,description=excluded.description,department=excluded.department,priority=excluded.priority,status=excluded.status,due_at=excluded.due_at,assigned_to=coalesce(excluded.assigned_to,public.operational_tasks.assigned_to),updated_at=now();
   end if;
 
-  insert into public.operation_events(
-    operation_record_id,action,from_status,to_status,from_lifecycle_status,to_lifecycle_status,
-    actor_id,actor_role,source_channel,source_reference,note,before_data,after_data
-  ) values (
-    v_id,'created',null,v_status,null,v_lifecycle,p_operation->>'actor_id',p_operation->>'actor_role',
-    p_operation->>'source',p_operation->>'source_reference',null,
-    coalesce(p_operation->'before_data','{}'::jsonb),coalesce(p_operation->'after_data',v_payload)
-  );
-
+  insert into public.operation_events(operation_record_id,action,from_status,to_status,from_lifecycle_status,to_lifecycle_status,actor_id,actor_role,source_channel,source_reference,note,before_data,after_data)
+  values(v_id,'created',null,v_status,null,v_lifecycle,p_operation->>'actor_id',p_operation->>'actor_role',p_operation->>'source',p_operation->>'source_reference',null,coalesce(p_operation->'before_data','{}'::jsonb),coalesce(p_operation->'after_data',v_payload));
   insert into public.audit_log(actor_type,actor_id,action,entity_type,entity_id,details,created_at)
-  values(
-    p_operation->>'source',coalesce(nullif(p_operation->>'actor_id',''),'system'),'unified_operation_created',v_entity_type,v_reference,
-    v_payload||jsonb_build_object('status',v_status,'lifecycle_status',v_lifecycle,'actor_role',p_operation->>'actor_role'),now()
-  );
-
+  values(p_operation->>'source',coalesce(nullif(p_operation->>'actor_id',''),'system'),'unified_operation_created',v_entity_type,v_reference,v_payload||jsonb_build_object('status',v_status,'lifecycle_status',v_lifecycle,'actor_role',p_operation->>'actor_role'),now());
   v_outbox_ids := public.queue_operation_notifications(v_id,v_key,p_notifications);
   return jsonb_build_object('ok',true,'duplicate',false,'operationId',v_id,'referenceNo',v_reference,'status',v_status,'lifecycleStatus',v_lifecycle,'outboxIds',v_outbox_ids);
 end $$;
@@ -262,69 +224,56 @@ declare
   v_status text;
   v_lifecycle text;
   v_outbox_ids jsonb;
+  v_transition_key text;
 begin
   if p_operation_id is null and nullif(p_reference_no,'') is null then raise exception 'OPERATION_REFERENCE_REQUIRED'; end if;
-  select * into v_record
-  from public.operational_records
-  where (p_operation_id is not null and id=p_operation_id)
-     or (p_operation_id is null and reference_no=p_reference_no)
+  select * into v_record from public.operational_records
+  where (p_operation_id is not null and id=p_operation_id) or (p_operation_id is null and reference_no=p_reference_no)
   order by created_at desc limit 1 for update;
   if not found then raise exception 'OPERATION_NOT_FOUND'; end if;
 
   v_status := coalesce(nullif(p_next_status,''),v_record.status);
   v_lifecycle := coalesce(nullif(p_next_lifecycle_status,''),public.map_operation_lifecycle(v_status));
-  if not public.operation_transition_allowed(v_record.lifecycle_status,v_lifecycle) then
-    raise exception 'OPERATION_TRANSITION_INVALID:%:%',v_record.lifecycle_status,v_lifecycle;
+  if v_record.status=v_status and v_record.lifecycle_status=v_lifecycle then
+    insert into public.operation_events(operation_record_id,action,from_status,to_status,from_lifecycle_status,to_lifecycle_status,actor_id,actor_role,source_channel,source_reference,note,before_data,after_data)
+    values(v_record.id,'duplicate_transition',v_record.status,v_status,v_record.lifecycle_status,v_lifecycle,p_actor->>'id',p_actor->>'role',p_actor->>'source',p_actor->>'source_reference','Duplicate transition ignored',v_record.after_data,v_record.after_data);
+    return jsonb_build_object('ok',true,'duplicate',true,'operationId',v_record.id,'referenceNo',v_record.reference_no,'status',v_status,'lifecycleStatus',v_lifecycle,'outboxIds','[]'::jsonb);
   end if;
+  if not public.operation_transition_allowed(v_record.lifecycle_status,v_lifecycle) then raise exception 'OPERATION_TRANSITION_INVALID:%:%',v_record.lifecycle_status,v_lifecycle; end if;
 
   update public.operational_records set
-    status=v_status,
-    lifecycle_status=v_lifecycle,
+    status=v_status,lifecycle_status=v_lifecycle,
     after_data=coalesce(after_data,'{}'::jsonb)||coalesce(p_after_data,'{}'::jsonb),
     payload=payload||coalesce(p_after_data,'{}'::jsonb)||jsonb_build_object('status',v_status,'lifecycle_status',v_lifecycle,'status_note',p_note),
-    actor_id=coalesce(nullif(p_actor->>'id',''),actor_id),
-    actor_role=coalesce(nullif(p_actor->>'role',''),actor_role),
+    actor_id=coalesce(nullif(p_actor->>'id',''),actor_id),actor_role=coalesce(nullif(p_actor->>'role',''),actor_role),
     approved_by=case when v_lifecycle='approved' then coalesce(nullif(p_actor->>'id',''),approved_by) else approved_by end,
     approved_at=case when v_lifecycle='approved' then coalesce(approved_at,now()) else approved_at end,
     closed_at=case when v_lifecycle in ('completed','rejected','cancelled','reversed') then coalesce(closed_at,now()) else closed_at end,
-    updated_at=now(),
-    last_error=case when v_lifecycle='failed' then p_note else null end,
+    updated_at=now(),last_error=case when v_lifecycle='failed' then p_note else null end,
     error_log=case when v_lifecycle='failed' then error_log||jsonb_build_array(jsonb_build_object('at',now(),'message',p_note,'actor',p_actor)) else error_log end
   where id=v_record.id;
 
   if v_record.operation_type='management_task' or v_record.payload->>'category'='task' then
-    update public.operational_tasks set
-      status=v_status,updated_at=now(),completed_at=case when v_lifecycle='completed' then coalesce(completed_at,now()) else completed_at end
-    where reference_no=v_record.reference_no;
+    update public.operational_tasks set status=v_status,updated_at=now(),completed_at=case when v_lifecycle='completed' then coalesce(completed_at,now()) else completed_at end where reference_no=v_record.reference_no;
   end if;
-
-  insert into public.operation_events(
-    operation_record_id,action,from_status,to_status,from_lifecycle_status,to_lifecycle_status,
-    actor_id,actor_role,source_channel,source_reference,note,before_data,after_data
-  ) values (
-    v_record.id,'status_changed',v_record.status,v_status,v_record.lifecycle_status,v_lifecycle,
-    p_actor->>'id',p_actor->>'role',p_actor->>'source',p_actor->>'source_reference',p_note,
-    v_record.after_data,coalesce(v_record.after_data,'{}'::jsonb)||coalesce(p_after_data,'{}'::jsonb)
-  );
-
+  insert into public.operation_events(operation_record_id,action,from_status,to_status,from_lifecycle_status,to_lifecycle_status,actor_id,actor_role,source_channel,source_reference,note,before_data,after_data)
+  values(v_record.id,'status_changed',v_record.status,v_status,v_record.lifecycle_status,v_lifecycle,p_actor->>'id',p_actor->>'role',p_actor->>'source',p_actor->>'source_reference',p_note,v_record.after_data,coalesce(v_record.after_data,'{}'::jsonb)||coalesce(p_after_data,'{}'::jsonb));
   insert into public.audit_log(actor_type,actor_id,action,entity_type,entity_id,details,created_at)
-  values(
-    coalesce(nullif(p_actor->>'source',''),'system'),coalesce(nullif(p_actor->>'id',''),'system'),'unified_operation_status',
-    v_record.entity_type,v_record.reference_no,
-    jsonb_build_object('operation_id',v_record.id,'status',v_status,'lifecycle_status',v_lifecycle,'note',p_note,'actor_role',p_actor->>'role'),now()
-  );
-
-  v_outbox_ids := public.queue_operation_notifications(v_record.id,v_record.idempotency_key||':transition:'||v_status||':'||extract(epoch from now())::bigint,p_notifications);
-  return jsonb_build_object('ok',true,'operationId',v_record.id,'referenceNo',v_record.reference_no,'status',v_status,'lifecycleStatus',v_lifecycle,'outboxIds',v_outbox_ids);
+  values(coalesce(nullif(p_actor->>'source',''),'system'),coalesce(nullif(p_actor->>'id',''),'system'),'unified_operation_status',v_record.entity_type,v_record.reference_no,jsonb_build_object('operation_id',v_record.id,'status',v_status,'lifecycle_status',v_lifecycle,'note',p_note,'actor_role',p_actor->>'role'),now());
+  v_transition_key := coalesce(nullif(p_actor->>'source_reference',''),v_record.idempotency_key||':transition:'||v_status);
+  v_outbox_ids := public.queue_operation_notifications(v_record.id,v_transition_key,p_notifications);
+  return jsonb_build_object('ok',true,'duplicate',false,'operationId',v_record.id,'referenceNo',v_record.reference_no,'status',v_status,'lifecycleStatus',v_lifecycle,'outboxIds',v_outbox_ids);
 end $$;
 
 alter table public.operation_events enable row level security;
-revoke all on public.operation_events from anon, authenticated;
-revoke all on function public.map_operation_lifecycle(text) from anon, authenticated;
-revoke all on function public.operation_transition_allowed(text,text) from anon, authenticated;
-revoke all on function public.queue_operation_notifications(uuid,text,jsonb) from anon, authenticated;
-revoke all on function public.execute_unified_operation(jsonb,jsonb) from anon, authenticated;
-revoke all on function public.transition_unified_operation(uuid,text,text,text,jsonb,text,jsonb,jsonb) from anon, authenticated;
+revoke all on table public.operation_events from public,anon,authenticated;
+revoke all on function public.map_operation_lifecycle(text) from public,anon,authenticated;
+revoke all on function public.operation_transition_allowed(text,text) from public,anon,authenticated;
+revoke all on function public.queue_operation_notifications(uuid,text,jsonb) from public,anon,authenticated;
+revoke all on function public.execute_unified_operation(jsonb,jsonb) from public,anon,authenticated;
+revoke all on function public.transition_unified_operation(uuid,text,text,text,jsonb,text,jsonb,jsonb) from public,anon,authenticated;
+grant execute on function public.execute_unified_operation(jsonb,jsonb) to service_role;
+grant execute on function public.transition_unified_operation(uuid,text,text,text,jsonb,text,jsonb,jsonb) to service_role;
 
 insert into public.migration_history(version,migration_name)
 values(25,'025_unified_operation_engine')
