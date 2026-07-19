@@ -4,14 +4,14 @@ import { spawnSync } from 'node:child_process';
 const databaseUrl=String(process.env.SUPABASE_DB_URL||'').trim();
 const preflightPath=process.env.MIGRATION_PREFLIGHT_PATH||'migration-preflight.json';
 const resultPath=process.env.MIGRATION_RESULT_PATH||'migration-result.json';
-const targetVersion=24;
+const targetVersion=25;
 const fail=(code,reason,extra={})=>{writeFileSync(resultPath,`${JSON.stringify({ok:false,code,reason,...extra},null,2)}\n`,{mode:0o600});console.error(`[governance-verify] ${code}: ${reason}`);process.exit(1);};
 const query=sql=>{const result=spawnSync('psql',[databaseUrl,'-X','-t','-A','-v','ON_ERROR_STOP=1','-c',sql],{encoding:'utf8',env:process.env,timeout:120000});if(result.error||result.status!==0)fail('VERIFICATION_QUERY_FAILED','The post-migration verification query failed.',{exitCode:result.status??-1});return String(result.stdout||'').trim();};
 if(!databaseUrl)fail('DATABASE_URL_EMPTY','The resolved database connection is empty.');
 let preflight;try{preflight=JSON.parse(readFileSync(preflightPath,'utf8'));}catch{fail('PREFLIGHT_RESULT_INVALID','The migration preflight result is unavailable.');}
 const state=JSON.parse(query(`select json_build_object(
 'currentVersion',(select coalesce(max(version),0) from public.migration_history),
-'versions',(select json_agg(version order by version) from public.migration_history where version between 16 and 24),
+'versions',(select json_agg(version order by version) from public.migration_history where version between 16 and 25),
 'objects',json_build_object(
 'financialPeriods',to_regclass('public.financial_periods') is not null,
 'creditOverrides',to_regclass('public.credit_override_requests') is not null,
@@ -27,6 +27,13 @@ const state=JSON.parse(query(`select json_build_object(
 'generalLedger',to_regclass('public.general_ledger') is not null,
 'trialBalance',to_regclass('public.trial_balance') is not null,
 'accountingIntegrity',to_regclass('public.accounting_integrity_report') is not null,
+'operationEvents',to_regclass('public.operation_events') is not null,
+'operationIdempotencyColumn',exists(select 1 from information_schema.columns where table_schema='public' and table_name='operational_records' and column_name='idempotency_key'),
+'operationLifecycleColumn',exists(select 1 from information_schema.columns where table_schema='public' and table_name='operational_records' and column_name='lifecycle_status'),
+'outboxDedupeColumn',exists(select 1 from information_schema.columns where table_schema='public' and table_name='notification_outbox' and column_name='dedupe_key'),
+'outboxDeadLetterColumn',exists(select 1 from information_schema.columns where table_schema='public' and table_name='notification_outbox' and column_name='dead_letter_at'),
+'executeOperationFunction',exists(select 1 from pg_proc where pronamespace='public'::regnamespace and proname='execute_unified_operation'),
+'transitionOperationFunction',exists(select 1 from pg_proc where pronamespace='public'::regnamespace and proname='transition_unified_operation'),
 'postAccountingFunction',exists(select 1 from pg_proc where pronamespace='public'::regnamespace and proname='post_daily_report_accounting'),
 'reversalFunction',exists(select 1 from pg_proc where pronamespace='public'::regnamespace and proname='reverse_journal_entry'),
 'importTransitionFunction',exists(select 1 from pg_proc where pronamespace='public'::regnamespace and proname='transition_import_status'),
@@ -56,13 +63,15 @@ const state=JSON.parse(query(`select json_build_object(
 'dailySalesLines',(select count(*) from public.daily_report_sales_lines),
 'dailyCashMovements',(select count(*) from public.daily_report_cash_movements),
 'imports',(select count(*) from public.imports),
+'operationalRecords',(select count(*) from public.operational_records),
+'notificationOutbox',(select count(*) from public.notification_outbox),
 'auditLog',(select count(*) from public.audit_log))
 )::text;`));
-if(Number(state.currentVersion)!==24)fail('TARGET_VERSION_NOT_REACHED','Production did not reach schema version 24.',{currentVersion:Number(state.currentVersion)});
-const versions=(state.versions||[]).map(Number);if([16,17,18,19,20,21,22,23,24].some(version=>!versions.includes(version)))fail('MIGRATION_HISTORY_INCOMPLETE','Migration history is incomplete.',{versions});
-const missing=Object.entries(state.objects||{}).filter(([,value])=>!value).map(([name])=>name);if(missing.length)fail('DATABASE_OBJECTS_MISSING','Required schema-24 objects are missing.',{missing});
+if(Number(state.currentVersion)!==targetVersion)fail('TARGET_VERSION_NOT_REACHED',`Production did not reach schema version ${targetVersion}.`,{currentVersion:Number(state.currentVersion),targetVersion});
+const versions=(state.versions||[]).map(Number);if([16,17,18,19,20,21,22,23,24,25].some(version=>!versions.includes(version)))fail('MIGRATION_HISTORY_INCOMPLETE','Migration history is incomplete.',{versions});
+const missing=Object.entries(state.objects||{}).filter(([,value])=>!value).map(([name])=>name);if(missing.length)fail('DATABASE_OBJECTS_MISSING','Required schema-25 objects are missing.',{missing});
 if(Number(state.accounting?.unbalanced||0)!==0||Number(state.accounting?.entriesWithoutLines||0)!==0||Number(state.accounting?.approvedBatchesWithoutJournal||0)!==0||Number(state.accounting?.reversedEntriesWithoutPostedReversal||0)!==0||Number(state.accounting?.totalDebit||0)!==Number(state.accounting?.totalCredit||0))fail('ACCOUNTING_INTEGRITY_FAILED','Accounting entries are missing, incomplete or unbalanced.',{accounting:state.accounting});
 const changed=Object.keys(preflight.counts||{}).filter(key=>Number(preflight.counts[key])!==Number(state.counts?.[key]));
 if(changed.some(key=>key!=='auditLog'))fail('PROTECTED_ROW_COUNT_CHANGED','Protected operational row counts changed during schema migration.',{changed,before:preflight.counts,after:state.counts});
-const migrationResult={ok:true,code:'SCHEMA_24_APPLIED_AND_VERIFIED',fromVersion:Number(preflight.currentVersion),toVersion:24,appliedMigrations:Array.from({length:Math.max(0,24-Number(preflight.currentVersion))},(_,index)=>Number(preflight.currentVersion)+index+1),transactionAtomic:true,preMigrationBackup:preflight.backup,beforeCounts:preflight.counts,afterCounts:state.counts,verification:state};
-writeFileSync(resultPath,`${JSON.stringify(migrationResult,null,2)}\n`,{mode:0o600});console.log(`[governance-verify] SUCCESS ${migrationResult.fromVersion}->24`);
+const migrationResult={ok:true,code:'SCHEMA_25_APPLIED_AND_VERIFIED',fromVersion:Number(preflight.currentVersion),toVersion:targetVersion,appliedMigrations:Array.from({length:Math.max(0,targetVersion-Number(preflight.currentVersion))},(_,index)=>Number(preflight.currentVersion)+index+1),transactionAtomic:true,preMigrationBackup:preflight.backup,beforeCounts:preflight.counts,afterCounts:state.counts,verification:state};
+writeFileSync(resultPath,`${JSON.stringify(migrationResult,null,2)}\n`,{mode:0o600});console.log(`[governance-verify] SUCCESS ${migrationResult.fromVersion}->${targetVersion}`);
