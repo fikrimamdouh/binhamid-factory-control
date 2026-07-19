@@ -98,10 +98,16 @@ async function sendNoMovement(chatId,identity,page=0){
   return sendMessage(chatId,built.text,paginationButtons('nomovement',built.page,built.totalPages));
 }
 async function sendPhoneDirectory(chatId,identity,page=0){
-  const data=await loadCustomerAnalytics(identity),rows=data.rows.filter(x=>x.phone).sort((a,b)=>a.name.localeCompare(b.name,'ar'));
-  if(!rows.length)return sendMessage(chatId,'لا يوجد عملاء برقم جوال مسجّل ضمن نطاق صلاحيتك.');
-  const formatRow=(row,index)=>`${index+1}. <b>${esc(row.name)}</b>${row.code?` — <code>${esc(row.code)}</code>`:''}\n📱 ${esc(row.phone)}`;
-  const built=sendPage(chatId,'📱 دليل هواتف العملاء',rows,formatRow,page);
+  const data=await loadCustomerAnalytics(identity);
+  const entries=data.rows.map(row=>{
+    if(row.phone)return{row,phone:row.phone,inferred:false};
+    const embedded=nameEmbeddedPhone(row.name);
+    return embedded?{row,phone:embedded,inferred:true}:null;
+  }).filter(Boolean).sort((a,b)=>a.row.name.localeCompare(b.row.name,'ar'));
+  if(!entries.length)return sendMessage(chatId,'لا يوجد عملاء لديهم رقم جوال (لا في حقل الجوال ولا داخل الاسم) ضمن نطاق صلاحيتك.');
+  const inferredCount=entries.filter(e=>e.inferred).length;
+  const formatRow=(item,index)=>`${index+1}. <b>${esc(item.row.name)}</b>${item.row.code?` — <code>${esc(item.row.code)}</code>`:''}\n📱 ${esc(item.phone)}${item.inferred?' <i>(من داخل الاسم)</i>':''}`;
+  const built=sendPage(chatId,'📱 دليل هواتف العملاء',entries,formatRow,page,inferredCount?`⚠️ ملحوظة: حقل الجوال المخصص فارغ لمعظم العملاء؛ ${inferredCount} رقم من دول مأخوذ من داخل اسم العميل نفسه.`:'');
   return sendMessage(chatId,built.text,paginationButtons('phonedir',built.page,built.totalPages));
 }
 // تقرير رقابي: يجمع كل العملاء عليهم إشارة شك أو مخاطرة — إيقاف بيع آجل،
@@ -149,8 +155,8 @@ async function sendAnomalousPhones(chatId,identity,page=0){
   return sendMessage(chatId,built.text,paginationButtons('phoneissue',built.page,built.totalPages));
 }
 async function sendMissingPhone(chatId,identity,page=0){
-  const data=await loadCustomerAnalytics(identity),rows=data.rows.filter(x=>!x.phone).sort((a,b)=>a.name.localeCompare(b.name,'ar'));
-  if(!rows.length)return sendMessage(chatId,'كل العملاء ضمن نطاق صلاحيتك لديهم رقم جوال مسجّل. 👍');
+  const data=await loadCustomerAnalytics(identity),rows=data.rows.filter(x=>!x.phone&&!nameEmbeddedPhone(x.name)).sort((a,b)=>a.name.localeCompare(b.name,'ar'));
+  if(!rows.length)return sendMessage(chatId,'كل العملاء ضمن نطاق صلاحيتك لديهم رقم جوال (في الحقل المخصص أو داخل الاسم على الأقل). 👍');
   const formatRow=(row,index)=>`${index+1}. <b>${esc(row.name)}</b>${row.code?` — <code>${esc(row.code)}</code>`:''} — الرصيد: ${money(row.netBalance)}`;
   const built=sendPage(chatId,'📵 عملاء بدون رقم جوال',rows,formatRow,page,'أضف الرقم من الموقع أو أثناء التسجيل لتفعيل البحث والتواصل السريع.');
   return sendMessage(chatId,built.text,paginationButtons('missingphone',built.page,built.totalPages));
