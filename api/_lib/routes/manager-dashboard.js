@@ -7,13 +7,20 @@ import { select } from '../supabase.js';
 function params(req){return new URL(req.url||'/api/router',`https://${String(req.headers.host||'localhost')}`).searchParams;}
 const safeSelect=async(table,query)=>{try{return await select(table,query)||[];}catch(error){console.warn(`[dashboard ${table}]`,error?.message||error);return[];}};
 const importsQuery='select=id,source,department,report_type,status,original_name,mime_type,file_path,file_hash,row_count,error_count,warning_count,summary,submitted_by,source_chat_id,source_message_id,created_at,updated_at&order=created_at.desc&limit=250';
+const messagePreview=row=>String(row.transcription||row.text||row.file_name||'').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim().slice(0,500);
 function botActivity(rows=[],users=[]){
   const since=new Date(Date.now()-30*24*36e5).toISOString(),byExternal=new Map(users.map(user=>[String(user.external_id||''),user])),people=new Map(),actions=new Map();let incoming=0,outgoing=0,today=0;
   for(const row of rows){const direction=String(row.direction||'incoming');if(direction==='outgoing')outgoing++;else incoming++;if(String(row.created_at||'')>=new Date().toISOString().slice(0,10)+'T00:00:00Z')today++;
     if(direction!=='outgoing'&&row.sender_external_id&&row.sender_external_id!=='bot'){const key=String(row.sender_external_id),known=byExternal.get(key)||{},current=people.get(key)||{externalId:key,name:known.full_name||row.sender_name||key,role:known.role||row.sender_role||'pending',count:0,lastAt:null};current.count++;if(!current.lastAt||String(row.created_at)>current.lastAt)current.lastAt=row.created_at;people.set(key,current);}
     const action=String(row.action_name||'').trim();if(action){const current=actions.get(action)||0;actions.set(action,current+1);}
   }
-  return{windowStart:since,incoming,outgoing,total:rows.length,today,activeUsers:people.size,topUsers:[...people.values()].sort((a,b)=>b.count-a.count).slice(0,15),topActions:[...actions.entries()].map(([action,count])=>({action,count})).sort((a,b)=>b.count-a.count).slice(0,15),recentActions:rows.filter(row=>row.action_name).slice(0,30).map(row=>({action:row.action_name,at:row.created_at,direction:row.direction||'incoming',senderName:row.sender_name||'',senderExternalId:row.sender_external_id||'',messageType:row.message_type||'text'}))};
+  return{
+    windowStart:since,incoming,outgoing,total:rows.length,today,activeUsers:people.size,
+    topUsers:[...people.values()].sort((a,b)=>b.count-a.count).slice(0,15),
+    topActions:[...actions.entries()].map(([action,count])=>({action,count})).sort((a,b)=>b.count-a.count).slice(0,15),
+    recentActions:rows.filter(row=>row.action_name).slice(0,30).map(row=>({action:row.action_name,at:row.created_at,direction:row.direction||'incoming',senderName:row.sender_name||'',senderExternalId:row.sender_external_id||'',messageType:row.message_type||'text'})),
+    recentMessages:rows.slice(0,100).map(row=>({at:row.created_at,direction:row.direction||'incoming',senderName:row.sender_name||'',senderExternalId:row.sender_external_id||'',senderRole:row.sender_role||'',messageType:row.message_type||'text',preview:messagePreview(row),fileName:row.file_name||'',deliveryStatus:row.delivery_status||''}))
+  };
 }
 
 async function dashboardAccess(req){
@@ -41,7 +48,7 @@ export async function dashboard(req,res){
       safeSelect('telegram_groups','select=id,chat_id,title,department,active,status,last_seen_at,updated_at&order=last_seen_at.desc&limit=250'),
       safeSelect('user_channels','select=*&order=created_at.desc&limit=1000'),
       safeSelect('app_users','select=id,external_id,employee_external_id,full_name,role,active,created_at,updated_at&order=created_at.desc&limit=1000'),
-      safeSelect('telegram_messages',`created_at=gte.${encodeURIComponent(new Date(Date.now()-30*24*36e5).toISOString())}&select=direction,sender_external_id,sender_name,sender_role,message_type,action_name,created_at&order=created_at.desc&limit=10000`)
+      safeSelect('telegram_messages',`created_at=gte.${encodeURIComponent(new Date(Date.now()-30*24*36e5).toISOString())}&select=direction,sender_external_id,sender_name,sender_role,message_type,text,transcription,file_name,delivery_status,action_name,created_at&order=created_at.desc&limit=10000`)
     ]);
     const appById=new Map(appUsers.map(row=>[String(row.id),row]));
     const users=channels.map(channel=>{
