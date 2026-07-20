@@ -78,6 +78,8 @@ export async function createWorkshopOrder(input,identity){
   const assetExternalId=clean(input.assetExternalId,120),problem=clean(input.problem,4000),priority=clean(input.priority,20)||'normal',id=requestId(input.requestId);
   if(!assetExternalId)throw serviceError('يجب اختيار أصل فعلي',400,'WORKSHOP_ASSET_REQUIRED');
   if(!problem)throw serviceError('وصف العطل مطلوب',400,'WORKSHOP_PROBLEM_REQUIRED');
+  const existing=(await select('workshop_command_receipts',`command_key=eq.${encodeFilter(id)}&action=eq.create_order&select=result&limit=1`).catch(()=>[]))?.[0];
+  if(existing?.result)return{...existing.result,duplicate:true};
   const reference=referenceFrom(await rpc('next_document_no',{p_prefix:'RO'}));
   if(!reference)throw serviceError('تعذر إنشاء رقم أمر الصيانة',502,'WORKSHOP_REFERENCE_FAILED');
   return callRpc('workshop_create_order',{
