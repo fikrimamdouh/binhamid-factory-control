@@ -40,12 +40,16 @@ test('Telegram image search identifies the item then routes to copyable supplier
   assert.match(vision,/needsMoreDetail/);
 });
 
-test('supplier directory uses one bounded Places request and no external URL fields',async()=>{
+test('supplier directory broadens exact product lookup without external URL fields',async()=>{
   const source=await read('api/_lib/bot-procurement.js');
+  assert.match(source,/supplierSearchQueries/);
+  assert.match(source,/Promise\.allSettled/);
   assert.match(source,/pageSize:20/);
-  assert.match(source,/AbortSignal\.timeout\(12000\)/);
-  assert.match(source,/return usable\.slice\(0,16\)/);
+  assert.match(source,/AbortSignal\.timeout\(9000\)/);
+  assert.match(source,/usable\.slice\(0,18\)/);
   assert.match(source,/<code>\$\{esc\(place\.phone\)\}<\/code>/);
+  assert.match(source,/محلات رولمان بلي ومحامل وسيور صناعية/);
+  assert.match(source,/محلات قطع غيار صناعية وسيارات وشاحنات ومعدات ثقيلة/);
   assert.doesNotMatch(source,/nextPageToken/);
   assert.doesNotMatch(source,/googleMapsUri/);
   assert.doesNotMatch(source,/websiteUri/);

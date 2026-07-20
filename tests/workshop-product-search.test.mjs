@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { supplierSearchQueries } from '../api/_lib/bot-procurement.js';
 
 const read=path=>readFile(new URL(`../${path}`,import.meta.url),'utf8');
 
@@ -21,11 +22,20 @@ test('product text and image searches route to supplier city selection',async()=
   assert.match(source,/product_image_waiting/);
 });
 
+test('bearing search expands from exact item to specialist and general parts shops',()=>{
+  const queries=supplierSearchQueries('رولمان بلي 6205','نجران');
+  assert.equal(queries.length,3);
+  assert.match(queries[0],/رولمان بلي 6205 نجران السعودية/);
+  assert.match(queries[1],/رولمان بلي ومحامل وسيور صناعية/);
+  assert.match(queries[2],/قطع غيار صناعية وسيارات وشاحنات ومعدات ثقيلة/);
+});
+
 test('supplier results contain copyable phone numbers and no external links',async()=>{
   const source=await read('api/_lib/bot-procurement.js');
   assert.match(source,/<code>\$\{esc\(place\.phone\)\}<\/code>/);
   assert.match(source,/اضغط مطولًا على رقم الاتصال داخل المربع لنسخه/);
   assert.match(source,/السعر: <b>يتأكد بالاتصال<\/b>/);
+  assert.match(source,/توفر القطعة المطلوبة: <b>يتأكد بالاتصال<\/b>/);
   assert.doesNotMatch(source,/googleMapsUri/);
   assert.doesNotMatch(source,/websiteUri/);
   assert.doesNotMatch(source,/url:place\./);
@@ -33,12 +43,14 @@ test('supplier results contain copyable phone numbers and no external links',asy
   assert.doesNotMatch(source,/الموقع \$\{index\}/);
 });
 
-test('supplier directory stays within the Vercel request budget and rejects guesses',async()=>{
+test('supplier directory searches fallback scopes in parallel within Vercel budget',async()=>{
   const source=await read('api/_lib/bot-procurement.js');
-  assert.match(source,/AbortSignal\.timeout\(12000\)/);
-  assert.match(source,/لم يتم عرض أرقام غير مؤكدة/);
-  assert.match(source,/لم يتم إنشاء نتيجة تخمينية/);
-  assert.match(source,/return usable\.slice\(0,16\)/);
+  assert.match(source,/Promise\.allSettled/);
+  assert.match(source,/AbortSignal\.timeout\(9000\)/);
+  assert.match(source,/محل متخصص محتمل/);
+  assert.match(source,/محل قطع غيار عام/);
+  assert.match(source,/كل السعودية/);
+  assert.match(source,/return \{places:usable\.slice\(0,18\),searchQueries,expanded/);
 });
 
 test('secure procurement menu describes in-bot results only',async()=>{
