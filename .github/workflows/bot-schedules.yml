@@ -2,41 +2,18 @@ name: Telegram Bot Schedules
 
 on:
   schedule:
-    - cron: '0 5 * * *'
     - cron: '0 10 * * *'
-    - cron: '0 15 * * *'
   workflow_dispatch:
-    inputs:
-      mode:
-        description: Notification mode
-        required: false
-        default: brief
-        type: choice
-        options:
-          - brief
-          - alerts
 
 jobs:
   notify:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Resolve notification mode
-        id: mode
-        shell: bash
-        run: |
-          MODE="${{ github.event.inputs.mode }}"
-          if [ -z "$MODE" ]; then
-            HOUR="$(date -u +%H)"
-            if [ "$HOUR" = "10" ]; then MODE="alerts"; else MODE="brief"; fi
-          fi
-          echo "value=$MODE" >> "$GITHUB_OUTPUT"
-
-      - name: Send Telegram notification
+      - name: Send Telegram operational alerts
         env:
           ENDPOINT: ${{ secrets.BOT_CRON_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          MODE: ${{ steps.mode.outputs.value }}
         shell: bash
         run: |
           test -n "$ENDPOINT" || { echo "BOT_CRON_URL secret is missing"; exit 1; }
@@ -44,4 +21,4 @@ jobs:
           curl --fail-with-body --silent --show-error \
             --retry 3 --retry-all-errors \
             -H "Authorization: Bearer $CRON_SECRET" \
-            "$ENDPOINT?mode=$MODE"
+            "$ENDPOINT?mode=alerts"
