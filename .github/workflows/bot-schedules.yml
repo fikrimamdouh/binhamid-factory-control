@@ -1,0 +1,11 @@
+name: Telegram Bot Schedules Disabled
+
+on:
+  workflow_dispatch:
+
+jobs:
+  disabled:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirm on-demand-only mode
+        run: echo "Scheduled Telegram notifications are disabled. The bot operates on demand only."
