@@ -1,0 +1,152 @@
+name: Workshop Migration 025 Validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/workshop-data-model-025
+    paths:
+      - '.github/workflows/workshop-migration-025-validation.yml'
+      - 'supabase/migrations/025_workshop_central_data_model.sql'
+      - 'scripts/workshop-migration-verify.mjs'
+      - 'scripts/audit-migrations.mjs'
+      - 'tests/workshop-migration-025.test.mjs'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/workshop-migration-025-validation.yml'
+      - 'supabase/migrations/025_workshop_central_data_model.sql'
+      - 'scripts/workshop-migration-verify.mjs'
+      - 'scripts/audit-migrations.mjs'
+      - 'tests/workshop-migration-025.test.mjs'
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: workshop_validation
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d workshop_validation"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/workshop_validation
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+
+      - name: Validate repository contracts
+        run: |
+          set -euo pipefail
+          npm install --ignore-scripts --no-audit --no-fund
+          node --check scripts/workshop-migration-verify.mjs
+          npm run audit:migrations
+          npm test
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y postgresql-client
+
+      - name: Prepare local Supabase-compatible roles
+        env:
+          LOCAL_DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+          ISOLATED_ROLE_RESULT: isolated-role-result.json
+        run: node scripts/ensure-isolated-supabase-roles.mjs
+
+      - name: Apply schema 1 through 24 locally
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > schema-001-024.sql
+          for version in $(seq 1 24); do
+            file="$(find supabase/migrations -maxdepth 1 -type f -name "$(printf '%03d' "$version")_*.sql" -print -quit)"
+            test -n "$file"
+            cat "$file" >> schema-001-024.sql
+            printf '\n' >> schema-001-024.sql
+          done
+          psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction --file schema-001-024.sql
+
+      - name: Seed the verified split-source pattern
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 <<'SQL'
+          insert into public.maintenance_orders(reference_no,plate_snapshot,problem,status,priority,vehicle_stopped,source_channel,reported_at)
+          values
+            ('BH-RO-2026-90001','أصل بدون لوحة','بلاغ اختبار ملغي','cancelled','normal',false,'telegram',now()),
+            ('BH-SPR-2026-90002','طلب قطع عام','طلب قطعة اختبار','quotation_required','urgent',false,'telegram',now());
+
+          insert into public.operational_records(reference_no,entity_type,department,status,title,summary,created_by)
+          values
+            ('WS-ORPHAN-90001','workshop','workshop','reported','سجل ورشة قديم 1','بدون أمر صيانة','test'),
+            ('WS-ORPHAN-90002','maintenance','workshop','inspection','سجل ورشة قديم 2','بدون أمر صيانة','test'),
+            ('WS-ORPHAN-90003','spare_parts_request','workshop','quotation_required','سجل ورشة قديم 3','بدون أمر صيانة','test'),
+            ('WS-ORPHAN-90004','workshop','workshop','reported','سجل ورشة قديم 4','بدون أمر صيانة','test');
+          SQL
+
+      - name: Apply migration 025 atomically
+        run: psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction --file supabase/migrations/025_workshop_central_data_model.sql
+
+      - name: Verify preservation, linkage and target schema
+        env:
+          SUPABASE_DB_URL: ${{ env.TEST_DATABASE_URL }}
+          EXPECTED_MIN_MAINTENANCE_ORDERS: '2'
+          EXPECTED_MIN_OPERATIONAL_RECORDS: '4'
+          WORKSHOP_MIGRATION_RESULT: workshop-migration-result.json
+        run: node scripts/workshop-migration-verify.mjs
+
+      - name: Assert baseline reconciliation outcomes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(psql "$TEST_DATABASE_URL" -X -t -A -c 'select count(*) from public.maintenance_orders')" -eq 2
+          test "$(psql "$TEST_DATABASE_URL" -X -t -A -c 'select count(*) from public.operational_records')" -eq 6
+          test "$(psql "$TEST_DATABASE_URL" -X -t -A -c "select count(*) from public.maintenance_reconciliation_queue where issue_type='orphan_operational_record' and status='pending'")" -eq 4
+          test "$(psql "$TEST_DATABASE_URL" -X -t -A -c "select count(*) from public.maintenance_reconciliation_queue where issue_type='missing_operational_link' and status='auto_resolved'")" -eq 2
+          test "$(psql "$TEST_DATABASE_URL" -X -t -A -c 'select count(*) from public.operational_records where maintenance_order_id is not null')" -eq 2
+
+      - name: Upload validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workshop-migration-025-validation-${{ github.run_id }}
+          path: |
+            isolated-role-result.json
+            workshop-migration-result.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Publish validation status
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          node <<'NODE'
+          const success=process.env.JOB_STATUS==='success';
+          const response=await fetch(`https://api.github.com/repos/${process.env.REPOSITORY}/statuses/${process.env.HEAD_SHA}`,{
+            method:'POST',
+            headers:{Accept:'application/vnd.github+json',Authorization:`Bearer ${process.env.GITHUB_TOKEN}`,'X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'},
+            body:JSON.stringify({state:success?'success':'failure',context:'workshop-migration-025:isolated',target_url:process.env.RUN_URL,description:success?'Schema 25 passed isolated migration validation.':'Schema 25 validation failed; no external database was modified.'})
+          });
+          if(!response.ok)throw new Error(`Status publication failed with HTTP ${response.status}`);
+          NODE
