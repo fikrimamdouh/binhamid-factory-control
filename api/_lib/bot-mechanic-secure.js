@@ -4,12 +4,12 @@ import { displayName } from './bot-profile.js';
 import * as mechanic from './bot-mechanic.js';
 
 const VIEW_ROLES=new Set(['admin','manager','mechanic','accountant']);
-const OPERATOR_ROLES=new Set(['admin','mechanic']);
+const OPERATOR_ROLES=new Set(['admin','manager','mechanic']);
 const active=identity=>Boolean(identity?.active);
 const canView=identity=>active(identity)&&VIEW_ROLES.has(identity.role);
 const canOperate=identity=>active(identity)&&OPERATOR_ROLES.has(identity.role);
 const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
-async function deny(message,identity,text='تسجيل أعمال الورشة متاح لمسؤول الورشة ومدير النظام فقط.'){
+async function deny(message,identity,text='تسجيل أعمال الورشة متاح لمسؤول الورشة ومدير المصنع ومدير النظام فقط.'){
   await clearMaintenanceSession(message.chat.id,identity?.external_id||message.from?.id).catch(()=>{});
   return sendMessage(message.chat.id,text);
 }
