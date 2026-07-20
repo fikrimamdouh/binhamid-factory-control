@@ -2,7 +2,7 @@ import { select, insert } from './supabase.js';
 import { sendMessage, keyboard } from './telegram.js';
 import { displayName } from './bot-profile.js';
 import { clearMaintenanceSession } from './bot-maintenance.js';
-import { researchProductMarket } from './product-market-research.js';
+import { researchProductMarket } from './product-market-research-fast.js';
 import { identifyProductImage } from './product-image-identification.js';
 
 const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
@@ -39,13 +39,15 @@ export async function startProductImageAssistant(message,identity){
 }
 export async function sendProductResearch(message,identity,query){
   if(!canUseProductAssistant(identity))return sendMessage(message.chat.id,'مساعد أسعار المنتجات غير متاح لدورك الحالي.');
-  await sendMessage(message.chat.id,`أبحث الآن عن <b>${esc(query)}</b> في السوق السعودي والخليج والمصادر العالمية المتاحة...`);
-  let result;try{result=await researchProductMarket(query);}catch(error){return sendMessage(message.chat.id,esc(error.message||'تعذر بحث الأسعار.'));}
+  await sendMessage(message.chat.id,`أبحث الآن عن <b>${esc(query)}</b> في جولة سريعة تبدأ بالسوق السعودي ثم تتوسع للخليج والعالم عند الحاجة...`);
+  let result;
+  try{result=await researchProductMarket(query);}
+  catch(error){return sendMessage(message.chat.id,`<b>تعذر إكمال بحث السعر.</b>\n${esc(error.message||'تعذر بحث الأسعار.')}\n\nاكتب رقم القطعة والماركة بصورة أدق أو استخدم صورة الملصق.`,keyboard([[{text:'إعادة البحث بالاسم',callback_data:'proc:product'},{text:'البحث بصورة القطعة',callback_data:'proc:product_image'}]]));}
   await logResearch(message,identity,result).catch(()=>{});
-  await setSession(message.chat.id,identity.external_id||message.from.id,'product_results',{query:result.product,sources:result.sources,searchedAt:result.searchedAt,searchCount:result.searchCount||1,priceLevel:result.priceLevel||null,startedAt:now()});
+  await setSession(message.chat.id,identity.external_id||message.from.id,'product_results',{query:result.product,sources:result.sources,searchedAt:result.searchedAt,searchCount:result.searchCount||1,scopeLabel:result.scopeLabel||'',priceLevel:result.priceLevel||null,startedAt:now()});
   const buttons=result.sources.slice(0,18).map((source,index)=>[{text:`${index+1}. ${(source.title||'فتح المصدر').slice(0,42)}`,url:source.url}]);
   buttons.push([{text:'إنشاء طلب عرض سعر',callback_data:'supplier_rfq:start'},{text:'بحث بصورة أخرى',callback_data:'proc:product_image'}],[{text:'بحث عن صنف آخر',callback_data:'proc:product'}]);
-  const searched=new Date(result.searchedAt).toLocaleString('ar-SA',{timeZone:'Asia/Riyadh'}),scopeText=result.searchCount>=3?'السعودية والخليج والعالم':`${result.searchCount||1} نطاق بحث متاح`;
+  const searched=new Date(result.searchedAt).toLocaleString('ar-SA',{timeZone:'Asia/Riyadh'}),scopeText=result.scopeLabel||'السعودية والخليج والعالم';
   return sendMessage(message.chat.id,`${priceHeadline(result.priceLevel)}\n\n<b>تفاصيل بحث المنتجات والأسعار</b>\n\n${copyable(result.text)}\n\nنطاق البحث: <b>${esc(scopeText)}</b>\nالمصادر المختلفة: <b>${result.sources.length}</b>\nوقت البحث: <b>${esc(searched)}</b>${result.failedScopes?`\nتعذر إكمال <b>${result.failedScopes}</b> نطاق، وعُرضت النتائج الناجحة.`:''}\nالرقم المعروض هو سعر سوق مرصود وليس عرض شراء ملزم. أكد رقم القطعة والضريبة والشحن والتوفر قبل الاعتماد.`.slice(0,3900),keyboard(buttons));
 }
 export async function handleProductImage(message,identity,buffer,mimeType='image/jpeg'){

@@ -2,7 +2,7 @@ import { select } from './supabase.js';
 import { sendMessage, keyboard } from './telegram.js';
 import { clearMaintenanceSession } from './bot-maintenance.js';
 import * as legacy from './bot-procurement.js';
-import { canUseProductAssistant, continueProductAssistant, handleProductTextCommand, startProductAssistant } from './bot-product-assistant.js';
+import { canUseProductAssistant, continueProductAssistant, handleProductTextCommand, startProductAssistant, startProductImageAssistant } from './bot-product-assistant.js';
 
 const USE_ROLES=new Set(['admin','manager','accountant','mechanic','procurement','warehouse']);
 const CREATE_ROLES=new Set(['admin','manager','mechanic','procurement','warehouse']);
@@ -17,7 +17,7 @@ async function deny(message,identity,create=false){
 }
 
 export function procurementMenu(){return keyboard([
-  [{text:'مساعد المنتجات والأسعار',callback_data:'proc:product'}],
+  [{text:'مساعد المنتجات والأسعار',callback_data:'proc:product'},{text:'بحث بصورة القطعة',callback_data:'proc:product_image'}],
   [{text:'بحث عن قطعة أو مورد',callback_data:'proc:search'},{text:'طلب عرض سعر',callback_data:'proc:rfq'}],
   [{text:'طلبات الأسعار المفتوحة',callback_data:'proc:open'}]
 ]);}
@@ -27,12 +27,13 @@ export async function showProcurementMenu(message,identity){
 }
 export async function startProcurementAction(message,identity,action){
   if(action==='product')return startProductAssistant(message,identity);
+  if(action==='product_image')return startProductImageAssistant(message,identity);
   if(action==='open')return sendOpenQuoteRequests(message.chat.id,identity);
   if(!canCreate(identity))return deny(message,identity,true);
   return legacy.startProcurementAction(message,adaptedIdentity(identity),action);
 }
 export async function continueProcurementSession(message,identity,session,text){
-  if(session?.state==='product_market_query'){
+  if(['product_market_query','product_image_waiting'].includes(session?.state)){
     if(!canUseProductAssistant(identity))return deny(message,identity,false).then(()=>true);
     return continueProductAssistant(message,identity,session,text);
   }
@@ -43,6 +44,7 @@ export async function continueProcurementSession(message,identity,session,text){
 export async function handleProcurementCallback(message,from,identity,action,value){
   const callbackMessage={...message,from};
   if(action==='proc'&&value==='product')return startProductAssistant(callbackMessage,identity);
+  if(action==='proc'&&value==='product_image')return startProductImageAssistant(callbackMessage,identity);
   if(action==='proc'&&value==='open')return canUse(identity)?sendOpenQuoteRequests(message.chat.id,identity):deny(callbackMessage,identity,false);
   if(!canCreate(identity))return deny(callbackMessage,identity,true);
   return legacy.handleProcurementCallback(message,from,adaptedIdentity(identity),action,value);
