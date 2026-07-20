@@ -305,12 +305,19 @@ window.bhCloudApproveGroup=async(id,title)=>{
   try{await api('/api/admin/groups',{method:'POST',body:JSON.stringify({chatId:id,department:d,active:true})});load()}
   catch(e){toast(e.message,true)}
 };
+const BH_ROLES=['admin','manager','accountant','mechanic','block_sales','concrete_sales','collector','driver','employee','warehouse','fuel_operator','hr','procurement','quality'];
 window.bhCloudApproveUser=async(id,name,currentRole,currentActive,currentNickname)=>{
-  const r=prompt('الدور: admin / manager / accountant / mechanic / block_sales / concrete_sales / collector',currentRole&&currentRole!=='pending'?currentRole:'manager');if(!r)return;
-  const nickname=prompt('الكنية التي يناديه بها البوت (مثال: أبو فلاح) — اتركها فارغة لاستخدام الاسم الكامل',currentNickname||'');
-  if(nickname===null)return;
-  try{await api('/api/admin/users',{method:'POST',body:JSON.stringify({externalId:id,fullName:name,role:r,active:true,nickname:nickname.trim()})});load()}
-  catch(e){toast(e.message,true)}
+  const r=prompt('الدور: '+BH_ROLES.join(' / '),currentRole&&currentRole!=='pending'?currentRole:'manager');if(!r)return;
+  const role=String(r).trim().toLowerCase();
+  if(!BH_ROLES.includes(role)){toast('الدور «'+r+'» غير صحيح. اكتب أحد الأدوار المعروضة بالضبط.',true);return}
+  // إلغاء نافذة الكنية يعني «بدون كنية» ويكمل الاعتماد — كان الإلغاء يوقف
+  // العملية كلها بصمت بلا أي رسالة، فيظهر المستخدم pending بعد التحديث.
+  const nickname=prompt('الكنية التي يناديه بها البوت (مثال: أبو فلاح) — اضغط إلغاء لتخطيها',currentNickname||'');
+  try{
+    await api('/api/admin/users',{method:'POST',body:JSON.stringify({externalId:id,fullName:name,role,active:true,nickname:String(nickname==null?'':nickname).trim()})});
+    toast('تم حفظ الدور: '+role);
+    load();
+  }catch(e){toast('تعذر حفظ الدور: '+e.message,true)}
 };
 window.bhCloudApplyImport=async(id,type,name)=>{
   try{
