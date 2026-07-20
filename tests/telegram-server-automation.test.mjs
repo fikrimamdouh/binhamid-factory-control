@@ -24,9 +24,11 @@ test('Telegram Mini App validates signed identity and uses the shared router',as
   assert.match(route,/validateTelegramWebApp/);assert.match(route,/telegram_mini_customer_updated/);assert.match(route,/telegram_mini_driver_assignment/);assert.match(router,/telegramMiniApp\.telegramMiniApp/);assert.equal(config.rewrites.find(x=>x.source==='/api/telegram/mini-app')?.destination,'/api/router?route=telegram/mini-app');assert.match(page,/failed_imports/);assert.match(bot,/telegram-operations\.html/);
 });
 
-test('scheduled brief includes optional PDF and weekly operational export without secrets',async()=>{
-  const source=await read('api/_lib/bot-notifications.js'),cron=await read('api/cron/manager-brief.js'),env=await read('.env.example');
-  for(const marker of ['htmlToPdf','sendScheduledManagerBrief','sendWeeklyOperationalExport','weekly-operational-export','Telegram conversation history'])assert.match(source,new RegExp(marker));assert.match(cron,/weeklyExport/);assert.match(env,/MANAGER_BRIEF_HOUR=19/);assert.match(env,/WEEKLY_EXPORT_WEEKDAY=5/);
+test('proactive brief and weekly export are not reachable from the disabled cron endpoint',async()=>{
+  const source=await read('api/_lib/bot-notifications.js'),cron=await read('api/cron/manager-brief.js'),operational=await read('.github/workflows/operational-schedule.yml'),telegram=await read('.github/workflows/bot-schedules.yml');
+  for(const marker of ['htmlToPdf','sendScheduledManagerBrief','sendWeeklyOperationalExport','weekly-operational-export','Telegram conversation history'])assert.match(source,new RegExp(marker));
+  assert.match(cron,/onDemandOnly:true/);assert.match(cron,/enabled:false/);assert.doesNotMatch(cron,/weeklyExport|sendScheduledManagerBrief|sendWeeklyOperationalExport|sendMeaningfulAlerts/);
+  for(const workflow of [operational,telegram]){assert.doesNotMatch(workflow,/\bschedule:/);assert.doesNotMatch(workflow,/\bcron:/);assert.doesNotMatch(workflow,/curl --fail/);}
 });
 
 

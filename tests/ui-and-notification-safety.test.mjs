@@ -14,7 +14,7 @@ test('operations actions only enhance a real operation-details modal',async()=>{
   assert.match(ui,/buttons\.forEach\(item=>item\.disabled=true\)/);
 });
 
-test('scheduled notification outbox escapes dynamic Telegram HTML',async()=>{
+test('notification outbox remains HTML-safe but is disconnected from proactive cron execution',async()=>{
   const safe=await read('api/_lib/bot-notifications-safe.js');
   const implementation=await read('api/_lib/bot-notifications.js');
   const cron=await read('api/cron/manager-brief.js');
@@ -25,7 +25,9 @@ test('scheduled notification outbox escapes dynamic Telegram HTML',async()=>{
   assert.match(implementation,/recipient_chat_id/);
   assert.match(implementation,/status:'failed'/);
   assert.match(implementation,/status:'sent'/);
-  assert.match(cron,/bot-notifications-safe\.js/);
+  assert.match(cron,/onDemandOnly:true/);
+  assert.match(cron,/enabled:false/);
+  assert.doesNotMatch(cron,/bot-notifications-safe\.js|processNotificationOutbox|retryFailedNotifications|sendMeaningfulAlerts/);
 });
 
 test('procurement specialists use the guarded workflow and RFQ projection',async()=>{
