@@ -17,13 +17,13 @@ async function deny(message,identity,create=false){
 }
 
 export function procurementMenu(){return keyboard([
-  [{text:'مساعد المنتجات والأسعار',callback_data:'proc:product'},{text:'بحث بصورة القطعة',callback_data:'proc:product_image'}],
-  [{text:'بحث عن قطعة أو مورد',callback_data:'proc:search'},{text:'طلب عرض سعر',callback_data:'proc:rfq'}],
+  [{text:'بحث قطعة ومورد',callback_data:'proc:product'},{text:'بحث بصورة القطعة',callback_data:'proc:product_image'}],
+  [{text:'بحث دليل الموردين',callback_data:'proc:search'},{text:'طلب عرض سعر',callback_data:'proc:rfq'}],
   [{text:'طلبات الأسعار المفتوحة',callback_data:'proc:open'}]
 ]);}
 export async function showProcurementMenu(message,identity){
   if(!canUse(identity))return deny(message,identity,false);
-  return sendMessage(message.chat.id,'اختر العملية المطلوبة. مساعد المنتجات يبحث عن أسعار منشورة حاليًا مع مصادرها، بينما دليل الموردين يبحث عن جهات يمكن التواصل معها.',procurementMenu());
+  return sendMessage(message.chat.id,'اختر العملية المطلوبة. النتائج تظهر داخل البوت فقط باسم المورد ورقم الاتصال والعنوان. لا توجد روابط خارجية، والسعر يتأكد بالاتصال.',procurementMenu());
 }
 export async function startProcurementAction(message,identity,action){
   if(action==='product')return startProductAssistant(message,identity);
