@@ -305,9 +305,11 @@ window.bhCloudApproveGroup=async(id,title)=>{
   try{await api('/api/admin/groups',{method:'POST',body:JSON.stringify({chatId:id,department:d,active:true})});load()}
   catch(e){toast(e.message,true)}
 };
-window.bhCloudApproveUser=async(id,name)=>{
-  const r=prompt('الدور: admin / manager / accountant / mechanic / block_sales / concrete_sales / collector','manager');if(!r)return;
-  try{await api('/api/admin/users',{method:'POST',body:JSON.stringify({externalId:id,fullName:name,role:r,active:true})});load()}
+window.bhCloudApproveUser=async(id,name,currentRole,currentActive,currentNickname)=>{
+  const r=prompt('الدور: admin / manager / accountant / mechanic / block_sales / concrete_sales / collector',currentRole&&currentRole!=='pending'?currentRole:'manager');if(!r)return;
+  const nickname=prompt('الكنية التي يناديه بها البوت (مثال: أبو فلاح) — اتركها فارغة لاستخدام الاسم الكامل',currentNickname||'');
+  if(nickname===null)return;
+  try{await api('/api/admin/users',{method:'POST',body:JSON.stringify({externalId:id,fullName:name,role:r,active:true,nickname:nickname.trim()})});load()}
   catch(e){toast(e.message,true)}
 };
 window.bhCloudApplyImport=async(id,type,name)=>{

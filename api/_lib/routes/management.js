@@ -24,10 +24,10 @@ export async function dashboard(req,res){
       select('approvals','select=id,created_at,reference_no,entity_type,entity_id,summary,amount,status,requested_by,decided_by&order=created_at.desc&limit=30'),
       select('discrepancies','select=id,severity,status&status=in.(open,under_review)&limit=1000'),
       select('telegram_groups','select=id,chat_id,title,department,active,status,last_seen_at&order=last_seen_at.desc&limit=50'),
-      select('user_channels','select=external_id,external_username,active,user_id,last_seen_at,app_users(full_name,role,active)&channel=eq.telegram&order=last_seen_at.desc&limit=1000'),
+      select('user_channels','select=external_id,external_username,active,user_id,last_seen_at,app_users(full_name,nickname,role,active)&channel=eq.telegram&order=last_seen_at.desc&limit=1000'),
       select('telegram_messages',`select=id&created_at=gte.${today}T00:00:00Z&limit=1000`)
     ]);
-    const normalizedUsers=(users||[]).filter(x=>String(x.external_id)!==TEST_IDENTITY).map(x=>({external_id:x.external_id,external_username:x.external_username,active:Boolean(x.active&&x.app_users?.active),full_name:x.app_users?.full_name||'',role:x.app_users?.role||'pending',last_seen_at:x.last_seen_at||null}));
+    const normalizedUsers=(users||[]).filter(x=>String(x.external_id)!==TEST_IDENTITY).map(x=>({external_id:x.external_id,external_username:x.external_username,active:Boolean(x.active&&x.app_users?.active),full_name:x.app_users?.full_name||'',nickname:x.app_users?.nickname||'',role:x.app_users?.role||'pending',last_seen_at:x.last_seen_at||null}));
     json(res,200,{ok:true,counts:{pendingImports:(imports||[]).filter(x=>!['approved','rejected','opened_in_program'].includes(x.status)).length,openApprovals:(approvals||[]).filter(x=>x.status==='pending').length,openDiscrepancies:(discrepancies||[]).length,messagesToday:(messages||[]).length,telegramUsers:normalizedUsers.length,activeTelegramUsers:normalizedUsers.filter(x=>x.active).length},imports:(imports||[]).map(x=>({...x,status_label:label[x.status]||x.status})),approvals:approvals||[],groups:groups||[],users:normalizedUsers});
   }catch(error){errorResponse(res,error);}
 }

@@ -1,6 +1,6 @@
 import { requireAdmin } from '../auth.js';
 import { json, method, body, errorResponse } from '../http.js';
-import { upsert, insert, rpc, patch } from '../supabase.js';
+import { upsert, insert, rpc, patch, select } from '../supabase.js';
 import { DEPARTMENTS, ROLES } from '../domain.js';
 
 export async function groups(req,res){
@@ -23,10 +23,14 @@ export async function users(req,res){
     if(!ROLES.includes(role))throw Object.assign(new Error('الدور غير صحيح'),{status:400});
     const result=await rpc('approve_telegram_user',{p_external_id:String(input.externalId),p_full_name:String(input.fullName||'').slice(0,500),p_role:role,p_active:input.active!==false,p_employee_external_id:String(input.employeeExternalId||'').slice(0,200)||null});
     const nickname=String(input.nickname||'').trim().slice(0,120);
-    // الاسم المستعار (اللي البوت بيخاطب الشخص بيه بدل اسمه الكامل) — تعديل
-    // مباشر منفصل عن دالة الاعتماد نفسها حتى يفضل قابل للتغيير في أي وقت
-    // من غير إعادة اعتماد الدور.
-    if(nickname&&input.externalId)await patch('app_users',`external_id=eq.${encodeURIComponent(String(input.externalId))}`,{nickname}).catch(error=>console.warn('[admin users nickname]',error?.message||error));
+    // الاسم المستعار (اللي البوت بيخاطب الشخص بيه بدل اسمه الكامل) — الربط
+    // الصحيح: user_channels (بمعرف تليجرام) ← user_id ← app_users بالمعرف،
+    // لأن app_users لا يحتوي عمود external_id أصلًا وكان الحفظ يفشل بصمت.
+    if(nickname&&input.externalId){
+      const channel=(await select('user_channels',`channel=eq.telegram&external_id=eq.${encodeURIComponent(String(input.externalId))}&select=user_id&limit=1`).catch(()=>[]))?.[0];
+      if(channel?.user_id)await patch('app_users',`id=eq.${encodeURIComponent(channel.user_id)}`,{nickname}).catch(error=>console.warn('[admin users nickname]',error?.message||error));
+      else console.warn('[admin users nickname] no telegram channel found for',String(input.externalId));
+    }
     json(res,200,{ok:true,result,nickname:nickname||null});
   }catch(error){errorResponse(res,error);}
 }

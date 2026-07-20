@@ -18,7 +18,10 @@ export function displayName(identity,from){
 export const roleLabel=role=>ROLE_LABELS[role]||role||ROLE_LABELS.pending;
 export function welcomeMessage(identity,from){
   const name=displayName(identity,from),role=identity?.role||'pending';
-  return identity?.active?`<b>مساعد مصنع بن حامد</b>\nمرحبًا ${name}.\n\nالدور: <b>${roleLabel(role)}</b>\nالحالة: <b>معتمد</b>\n\nاكتب طلبك مباشرة أو استخدم /menu.`:`<b>مساعد مصنع بن حامد</b>\nمرحبًا ${name}.\n\nأكمل تسجيل بياناتك، ثم ينتظر الحساب اعتماد مدير النظام. استخدم /register للبدء.`;
+  // من له كنية محفوظة يُستقبل استقبال الصاحب، لا استقبال النظام الرسمي.
+  const hasNickname=Boolean(String(identity?.nickname||'').trim());
+  const hello=hasNickname?`يا هلا والله يا ${name}، نوّرت 🌟`:`مرحبًا ${name}.`;
+  return identity?.active?`<b>مساعد مصنع بن حامد</b>\n${hello}\n\nالدور: <b>${roleLabel(role)}</b>\nالحالة: <b>معتمد</b>\n\n${hasNickname?'تحت أمرك — اكتب طلبك على طول أو استخدم /menu.':'اكتب طلبك مباشرة أو استخدم /menu.'}`:`<b>مساعد مصنع بن حامد</b>\n${hello}\n\nأكمل تسجيل بياناتك، ثم ينتظر الحساب اعتماد مدير النظام. استخدم /register للبدء.`;
 }
 export const reportTypeLabel=type=>REPORT_LABELS[type]||type;
 export function reportDestination(type,department='unassigned'){
