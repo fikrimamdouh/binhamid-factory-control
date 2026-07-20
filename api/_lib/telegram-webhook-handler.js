@@ -28,6 +28,15 @@ const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&
 const norm=value=>String(value||'').toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ًٌٍَُِّْـ]/g,'').replace(/[؟?!.,،؛:]+/g,'').replace(/\s+/g,' ').trim();
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
+// Telegram callback_data uses the first colon to separate the action from its
+// payload. Customer pagination payloads legitimately contain more colons
+// (for example gt:1000:), so splitting every colon silently destroys the
+// filter parameters and produces false "no matching customers" results.
+export function splitCallbackData(value){
+  const raw=String(value||''),separator=raw.indexOf(':');
+  return separator<0?[raw,'']:[raw.slice(0,separator),raw.slice(separator+1)];
+}
+
 async function handleText(message,group,identity,text,voicePath='',stored=null){
   const chatId=message.chat.id,role=identity.role||'pending',active=Boolean(identity.active),raw=String(text||'').trim(),normalized=norm(raw),name=displayName(identity,message.from);
   if(await handleInvitationStart(message,identity,raw))return;
@@ -89,7 +98,7 @@ async function handleCallback(update){
   const query=update.callback_query,message=query.message,identity=await ensureTelegramIdentity(query.from),role=identity.role||'pending';
   await answerCallback(query.id);
   if(!identity.active)return sendMessage(message.chat.id,'حسابك غير معتمد لتنفيذ هذا الإجراء.');
-  const[action,value]=String(query.data||'').split(':');
+  const[action,value]=splitCallbackData(query.data);
   if(action==='home'){
     if(value==='workshop')return showMechanicMenu({...message,from:query.from},identity);
     if(value==='sales')return showSalesMenu({...message,from:query.from},identity);
@@ -153,7 +162,7 @@ async function handleMessage(update){
     if(stored?.id){
       const values={transcription:result.text||null,related_entity_type:result.text?'voice_transcribed':`voice_${result.reason||'failed'}`};
       if(uploaded)values.file_path=path;
-      await patch('telegram_messages',`id=eq.${stored.id}`,values).catch(error=>console.warn('[telegram voice message patch]',{message:String(error?.message||'').slice(0,220)}));
+      await patch('telegram_messages',`update_id=eq.${encodeURIComponent(updateId)}`,{delivery_status:status}).catch(()=>{});
     }
     if(result.text)await sendMessage(message.chat.id,`تم فهم التسجيل: <b>${esc(result.text).slice(0,500)}</b>\nجارٍ تنفيذ الطلب...`).catch(()=>{});
     return result.text?handleText(message,group,identity,result.text,uploaded?path:'',stored):sendMessage(message.chat.id,voiceFailureMessage(result));
