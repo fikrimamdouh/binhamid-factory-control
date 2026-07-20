@@ -1,213 +1,222 @@
-import { select, insert, patch, rpc } from './supabase.js';
+import { insert, select } from './supabase.js';
 import { sendMessage, keyboard } from './telegram.js';
-import { allowed } from './domain.js';
 import { displayName } from './bot-profile.js';
 import { clearMaintenanceSession, createGenericMaintenanceDraft } from './bot-maintenance.js';
+import { allowedWorkshopTransitions, workshopStatusLabel } from './workshop-state-machine.js';
+import {
+  addTelegramDiagnostic,addTelegramLabor,addTelegramPartRequest,addTelegramWorkshopNote,getWorkshopOrder,
+  listTelegramPartRequests,listTelegramWorkshopOrders,submitTelegramWorkshopDailyReport,telegramWorkshopSummary,
+  transitionWorkshopOrder
+} from './workshop-telegram-service.js';
 
 const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const now=()=>new Date().toISOString();
 const normalize=value=>String(value||'').toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ًٌٍَُِّْـ]/g,'').replace(/[؟?!.,،؛:]+/g,'').replace(/\s+/g,' ').trim();
-const openStatuses='draft,reported,inspection,quotation_required,approval_pending,approved,in_repair,testing';
+const OPEN_STATUSES=['reported','triage','inspection','diagnosed','quotation_required','parts_waiting','approval_pending','approved','in_repair','testing','ready_for_handover','completed','on_hold','external_repair'];
+const MANAGE_ROLES=new Set(['admin','manager']);
+const OPERATE_ROLES=new Set(['admin','manager','mechanic']);
+const VIEW_ROLES=new Set(['admin','manager','mechanic','accountant','procurement','warehouse']);
+const ACTION_LABELS={update:'إضافة تحديث',diagnosis:'تسجيل تشخيص',labor:'تسجيل ساعات',parts:'طلب قطعة',test:'نتيجة اختبار',handover:'استلام الأصل',transition:'تغيير الحالة'};
 
-function isWorkshopOperator(role){return role==='admin'||role==='mechanic';}
-function canViewWorkshop(role){return role==='admin'||role==='manager'||role==='mechanic'||role==='accountant';}
-function referenceFrom(result){return String(Array.isArray(result)?result[0]?.next_document_no||result[0]||'':result||'');}
-async function nextReference(prefix){return referenceFrom(await rpc('next_document_no',{p_prefix:prefix}));}
-
+function externalUserId(identity,message){return identity?.external_id||message?.from?.id;}
+function requestId(kind,message,id=''){return`tg:${kind}:${message.chat.id}:${message.message_id}:${id}`.slice(0,180);}
 async function setSession(chatId,userId,state,context={}){
-  const old=(await select('bot_sessions',`channel=eq.telegram&chat_id=eq.${encodeURIComponent(String(chatId))}&external_user_id=eq.${encodeURIComponent(String(userId))}&select=context&limit=1`))?.[0];
-  const aiHistory=old?.context?.aiHistory||[];
+  const old=(await select('bot_sessions',`channel=eq.telegram&chat_id=eq.${encodeURIComponent(String(chatId))}&external_user_id=eq.${encodeURIComponent(String(userId))}&select=context&limit=1`))?.[0],aiHistory=old?.context?.aiHistory||[];
   const rows=await insert('bot_sessions',[{channel:'telegram',chat_id:String(chatId),external_user_id:String(userId),state,context:{aiHistory,...context},updated_at:now()}],{query:'on_conflict=channel,chat_id,external_user_id',prefer:'resolution=merge-duplicates,return=representation'});
   return rows?.[0];
 }
-
-async function writeWorkshopLog({identity,message,action,entityType='workshop',entityId='',details={}}){
-  const name=displayName(identity,message.from);
-  return insert('audit_log',[{
-    actor_type:'telegram',
-    actor_id:String(identity?.user_id||identity?.external_id||message.from.id),
-    action,
-    entity_type:entityType,
-    entity_id:String(entityId||''),
-    details:{mechanic_name:name,mechanic_role:identity?.role||'mechanic',telegram_user_id:String(message.from.id),chat_id:String(message.chat.id),source_message_id:String(message.message_id),...details},
-    created_at:now()
-  }]);
+function orderText(order){return`${order.reference_no} — ${order.plate_snapshot||order.asset_external_id||'أصل'} — ${workshopStatusLabel(order.status)}`;}
+function orderRows(action,orders){return orders.slice(0,12).map(order=>[{text:orderText(order).slice(0,60),callback_data:`wsselect:${action}|${order.id}`}]);}
+function transitionRows(order,role){
+  let targets=allowedWorkshopTransitions(order.status);
+  if(!MANAGE_ROLES.has(role))targets=targets.filter(status=>!['approved','closed'].includes(status)&&!(order.status==='closed'&&status==='in_repair'));
+  return targets.map(status=>[{text:workshopStatusLabel(status),callback_data:`wst:${status}|${order.id}`}]);
+}
+function parseHours(text){
+  const raw=String(text||'').trim(),match=raw.match(/[0-9٠-٩]+(?:[.,][0-9٠-٩]+)?/),hours=Number(String(match?.[0]||'0').replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(',','.'))||0,rest=raw.replace(match?.[0]||'','').replace(/^[\s|،,:-]+/,'').trim();
+  const [workType,...notes]=rest.split(/[|]/).map(item=>item.trim());
+  return{hours,workType:workType||'عمل صيانة',notes:notes.join(' | ')};
+}
+function parsePart(text){
+  const raw=String(text||'').trim(),match=raw.match(/[0-9٠-٩]+(?:[.,][0-9٠-٩]+)?/),quantity=Number(String(match?.[0]||'0').replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(',','.'))||0,rest=raw.replace(match?.[0]||'','').replace(/^[\s|،,:-]+/,'').trim(),segments=rest.split('|').map(item=>item.trim()).filter(Boolean),urgency=/حرج|فوري/.test(normalize(raw))?'critical':/عاجل|ضروري/.test(normalize(raw))?'urgent':'normal';
+  return{quantity,itemName:segments[0]||rest,unit:segments[1]||'',urgency};
 }
 
-export function mechanicMenu(){
-  return keyboard([
-    [{text:'📝 التقرير اليومي',callback_data:'mech:daily'},{text:'🔍 فحص معدة أو أصل',callback_data:'mech:inspection'}],
-    [{text:'🧰 طلب قطع غيار',callback_data:'mech:parts'},{text:'🔧 بلاغ أصل بدون لوحة',callback_data:'mech:general_fault'}],
-    [{text:'📌 تحديث أمر إصلاح',callback_data:'mech:update'},{text:'📋 المهام المفتوحة',callback_data:'mech:tasks'}],
-    [{text:'📊 سجل الورشة اليوم',callback_data:'mech:summary'},{text:'💰 طلبات التسعير',callback_data:'mech:price_requests'}]
-  ]);
+export function mechanicMenu(role='mechanic'){
+  const rows=[
+    [{text:'📝 التقرير اليومي',callback_data:'mech:daily'},{text:'🔍 فحص أصل',callback_data:'mech:inspection'}],
+    [{text:'🩺 تسجيل تشخيص',callback_data:'mech:diagnosis'},{text:'⏱ تسجيل ساعات',callback_data:'mech:labor'}],
+    [{text:'🧰 طلب قطع غيار',callback_data:'mech:parts'},{text:'📌 إضافة تحديث',callback_data:'mech:update'}],
+    [{text:'🧪 نتيجة اختبار',callback_data:'mech:test'},{text:'📋 المهام المفتوحة',callback_data:'mech:tasks'}],
+    [{text:'📊 ملخص الورشة',callback_data:'mech:summary'},{text:'💰 طلبات القطع',callback_data:'mech:price_requests'}]
+  ];
+  if(MANAGE_ROLES.has(role))rows.splice(4,0,[{text:'🤝 استلام وإغلاق',callback_data:'mech:handover'},{text:'🔄 تغيير الحالة',callback_data:'mech:transition'}]);
+  return keyboard(rows);
 }
 
 export async function showMechanicMenu(message,identity){
   const role=identity?.role||'pending';
-  if(!canViewWorkshop(role))return sendMessage(message.chat.id,'هذه القائمة مخصصة لمسؤول الورشة ومدير المصنع والمحاسب ومدير النظام.');
-  const name=displayName(identity,message.from);
-  const intro=isWorkshopOperator(role)
-    ?`مرحبًا ${esc(name)}. اختر العملية التي تريد تسجيلها في سجل الورشة:`
-    :`مرحبًا ${esc(name)}. يمكنك عرض سجل الورشة والمهام وطلبات التسعير:`;
-  return sendMessage(message.chat.id,intro,mechanicMenu());
+  if(!VIEW_ROLES.has(role))return sendMessage(message.chat.id,'هذه القائمة مخصصة للورشة والإدارة والمحاسب والمخزن والمشتريات.');
+  const name=displayName(identity,message.from),intro=OPERATE_ROLES.has(role)?`مرحبًا ${esc(name)}. اختر عملية الورشة:`:`مرحبًا ${esc(name)}. صلاحيتك الحالية للعرض والمتابعة:`;
+  return sendMessage(message.chat.id,intro,mechanicMenu(role));
+}
+
+async function chooseOpenOrder(message,identity,action){
+  const role=identity?.role||'pending';
+  if(!OPERATE_ROLES.has(role)&&!['tasks','price_requests'].includes(action))return sendMessage(message.chat.id,'ليست لديك صلاحية تنفيذ عمليات الورشة.');
+  let orders=await listTelegramWorkshopOrders(identity,{limit:30,mine:role==='mechanic'});
+  orders=orders.filter(order=>OPEN_STATUSES.includes(order.status));
+  if(action==='test')orders=orders.filter(order=>order.status==='testing');
+  if(action==='handover')orders=orders.filter(order=>['ready_for_handover','completed'].includes(order.status));
+  if(action==='diagnosis')orders=orders.filter(order=>['reported','triage','inspection','on_hold'].includes(order.status));
+  if(!orders.length)return sendMessage(message.chat.id,`لا توجد أوامر مناسبة لعملية «${esc(ACTION_LABELS[action]||action)}».`);
+  return sendMessage(message.chat.id,`اختر أمر الصيانة لتنفيذ «${esc(ACTION_LABELS[action]||action)}»:`,keyboard(orderRows(action,orders)));
 }
 
 export async function startMechanicAction(message,identity,action){
-  const role=identity?.role||'pending',chatId=message.chat.id,userId=identity?.external_id||message.from.id;
-  if(['tasks','summary','price_requests'].includes(action)){
-    if(!canViewWorkshop(role))return sendMessage(chatId,'ليست لديك صلاحية عرض سجل الورشة.');
-    if(action==='tasks')return sendOpenWorkshopTasks(chatId);
-    if(action==='summary')return sendWorkshopSummary(chatId);
-    return sendPriceRequests(chatId);
-  }
-  if(!isWorkshopOperator(role))return sendMessage(chatId,'تسجيل أعمال الورشة متاح لمسؤول الورشة ومدير النظام فقط.');
+  const role=identity?.role||'pending',chatId=message.chat.id,userId=externalUserId(identity,message);
+  if(action==='tasks')return sendOpenWorkshopTasks(chatId,identity);
+  if(action==='summary')return sendWorkshopSummary(chatId);
+  if(action==='price_requests')return sendPriceRequests(chatId);
+  if(!OPERATE_ROLES.has(role))return sendMessage(chatId,'تسجيل أعمال الورشة متاح للميكانيكي والمشرف ومدير النظام فقط.');
   if(action==='daily'){
-    await setSession(chatId,userId,'mechanic_daily_report',{startedAt:now()});
-    return sendMessage(chatId,'أرسل التقرير اليومي في رسالة واحدة بهذا الترتيب:\n\nالسيارات والمعدات التي فحصتها:\nالأعمال التي نفذتها:\nالإجراءات الوقائية المطلوبة:\nالأعطال المفتوحة:\nقطع الغيار المطلوبة:\nملاحظات السلامة أو التوقف:\n\nاكتب «إلغاء» للخروج.');
+    await setSession(chatId,userId,'workshop_daily_report',{startedAt:now()});
+    return sendMessage(chatId,'أرسل التقرير اليومي بهذا الترتيب:\n\nالأصول التي تم العمل عليها:\nالأعمال التي تم تنفيذها:\nساعات العمل:\nالأوامر التي اكتملت:\nالأوامر المفتوحة:\nقطع الغيار المطلوبة:\nالأعمال الوقائية:\nمخاطر السلامة:\nخطة الغد:\n\nسيُحفظ كتقرير منظم، وليس نصًا داخل سجل التدقيق.');
   }
   if(action==='inspection'){
-    await setSession(chatId,userId,'mechanic_inspection',{startedAt:now()});
-    return sendMessage(chatId,'أرسل نتيجة الفحص في رسالة واحدة، واذكر اسم أو رقم الأصل حتى لو لا توجد لوحة. مثال:\nمضخة الخرسانة رقم 3 — تم فحص الزيت والسيور، يوجد صوت في الرولمان بلي وتحتاج تغيير خلال أسبوع.');
-  }
-  if(action==='parts'){
-    await setSession(chatId,userId,'mechanic_spare_parts',{startedAt:now()});
-    return sendMessage(chatId,'اكتب طلب قطع الغيار كاملًا في رسالة واحدة:\n• اسم القطعة والكمية\n• الأصل أو الاستخدام إن وجد\n• درجة الاستعجال\n• سبب الطلب\n\nيمكن أن يكون الطلب عامًا للمخزن بدون سيارة أو رقم لوحة.');
+    await setSession(chatId,userId,'workshop_inspection',{startedAt:now()});
+    return sendMessage(chatId,'اكتب اسم أو رقم الأصل ثم نتيجة الفحص. عند وجود عطل ستظهر لك قائمة الأصول لتأكيد الأصل قبل فتح مسودة أمر.');
   }
   if(action==='general_fault'){
-    await setSession(chatId,userId,'mechanic_general_fault',{startedAt:now()});
-    return sendMessage(chatId,'اكتب اسم المعدة أو الأصل ووصف العطل. مثال:\nكمبروسر الورشة — يفصل بعد التشغيل بعشر دقائق ويوجد ارتفاع حرارة.\nلا يلزم رقم لوحة.');
+    await setSession(chatId,userId,'workshop_general_fault',{startedAt:now()});
+    return sendMessage(chatId,'اكتب اسم الأصل المسجل ووصف العطل. لن يُفتح أمر لأصل نصي غير موجود في سجل الأصول.');
   }
-  if(action==='update'){
-    await setSession(chatId,userId,'mechanic_order_update',{startedAt:now()});
-    return sendMessage(chatId,'أرسل رقم أمر الإصلاح ثم التحديث. مثال:\nBH-RO-2026-00015 تم تغيير الزيت والفلتر، وجارٍ اختبار المركبة.');
-  }
-}
-
-function statusFromUpdate(text=''){
-  const t=normalize(text);
-  if(/تم الانتهاء|تم الاصلاح|اكتمل|جاهز للتسليم/.test(t))return'completed';
-  if(/اختبار|تجربه|تجربة/.test(t))return'testing';
-  if(/جاري الاصلاح|جار الاصلاح|بدانا الاصلاح|بدأنا الاصلاح/.test(t))return'in_repair';
-  if(/عرض سعر|تسعير|قطع غيار مطلوبه|قطع غيار مطلوبة/.test(t))return'quotation_required';
-  if(/فحص|تشخيص/.test(t))return'inspection';
-  return null;
+  return chooseOpenOrder(message,identity,action);
 }
 
 async function saveDailyReport(message,identity,text){
-  const reference=await nextReference('WDR');
-  await writeWorkshopLog({identity,message,action:'mechanic_daily_report',entityType:'workshop_daily_report',entityId:reference,details:{reference_no:reference,report_date:now().slice(0,10),report_text:text}});
-  await clearMaintenanceSession(message.chat.id,identity.external_id||message.from.id);
-  return sendMessage(message.chat.id,`تم حفظ التقرير اليومي في سجل الورشة.\nالمرجع: <b>${esc(reference)}</b>\nالحالة: متاح لمدير المصنع والمحاسب للمراجعة.`);
+  const report=await submitTelegramWorkshopDailyReport({message,identity,text});
+  await clearMaintenanceSession(message.chat.id,externalUserId(identity,message));
+  return sendMessage(message.chat.id,`تم حفظ التقرير اليومي المنظم.\nالمرجع: <b>${esc(report?.reference_no||'محفوظ')}</b>\nساعات العمل: <b>${Number(report?.total_hours||0)}</b>`);
 }
-
 async function saveInspection(message,identity,text){
-  const reference=await nextReference('INS');
   const issue=/عطل|تسريب|صوت|كسر|حرار|متوقف|تغيير|يحتاج|مطلوب|خطر/.test(normalize(text));
-  await writeWorkshopLog({identity,message,action:'mechanic_inspection',entityType:'equipment_inspection',entityId:reference,details:{reference_no:reference,inspection_text:text,issue_found:issue}});
-  await clearMaintenanceSession(message.chat.id,identity.external_id||message.from.id);
-  if(issue){
-    return createGenericMaintenanceDraft({chatId:message.chat.id,messageId:message.message_id,identity,text,voicePath:'',target:'معدة أو أصل بدون لوحة',kind:'inspection_issue',inspectionReference:reference});
-  }
-  return sendMessage(message.chat.id,`تم حفظ نتيجة الفحص في سجل الورشة.\nالمرجع: <b>${esc(reference)}</b>\nالنتيجة: لم يكتشف النص عطلًا يحتاج أمر إصلاح.`);
+  await clearMaintenanceSession(message.chat.id,externalUserId(identity,message));
+  if(issue)return createGenericMaintenanceDraft({chatId:message.chat.id,messageId:message.message_id,identity,text,voicePath:'',target:String(text).split(/[—\-:\n]/)[0],kind:'inspection_issue'});
+  return sendMessage(message.chat.id,'لم يكتشف النص عطلًا يحتاج أمر إصلاح. لم يتم تغيير حالة أي أمر. استخدم نموذج قائمة الفحص عند تفعيله لتسجيل الفحص الدوري.');
 }
-
-async function savePartsRequest(message,identity,text){
-  await clearMaintenanceSession(message.chat.id,identity.external_id||message.from.id);
-  return createGenericMaintenanceDraft({chatId:message.chat.id,messageId:message.message_id,identity,text,voicePath:'',target:'طلب قطع غيار عام بدون لوحة',kind:'spare_parts'});
-}
-
 async function saveGeneralFault(message,identity,text){
-  await clearMaintenanceSession(message.chat.id,identity.external_id||message.from.id);
-  return createGenericMaintenanceDraft({chatId:message.chat.id,messageId:message.message_id,identity,text,voicePath:'',target:'معدة أو أصل بدون لوحة',kind:'general_asset'});
+  await clearMaintenanceSession(message.chat.id,externalUserId(identity,message));
+  return createGenericMaintenanceDraft({chatId:message.chat.id,messageId:message.message_id,identity,text,voicePath:'',target:String(text).split(/[—\-:\n]/)[0],kind:'general_asset'});
 }
-
-async function saveOrderUpdate(message,identity,text){
-  const match=String(text||'').match(/BH-[A-Z]+-\d{4}-\d{5}/i);
-  if(!match)return sendMessage(message.chat.id,'لم أجد رقم أمر صحيح. أرسله بالشكل BH-RO-2026-00015 أو اكتب «إلغاء».');
-  const reference=match[0].toUpperCase(),order=(await select('maintenance_orders',`reference_no=eq.${encodeURIComponent(reference)}&select=id,reference_no,status&limit=1`))?.[0];
-  if(!order)return sendMessage(message.chat.id,`لم أجد أمر الإصلاح ${esc(reference)}.`);
-  const note=String(text).replace(match[0],'').trim()||'تحديث من مسؤول الورشة';
-  const nextStatus=statusFromUpdate(note);
-  await insert('maintenance_updates',[{maintenance_id:order.id,status:nextStatus||order.status,note,created_by:identity.user_id,source_channel:'telegram',source_chat_id:String(message.chat.id),source_message_id:String(message.message_id)}]);
-  if(nextStatus)await patch('maintenance_orders',`id=eq.${encodeURIComponent(order.id)}`,{status:nextStatus,updated_at:now(),...(nextStatus==='completed'?{closed_at:now()}: {})});
-  await writeWorkshopLog({identity,message,action:'mechanic_order_update',entityType:'maintenance_order',entityId:order.id,details:{reference_no:reference,note,status_before:order.status,status_after:nextStatus||order.status}});
-  await clearMaintenanceSession(message.chat.id,identity.external_id||message.from.id);
-  return sendMessage(message.chat.id,`تم تسجيل تحديث أمر الإصلاح <b>${esc(reference)}</b>.\nالحالة: <b>${esc(nextStatus||order.status)}</b>\nالتحديث: ${esc(note)}`);
+async function saveNote(message,identity,session,text){
+  const result=await addTelegramWorkshopNote({message,identity,maintenanceId:session.context.maintenanceId,note:text}),order=await getWorkshopOrder(session.context.maintenanceId);
+  await clearMaintenanceSession(message.chat.id,externalUserId(identity,message));
+  const rows=transitionRows(order,identity.role||'pending');
+  return sendMessage(message.chat.id,`تم حفظ التحديث على <b>${esc(result.referenceNo)}</b> دون تغيير الحالة تلقائيًا.\nالحالة الحالية: <b>${esc(workshopStatusLabel(order.status))}</b>${rows.length?'\nاختر انتقالًا رسميًا عند الحاجة:':''}`,rows.length?keyboard(rows):{});
+}
+async function saveDiagnosis(message,identity,session,text){
+  await addTelegramDiagnostic({message,identity,maintenanceId:session.context.maintenanceId,text});
+  const order=await getWorkshopOrder(session.context.maintenanceId);await clearMaintenanceSession(message.chat.id,externalUserId(identity,message));
+  const button=allowedWorkshopTransitions(order.status).includes('diagnosed')?keyboard([[{text:'تأكيد: تم التشخيص',callback_data:`wst:diagnosed|${order.id}`}]]):{};
+  return sendMessage(message.chat.id,`تم حفظ التشخيص على <b>${esc(order.reference_no)}</b>. لم تتغير الحالة قبل التأكيد.`,button);
+}
+async function saveLabor(message,identity,session,text){
+  const parsed=parseHours(text);if(parsed.hours<=0)return sendMessage(message.chat.id,'اكتب عدد الساعات ثم نوع العمل. مثال: 2 | تغيير طرمبة المياه | تم الاختبار');
+  await addTelegramLabor({message,identity,maintenanceId:session.context.maintenanceId,...parsed});
+  await clearMaintenanceSession(message.chat.id,externalUserId(identity,message));
+  return sendMessage(message.chat.id,`تم تسجيل <b>${parsed.hours}</b> ساعة عمل دون تغيير حالة الأمر.`);
+}
+async function savePart(message,identity,session,text){
+  const parsed=parsePart(text);if(parsed.quantity<=0||!parsed.itemName)return sendMessage(message.chat.id,'اكتب الكمية ثم اسم القطعة. مثال: 2 | فلتر زيت | حبة | عاجل');
+  const row=await addTelegramPartRequest({message,identity,maintenanceId:session.context.maintenanceId,...parsed});
+  await clearMaintenanceSession(message.chat.id,externalUserId(identity,message));
+  return sendMessage(message.chat.id,`تم تسجيل طلب القطعة: <b>${esc(row?.item_name||parsed.itemName)}</b> — الكمية <b>${parsed.quantity}</b>. الطلب مرتبط بأمر الإصلاح.`);
+}
+async function saveTestText(message,identity,session,text){
+  await setSession(message.chat.id,externalUserId(identity,message),'workshop_test_confirm',{...session.context,testResult:String(text).slice(0,2000),startedAt:now()});
+  return sendMessage(message.chat.id,'اختر نتيجة الاختبار. النص اقتراح وتوثيق فقط، والزر هو الذي يغيّر الحالة:',keyboard([[{text:'الاختبار ناجح',callback_data:`wstest:pass|${session.context.maintenanceId}`},{text:'الاختبار فشل',callback_data:`wstest:fail|${session.context.maintenanceId}`}]]));
 }
 
 export async function continueMechanicSession(message,identity,session,text){
-  const userId=identity.external_id||message.from.id,t=String(text||'').trim();
-  if(/^(الغاء|إلغاء|الغي|الغى|تراجع|cancel)$/i.test(t)){
-    await clearMaintenanceSession(message.chat.id,userId);
-    await sendMessage(message.chat.id,'تم إلغاء العملية الحالية.');
-    return true;
+  const userId=externalUserId(identity,message),t=String(text||'').trim();
+  if(/^(الغاء|إلغاء|الغي|الغى|تراجع|cancel)$/i.test(t)){await clearMaintenanceSession(message.chat.id,userId);await sendMessage(message.chat.id,'تم إلغاء العملية الحالية.');return true;}
+  if(session.state==='workshop_daily_report'||session.state==='mechanic_daily_report'){await saveDailyReport(message,identity,t);return true;}
+  if(session.state==='workshop_inspection'||session.state==='mechanic_inspection'){await saveInspection(message,identity,t);return true;}
+  if(session.state==='workshop_general_fault'||session.state==='mechanic_general_fault'){await saveGeneralFault(message,identity,t);return true;}
+  if(session.state==='workshop_note'||session.state==='mechanic_order_update'){await saveNote(message,identity,session,t);return true;}
+  if(session.state==='workshop_diagnosis'){await saveDiagnosis(message,identity,session,t);return true;}
+  if(session.state==='workshop_labor'){await saveLabor(message,identity,session,t);return true;}
+  if(session.state==='workshop_part'||session.state==='mechanic_spare_parts'){await savePart(message,identity,session,t);return true;}
+  if(session.state==='workshop_test'){await saveTestText(message,identity,session,t);return true;}
+  return false;
+}
+
+export async function handleWorkshopBotCallback(message,from,identity,action,value){
+  const role=identity.role||'pending',chatId=message.chat.id,userId=identity.external_id||from.id;
+  if(action==='wsselect'){
+    const[operation,id]=String(value||'').split('|'),order=await getWorkshopOrder(id);
+    if(!order)return sendMessage(chatId,'أمر الصيانة غير موجود.');
+    if(operation==='handover')return sendMessage(chatId,`اختر إجراء الاستلام للأمر <b>${esc(order.reference_no)}</b>:`,keyboard([[{text:'تأكيد استلام الأصل',callback_data:`wshandover:accept|${id}`}]]));
+    if(operation==='transition')return sendMessage(chatId,`الحالة الحالية: <b>${esc(workshopStatusLabel(order.status))}</b>\nاختر الحالة الجديدة:`,keyboard(transitionRows(order,role)));
+    const state={update:'workshop_note',diagnosis:'workshop_diagnosis',labor:'workshop_labor',parts:'workshop_part',test:'workshop_test'}[operation];
+    if(!state)return sendMessage(chatId,'العملية غير معروفة.');
+    await setSession(chatId,userId,state,{maintenanceId:id,referenceNo:order.reference_no,startedAt:now()});
+    const prompt={update:'اكتب التحديث. لن تتغير الحالة من النص.',diagnosis:'اكتب التشخيص والسبب والإجراء المقترح.',labor:'اكتب: عدد الساعات | نوع العمل | الملاحظات',parts:'اكتب: الكمية | اسم القطعة | الوحدة | درجة الاستعجال',test:'اكتب نتيجة الاختبار وملاحظاته، ثم أكد النجاح أو الفشل من الأزرار.'}[operation];
+    return sendMessage(chatId,`الأمر: <b>${esc(order.reference_no)}</b>\n${prompt}`);
   }
-  if(session.state==='mechanic_daily_report'){await saveDailyReport(message,identity,t);return true;}
-  if(session.state==='mechanic_inspection'){await saveInspection(message,identity,t);return true;}
-  if(session.state==='mechanic_spare_parts'){await savePartsRequest(message,identity,t);return true;}
-  if(session.state==='mechanic_general_fault'){await saveGeneralFault(message,identity,t);return true;}
-  if(session.state==='mechanic_order_update'){await saveOrderUpdate(message,identity,t);return true;}
+  if(action==='wst'){
+    const[targetStatus,id]=String(value||'').split('|'),session=(await select('bot_sessions',`channel=eq.telegram&chat_id=eq.${encodeURIComponent(String(chatId))}&external_user_id=eq.${encodeURIComponent(String(userId))}&select=context&limit=1`))?.[0],note=session?.context?.lastNote||`تغيير الحالة من Telegram إلى ${targetStatus}`;
+    try{
+      const order=await transitionWorkshopOrder({maintenanceId:id,targetStatus,sourceChannel:'telegram',note,reason:'telegram_button',requestId:requestId(`transition-${targetStatus}`,message,id)},identity);
+      await clearMaintenanceSession(chatId,userId);
+      return sendMessage(chatId,`تم تحديث <b>${esc(order.reference_no)}</b> إلى <b>${esc(workshopStatusLabel(order.status))}</b>.`);
+    }catch(error){return sendMessage(chatId,`تعذر تغيير الحالة: ${esc(error.message||'انتقال غير مسموح')}`);}
+  }
+  if(action==='wstest'){
+    const[decision,id]=String(value||'').split('|'),session=(await select('bot_sessions',`channel=eq.telegram&chat_id=eq.${encodeURIComponent(String(chatId))}&external_user_id=eq.${encodeURIComponent(String(userId))}&select=context&limit=1`))?.[0],passed=decision==='pass',targetStatus=passed?'ready_for_handover':'in_repair';
+    try{
+      const order=await transitionWorkshopOrder({maintenanceId:id,targetStatus,sourceChannel:'telegram',note:session?.context?.testResult||'نتيجة اختبار من Telegram',reason:passed?'test_passed':'test_failed',requestId:requestId(`test-${decision}`,message,id),patch:{testPassed:passed,testResult:session?.context?.testResult||decision}},identity);
+      await clearMaintenanceSession(chatId,userId);
+      return sendMessage(chatId,passed?`تم تسجيل نجاح الاختبار. الأمر <b>${esc(order.reference_no)}</b> جاهز للتسليم.`:`تم تسجيل فشل الاختبار وإعادة الأمر <b>${esc(order.reference_no)}</b> للإصلاح.`);
+    }catch(error){return sendMessage(chatId,`تعذر تسجيل نتيجة الاختبار: ${esc(error.message)}`);}
+  }
+  if(action==='wshandover'){
+    if(!MANAGE_ROLES.has(role))return sendMessage(chatId,'تأكيد الاستلام والإغلاق مخصص للمدير أو المشرف.');
+    const[decision,id]=String(value||'').split('|');if(decision!=='accept')return sendMessage(chatId,'قرار الاستلام غير صحيح.');
+    try{
+      let order=await getWorkshopOrder(id);
+      if(order.status==='ready_for_handover')order=await transitionWorkshopOrder({maintenanceId:id,targetStatus:'completed',sourceChannel:'telegram',note:'تم قبول استلام الأصل',reason:'handover_accepted',requestId:requestId('handover-completed',message,id),patch:{handoverStatus:'accepted'}},identity);
+      if(order.status==='completed')return sendMessage(chatId,`تم تسجيل استلام الأصل للأمر <b>${esc(order.reference_no)}</b>. الإغلاق النهائي يحتاج تأكيدًا مستقلًا:`,keyboard([[{text:'إغلاق الأمر نهائيًا',callback_data:`wst:closed|${id}`}]]));
+      return sendMessage(chatId,`الحالة الحالية لا تسمح بالاستلام: ${esc(workshopStatusLabel(order.status))}`);
+    }catch(error){return sendMessage(chatId,`تعذر تسجيل الاستلام: ${esc(error.message)}`);}
+  }
   return false;
 }
 
 export async function handleMechanicTextCommand(message,identity,text){
-  const role=identity?.role||'pending',t=normalize(text),raw=String(text||'').trim();
-  if(/^\/workshop(?:@\w+)?$/i.test(raw)||/^(قائمه الورشه|قائمة الورشة|موظف الورشه|موظف الورشة|مهام الميكانيكي|الورشه|الورشة)$/.test(t)){
-    await showMechanicMenu(message,identity);return true;
-  }
-  if(/^(سجل الورشه اليوم|سجل الورشة اليوم|تقرير الميكانيكي اليوم|ملخص الورشه اليوم|ملخص الورشة اليوم)$/.test(t)){
-    if(!canViewWorkshop(role))return sendMessage(message.chat.id,'ليست لديك صلاحية عرض سجل الورشة.').then(()=>true);
-    await sendWorkshopSummary(message.chat.id);return true;
-  }
-  if(/^(طلبات قطع الغيار|طلبات التسعير|قطع الغيار المطلوبه|قطع الغيار المطلوبة)$/.test(t)){
-    if(!canViewWorkshop(role))return sendMessage(message.chat.id,'ليست لديك صلاحية عرض طلبات قطع الغيار.').then(()=>true);
-    await sendPriceRequests(message.chat.id);return true;
-  }
-  if(isWorkshopOperator(role)&&/^(طلب قطع غيار|عاوز قطع غيار|اريد قطع غيار|أريد قطع غيار)$/.test(t)){
-    await startMechanicAction(message,identity,'parts');return true;
-  }
-  if(isWorkshopOperator(role)&&/^(تقرير يومي للورشه|تقرير يومي للورشة|بدء التقرير اليومي)$/.test(t)){
-    await startMechanicAction(message,identity,'daily');return true;
-  }
+  const raw=String(text||'').trim(),t=normalize(raw),role=identity?.role||'pending';
+  if(/^\/workshop(?:@\w+)?$/i.test(raw)||/^(قائمه الورشه|قائمة الورشة|موظف الورشه|موظف الورشة|مهام الميكانيكي|الورشه|الورشة)$/.test(t)){await showMechanicMenu(message,identity);return true;}
+  if(/^(سجل الورشه اليوم|سجل الورشة اليوم|تقرير الميكانيكي اليوم|ملخص الورشه اليوم|ملخص الورشة اليوم)$/.test(t)){if(!VIEW_ROLES.has(role))return sendMessage(message.chat.id,'ليست لديك صلاحية عرض سجل الورشة.').then(()=>true);await sendWorkshopSummary(message.chat.id);return true;}
+  if(/^(طلبات قطع الغيار|طلبات التسعير|قطع الغيار المطلوبه|قطع الغيار المطلوبة)$/.test(t)){if(!VIEW_ROLES.has(role))return sendMessage(message.chat.id,'ليست لديك صلاحية عرض طلبات القطع.').then(()=>true);await sendPriceRequests(message.chat.id);return true;}
+  if(OPERATE_ROLES.has(role)&&/^(طلب قطع غيار|عاوز قطع غيار|اريد قطع غيار|أريد قطع غيار)$/.test(t)){await startMechanicAction(message,identity,'parts');return true;}
+  if(OPERATE_ROLES.has(role)&&/^(تقرير يومي للورشه|تقرير يومي للورشة|بدء التقرير اليومي)$/.test(t)){await startMechanicAction(message,identity,'daily');return true;}
   return false;
 }
 
-export async function sendOpenWorkshopTasks(chatId){
-  const rows=await select('maintenance_orders',`status=in.(${openStatuses})&select=reference_no,plate_snapshot,problem,status,priority,reported_at&order=reported_at.desc&limit=15`);
-  if(!rows?.length)return sendMessage(chatId,'لا توجد مهام ورشة مفتوحة حاليًا.');
-  const body=rows.map((row,index)=>`${index+1}. <b>${esc(row.reference_no)}</b> — ${esc(row.plate_snapshot||'أصل/طلب عام')}\nالحالة: ${esc(row.status)} | الأولوية: ${esc(row.priority)}\n${esc(String(row.problem||'').slice(0,140))}`).join('\n\n');
+export async function sendOpenWorkshopTasks(chatId,identity={}){
+  const rows=(await listTelegramWorkshopOrders(identity,{limit:20,mine:identity.role==='mechanic'})).filter(row=>OPEN_STATUSES.includes(row.status));
+  if(!rows.length)return sendMessage(chatId,'لا توجد مهام ورشة مفتوحة حاليًا.');
+  const body=rows.map((row,index)=>`${index+1}. <b>${esc(row.reference_no)}</b> — ${esc(row.plate_snapshot||row.asset_external_id)}\nالحالة: ${esc(workshopStatusLabel(row.status))} | الأولوية: ${esc(row.priority)}\n${esc(String(row.problem||'').slice(0,140))}`).join('\n\n');
   return sendMessage(chatId,`<b>مهام الورشة المفتوحة</b>\n\n${body}`);
 }
-
 export async function sendPriceRequests(chatId){
-  const rows=await select('maintenance_orders','status=eq.quotation_required&select=reference_no,plate_snapshot,problem,priority,reported_at&order=reported_at.desc&limit=20');
-  if(!rows?.length)return sendMessage(chatId,'لا توجد طلبات قطع غيار أو تسعير مفتوحة.');
-  const body=rows.map((row,index)=>`${index+1}. <b>${esc(row.reference_no)}</b> — ${esc(row.plate_snapshot||'طلب عام')}\n${esc(String(row.problem||'').slice(0,220))}\nالأولوية: ${esc(row.priority)}`).join('\n\n');
-  return sendMessage(chatId,`<b>طلبات قطع الغيار والتسعير المفتوحة</b>\n\n${body}`);
+  const rows=await listTelegramPartRequests(20);if(!rows.length)return sendMessage(chatId,'لا توجد طلبات قطع غيار مفتوحة.');
+  const body=rows.map((row,index)=>`${index+1}. <b>${esc(row.item_name)}</b> — ${Number(row.quantity_requested||0)} ${esc(row.unit||'')}\nالحالة: ${esc(row.status)} | الاستعجال: ${esc(row.urgency)}\nأمر الصيانة: <code>${esc(row.maintenance_id)}</code>`).join('\n\n');
+  return sendMessage(chatId,`<b>طلبات قطع الغيار المرتبطة بأوامر الصيانة</b>\n\n${body}`);
 }
-
 export async function sendWorkshopSummary(chatId){
-  const start=new Date();start.setHours(0,0,0,0);const startIso=start.toISOString();
-  const [logs,orders,parts]=await Promise.all([
-    select('audit_log',`created_at=gte.${encodeURIComponent(startIso)}&action=in.(mechanic_daily_report,mechanic_inspection,mechanic_order_update,spare_parts_request)&select=action,entity_id,details,created_at&order=created_at.desc&limit=100`),
-    select('maintenance_orders',`reported_at=gte.${encodeURIComponent(startIso)}&select=reference_no,status,plate_snapshot,problem&order=reported_at.desc&limit=100`),
-    select('maintenance_orders','status=eq.quotation_required&select=id&limit=1000')
-  ]);
-  const daily=(logs||[]).filter(x=>x.action==='mechanic_daily_report').length,inspections=(logs||[]).filter(x=>x.action==='mechanic_inspection').length,updates=(logs||[]).filter(x=>x.action==='mechanic_order_update').length;
-  const stopped=(orders||[]).filter(x=>/متوقف|واقفه|واقفة|لا تعمل/.test(String(x.problem||''))).length;
-  let text=`<b>سجل الورشة اليوم</b>\n\nالتقارير اليومية: <b>${daily}</b>\nفحوصات المعدات: <b>${inspections}</b>\nتحديثات أوامر الإصلاح: <b>${updates}</b>\nأوامر مسجلة اليوم: <b>${orders?.length||0}</b>\nمؤشرات توقف في بلاغات اليوم: <b>${stopped}</b>\nطلبات تسعير مفتوحة: <b>${parts?.length||0}</b>`;
-  const latest=(logs||[]).slice(0,5);
-  if(latest.length)text+=`\n\n<b>آخر نشاط:</b>\n${latest.map(x=>`• ${esc(x.details?.mechanic_name||'مسؤول الورشة')}: ${esc(String(x.details?.report_text||x.details?.inspection_text||x.details?.note||x.entity_id||'').slice(0,170))}`).join('\n')}`;
-  return sendMessage(chatId,text);
+  const data=await telegramWorkshopSummary();
+  return sendMessage(chatId,`<b>ملخص الورشة اليوم</b>\n\nالتقارير المنظمة: <b>${data.dailyReports}</b>\nساعات العمل المسجلة: <b>${data.totalHours}</b>\nأوامر اليوم: <b>${data.ordersToday}</b>\nالأصول المتوقفة: <b>${data.stopped}</b>\nالحالات العاجلة: <b>${data.urgent}</b>\nالأوامر المفتوحة: <b>${data.open}</b>\nدون تحديث أكثر من 24 ساعة: <b>${data.stale}</b>\nطلبات قطع مفتوحة: <b>${data.partsWaiting}</b>`);
 }
-
-export async function confirmSparePartsRequest(message,id,identity,role){
-  if(!isWorkshopOperator(role)&&role!=='manager')return sendMessage(message.chat.id,'ليست لديك صلاحية تأكيد طلب قطع الغيار.');
-  const rows=await patch('maintenance_orders',`id=eq.${encodeURIComponent(id)}&status=eq.draft`,{status:'quotation_required',confirmed_at:now(),confirmed_by:identity.user_id,updated_at:now()}),order=rows?.[0];
-  if(!order)return sendMessage(message.chat.id,'تم التعامل مع الطلب من قبل أو لم يعد متاحًا.');
-  await insert('maintenance_updates',[{maintenance_id:id,status:'quotation_required',note:'تم تأكيد طلب قطع الغيار وإحالته لطلب الأسعار',created_by:identity.user_id,source_channel:'telegram',source_chat_id:String(message.chat.id),source_message_id:String(message.message_id)}]);
-  await writeWorkshopLog({identity,message,action:'spare_parts_request',entityType:'maintenance_order',entityId:id,details:{reference_no:order.reference_no,request_text:order.problem,target:order.plate_snapshot||'طلب عام'}});
-  await clearMaintenanceSession(message.chat.id,identity.external_id||message.from?.id);
-  return sendMessage(message.chat.id,`تم اعتماد طلب قطع الغيار وإحالته لطلب الأسعار.\nالمرجع: <b>${esc(order.reference_no)}</b>\nالحالة: <b>بانتظار عروض الأسعار</b>.`);
-}
+export async function confirmSparePartsRequest(message){return sendMessage(message.chat.id,'انتهى مسار طلب القطع العام. طلب القطعة يجب أن يكون مرتبطًا بأمر إصلاح من قائمة الورشة.');}
