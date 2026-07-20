@@ -23,6 +23,8 @@ function json(sql,fallback){
   try{return JSON.parse(raw);}catch{throw new Error(`Invalid JSON result for baseline query: ${raw.slice(0,160)}`);}
 }
 function tableExists(name){return bool(`select to_regclass('public.${name}') is not null`);}
+function tableColumns(name){return tableExists(name)?json(`select coalesce(json_agg(column_name order by ordinal_position),'[]'::json)::text from information_schema.columns where table_schema='public' and table_name='${name}'`,[]):[];}
+function quoted(name){return `"${String(name).replaceAll('"','""')}"`;}
 
 const tables=[
   'maintenance_orders','maintenance_updates','operational_records','audit_log','unified_assets','vehicles',
@@ -32,8 +34,10 @@ const tables=[
   'preventive_maintenance_executions','asset_meter_readings','workshop_daily_reports'
 ];
 const tablePresence=Object.fromEntries(tables.map(name=>[name,tableExists(name)]));
-const columns=tablePresence.maintenance_orders?json(`select coalesce(json_agg(column_name order by ordinal_position),'[]'::json)::text from information_schema.columns where table_schema='public' and table_name='maintenance_orders'`,[]):[];
-const hasColumn=name=>columns.includes(name);
+const maintenanceColumns=tablePresence.maintenance_orders?tableColumns('maintenance_orders'):[];
+const operationalColumns=tablePresence.operational_records?tableColumns('operational_records'):[];
+const maintenanceHas=name=>maintenanceColumns.includes(name);
+const operationalHas=name=>operationalColumns.includes(name);
 
 const rowCounts={};
 for(const name of ['maintenance_orders','maintenance_updates','operational_records','audit_log','unified_assets','vehicles']){
@@ -46,17 +50,52 @@ const maintenanceByStatus=tablePresence.maintenance_orders
 
 const unlinked={withoutVehicleExternalId:null,withoutAssetExternalId:null,withoutUnifiedAssetLink:null};
 if(tablePresence.maintenance_orders){
-  if(hasColumn('vehicle_external_id'))unlinked.withoutVehicleExternalId=number(`select count(*) from public.maintenance_orders where nullif(trim(coalesce(vehicle_external_id,'')),'') is null`);
-  if(hasColumn('asset_external_id'))unlinked.withoutAssetExternalId=number(`select count(*) from public.maintenance_orders where nullif(trim(coalesce(asset_external_id,'')),'') is null`);
+  if(maintenanceHas('vehicle_external_id'))unlinked.withoutVehicleExternalId=number(`select count(*) from public.maintenance_orders where nullif(trim(coalesce(vehicle_external_id,'')),'') is null`);
+  if(maintenanceHas('asset_external_id'))unlinked.withoutAssetExternalId=number(`select count(*) from public.maintenance_orders where nullif(trim(coalesce(asset_external_id,'')),'') is null`);
   if(tablePresence.unified_assets){
-    const linkColumn=hasColumn('asset_external_id')?'asset_external_id':hasColumn('vehicle_external_id')?'vehicle_external_id':null;
-    if(linkColumn)unlinked.withoutUnifiedAssetLink=number(`select count(*) from public.maintenance_orders mo left join public.unified_assets ua on ua.external_id=mo.${linkColumn} where ua.id is null`);
+    const linkColumn=maintenanceHas('asset_external_id')?'asset_external_id':maintenanceHas('vehicle_external_id')?'vehicle_external_id':null;
+    if(linkColumn)unlinked.withoutUnifiedAssetLink=number(`select count(*) from public.maintenance_orders mo left join public.unified_assets ua on ua.external_id=mo.${quoted(linkColumn)} where ua.id is null`);
   }
 }
 
-const telegramDuplicates=tablePresence.maintenance_orders&&['source_channel','source_chat_id','source_message_id'].every(hasColumn)
+const telegramDuplicates=tablePresence.maintenance_orders&&['source_channel','source_chat_id','source_message_id'].every(maintenanceHas)
   ?number(`select count(*) from (select source_chat_id,source_message_id,count(*) from public.maintenance_orders where source_channel='telegram' and source_chat_id is not null and source_message_id is not null group by source_chat_id,source_message_id having count(*)>1) d`)
   :null;
+
+const operationalLinkage={
+  columns:operationalColumns,
+  workshopRecords:null,
+  linkedRecords:null,
+  maintenanceOrdersWithOperationalRecord:null,
+  maintenanceOrdersMissingOperationalRecord:null,
+  orphanWorkshopRecords:null,
+  linkColumns:[],
+};
+if(tablePresence.operational_records&&tablePresence.maintenance_orders){
+  const typeConditions=[];
+  for(const name of ['entity_type','record_type','category','module','department']){
+    if(!operationalHas(name))continue;
+    const column=`op.${quoted(name)}`;
+    if(name==='department')typeConditions.push(`lower(coalesce(${column}::text,''))='workshop'`);
+    else typeConditions.push(`lower(coalesce(${column}::text,'')) in ('maintenance','maintenance_order','workshop')`);
+  }
+  const workshopFilter=typeConditions.length?`(${typeConditions.join(' or ')})`:'true';
+  operationalLinkage.workshopRecords=number(`select count(*) from public.operational_records op where ${workshopFilter}`);
+
+  const linkPredicates=[];
+  const idColumn=['entity_id','record_id','source_id'].find(operationalHas);
+  const referenceColumn=['reference_no','reference'].find(operationalHas);
+  if(idColumn){linkPredicates.push(`op.${quoted(idColumn)}::text=mo.id::text`);operationalLinkage.linkColumns.push(idColumn);}
+  if(referenceColumn&&maintenanceHas('reference_no')){linkPredicates.push(`op.${quoted(referenceColumn)}::text=mo.reference_no::text`);operationalLinkage.linkColumns.push(referenceColumn);}
+
+  if(linkPredicates.length){
+    const linkPredicate=`(${linkPredicates.join(' or ')})`;
+    operationalLinkage.linkedRecords=number(`select count(*) from public.operational_records op join public.maintenance_orders mo on ${linkPredicate} where ${workshopFilter}`);
+    operationalLinkage.maintenanceOrdersWithOperationalRecord=number(`select count(distinct mo.id) from public.maintenance_orders mo join public.operational_records op on ${linkPredicate}`);
+    operationalLinkage.maintenanceOrdersMissingOperationalRecord=Math.max(0,(rowCounts.maintenance_orders||0)-operationalLinkage.maintenanceOrdersWithOperationalRecord);
+    operationalLinkage.orphanWorkshopRecords=number(`select count(*) from public.operational_records op left join public.maintenance_orders mo on ${linkPredicate} where ${workshopFilter} and mo.id is null`);
+  }
+}
 
 const workshopAudit=tablePresence.audit_log?{
   totalWorkshopActions:number(`select count(*) from public.audit_log where entity_type in ('workshop','workshop_daily_report','equipment_inspection','maintenance_order') or action like 'mechanic_%' or action='spare_parts_request'`),
@@ -70,25 +109,28 @@ const statusValues=tablePresence.maintenance_orders?Object.keys(maintenanceBySta
 const plannedTablesMissing=tables.slice(6).filter(name=>!tablePresence[name]);
 
 const result={
-  format:'binhamid-workshop-baseline-v1',
+  format:'binhamid-workshop-baseline-v2',
   checkedAt:new Date().toISOString(),
   readOnly:true,
   schemaVersion:latestMigration,
   tables:tablePresence,
   rowCounts,
   maintenanceOrders:{
-    columns,
+    columns:maintenanceColumns,
     statuses:maintenanceByStatus,
     distinctStatusValues:statusValues,
     unlinked,
     duplicateTelegramSourceKeys:telegramDuplicates,
   },
+  operationalLinkage,
   workshopAudit,
   plannedTablesMissing,
   blockers:[
     ...(tablePresence.operational_records?[]:['operational_records table is absent; any operations-center linkage must be verified in application code rather than assumed.']),
     ...(plannedTablesMissing.length?[`${plannedTablesMissing.length} planned workshop tables are not present.`]:[]),
     ...(unlinked.withoutUnifiedAssetLink>0?[`${unlinked.withoutUnifiedAssetLink} maintenance orders are not linked to unified_assets.`]:[]),
+    ...(operationalLinkage.maintenanceOrdersMissingOperationalRecord>0?[`${operationalLinkage.maintenanceOrdersMissingOperationalRecord} maintenance orders are missing an operational_records link.`]:[]),
+    ...(operationalLinkage.orphanWorkshopRecords>0?[`${operationalLinkage.orphanWorkshopRecords} workshop operational records do not resolve to maintenance_orders.`]:[]),
     ...(telegramDuplicates>0?[`${telegramDuplicates} duplicate Telegram source keys exist in maintenance_orders.`]:[]),
   ],
 };
