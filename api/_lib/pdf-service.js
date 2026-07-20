@@ -50,7 +50,7 @@ async function cloudflarePdf(html,{landscape=false}={}){
   if(config.pdfApiKey)headers.Authorization=`Bearer ${config.pdfApiKey}`;
   const response=await fetch(cleanUrl(config.pdfApiUrl),{
     method:'POST',headers,
-    body:JSON.stringify({html:String(html||''),pdfOptions:{format:'A4',landscape:Boolean(landscape),printBackground:true}}),
+    body:JSON.stringify({html:String(html||''),pdfOptions:{format:'a4',landscape:Boolean(landscape),printBackground:true}}),
     signal:AbortSignal.timeout(45_000)
   });
   if(!response.ok){
