@@ -31,6 +31,9 @@ jobs:
           npm install --ignore-scripts --no-audit --no-fund
           node --check api/_lib/routes/daily-report.js
           node --check api/_lib/routes/accounting.js
+          node --check api/_lib/routes/workshop.js
+          node --check api/_lib/workshop-service.js
+          node --check api/_lib/workshop-state-machine.js
           node --check api/_lib/telegram-webhook-gateway.js
           node --check scripts/production-db-readiness.mjs
           node --check scripts/production-data-integrity.mjs
@@ -39,7 +42,7 @@ jobs:
           npm run check:api
           npm run check:functions
 
-      - name: Wait for live schema-25 deployment
+      - name: Wait for live schema-27 deployment
         run: |
           set -euo pipefail
           node <<'NODE'
@@ -51,7 +54,7 @@ jobs:
               const response=await fetch(`${url}?attempt=${attempt}&t=${Date.now()}`,{headers:{Accept:'application/json'},signal:AbortSignal.timeout(20000)});
               const body=await response.json().catch(()=>null);
               report={checkedAt:new Date().toISOString(),url,status:response.status,ok:response.ok&&body?.ok===true,directOperationsSchema:Number(body?.directOperationsSchema||0),version:body?.version||null,webhookVersion:Number(body?.webhookVersion||0),vercelFunctionsExpected:Number(body?.vercelFunctionsExpected||0),attempt};
-              if(report.ok&&report.directOperationsSchema===25&&report.webhookVersion===3)break;
+              if(report.ok&&report.directOperationsSchema===27&&report.webhookVersion===3)break;
             }catch(error){report={checkedAt:new Date().toISOString(),url,ok:false,errorCode:error?.name||'FETCH_FAILED',attempt};}
             await new Promise(resolve=>setTimeout(resolve,30000));
           }
@@ -127,8 +130,8 @@ jobs:
           node <<'NODE'
           import { readFileSync } from 'node:fs';
           const report=JSON.parse(readFileSync('production-http-status.json','utf8'));
-          if(!report.ok||Number(report.directOperationsSchema)!==25||Number(report.webhookVersion)!==3){
-            console.error(`[live-status] deployment mismatch: expected schema 25/webhook 3, received ${report.directOperationsSchema||0}/${report.webhookVersion||0}`);
+          if(!report.ok||Number(report.directOperationsSchema)!==27||Number(report.webhookVersion)!==3){
+            console.error(`[live-status] deployment mismatch: expected schema 27/webhook 3, received ${report.directOperationsSchema||0}/${report.webhookVersion||0}`);
             process.exit(1);
           }
           NODE
@@ -147,7 +150,7 @@ jobs:
           const response=await fetch(`https://api.github.com/repos/${process.env.REPOSITORY}/statuses/${process.env.HEAD_SHA}`,{
             method:'POST',
             headers:{Accept:'application/vnd.github+json',Authorization:`Bearer ${process.env.GITHUB_TOKEN}`,'X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'},
-            body:JSON.stringify({state:success?'success':'failure',context:'production-readiness',target_url:process.env.RUN_URL,description:success?'Live schema 25, Telegram, accounting and data integrity checks passed.':'Production acceptance evidence failed or deployment is not schema 25.'})
+            body:JSON.stringify({state:success?'success':'failure',context:'production-readiness',target_url:process.env.RUN_URL,description:success?'Live schema 27, workshop service, Telegram, accounting and data integrity checks passed.':'Production acceptance evidence failed or deployment is not schema 27.'})
           });
           if(!response.ok)throw new Error(`Status publication failed with HTTP ${response.status}`);
           NODE
