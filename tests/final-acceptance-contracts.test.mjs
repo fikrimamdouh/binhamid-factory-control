@@ -12,20 +12,24 @@ test('automatic device bootstrap grants no business-data capability',()=>{
   assert.match(source,/DEVICE_CAPABILITY_REQUIRED/);
 });
 
-test('production readiness follows schema 24 and never references schema 15 as current',()=>{
+test('production readiness follows schema 25 while accounting final acceptance remains pinned to 24',()=>{
   const workflow=read('.github/workflows/production-readiness.yml');
   const migrations=read('.github/workflows/apply-pending-migrations.yml');
+  const validation=read('.github/workflows/workshop-migration-025-validation.yml');
   const preflight=read('scripts/governance-migration-preflight.mjs');
   const verify=read('scripts/governance-migration-verify.mjs');
   const runtime=read('api/_lib/routes/system-runtime.js');
   assert.doesNotMatch(workflow,/directOperationsSchema\)!==15|expected schema 15|schema 15/);
-  assert.match(workflow,/directOperationsSchema\)!==24|directOperationsSchema\)===24|directOperationsSchema===24/);
-  assert.match(runtime,/LATEST_REQUIRED_VERSION=24/);
-  assert.match(runtime,/directOperationsSchema:24/);
+  assert.match(workflow,/directOperationsSchema\)!==25|directOperationsSchema\)===25|directOperationsSchema===25/);
+  assert.match(runtime,/LATEST_REQUIRED_VERSION=25/);
+  assert.match(runtime,/directOperationsSchema:25/);
   assert.match(migrations,/024_employee_nickname_and_financial_command_center\.sql/);
+  assert.doesNotMatch(migrations,/025_workshop_central_data_model\.sql/);
   assert.ok(migrations.includes("ISOLATED_MIGRATION_TARGET: '24'"));
   assert.ok(migrations.includes('$(seq $((current_version + 1)) 24)'));
   assert.match(migrations,/EXPECTED_SCHEMA_VERSION=24/);
+  assert.match(validation,/025_workshop_central_data_model\.sql/);
+  assert.match(validation,/workshop-migration-025:isolated/);
   assert.match(preflight,/targetVersion=24/);
   assert.match(verify,/targetVersion=24/);
   for(const marker of ['appUsersNickname','employeesNickname','userInvitationsNickname','nicknameSyncTrigger'])assert.match(verify,new RegExp(marker));
@@ -94,7 +98,7 @@ test('structured accounting API and page are present',()=>{
   assert.match(vercel,/api\/accounting/);
 });
 
-test('isolated final database acceptance requires Schema 24 and resolves status transition arguments exactly',()=>{
+test('isolated accounting final acceptance remains schema 24 and resolves status transition arguments exactly',()=>{
   const source=read('scripts/final-acceptance-database.mjs');
   assert.match(source,/max\(version\),0\) from public\.migration_history\)<>24/);
   assert.match(source,/Number\(evidence\.schemaVersion\)!==24/);
