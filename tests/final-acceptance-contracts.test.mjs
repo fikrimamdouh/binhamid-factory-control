@@ -12,24 +12,28 @@ test('automatic device bootstrap grants no business-data capability',()=>{
   assert.match(source,/DEVICE_CAPABILITY_REQUIRED/);
 });
 
-test('production readiness follows schema 25 while accounting final acceptance remains pinned to 24',()=>{
+test('production readiness follows schema 27 while accounting final acceptance remains pinned to 24',()=>{
   const workflow=read('.github/workflows/production-readiness.yml');
   const migrations=read('.github/workflows/apply-pending-migrations.yml');
-  const validation=read('.github/workflows/workshop-migration-025-validation.yml');
+  const migrationValidation=read('.github/workflows/workshop-migration-025-validation.yml');
+  const serviceValidation=read('.github/workflows/workshop-service-02-validation.yml');
   const preflight=read('scripts/governance-migration-preflight.mjs');
   const verify=read('scripts/governance-migration-verify.mjs');
   const runtime=read('api/_lib/routes/system-runtime.js');
   assert.doesNotMatch(workflow,/directOperationsSchema\)!==15|expected schema 15|schema 15/);
-  assert.match(workflow,/directOperationsSchema\)!==25|directOperationsSchema\)===25|directOperationsSchema===25/);
-  assert.match(runtime,/LATEST_REQUIRED_VERSION=25/);
-  assert.match(runtime,/directOperationsSchema:25/);
+  assert.match(workflow,/directOperationsSchema\)!==27|directOperationsSchema\)===27|directOperationsSchema===27/);
+  assert.match(runtime,/LATEST_REQUIRED_VERSION=27/);
+  assert.match(runtime,/directOperationsSchema:27/);
   assert.match(migrations,/024_employee_nickname_and_financial_command_center\.sql/);
-  assert.doesNotMatch(migrations,/025_workshop_central_data_model\.sql/);
+  assert.doesNotMatch(migrations,/025_workshop_central_data_model\.sql|026_workshop_service_rpcs\.sql|027_workshop_service_compatibility\.sql/);
   assert.ok(migrations.includes("ISOLATED_MIGRATION_TARGET: '24'"));
   assert.ok(migrations.includes('$(seq $((current_version + 1)) 24)'));
   assert.match(migrations,/EXPECTED_SCHEMA_VERSION=24/);
-  assert.match(validation,/025_workshop_central_data_model\.sql/);
-  assert.match(validation,/workshop-migration-025:isolated/);
+  assert.match(migrationValidation,/025_workshop_central_data_model\.sql/);
+  assert.match(migrationValidation,/workshop-migration-025:isolated/);
+  assert.match(serviceValidation,/026_workshop_service_rpcs\.sql/);
+  assert.match(serviceValidation,/027_workshop_service_compatibility\.sql/);
+  assert.match(serviceValidation,/workshop-service-02:isolated/);
   assert.match(preflight,/targetVersion=24/);
   assert.match(verify,/targetVersion=24/);
   for(const marker of ['appUsersNickname','employeesNickname','userInvitationsNickname','nicknameSyncTrigger'])assert.match(verify,new RegExp(marker));
@@ -70,9 +74,11 @@ test('Telegram webhook processing is idempotent and unexpected failures are retr
 });
 
 test('security-definer acceptance RPCs are not executable by PUBLIC',()=>{
-  const sql=['supabase/migrations/019_accounting_import_and_telegram_integrity.sql','supabase/migrations/020_accounting_reversal_and_projection_safety.sql','supabase/migrations/021_reversal_ledger_balance_fix.sql'].map(read).join('\n');
-  for(const name of ['claim_telegram_update','complete_telegram_update','fail_telegram_update','reverse_journal_entry','commit_daily_report_acceptance'])assert.match(sql,new RegExp(`revoke all on function public\\.${name}[\\s\\S]{0,300}from public,anon,authenticated`));
-  assert.match(sql,/grant execute[\s\S]*to service_role/);
+  const accountingSql=['supabase/migrations/019_accounting_import_and_telegram_integrity.sql','supabase/migrations/020_accounting_reversal_and_projection_safety.sql','supabase/migrations/021_reversal_ledger_balance_fix.sql'].map(read).join('\n');
+  for(const name of ['claim_telegram_update','complete_telegram_update','fail_telegram_update','reverse_journal_entry','commit_daily_report_acceptance'])assert.match(accountingSql,new RegExp(`revoke all on function public\\.${name}[\\s\\S]{0,300}from public,anon,authenticated`));
+  assert.match(accountingSql,/grant execute[\s\S]*to service_role/);
+  const workshopSql=read('supabase/migrations/026_workshop_service_rpcs.sql');
+  for(const name of ['workshop_create_order','workshop_transition_order','workshop_assign_technician'])assert.match(workshopSql,new RegExp(`revoke all on function public\\.${name}[\\s\\S]{0,500}from public,anon,authenticated`));
 });
 
 test('website and Telegram imports coexist while daily approval keeps one import identity',()=>{
@@ -89,13 +95,16 @@ test('website and Telegram imports coexist while daily approval keeps one import
   assert.match(integrity,/recoveryDuplicate:true/);
 });
 
-test('structured accounting API and page are present',()=>{
+test('structured accounting and workshop APIs are present',()=>{
   assert.equal(exists('api/_lib/routes/accounting.js'),true);
+  assert.equal(exists('api/_lib/routes/workshop.js'),true);
   assert.equal(exists('accounting.html'),true);
   const router=read('api/router.js');
   const vercel=read('vercel.json');
   assert.match(router,/accounting/);
+  assert.match(router,/workshop/);
   assert.match(vercel,/api\/accounting/);
+  assert.match(vercel,/api\/workshop/);
 });
 
 test('isolated accounting final acceptance remains schema 24 and resolves status transition arguments exactly',()=>{
