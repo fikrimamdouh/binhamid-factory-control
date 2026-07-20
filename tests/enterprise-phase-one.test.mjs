@@ -54,7 +54,11 @@ test('central router preserves protected operations and conversation endpoints',
   const management=await read('api/_lib/routes/management.js');
   assert.match(router,/'operations':management\.operations/);
   assert.match(router,/'conversations':management\.conversations/);
-  assert.match(management,/requireAdmin\(req\)/);
+  // الحماية تحولت من رمز الإدارة الصارم إلى صلاحيات مسماة عبر requireCapability
+  // (تقبل رمز الإدارة أو جلسة مستخدم موثقة بدور يملك الصلاحية) — الحارس يتأكد
+  // أن كل نقاط الإدارة ما زالت خلف بوابة اعتماد.
+  assert.match(management,/requireCapability\(req,'/);
+  assert.ok(!/\bjson\(res,200/.test(management.split('\n').find(l=>l.includes('export async function dashboard'))||''),'dashboard must not respond before auth');
 });
 
 test('Vercel rewrites preserve all legacy endpoint URLs',async()=>{

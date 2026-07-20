@@ -38,12 +38,12 @@ function setToken(v){try{localStorage.setItem(TK,v)}catch{}bhWriteCookie(v)}
 const token=()=>localStorage.getItem(TK)||bhReadCookie()||'';
 const rev=()=>Number(localStorage.getItem(RK)||0);
 const setRev=x=>localStorage.setItem(RK,String(Number(x)||0));
-function headers(extra={}){return {'Content-Type':'application/json',...(token()?{Authorization:'Bearer '+token()}:{}),...extra}}
+function headers(extra={}){const realToken=token()==='device-session'?'':token(),uid=String(localStorage.getItem('binhamid_cloud_app_user_id')||'').trim();return {'Content-Type':'application/json',...(realToken?{Authorization:'Bearer '+realToken}:{}),...(uid?{'x-app-user-id':uid}:{}),...extra}}
 async function api(path,opt={}){
   const r=await fetch(path,{...opt,headers:headers(opt.headers||{})}),t=r.headers.get('content-type')||'',d=t.includes('json')?await r.json():await r.text();
   if(r.status===401){S.authorized=false;badge();throw Object.assign(new Error(d?.error||'رمز الدخول غير صحيح'),{status:401})}
   if(!r.ok)throw Object.assign(new Error(d?.error||d?.message||String(d)||('HTTP '+r.status)),{status:r.status});
-  S.authorized=!!token();return d;
+  S.authorized=true;return d;
 }
 
 /* ---------- لقطة البيانات المحلية للمزامنة ---------- */
@@ -56,7 +56,7 @@ function clearQueue(){localStorage.removeItem(QK);S.pending=false}
 function toast(m,bad=false){const e=$('bhSyncToast');if(!e)return;e.textContent=m;e.className='bh-sync-toast on'+(bad?' bad':'');clearTimeout(toast.t);toast.t=setTimeout(()=>e.className='bh-sync-toast',3500)}
 function badge(){
   const e=$('bhCloudBadge');if(!e)return;
-  const text=busy?'مزامنة':!S.configured?'حفظ محلي':S.error?'تعارض/خطأ':S.pending?'بانتظار المزامنة':S.lastSync?'سحابي محفوظ':token()?'سحابي جاهز':'يلزم رمز دخول';
+  const text=busy?'مزامنة':!S.configured?'حفظ محلي':S.error?'تعارض/خطأ':S.pending?'بانتظار المزامنة':S.lastSync?'سحابي محفوظ':(S.authorized||token())?'سحابي جاهز':'يلزم تسجيل دخول';
   e.textContent=text;e.className='bh-cloud-badge '+(busy?'sync':S.error?'err':S.lastSync&&!S.pending?'ok':'');
 }
 async function status(){try{server=await fetch('/api/system/status',{cache:'no-store'}).then(r=>r.json());S.configured=!!server.cloudConfigured;S.error=''}catch(e){S.error=e.message}badge()}
@@ -64,7 +64,7 @@ async function status(){try{server=await fetch('/api/system/status',{cache:'no-s
 /* ---------- الحفظ السحابي (رفع/سحب) ---------- */
 async function push(reason='حفظ تلقائي',force=false){
   if(busy)return;
-  if(!S.configured||!token()){queue();badge();return}
+  if(!S.configured||(!token()&&!localStorage.getItem('binhamid_cloud_app_user_id'))){queue();badge();return}
   const body=JSON.stringify({baseRevision:force?null:rev(),reason,deviceId:device(),payload:shot()});
   if(new Blob([body]).size>4e6){S.error='حجم البيانات أكبر من حد الطلب';queue();badge();return toast('تم الحفظ محليًا لكن المزامنة تحتاج تقسيم البيانات.',true)}
   busy=true;S.error='';badge();
@@ -81,7 +81,7 @@ async function push(reason='حفظ تلقائي',force=false){
 }
 function schedule(r){clearTimeout(timer);timer=setTimeout(()=>push(r),1400)}
 async function pull(){
-  if(!token())return login();
+  if(!token()&&!localStorage.getItem('binhamid_cloud_app_user_id'))return login();
   try{
     const r=await api('/api/state');
     if(!r.payload)return toast('لا توجد نسخة سحابية بعد.');
@@ -109,7 +109,7 @@ function ui(){
   if(tabs&&!$('bhCommsTab')){const b=document.createElement('button');b.id='bhCommsTab';b.innerHTML='<span class="ic">◎</span>مركز الاتصال';b.onclick=open;tabs.appendChild(b)}
   const w=document.querySelector('.wrap');
   if(w&&!$('p-comms')){const p=document.createElement('div');p.className='pane';p.id='p-comms';p.innerHTML='<div id="bhCommsRoot"></div>';w.appendChild(p)}
-  if(!$('bhCloudLogin'))document.body.insertAdjacentHTML('beforeend','<div class="bh-login" id="bhCloudLogin"><div class="bh-login-card"><h2>ربط الجهاز بالنظام السحابي</h2><p>اكتب قيمة BINHAMID_ADMIN_TOKEN المحفوظة في Vercel. لا تُحفظ في GitHub.</p><label>رمز الدخول</label><input type="password" id="bhCloudToken"><div class="bh-actions"><button class="bh-btn ghost" onclick="bhCloudCloseLogin()">إلغاء</button><button class="bh-btn primary" onclick="bhCloudSaveLogin()">حفظ واختبار</button></div></div></div><div class="bh-sync-toast" id="bhSyncToast"></div>');
+  if(!$('bhCloudLogin'))document.body.insertAdjacentHTML('beforeend','<div class="bh-login" id="bhCloudLogin"><div class="bh-login-card"><h2>ربط الجهاز بالنظام السحابي</h2><p>اكتب قيمة BINHAMID_ADMIN_TOKEN المحفوظة في Vercel. لا تُحفظ في GitHub.<br><b>أو الأسهل:</b> سجّل دخول المالك بكود تليجرام من زر البوابة، وسيُفتح مركز الاتصال تلقائيًا بدون هذا الرمز.</p><label>رمز الدخول</label><input type="password" id="bhCloudToken"><div class="bh-actions"><button class="bh-btn ghost" onclick="bhCloudCloseLogin()">إلغاء</button><button class="bh-btn primary" onclick="bhCloudSaveLogin()">حفظ واختبار</button></div></div></div><div class="bh-sync-toast" id="bhSyncToast"></div>');
 }
 function open(){
   if(typeof go==='function')go('comms');else{document.querySelectorAll('.pane').forEach(x=>x.classList.remove('on'));$('p-comms')?.classList.add('on')}
@@ -160,7 +160,7 @@ async function bhAutoApply(){
   }finally{autoBusy=false}
 }
 async function load(){
-  if(!S.configured||!token()){dash=null;return render()}
+  if(!S.configured||(!token()&&!localStorage.getItem('binhamid_cloud_app_user_id'))){dash=null;return render()}
   try{dash=await api('/api/dashboard');S.error='';bhAutoApply()}catch(e){dash=null;S.error=e.message}
   badge();render();
 }
@@ -222,7 +222,7 @@ function viewOverview(){
     +'</div>'
     +'<div class="bh-card bh-c7"><h3>الوضع التشغيلي</h3><div class="bh-status">'
       +'<div class="bh-status-row"><div><b>الحفظ المحلي</b><small>يعمل عند انقطاع الإنترنت.</small></div>'+pill(true)+'</div>'
-      +'<div class="bh-status-row"><div><b>الحفظ السحابي</b><small>Revision '+rev()+' — '+device()+'</small></div>'+pill(S.configured&&!!token())+'</div>'
+      +'<div class="bh-status-row"><div><b>الحفظ السحابي</b><small>Revision '+rev()+' — '+device()+'</small></div>'+pill(S.configured&&(S.authorized||!!token()))+'</div>'
     +'</div></div>'
     +'<div class="bh-card bh-c5"><h3>قاعدة الرقابة</h3><div class="bh-note">كل ملف أو صوت أو موافقة تُحفظ أولًا كمعاملة تحت المراجعة، ولا تتحول تلقائيًا إلى اعتماد مالي.</div></div>'
     +'<div class="bh-card bh-c12"><h3>أحدث الملفات الواردة</h3>'+recentImports()+'</div>'

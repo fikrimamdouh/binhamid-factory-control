@@ -1,4 +1,4 @@
-import { requireAdmin } from '../auth.js';
+import { requireCapability } from '../permissions.js';
 import { json, method, body, errorResponse } from '../http.js';
 import { select, insert, patch, rpc, downloadObject } from '../supabase.js';
 import { sendMessage } from '../telegram.js';
@@ -17,7 +17,7 @@ async function safeSelect(table,query){try{return await select(table,query)||[];
 export async function dashboard(req,res){
   if(!method(req,res,['GET']))return;
   try{
-    requireAdmin(req);
+    await requireCapability(req,'dashboard.manager');
     const today=new Date().toISOString().slice(0,10);
     const [imports,approvals,discrepancies,groups,users,messages]=await Promise.all([
       select('imports','select=id,created_at,department,report_type,status,original_name,row_count,error_count,warning_count,summary&order=created_at.desc&limit=30'),
@@ -81,7 +81,7 @@ async function downloadConversationFile(res,messageId){
   res.statusCode=200;res.setHeader('Content-Type',row.mime_type||file.contentType||'application/octet-stream');res.setHeader('Content-Disposition',`inline; filename*=UTF-8''${encodeURIComponent(name)}`);res.setHeader('Cache-Control','private, no-store');res.end(file.buffer);
 }
 async function sendAdminReply(req,res){
-  const actor=requireAdmin(req),input=await body(req),chatId=clean(input.chatId,100),text=clean(input.text,12000);
+  const actor=await requireCapability(req,'conversations.manage'),input=await body(req),chatId=clean(input.chatId,100),text=clean(input.text,12000);
   if(!chatId)throw Object.assign(new Error('رقم المحادثة مطلوب'),{status:400});
   if(!text)throw Object.assign(new Error('نص الرد مطلوب'),{status:400});
   const parts=[];for(let offset=0;offset<text.length;offset+=3500)parts.push(text.slice(offset,offset+3500));
@@ -93,7 +93,7 @@ export async function conversations(req,res){
   if(!method(req,res,['GET','POST']))return;
   try{
     if(req.method==='POST')return await sendAdminReply(req,res);
-    requireAdmin(req);const p=params(req),downloadId=clean(p.get('download'),100);
+    await requireCapability(req,'conversations.manage');const p=params(req),downloadId=clean(p.get('download'),100);
     if(downloadId)return await downloadConversationFile(res,downloadId);
     const chatId=clean(p.get('chatId'),100),search=normalize(p.get('q')),limit=clamp(p.get('limit'),1,1000,300),before=clean(p.get('before'),100),direction=clean(p.get('direction'),20),messageType=clean(p.get('messageType'),30),status=clean(p.get('status'),20),role=clean(p.get('role'),80),chatType=clean(p.get('chatType'),30),from=clean(p.get('from'),10),to=clean(p.get('to'),10);
     if(direction&&!['incoming','outgoing','system'].includes(direction))throw Object.assign(new Error('اتجاه الرسالة غير صحيح'),{status:400});
@@ -146,7 +146,7 @@ async function enqueueNotification(input,actor){
 export async function operations(req,res){
   if(!method(req,res,['GET','POST']))return;
   try{
-    const actor=requireAdmin(req);
+    const actor=await requireCapability(req,'operations.manage');
     if(req.method==='POST'){
       const input=await body(req),action=clean(input.action,50);let result;
       if(action==='set_status')result=await setOperationStatus(input,actor);
@@ -170,7 +170,7 @@ export async function operations(req,res){
 export async function reports(req,res){
   if(!method(req,res,['GET']))return;
   try{
-    requireAdmin(req);const p=params(req),today=new Date().toISOString().slice(0,10),from=isoDate(p.get('from'),today),to=isoDate(p.get('to'),today),start=`${from}T00:00:00Z`,end=`${to}T23:59:59.999Z`;
+    await requireCapability(req,'dashboard.manager');const p=params(req),today=new Date().toISOString().slice(0,10),from=isoDate(p.get('from'),today),to=isoDate(p.get('to'),today),start=`${from}T00:00:00Z`,end=`${to}T23:59:59.999Z`;
     const [sales,maintenance,inventory,collections,quality,attendance,fleet,dailyReports,finance,purchases,tasks]=await Promise.all([
       safeSelect('sales_orders',`created_at=gte.${encodeURIComponent(start)}&created_at=lte.${encodeURIComponent(end)}&select=reference_no,sales_type,customer_name,item,quantity,total_amount,delivery_date,status,sales_person_name,created_at&order=created_at.desc&limit=5000`),
       safeSelect('maintenance_orders',`reported_at=gte.${encodeURIComponent(start)}&reported_at=lte.${encodeURIComponent(end)}&select=reference_no,plate_snapshot,problem,status,priority,vehicle_stopped,estimated_cost,actual_cost,reported_at&order=reported_at.desc&limit=3000`),

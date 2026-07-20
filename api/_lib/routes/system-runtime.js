@@ -1,4 +1,4 @@
-import { requireAdmin } from '../auth.js';
+import { requireCapability } from '../permissions.js';
 import { readiness, validateEnvironment } from '../config.js';
 import { json, method, errorResponse } from '../http.js';
 import { select } from '../supabase.js';
@@ -49,7 +49,7 @@ export async function collectDatabaseReadiness(){
 
 export async function databaseReadiness(req,res){
   if(!method(req,res,['GET']))return;
-  try{requireAdmin(req);const database=await collectDatabaseReadiness(),environment=validateEnvironment('runtime');json(res,200,{ok:database.ready,...database,environment:{ready:environment.ready,missingRequired:environment.missingRequired,checks:environment.checks.map(({name,configured,required,description})=>({name,configured,required,description}))},nextStep:database.ready?'قاعدة البيانات متوافقة مع Migration 024.':'شغّل migrations المفقودة بالترتيب ثم أعد الفحص.'});}catch(error){errorResponse(res,error);}
+  try{await requireCapability(req,'system.diagnostics');const database=await collectDatabaseReadiness(),environment=validateEnvironment('runtime');json(res,200,{ok:database.ready,...database,environment:{ready:environment.ready,missingRequired:environment.missingRequired,checks:environment.checks.map(({name,configured,required,description})=>({name,configured,required,description}))},nextStep:database.ready?'قاعدة البيانات متوافقة مع Migration 024.':'شغّل migrations المفقودة بالترتيب ثم أعد الفحص.'});}catch(error){errorResponse(res,error);}
 }
 
 export async function status(req,res){

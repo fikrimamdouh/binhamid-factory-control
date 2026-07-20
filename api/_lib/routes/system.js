@@ -1,4 +1,4 @@
-import { requireAdmin } from '../auth.js';
+import { requireCapability } from '../permissions.js';
 import { readiness } from '../config.js';
 import { json, method, errorResponse } from '../http.js';
 import { select } from '../supabase.js';
@@ -8,7 +8,7 @@ const REQUIRED=['app_users','user_channels','telegram_groups','telegram_messages
 export async function databaseReadiness(req,res){
   if(!method(req,res,['GET']))return;
   try{
-    requireAdmin(req);
+    await requireCapability(req,'system.diagnostics');
     const results=await Promise.all(REQUIRED.map(async table=>{try{await select(table,'select=*&limit=1');return{table,ready:true};}catch(error){return{table,ready:false,error:error.message};}}));
     const missing=results.filter(x=>!x.ready);
     json(res,200,{ok:missing.length===0,ready:missing.length===0,total:results.length,available:results.filter(x=>x.ready).map(x=>x.table),missing});

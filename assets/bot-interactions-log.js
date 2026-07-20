@@ -74,7 +74,10 @@
   }
 
   async function api(url){
-    var r=await fetch(url,{credentials:'same-origin',cache:'no-store'});
+    var tk=String(localStorage.getItem('binhamid_cloud_access_token')||'');if(tk==='device-session')tk='';
+    var uid=String(localStorage.getItem('binhamid_cloud_app_user_id')||'').trim();
+    var h={};if(tk)h.Authorization='Bearer '+tk;if(uid)h['x-app-user-id']=uid;
+    var r=await fetch(url,{credentials:'same-origin',cache:'no-store',headers:h});
     var d=await r.json().catch(function(){return{};});
     if(!r.ok||d.ok===false)throw new Error(d.error||('HTTP '+r.status));
     return d;
