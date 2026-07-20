@@ -91,9 +91,9 @@ test('sync conflict and Telegram WebApp validation remain server-side',async()=>
   assert.match(driver,/vehicleFor/);assert.match(driver,/client_event_id/);assert.match(driver,/receiptDataUrl/);assert.match(driver,/مركبة مسندة/);
 });
 
-test('readiness requires schema 24 and reports accounting, governance and reset gaps',async()=>{
+test('readiness requires schema 25 and reports workshop, accounting, governance and reset gaps',async()=>{
   const readiness=await read('api/_lib/routes/system-runtime.js');
-  assert.match(readiness,/LATEST_REQUIRED_VERSION=24/);
-  for(const marker of ['missingTables','missingColumns','missingMigrations','migration_history.sequence','collectDatabaseReadiness','financial_periods','credit_override_requests','unified_assets','compliance_documents','handover_acceptance_runs','control_asset_duplicates','credit_override_id','chart_of_accounts','journal_entries','journal_entry_lines','general_ledger','trial_balance','accounting_integrity_report','telegram_update_receipts','user_invitations','nickname'])assert.match(readiness,new RegExp(marker));
+  assert.match(readiness,/LATEST_REQUIRED_VERSION=25/);
+  for(const marker of ['missingTables','missingColumns','missingMigrations','migration_history.sequence','collectDatabaseReadiness','financial_periods','credit_override_requests','unified_assets','compliance_documents','handover_acceptance_runs','control_asset_duplicates','credit_override_id','chart_of_accounts','journal_entries','journal_entry_lines','general_ledger','trial_balance','accounting_integrity_report','telegram_update_receipts','user_invitations','nickname','maintenance_reconciliation_queue','maintenance_status_history','maintenance_parts','workshop_daily_reports','workshop_order_cost_summary','workshop_order_aging'])assert.match(readiness,new RegExp(marker));
   assert.doesNotMatch(readiness,/ready:\s*true,\s*schemaVersion/);
 });
