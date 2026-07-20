@@ -42,11 +42,20 @@ export default async function handler(req,res){
     // يكتب حالة خالية فوق حالة سحابية مليانة فتختفي بيانات العملاء والأرصدة.
     // الحفظ يُرفض إذا كانت الحالة الجديدة فارغة والمحفوظة غير فارغة، إلا
     // بتأكيد صريح (force) — مثل حالة التصفير المتعمد.
-    const sizeOf=payload=>((payload?.legacy?.cli||[]).length)+((payload?.ops?.customerOpeningBalances||[]).length);
     if(input.force!==true){
       const currentRows=await select('app_state','key=eq.primary&select=payload&limit=1').catch(()=>[]);
-      const currentSize=sizeOf(currentRows?.[0]?.payload),incomingSize=sizeOf(input.payload);
-      if(currentSize>0&&incomingSize===0)throw Object.assign(new Error(`الحفظ متوقف لحمايتك: الجهاز الحالي لا يحتوي بيانات عملاء بينما النسخة السحابية تحتوي ${currentSize} سجلًا. افتح البرنامج على الجهاز الذي فيه بياناتك وزامن منه.`),{status:409,code:'EMPTY_STATE_BLOCKED'});
+      const current=currentRows?.[0]?.payload||null;
+      // كل مجموعة تُحمى على حدة: فقدان الأرصدة الافتتاحية وحده كان يمر دون
+      // اعتراض لأن قائمة العملاء تظل ممتلئة، فتختفي كل المديونيات بصمت.
+      const groups=[
+        ['legacy.cli','بيانات العملاء',payload=>payload?.legacy?.cli],
+        ['ops.customerOpeningBalances','الأرصدة الافتتاحية للعملاء',payload=>payload?.ops?.customerOpeningBalances]
+      ];
+      for(const[,label,pick]of groups){
+        const stored=pick(current),incoming=pick(input.payload);
+        const storedCount=Array.isArray(stored)?stored.length:0,incomingCount=Array.isArray(incoming)?incoming.length:0;
+        if(storedCount>0&&incomingCount===0)throw Object.assign(new Error(`الحفظ متوقف لحمايتك: الجهاز الحالي لا يحتوي ${label} بينما النسخة السحابية تحتوي ${storedCount} سجلًا. افتح البرنامج على الجهاز الذي فيه بياناتك وزامن منه.`),{status:409,code:'EMPTY_STATE_BLOCKED'});
+      }
     }
     const result=await rpc('save_app_state',{p_payload:input.payload,p_base_revision:input.baseRevision===null||input.baseRevision===undefined?null:Number(input.baseRevision),p_updated_by:actor.actor,p_device_id:deviceId,p_reason:clean(input.reason||'مزامنة',300)}),saved=Array.isArray(result)?result[0]:result;
     await syncMasters(input.payload).catch(error=>console.error('master sync failed',error));
