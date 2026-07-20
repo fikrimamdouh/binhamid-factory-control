@@ -38,7 +38,7 @@ export function isFaultMessage(text = '') { return /عطل|خرب|مشكلة|ت�
 export function allowed(role, action) {
   if (role === 'admin') return true;
   const map = {
-    manager: ['report','approve','reject','view','attendance','location','fleet'],
+    manager: ['report','approve','reject','view','attendance','location','fleet','maintenance'],
     accountant: ['finance','upload','invoice','payroll','view','collection'],
     mechanic: ['maintenance','upload','view','fleet'],
     block_sales: ['block','upload','view','collection','trip'],
