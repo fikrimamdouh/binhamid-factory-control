@@ -9,6 +9,7 @@ on:
       - '.github/workflows/workshop-baseline.yml'
       - 'scripts/workshop-baseline.mjs'
       - 'scripts/resolve-supabase-connection.mjs'
+      - 'docs/workshop-baseline-2026-07-20.md'
   pull_request:
     branches:
       - main
@@ -16,6 +17,7 @@ on:
       - '.github/workflows/workshop-baseline.yml'
       - 'scripts/workshop-baseline.mjs'
       - 'scripts/resolve-supabase-connection.mjs'
+      - 'docs/workshop-baseline-2026-07-20.md'
 
 permissions:
   contents: read
