@@ -43,7 +43,12 @@ async function convertToPdf(html){
 }
 export async function sendOperationalDocument(message,identity,kind){
   if(!['admin','manager','accountant'].includes(identity?.role))return sendMessage(message.chat.id,'إنشاء التقارير التنفيذية متاح للإدارة والمحاسب.');
-  const title=reportTitle(kind),body=await reportBody(kind),verification=crypto.randomBytes(8).toString('hex').toUpperCase(),requestedBy=displayName(identity,message.from),verifyUrl=`${publicBase()}/verify-document.html?code=${encodeURIComponent(verification)}`,html=htmlDocument({title,body,requestedBy,verification,verifyUrl}),hash=crypto.createHash('sha256').update(html).digest('hex');
+  const title=reportTitle(kind),body=await reportBody(kind);
+  // لا نستهلك رصيد خدمة PDF على تقرير فاضي: لو الجدول بلا صفوف بيانات
+  // (صف العناوين فقط أو لا شيء) نبلّغ المستخدم مباشرة ونتوقف.
+  const dataRows=(String(body).match(/<tr/g)||[]).length-(String(body).match(/<th/g)?1:0);
+  if(dataRows<1)return sendMessage(message.chat.id,`<b>${esc(title)}</b>\n\nالتقرير فاضي — لا توجد بيانات مسجّلة لهذه الفترة، فلم يتم إنشاء ملف PDF.`);
+  const verification=crypto.randomBytes(8).toString('hex').toUpperCase(),requestedBy=displayName(identity,message.from),verifyUrl=`${publicBase()}/verify-document.html?code=${encodeURIComponent(verification)}`,html=htmlDocument({title,body,requestedBy,verification,verifyUrl}),hash=crypto.createHash('sha256').update(html).digest('hex');
   await insert('document_registry',[{verification_code:verification,document_type:kind,title,content_hash:hash,requested_by:identity?.user_id||null,requested_by_name:requestedBy,source_chat_id:String(message.chat.id),source_message_id:String(message.message_id||''),status:'valid',metadata:{format:'html',verify_url:verifyUrl}}]);
   try{
     const pdf=await convertToPdf(html);

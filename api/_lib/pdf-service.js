@@ -48,11 +48,16 @@ async function cloudflarePdf(html,{landscape=false}={}){
   }
   const headers={'Content-Type':'application/json'};
   if(config.pdfApiKey)headers.Authorization=`Bearer ${config.pdfApiKey}`;
-  const response=await fetch(cleanUrl(config.pdfApiUrl),{
+  const send=()=>fetch(cleanUrl(config.pdfApiUrl),{
     method:'POST',headers,
     body:JSON.stringify({html:String(html||''),pdfOptions:{format:'a4',landscape:Boolean(landscape),printBackground:true}}),
     signal:AbortSignal.timeout(45_000)
   });
+  let response=await send();
+  // الخطة المجانية تسمح بمتصفحين متزامنين فقط، فتزاحم طلبين معًا يعطي 429.
+  // محاولة واحدة بعد مهلة قصيرة تكفي عادةً بدل إزعاج المستخدم برسالة فشل.
+  if(response.status===429){await new Promise(done=>setTimeout(done,3000));response=await send();}
+  if(response.status===429)throw Object.assign(new Error('خدمة PDF مشغولة الآن (تجاوز حد الطلبات المتزامنة). انتظر دقيقة ثم أعد المحاولة.'),{status:503,code:'PDF_RATE_LIMITED',upstreamStatus:429});
   if(!response.ok){
     const detail=(await response.text().catch(()=>'' )).replace(/\s+/g,' ').slice(0,300);
     throw Object.assign(new Error(`تعذر إنشاء PDF عبر Cloudflare: ${response.status}${detail?` — ${detail}`:''}`),{status:502,code:'PDF_SERVICE_FAILED',upstreamStatus:response.status});
