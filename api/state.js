@@ -38,6 +38,16 @@ export default async function handler(req,res){
     if(!input.payload||typeof input.payload!=='object')throw Object.assign(new Error('حالة البرنامج غير موجودة'),{status:400});
     if(!input.payload.legacy||!input.payload.ops)throw Object.assign(new Error('الحالة المرسلة ناقصة'),{status:400});
     if(actor.kind==='device'&&deviceId!==actor.deviceId)throw Object.assign(new Error('معرف الجهاز لا يطابق جلسة الربط'),{status:403,code:'DEVICE_ID_MISMATCH'});
+    // حماية من محو البيانات: جهاز فاضي (متصفح جديد أو تحميل فشل) كان يقدر
+    // يكتب حالة خالية فوق حالة سحابية مليانة فتختفي بيانات العملاء والأرصدة.
+    // الحفظ يُرفض إذا كانت الحالة الجديدة فارغة والمحفوظة غير فارغة، إلا
+    // بتأكيد صريح (force) — مثل حالة التصفير المتعمد.
+    const sizeOf=payload=>((payload?.legacy?.cli||[]).length)+((payload?.ops?.customerOpeningBalances||[]).length);
+    if(input.force!==true){
+      const currentRows=await select('app_state','key=eq.primary&select=payload&limit=1').catch(()=>[]);
+      const currentSize=sizeOf(currentRows?.[0]?.payload),incomingSize=sizeOf(input.payload);
+      if(currentSize>0&&incomingSize===0)throw Object.assign(new Error(`الحفظ متوقف لحمايتك: الجهاز الحالي لا يحتوي بيانات عملاء بينما النسخة السحابية تحتوي ${currentSize} سجلًا. افتح البرنامج على الجهاز الذي فيه بياناتك وزامن منه.`),{status:409,code:'EMPTY_STATE_BLOCKED'});
+    }
     const result=await rpc('save_app_state',{p_payload:input.payload,p_base_revision:input.baseRevision===null||input.baseRevision===undefined?null:Number(input.baseRevision),p_updated_by:actor.actor,p_device_id:deviceId,p_reason:clean(input.reason||'مزامنة',300)}),saved=Array.isArray(result)?result[0]:result;
     await syncMasters(input.payload).catch(error=>console.error('master sync failed',error));
     await insert('audit_log',[{actor_type:actor.kind==='device'?'device':'web',actor_id:actor.actor,action:'state_sync',entity_type:'app_state',entity_id:'primary',details:{reason:clean(input.reason,300),deviceId,revision:saved?.revision}}],{prefer:'return=minimal'}).catch(()=>{});
