@@ -9,7 +9,7 @@ const boolValue=(value,fallback=false)=>value===undefined||value===null?fallback
 function serviceError(message,status=400,code='WORKSHOP_INVALID_REQUEST',extra={}){return Object.assign(new Error(message),{status,code,...extra});}
 function first(value){return Array.isArray(value)?value[0]??null:value??null;}
 function referenceFrom(value){const row=first(value);return clean(row?.next_document_no??row,100);}
-function actorId(identity={}){return clean(identity.appUserId||identity.actor||identity.id,100)||null;}
+function actorId(identity={}){return clean(identity.appUserId||identity.user_id||identity.userId||identity.actor||identity.id,100)||null;}
 function actorRole(identity={}){return clean(identity.role,50)||'pending';}
 function sourceChannel(input={}){return clean(input.sourceChannel,30)||'web';}
 function encodeFilter(value){return encodeURIComponent(String(value));}
@@ -175,4 +175,4 @@ export async function getWorkshopReconciliation(filters={}){
   const status=clean(filters.status,30)||'pending',query=[`status=eq.${encodeFilter(status)}`,'select=*','order=created_at.asc','limit=500'];return select('maintenance_reconciliation_queue',query.join('&'));
 }
 
-export const workshopServiceInternals={clean,uuid,mapServiceError,numberOrNull};
+export const workshopServiceInternals={clean,uuid,mapServiceError,numberOrNull,actorId};
