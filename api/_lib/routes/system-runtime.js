@@ -68,5 +68,19 @@ export async function status(req,res){
     pathLooksCorrect:/\/browser-rendering\/pdf\/?$/i.test(pdfUrl),
     keyLooksLikeGlobalApiKey:pdfKey.length>0&&pdfKey.length<=37&&/^[0-9a-f]+$/i.test(pdfKey)
   };
-  json(res,200,{ok:true,version:'2026.07.18-schema-24-financial-command-center',...base,pdfDiagnostics,publicUrlConfigured:Boolean(process.env.PUBLIC_APP_URL||process.env.VERCEL_PROJECT_PRODUCTION_URL),placesConfigured:Boolean(process.env.GOOGLE_PLACES_API_KEY||process.env.PLACES_DIRECTORY_KEY),pdfConfigured:Boolean(process.env.PDF_API_URL||process.env.PDF_SERVICE_URL),webhookVersion:3,directOperationsSchema:24,conversationHistory:true,operationsActions:true,reportsCenter:true,documentVerification:true,notificationOutbox:true,schedulerWorkflow:true,dailyReportImport:true,dailyReportIdempotency:true,dailyReportCustomerMaster:true,fifoReplay:true,costLedgerFoundation:true,costEngine:true,maintenanceCostReversals:true,granularPermissions:true,backupTooling:true,gpsAdapter:true,financialPeriodClose:true,creditOverrideWorkflow:true,unifiedAssetRegister:true,complianceRegister:true,custodyControl:true,restoreTestRegister:true,handoverAcceptance:true,governanceCenter:true,creditBreachDiscrepancies:true,assetDuplicateControl:true,accountingLedger:true,balancedJournalPosting:true,correctReversalLedger:true,telegramUpdateIdempotency:true,importLifecycle:true,factoryOperationalReset:true,employeeNickname:true,financialDirector:true,administrativeControlCenter:true,vercelFunctionsExpected:6});
+  // فحص سلامة البيانات السحابية: مؤشرات وجود فقط وتواريخ — بدون أي بيانات
+  // عملاء أو أرصدة — لتحديد إن كانت الحالة قد استُبدلت بنسخة فارغة ومتى.
+  let stateDiagnostics={};
+  try{
+    const stateRows=await select('app_state','key=eq.primary&select=revision,updated_at,updated_by,device_id,payload&limit=1');
+    const row=stateRows?.[0]||null,payload=row?.payload||{};
+    const clients=payload?.legacy?.cli,opening=payload?.ops?.customerOpeningBalances;
+    stateDiagnostics={
+      exists:Boolean(row),revision:row?.revision??null,updatedAt:row?.updated_at??null,
+      updatedBy:String(row?.updated_by||'').slice(0,24),deviceIdTail:String(row?.device_id||'').slice(-6),
+      hasClients:Array.isArray(clients)&&clients.length>0,clientsCount:Array.isArray(clients)?clients.length:0,
+      hasOpeningBalances:Array.isArray(opening)&&opening.length>0,openingCount:Array.isArray(opening)?opening.length:0
+    };
+  }catch(error){stateDiagnostics={error:String(error?.message||error).slice(0,120)};}
+  json(res,200,{ok:true,version:'2026.07.18-schema-24-financial-command-center',...base,pdfDiagnostics,stateDiagnostics,publicUrlConfigured:Boolean(process.env.PUBLIC_APP_URL||process.env.VERCEL_PROJECT_PRODUCTION_URL),placesConfigured:Boolean(process.env.GOOGLE_PLACES_API_KEY||process.env.PLACES_DIRECTORY_KEY),pdfConfigured:Boolean(process.env.PDF_API_URL||process.env.PDF_SERVICE_URL),webhookVersion:3,directOperationsSchema:24,conversationHistory:true,operationsActions:true,reportsCenter:true,documentVerification:true,notificationOutbox:true,schedulerWorkflow:true,dailyReportImport:true,dailyReportIdempotency:true,dailyReportCustomerMaster:true,fifoReplay:true,costLedgerFoundation:true,costEngine:true,maintenanceCostReversals:true,granularPermissions:true,backupTooling:true,gpsAdapter:true,financialPeriodClose:true,creditOverrideWorkflow:true,unifiedAssetRegister:true,complianceRegister:true,custodyControl:true,restoreTestRegister:true,handoverAcceptance:true,governanceCenter:true,creditBreachDiscrepancies:true,assetDuplicateControl:true,accountingLedger:true,balancedJournalPosting:true,correctReversalLedger:true,telegramUpdateIdempotency:true,importLifecycle:true,factoryOperationalReset:true,employeeNickname:true,financialDirector:true,administrativeControlCenter:true,vercelFunctionsExpected:6});
 }
