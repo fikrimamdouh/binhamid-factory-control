@@ -29,7 +29,7 @@ const cfoRequested=(raw,value)=>/^\/(cfo|finance_manager)(?:@\w+)?$/i.test(raw)|
 async function deleteRows(table,query=''){try{const rows=await remove(table,query);return{table,count:Array.isArray(rows)?rows.length:0,error:''};}catch(error){console.warn('[telegram test reset]',{table,message:String(error?.message||'').slice(0,240)});return{table,count:0,error:String(error?.message||'تعذر الحذف').slice(0,180)};}}
 async function resetTelegramTestData(message,identity){
   if(!isOwner(identity))return sendMessage(message.chat.id,'تنظيف بيانات Telegram التجريبية متاح للمالك فقط.');
-  const owner=ownerExternalId(),pendingUsers=await select('app_users',`external_id=neq.${encodeURIComponent(owner)}&active=eq.false&role=eq.pending&select=id,external_id&limit=500`).catch(()=>[]),ids=(pendingUsers||[]).map(row=>String(row.id||'')).filter(Boolean),results=[];
+  const pendingUsers=await select('app_users','active=eq.false&role=eq.pending&select=id&limit=500').catch(()=>[]),ids=(pendingUsers||[]).map(row=>String(row.id||'')).filter(Boolean),results=[];
   for(const table of ['telegram_messages','telegram_update_receipts','bot_sessions','user_invitations','telegram_groups'])results.push(await deleteRows(table));
   if(ids.length){const inList=ids.join(',');results.push(await deleteRows('user_capabilities',`app_user_id=in.(${inList})`));results.push(await deleteRows('app_users',`id=in.(${inList})`));}
   const removed=results.reduce((sum,row)=>sum+Number(row.count||0),0),errors=results.filter(row=>row.error),lines=results.filter(row=>row.count||row.error).map(row=>`• ${row.table}: ${row.error?`تعذر — ${row.error}`:`${row.count} سجل`}`);
