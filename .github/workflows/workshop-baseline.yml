@@ -9,6 +9,13 @@ on:
       - '.github/workflows/workshop-baseline.yml'
       - 'scripts/workshop-baseline.mjs'
       - 'scripts/resolve-supabase-connection.mjs'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/workshop-baseline.yml'
+      - 'scripts/workshop-baseline.mjs'
+      - 'scripts/resolve-supabase-connection.mjs'
 
 permissions:
   contents: read
