@@ -33,6 +33,9 @@ async function dashboardAccess(req){
   }
 }
 
+// ملاحظة: جدول app_users لا يحتوي عمود external_id، وtelegram_messages لا يحتوي
+// sender_role. كان استدعاؤهما يُفشل الاستعلامين بالكامل عبر safeSelect فيرجعان
+// فارغين بصمت، فتظهر كل الأدوار pending ويظهر سجل البوت فاضيًا رغم صحة البيانات.
 export async function dashboard(req,res){
   if(!method(req,res,['GET']))return;
   try{
@@ -47,8 +50,8 @@ export async function dashboard(req,res){
       safeSelect('imports',importsQuery),
       safeSelect('telegram_groups','select=id,chat_id,title,department,active,status,last_seen_at,updated_at&order=last_seen_at.desc&limit=250'),
       safeSelect('user_channels','select=*&order=created_at.desc&limit=1000'),
-      safeSelect('app_users','select=id,external_id,employee_external_id,full_name,nickname,role,active,created_at,updated_at&order=created_at.desc&limit=1000'),
-      safeSelect('telegram_messages',`created_at=gte.${encodeURIComponent(new Date(Date.now()-30*24*36e5).toISOString())}&select=direction,sender_external_id,sender_name,sender_role,message_type,text,transcription,file_name,delivery_status,action_name,created_at&order=created_at.desc&limit=10000`)
+      safeSelect('app_users','select=id,employee_external_id,full_name,nickname,role,active,created_at,updated_at&order=created_at.desc&limit=1000'),
+      safeSelect('telegram_messages',`created_at=gte.${encodeURIComponent(new Date(Date.now()-30*24*36e5).toISOString())}&select=direction,sender_external_id,sender_name,message_type,text,transcription,file_name,delivery_status,action_name,created_at&order=created_at.desc&limit=10000`)
     ]);
     const appById=new Map(appUsers.map(row=>[String(row.id),row]));
     const users=channels.map(channel=>{
