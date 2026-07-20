@@ -59,6 +59,9 @@ export async function startMechanicAction(message,identity,action){
     if(!canViewWorkshop(role))return sendMessage(chatId,'ليست لديك صلاحية عرض سجل الورشة.');
     if(action==='tasks')return sendOpenWorkshopTasks(chatId);
     if(action==='summary')return sendWorkshopSummary(chatId);
+    // زر «💰 طلبات تسعير الورشة» كان موجودًا في القائمة بلا معالج، فكان الضغط
+    // عليه لا يفعل شيئًا لأي دور. الدالة نفسها كانت متاحة بالأمر النصي فقط.
+    if(action==='price_requests')return sendPriceRequests(chatId);
     return sendPriceRequests(chatId);
   }
   if(!isWorkshopOperator(role))return sendMessage(chatId,'تسجيل أعمال الورشة متاح لمسؤول الورشة ومدير المصنع ومدير النظام فقط.');
