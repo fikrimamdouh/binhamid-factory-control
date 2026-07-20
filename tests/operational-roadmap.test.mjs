@@ -29,6 +29,8 @@ test('server capabilities are explicit and admin remains wildcard',()=>{
   assert.equal(roleAllows('accountant','daily_report.approve'),true);
   assert.equal(roleAllows('accountant','financial_period.manage'),true);
   assert.equal(roleAllows('manager','credit_override.approve'),true);
+  assert.equal(roleAllows('manager','workshop.approve'),true);
+  assert.equal(roleAllows('mechanic','workshop.create'),true);
   assert.equal(roleAllows('driver','daily_report.view'),false);
   assert.ok(capabilitiesForRole('manager').includes('governance.view'));
 });
@@ -78,8 +80,8 @@ test('migrations 011 through 018 contain non-destructive operational and governa
 
 test('router keeps enterprise features consolidated under one Vercel function',async()=>{
   const router=await read('api/router.js'),vercel=JSON.parse(await read('vercel.json'));
-  for(const route of ["'daily-report'","'daily-report/fifo'","'costs'","'driver/webapp'","'resilience'","'dashboard'","'control-center'","'governance'"])assert.ok(router.includes(route));
-  for(const source of ['/api/daily-report','/api/daily-report/fifo','/api/costs','/api/driver/webapp','/api/resilience','/api/control-center','/api/governance'])assert.ok(vercel.rewrites.some(item=>item.source===source));
+  for(const route of ["'daily-report'","'daily-report/fifo'","'costs'","'driver/webapp'","'resilience'","'dashboard'","'control-center'","'governance'","'workshop'"])assert.ok(router.includes(route));
+  for(const source of ['/api/daily-report','/api/daily-report/fifo','/api/costs','/api/driver/webapp','/api/resilience','/api/control-center','/api/governance','/api/workshop'])assert.ok(vercel.rewrites.some(item=>item.source===source));
   assert.equal(Object.keys(vercel.functions).length,1);
 });
 
@@ -91,9 +93,9 @@ test('sync conflict and Telegram WebApp validation remain server-side',async()=>
   assert.match(driver,/vehicleFor/);assert.match(driver,/client_event_id/);assert.match(driver,/receiptDataUrl/);assert.match(driver,/مركبة مسندة/);
 });
 
-test('readiness requires schema 25 and reports workshop, accounting, governance and reset gaps',async()=>{
+test('readiness requires schema 27 and reports workshop service, accounting, governance and reset gaps',async()=>{
   const readiness=await read('api/_lib/routes/system-runtime.js');
-  assert.match(readiness,/LATEST_REQUIRED_VERSION=25/);
-  for(const marker of ['missingTables','missingColumns','missingMigrations','migration_history.sequence','collectDatabaseReadiness','financial_periods','credit_override_requests','unified_assets','compliance_documents','handover_acceptance_runs','control_asset_duplicates','credit_override_id','chart_of_accounts','journal_entries','journal_entry_lines','general_ledger','trial_balance','accounting_integrity_report','telegram_update_receipts','user_invitations','nickname','maintenance_reconciliation_queue','maintenance_status_history','maintenance_parts','workshop_daily_reports','workshop_order_cost_summary','workshop_order_aging'])assert.match(readiness,new RegExp(marker));
+  assert.match(readiness,/LATEST_REQUIRED_VERSION=27/);
+  for(const marker of ['missingTables','missingColumns','missingMigrations','migration_history.sequence','collectDatabaseReadiness','financial_periods','credit_override_requests','unified_assets','compliance_documents','handover_acceptance_runs','control_asset_duplicates','credit_override_id','chart_of_accounts','journal_entries','journal_entry_lines','general_ledger','trial_balance','accounting_integrity_report','telegram_update_receipts','user_invitations','nickname','maintenance_reconciliation_queue','maintenance_status_history','maintenance_parts','workshop_daily_reports','workshop_command_receipts','assigned_technician_id','workshop_order_cost_summary','workshop_order_aging','workshopCentralService','workshopAtomicTransitions'])assert.match(readiness,new RegExp(marker));
   assert.doesNotMatch(readiness,/ready:\s*true,\s*schemaVersion/);
 });
