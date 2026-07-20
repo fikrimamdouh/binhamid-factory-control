@@ -11,7 +11,7 @@ import { handleExcel, handleAttachment } from './bot-files.js';
 import { getBotSession, createMaintenanceDraft, continueWaitingPlate, confirmMaintenance, cancelMaintenance, chooseVehicle } from './bot-maintenance.js';
 import { handleBuiltInCommand } from './bot-commands.js';
 import { transcribeTelegramVoice, voiceFailureMessage } from './bot-voice.js';
-import { handleMechanicTextCommand, continueMechanicSession, startMechanicAction, confirmSparePartsRequest, showMechanicMenu } from './bot-mechanic.js';
+import { handleMechanicTextCommand, continueMechanicSession, startMechanicAction, confirmSparePartsRequest, showMechanicMenu, handleWorkshopBotCallback } from './bot-mechanic.js';
 import { sendExecutiveWorkshopStatus } from './bot-workshop-dashboard.js';
 import { handleSalesTextCommand, continueSalesSession, startSalesAction, confirmSalesOrder, cancelSalesDraft, showSalesMenu } from './bot-sales.js';
 import { startGuidedSales, continueGuidedSales, handleGuidedSalesCallback } from './bot-sales-guided.js';
@@ -53,7 +53,7 @@ async function handleText(message,group,identity,text,voicePath='',stored=null){
   if(session?.state?.startsWith('supplier_')||session?.state?.startsWith('rfq_')){if(await continueProcurementSession(message,identity,session,raw))return;}
   if(session?.state?.startsWith('guided_sales_')){if(await continueGuidedSales(message,identity,session,raw))return;}
   if(session?.state?.startsWith('sales_')){if(await continueSalesSession(message,identity,session,raw))return;}
-  if(session?.state?.startsWith('mechanic_')){if(await continueMechanicSession(message,identity,session,raw))return;}
+  if(session?.state?.startsWith('mechanic_')||session?.state?.startsWith('workshop_')){if(await continueMechanicSession(message,identity,session,raw))return;}
   if(session?.state==='waiting_plate'){const waiting=await continueWaitingPlate(message,identity,session,raw,voicePath);if(waiting?.handled)return;}
   if(await handleEnterpriseTextCommand(message,identity,raw))return;
   if(await handleInsightCommand(message,identity,raw))return;
@@ -64,7 +64,10 @@ async function handleText(message,group,identity,text,voicePath='',stored=null){
     {re:/^(فحص معده|فحص معدات|فحص اصل|بدء فحص معده)$/,action:'inspection'},
     {re:/^(طلب قطع غيار|عاوز قطع غيار|اريد قطع غيار)$/,action:'parts'},
     {re:/^(تقرير يومي للورشه|بدء التقرير اليومي|تقرير الميكانيكي اليومي)$/,action:'daily'},
-    {re:/^(تحديث امر اصلاح|تحديث طلب اصلاح|تحديث صيانه)$/,action:'update'}
+    {re:/^(تحديث امر اصلاح|تحديث طلب اصلاح|تحديث صيانه)$/,action:'update'},
+    {re:/^(تشخيص عطل|تسجيل تشخيص)$/,action:'diagnosis'},
+    {re:/^(تسجيل ساعات|ساعات عمل)$/,action:'labor'},
+    {re:/^(نتيجه اختبار|نتيجة اختبار|اختبار اصل)$/,action:'test'}
   ];
   const mechanicAction=mechanicActions.find(item=>item.re.test(normalized));
   if(mechanicAction)return startMechanicAction(message,identity,mechanicAction.action);
@@ -74,7 +77,7 @@ async function handleText(message,group,identity,text,voicePath='',stored=null){
     if(!allowed(role,'report'))return sendMessage(chatId,'فهمت أنك تطلب التقارير، لكن الإجراء متاح لمدير المصنع ومدير النظام فقط.');
     return sendMessage(chatId,`حاضر ${esc(name)}. اختر التقرير المطلوب:`,reportKeyboard());
   }
-  if((group.department==='workshop'||role==='mechanic'||role==='admin')&&isFaultMessage(raw)){
+  if((group.department==='workshop'||role==='mechanic'||role==='admin'||role==='manager')&&isFaultMessage(raw)){
     if(!allowed(role,'maintenance')&&!allowed(role,'approve'))return sendMessage(chatId,'فهمت أنها رسالة صيانة، لكن دورك لا يسمح بفتح بلاغات الورشة.');
     return createMaintenanceDraft({chatId,messageId:message.message_id,identity,text:raw,plate:extractPlate(raw),voicePath});
   }
@@ -119,6 +122,7 @@ async function handleCallback(update){
   if(action==='sales_confirm')return confirmSalesOrder({...message,from:query.from},value,identity);
   if(action==='sales_cancel')return cancelSalesDraft({...message,from:query.from},identity);
   if(action==='mech')return startMechanicAction({...message,from:query.from},identity,value);
+  if(['wsselect','wst','wstest','wshandover'].includes(action))return handleWorkshopBotCallback(message,query.from,identity,action,value);
   if(action==='parts_confirm')return confirmSparePartsRequest({...message,from:query.from},value,identity,role);
   if(action==='maint_confirm')return confirmMaintenance({...message,from:query.from},value,identity,role);
   if(action==='maint_cancel')return cancelMaintenance({...message,from:query.from},value,identity);
@@ -177,9 +181,6 @@ export default async function handler(req,res){
     console.error('[telegram webhook enterprise]',{code:String(error?.code||'PROCESSING_FAILED').slice(0,120),status:Number(error?.status||error?.upstreamStatus||0),message:String(error?.message||'').slice(0,300)});
     return json(res,503,{ok:false,retryable:true,error:'تعذر إكمال معالجة تحديث Telegram مؤقتًا.'});
   }
-  // The gateway records completion before it acknowledges Telegram. It owns
-  // the response for managed requests so an incomplete receipt remains
-  // retryable rather than being acknowledged as successful.
   if(req.telegramGatewayManaged)return;
   if(!res.headersSent)json(res,200,{ok:true});
 }
