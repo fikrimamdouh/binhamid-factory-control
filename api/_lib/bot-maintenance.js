@@ -1,8 +1,12 @@
 import { config } from './config.js';
-import { select, insert, upsert, patch, rpc } from './supabase.js';
+import { select, upsert, patch } from './supabase.js';
 import { sendMessage, keyboard, sendVoiceBuffer } from './telegram.js';
 import { synthesize } from './ai.js';
 import { allowed, extractPlate } from './domain.js';
+import {
+  assetLabel,cancelTelegramWorkshopOrder,confirmTelegramWorkshopOrder,createTelegramWorkshopDraft,
+  searchWorkshopAssets
+} from './workshop-telegram-service.js';
 
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const now=()=>new Date().toISOString();
@@ -17,96 +21,87 @@ function plateCandidate(value=''){
   if(/^[A-Za-z\u0600-\u06FF]{1,5}\s*[0-9]{3,6}$/.test(text))return text;
   return '';
 }
-function referenceFrom(result){return String(Array.isArray(result)?result[0]?.next_document_no||result[0]||'':result||'');}
-async function nextReference(prefix){return referenceFrom(await rpc('next_document_no',{p_prefix:prefix}));}
+function userId(identity,message){return identity?.external_id||message?.from?.id;}
 
-export async function getBotSession(chatId,userId){
-  return(await select('bot_sessions',`channel=eq.telegram&chat_id=eq.${encodeURIComponent(String(chatId))}&external_user_id=eq.${encodeURIComponent(String(userId))}&select=*&limit=1`))?.[0]||null;
+export async function getBotSession(chatId,externalUserId){
+  return(await select('bot_sessions',`channel=eq.telegram&chat_id=eq.${encodeURIComponent(String(chatId))}&external_user_id=eq.${encodeURIComponent(String(externalUserId))}&select=*&limit=1`))?.[0]||null;
 }
-async function setSession(chatId,userId,state,context={}){
-  const current=await getBotSession(chatId,userId),aiHistory=current?.context?.aiHistory||[];
-  return upsert('bot_sessions',[{channel:'telegram',chat_id:String(chatId),external_user_id:String(userId),state,context:{aiHistory,...context},updated_at:now()}],'channel,chat_id,external_user_id');
+async function setSession(chatId,externalUserId,state,context={}){
+  const current=await getBotSession(chatId,externalUserId),aiHistory=current?.context?.aiHistory||[];
+  return upsert('bot_sessions',[{channel:'telegram',chat_id:String(chatId),external_user_id:String(externalUserId),state,context:{aiHistory,...context},updated_at:now()}],'channel,chat_id,external_user_id');
 }
-export async function clearMaintenanceSession(chatId,userId){
-  const current=await getBotSession(chatId,userId);
-  return patch('bot_sessions',`channel=eq.telegram&chat_id=eq.${encodeURIComponent(String(chatId))}&external_user_id=eq.${encodeURIComponent(String(userId))}`,{state:'idle',context:{aiHistory:current?.context?.aiHistory||[]},updated_at:now()});
+export async function clearMaintenanceSession(chatId,externalUserId){
+  const current=await getBotSession(chatId,externalUserId);
+  return patch('bot_sessions',`channel=eq.telegram&chat_id=eq.${encodeURIComponent(String(chatId))}&external_user_id=eq.${encodeURIComponent(String(externalUserId))}`,{state:'idle',context:{aiHistory:current?.context?.aiHistory||[]},updated_at:now()});
 }
 async function reply(chatId,text,voice=false,extra={}){
   const sent=await sendMessage(chatId,text,extra);
   if(voice&&config.openaiKey){try{const audio=await synthesize(text.replace(/<[^>]+>/g,''));if(audio)await sendVoiceBuffer(chatId,audio);}catch(error){console.error('tts',error.message);}}
   return sent;
 }
-async function findVehicle(plate){
-  const rows=await select('vehicles','active=eq.true&select=external_id,plate_no,asset_no,vehicle_type,make,driver_external_id&limit=1000'),p=String(plate||'').replace(/\s+/g,'').toLowerCase();
-  return(rows||[]).filter(v=>[v.plate_no,v.asset_no].some(x=>String(x||'').replace(/\s+/g,'').toLowerCase().includes(p)||p.includes(String(x||'').replace(/\s+/g,'').toLowerCase())));
+
+async function createForAsset({message,identity,assetExternalId,text,voicePath='',kind='fault',inspectionReference=''}){
+  try{
+    const order=await createTelegramWorkshopDraft({message,identity,assetExternalId,problem:text,voicePath,faultCategory:kind==='inspection_issue'?'inspection':kind==='general_asset'?'general_asset':''});
+    await setSession(message.chat.id,userId(identity,message),'confirm_maintenance',{maintenanceId:order.id,kind,inspectionReference,startedAt:now()});
+    return reply(message.chat.id,`<b>تأكيد بلاغ عطل</b>\n\nأمر مؤقت: <b>${esc(order.reference_no)}</b>\nالأصل: <b>${esc(order.plate_snapshot||assetExternalId)}</b>\nالعطل: ${esc(text)}\nالحالة: مسودة ولم تُفتح رسميًا بعد.`,identity.role==='mechanic',keyboard([[{text:'تأكيد فتح أمر إصلاح',callback_data:`maint_confirm:${order.id}`}],[{text:'إلغاء البلاغ',callback_data:`maint_cancel:${order.id}`}]]));
+  }catch(error){
+    await clearMaintenanceSession(message.chat.id,userId(identity,message));
+    return sendMessage(message.chat.id,`تعذر إنشاء مسودة أمر الصيانة.\nالسبب: ${esc(error.message||'خطأ غير معروف')}`);
+  }
+}
+
+async function chooseAssetPrompt({message,identity,assets,text,voicePath='',kind='fault',inspectionReference='',prompt=''}){
+  const externalUserId=userId(identity,message);
+  await setSession(message.chat.id,externalUserId,'choose_vehicle',{problem:text,assetIds:assets.map(item=>item.external_id),voicePath,kind,inspectionReference,startedAt:now()});
+  return reply(message.chat.id,prompt||'اختر الأصل الصحيح:',identity.role==='mechanic',keyboard(assets.slice(0,10).map(asset=>[{text:assetLabel(asset),callback_data:`vehicle:${asset.external_id}`}])));
 }
 
 export async function createMaintenanceDraft({chatId,messageId,identity,text,plate,voicePath}){
-  const matches=plate?await findVehicle(plate):[];
-  if(plate&&matches.length>1){
-    await setSession(chatId,identity.external_id,'choose_vehicle',{problem:text,plate,vehicleIds:matches.map(x=>x.external_id),voicePath,startedAt:now()});
-    return reply(chatId,'فهمت أن الرسالة بلاغ صيانة. وجدت أكثر من مركبة مطابقة؛ اختر المركبة الصحيحة:',true,keyboard(matches.slice(0,8).map(v=>[{text:`${v.plate_no||v.asset_no} — ${v.vehicle_type||v.make||'مركبة'}`,callback_data:`vehicle:${v.external_id}`}])));
-  }
-  if(!plate||!matches.length){
-    const current=await getBotSession(chatId,identity.external_id),attempts=current?.state==='waiting_plate'?Number(current.context?.plateAttempts||1)+1:1;
-    if(attempts>=3){
-      await clearMaintenanceSession(chatId,identity.external_id);
-      return reply(chatId,'لم أتمكن من مطابقة اللوحة بعد ثلاث محاولات، فأغلقت البلاغ المؤقت. للأصل أو المعدة بلا لوحة استخدم «قائمة الورشة» ثم «بلاغ أصل بدون لوحة».',true);
-    }
-    await setSession(chatId,identity.external_id,'waiting_plate',{problem:text,plate,voicePath,plateAttempts:attempts,startedAt:current?.context?.startedAt||now()});
-    return reply(chatId,plate?'اللوحة غير موجودة في السجل. أرسل رقم اللوحة الصحيح فقط، أو اكتب «إلغاء»، أو افتح بلاغ أصل بدون لوحة.':'رقم اللوحة غير واضح. أرسل الرقم أو آخر أربعة أرقام فقط، أو اكتب «إلغاء»، أو افتح بلاغ أصل بدون لوحة.',true);
-  }
-  const vehicle=matches[0],reference=await nextReference('RO');
-  const rows=await insert('maintenance_orders',[{
-    reference_no:reference,vehicle_external_id:vehicle.external_id,plate_snapshot:vehicle.plate_no||vehicle.asset_no,problem:text,status:'draft',
-    priority:/حرج|خطر|فرامل|متوقف/.test(text)?'urgent':'normal',vehicle_stopped:/متوقف|واقفة|مش هتشتغل|لا تعمل/.test(text),
-    reported_by:identity.user_id,source_channel:'telegram',source_chat_id:String(chatId),source_message_id:String(messageId),voice_path:voicePath||null,reported_at:now()
-  }]),order=rows?.[0];
-  await setSession(chatId,identity.external_id,'confirm_maintenance',{maintenanceId:order.id,startedAt:now()});
-  return reply(chatId,`فهمت البلاغ وسجلته مؤقتًا في مسار الورشة.\n\n<b>تأكيد بلاغ عطل</b>\nأمر مؤقت: <b>${esc(order.reference_no)}</b>\nالمركبة: <b>${esc(vehicle.plate_no||vehicle.asset_no)}</b>\nالعطل: ${esc(text)}\nالحالة: لم يُفتح رسميًا بعد.`,true,keyboard([[{text:'تأكيد فتح أمر إصلاح',callback_data:`maint_confirm:${order.id}`}],[{text:'إلغاء البلاغ',callback_data:`maint_cancel:${order.id}`}]]));
+  const message={chat:{id:chatId},message_id:messageId,from:{id:identity.external_id}},query=plate||plateCandidate(text),matches=query?await searchWorkshopAssets(query,15):[];
+  if(matches.length===1)return createForAsset({message,identity,assetExternalId:matches[0].external_id,text,voicePath});
+  if(matches.length>1)return chooseAssetPrompt({message,identity,assets:matches,text,voicePath,prompt:'فهمت أنها رسالة صيانة، ووجدت أكثر من أصل مطابق. اختر الأصل الصحيح:'});
+  const current=await getBotSession(chatId,identity.external_id),attempts=current?.state==='waiting_plate'?Number(current.context?.plateAttempts||1)+1:1;
+  if(attempts>=3){await clearMaintenanceSession(chatId,identity.external_id);return reply(chatId,'لم أتمكن من مطابقة أصل مسجل بعد ثلاث محاولات، فأغلقت المسودة. يجب تسجيل الأصل في سجل الأصول أولًا، ولا يُنشأ أمر صيانة بوصف نصي فقط.',true);}
+  await setSession(chatId,identity.external_id,'waiting_plate',{problem:text,plate:query,voicePath,plateAttempts:attempts,startedAt:current?.context?.startedAt||now()});
+  return reply(chatId,query?'لم أجد أصلًا مطابقًا في سجل الأصول الموحد. أرسل رقم اللوحة أو الأصل الصحيح، أو اكتب «إلغاء».':'لم أجد رقم أصل واضحًا. أرسل اللوحة أو رقم الأصل أو الاسم المسجل، أو اكتب «إلغاء».',true);
 }
 
 export async function createGenericMaintenanceDraft({chatId,messageId,identity,text,target='أصل أو معدة بدون لوحة',kind='general_asset',voicePath='',inspectionReference=''}){
-  const spareParts=kind==='spare_parts',reference=await nextReference(spareParts?'SPR':'RO');
-  const diagnosis=spareParts?'طلب قطع غيار وتسعير':kind==='inspection_issue'?`نتيجة فحص ${inspectionReference||''}`:'بلاغ أصل أو معدة بدون لوحة';
-  const rows=await insert('maintenance_orders',[{
-    reference_no:reference,vehicle_external_id:null,plate_snapshot:String(target||'أصل أو طلب عام').slice(0,180),problem:String(text||'').trim(),diagnosis,
-    status:'draft',priority:/عاجل|حرج|خطر|متوقف|ضروري/.test(String(text))?'urgent':'normal',vehicle_stopped:/متوقف|لا تعمل|واقف|واقفه|واقفة/.test(String(text)),
-    reported_by:identity.user_id,source_channel:'telegram',source_chat_id:String(chatId),source_message_id:String(messageId),voice_path:voicePath||null,reported_at:now()
-  }]),order=rows?.[0];
-  await setSession(chatId,identity.external_id,spareParts?'confirm_spare_parts':'confirm_maintenance',{maintenanceId:order.id,kind,inspectionReference,startedAt:now()});
-  if(spareParts){
-    return reply(chatId,`<b>تأكيد طلب قطع غيار وتسعير</b>\n\nالمرجع المؤقت: <b>${esc(order.reference_no)}</b>\nالارتباط: <b>${esc(target)}</b>\nالطلب: ${esc(text)}\n\nلا يلزم رقم لوحة. بعد التأكيد يظهر الطلب ضمن طلبات الأسعار المفتوحة.`,false,keyboard([[{text:'تأكيد طلب الأسعار',callback_data:`parts_confirm:${order.id}`}],[{text:'إلغاء الطلب',callback_data:`maint_cancel:${order.id}`}]]));
-  }
-  return reply(chatId,`<b>تأكيد أمر إصلاح لأصل بدون لوحة</b>\n\nالمرجع المؤقت: <b>${esc(order.reference_no)}</b>\nالأصل: <b>${esc(target)}</b>\nالعطل أو الملاحظة: ${esc(text)}\n\nبعد التأكيد سيظهر كأمر إصلاح رسمي في سجل الورشة.`,false,keyboard([[{text:'تأكيد فتح أمر الإصلاح',callback_data:`maint_confirm:${order.id}`}],[{text:'إلغاء البلاغ',callback_data:`maint_cancel:${order.id}`}]]));
+  if(kind==='spare_parts')return sendMessage(chatId,'طلب قطع الغيار يجب ربطه بأمر إصلاح مفتوح. اختر «طلب قطع غيار» من قائمة الورشة ثم اختر الأمر.');
+  const message={chat:{id:chatId},message_id:messageId,from:{id:identity.external_id}},hint=String(target||text||'').split(/[—\-:\n]/)[0].trim(),matches=await searchWorkshopAssets(hint,15);
+  if(matches.length===1)return createForAsset({message,identity,assetExternalId:matches[0].external_id,text,voicePath,kind,inspectionReference});
+  if(matches.length)return chooseAssetPrompt({message,identity,assets:matches,text,voicePath,kind,inspectionReference,prompt:'اختر الأصل الفعلي المرتبط بهذا البلاغ:'});
+  const recent=await searchWorkshopAssets('',10);
+  if(recent.length)return chooseAssetPrompt({message,identity,assets:recent,text,voicePath,kind,inspectionReference,prompt:'لم أجد تطابقًا مباشرًا. اختر الأصل من سجل الأصول:'});
+  await clearMaintenanceSession(chatId,identity.external_id);
+  return sendMessage(chatId,'لا توجد أصول مسجلة في السجل الموحد. لم يُفتح أمر ناقص. يجب إضافة المعدة أو الأصل أولًا.');
 }
 
 export async function continueWaitingPlate(message,identity,session,text,voicePath=''){
-  const chatId=message.chat.id,userId=identity.external_id||message.from.id,updatedAt=Date.parse(session.updated_at||session.context?.startedAt||0);
-  if(isCancelText(text)){await clearMaintenanceSession(chatId,userId);await sendMessage(chatId,'تم إلغاء طلب الصيانة المؤقت. يمكنك إرسال أي طلب آخر الآن.');return{handled:true};}
-  if(!updatedAt||Date.now()-updatedAt>SESSION_TTL_MS){await clearMaintenanceSession(chatId,userId);return{handled:false,expired:true};}
-  const plate=plateCandidate(text);
-  if(!plate){await clearMaintenanceSession(chatId,userId);return{handled:false,interrupted:true};}
-  await createMaintenanceDraft({chatId,messageId:message.message_id,identity,text:session.context?.problem||'بلاغ عطل',plate,voicePath:session.context?.voicePath||voicePath});
+  const chatId=message.chat.id,externalUserId=userId(identity,message),updatedAt=Date.parse(session.updated_at||session.context?.startedAt||0);
+  if(isCancelText(text)){await clearMaintenanceSession(chatId,externalUserId);await sendMessage(chatId,'تم إلغاء طلب الصيانة المؤقت.');return{handled:true};}
+  if(!updatedAt||Date.now()-updatedAt>SESSION_TTL_MS){await clearMaintenanceSession(chatId,externalUserId);return{handled:false,expired:true};}
+  const query=plateCandidate(text)||String(text||'').trim();
+  if(!query){await clearMaintenanceSession(chatId,externalUserId);return{handled:false,interrupted:true};}
+  await createMaintenanceDraft({chatId,messageId:message.message_id,identity,text:session.context?.problem||'بلاغ عطل',plate:query,voicePath:session.context?.voicePath||voicePath});
   return{handled:true};
 }
 
 export async function confirmMaintenance(message,id,identity,role){
   if(!allowed(role,'maintenance')&&!allowed(role,'approve'))return sendMessage(message.chat.id,'ليست لديك صلاحية تأكيد أمر الإصلاح.');
-  const rows=await patch('maintenance_orders',`id=eq.${encodeURIComponent(id)}&status=eq.draft`,{status:'reported',confirmed_at:now(),confirmed_by:identity.user_id,updated_at:now()}),order=rows?.[0];
-  if(!order)return sendMessage(message.chat.id,'تم التعامل مع البلاغ من قبل أو لم يعد متاحًا.');
-  await insert('maintenance_updates',[{maintenance_id:id,status:'reported',note:'تم تأكيد فتح أمر الإصلاح من Telegram',created_by:identity.user_id,source_channel:'telegram',source_chat_id:String(message.chat.id),source_message_id:String(message.message_id)}]);
-  await clearMaintenanceSession(message.chat.id,identity.external_id);
-  return reply(message.chat.id,`تم فتح أمر الإصلاح رسميًا: <b>${esc(order.reference_no)}</b>\nالأصل: <b>${esc(order.plate_snapshot||'أصل بدون لوحة')}</b>\nالحالة: بانتظار الفحص والتشخيص.`,role==='mechanic');
+  try{
+    const order=await confirmTelegramWorkshopOrder(message,identity,id);
+    await clearMaintenanceSession(message.chat.id,userId(identity,message));
+    return reply(message.chat.id,`تم فتح أمر الإصلاح رسميًا: <b>${esc(order.reference_no)}</b>\nالأصل: <b>${esc(order.plate_snapshot||order.asset_external_id)}</b>\nالحالة: تم الإبلاغ وبانتظار الفحص.`,role==='mechanic');
+  }catch(error){return sendMessage(message.chat.id,`تعذر تأكيد الأمر: ${esc(error.message||'تم التعامل معه من قبل')}`);}
 }
 export async function cancelMaintenance(message,id,identity){
-  const rows=await patch('maintenance_orders',`id=eq.${encodeURIComponent(id)}&status=eq.draft`,{status:'cancelled',cancelled_at:now(),cancelled_by:identity.user_id,updated_at:now()});
-  await clearMaintenanceSession(message.chat.id,identity.external_id);
-  return sendMessage(message.chat.id,rows?.length?'تم إلغاء الطلب المؤقت.':'تعذر الإلغاء لأن حالة الطلب تغيرت.');
+  try{await cancelTelegramWorkshopOrder(message,identity,id);await clearMaintenanceSession(message.chat.id,userId(identity,message));return sendMessage(message.chat.id,'تم إلغاء المسودة دون حذف سجل التدقيق.');}
+  catch(error){return sendMessage(message.chat.id,`تعذر الإلغاء: ${esc(error.message||'حالة الأمر تغيرت')}`);}
 }
 export async function chooseVehicle(message,id,from,identity){
   const session=await getBotSession(message.chat.id,from.id);
-  if(session?.state!=='choose_vehicle')return sendMessage(message.chat.id,'انتهت جلسة اختيار المركبة. أرسل البلاغ مرة أخرى.');
-  const vehicles=await select('vehicles',`external_id=eq.${encodeURIComponent(id)}&select=plate_no,asset_no&limit=1`);
-  return createMaintenanceDraft({chatId:message.chat.id,messageId:message.message_id,identity,text:session.context?.problem||'بلاغ عطل',plate:vehicles?.[0]?.plate_no||vehicles?.[0]?.asset_no,voicePath:session.context?.voicePath||''});
+  if(session?.state!=='choose_vehicle'||!session.context?.assetIds?.includes(id))return sendMessage(message.chat.id,'انتهت جلسة اختيار الأصل. ابدأ البلاغ من جديد.');
+  return createForAsset({message:{...message,from},identity,assetExternalId:id,text:session.context?.problem||'بلاغ عطل',voicePath:session.context?.voicePath||'',kind:session.context?.kind||'fault',inspectionReference:session.context?.inspectionReference||''});
 }
