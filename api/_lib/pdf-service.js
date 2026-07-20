@@ -6,7 +6,9 @@ const providerName=()=>String(config.pdfProvider||process.env.PDF_PROVIDER||'aut
 function resolvedProvider(){
   const explicit=providerName();
   if(explicit&&explicit!=='auto')return explicit;
-  return /gotenberg|\/forms\/chromium\/convert\/html/i.test(String(config.pdfApiUrl||''))?'gotenberg':'json';
+  const url=String(config.pdfApiUrl||'');
+  if(/api\.cloudflare\.com\/client\/v4\/accounts\/[^/]+\/browser-rendering\/pdf/i.test(url))return 'cloudflare';
+  return /gotenberg|\/forms\/chromium\/convert\/html/i.test(url)?'gotenberg':'json';
 }
 
 function assertPdf(buffer){
@@ -35,6 +37,26 @@ async function gotenbergPdf(html,{filename='report',landscape=false}={}){
   return assertPdf(Buffer.from(await response.arrayBuffer()));
 }
 
+async function cloudflarePdf(html,{landscape=false}={}){
+  // Cloudflare Browser Rendering: الرابط لازم يحتوي معرّف الحساب الحقيقي وليس ACCOUNT_ID،
+  // وخيارات الطباعة تُرسل داخل pdfOptions وليس في المستوى الأعلى.
+  if(/\/accounts\/ACCOUNT_ID\//i.test(String(config.pdfApiUrl||''))){
+    throw Object.assign(new Error('PDF_API_URL يحتوي ACCOUNT_ID الحرفية — استبدلها بمعرّف حساب Cloudflare الفعلي (32 خانة) من لوحة التحكم.'),{status:503,code:'PDF_SERVICE_NOT_CONFIGURED'});
+  }
+  const headers={'Content-Type':'application/json'};
+  if(config.pdfApiKey)headers.Authorization=`Bearer ${config.pdfApiKey}`;
+  const response=await fetch(cleanUrl(config.pdfApiUrl),{
+    method:'POST',headers,
+    body:JSON.stringify({html:String(html||''),pdfOptions:{format:'A4',landscape:Boolean(landscape),printBackground:true}}),
+    signal:AbortSignal.timeout(45_000)
+  });
+  if(!response.ok){
+    const detail=(await response.text().catch(()=>'' )).replace(/\s+/g,' ').slice(0,300);
+    throw Object.assign(new Error(`تعذر إنشاء PDF عبر Cloudflare: ${response.status}${detail?` — ${detail}`:''}`),{status:502,code:'PDF_SERVICE_FAILED',upstreamStatus:response.status});
+  }
+  return assertPdf(Buffer.from(await response.arrayBuffer()));
+}
+
 async function jsonPdf(html,{filename='report',landscape=false}={}){
   const headers={'Content-Type':'application/json'};
   if(config.pdfApiKey)headers.Authorization=`Bearer ${config.pdfApiKey}`;
@@ -56,5 +78,7 @@ export function pdfServiceStatus(){
 
 export async function htmlToPdf(html,options={}){
   if(!config.pdfApiUrl)throw Object.assign(new Error('خدمة PDF غير مضبوطة. أضف PDF_PROVIDER وPDF_API_URL في Vercel.'),{status:503,code:'PDF_SERVICE_NOT_CONFIGURED'});
-  return resolvedProvider()==='gotenberg'?gotenbergPdf(html,options):jsonPdf(html,options);
+  const provider=resolvedProvider();
+  if(provider==='cloudflare')return cloudflarePdf(html,options);
+  return provider==='gotenberg'?gotenbergPdf(html,options):jsonPdf(html,options);
 }
