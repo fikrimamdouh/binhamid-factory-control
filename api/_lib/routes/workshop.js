@@ -46,7 +46,7 @@ export async function workshop(req,res){
       return json(res,201,{ok:true,labor:await addWorkshopLabor(input,identity)});
     }
     if(action==='part_request'){
-      identity=identityActor(await requireCapability(req,'workshop.parts.manage'));
+      identity=identityActor(await requireCapability(req,'workshop.parts.request'));
       return json(res,201,{ok:true,part:await requestWorkshopPart(input,identity)});
     }
     throw Object.assign(new Error('إجراء الورشة غير معروف'),{status:400,code:'WORKSHOP_ACTION_UNKNOWN'});
