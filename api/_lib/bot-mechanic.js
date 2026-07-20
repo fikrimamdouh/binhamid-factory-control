@@ -9,7 +9,7 @@ const now=()=>new Date().toISOString();
 const normalize=value=>String(value||'').toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ًٌٍَُِّْـ]/g,'').replace(/[؟?!.,،؛:]+/g,'').replace(/\s+/g,' ').trim();
 const openStatuses='draft,reported,inspection,quotation_required,approval_pending,approved,in_repair,testing';
 
-function isWorkshopOperator(role){return role==='admin'||role==='mechanic';}
+function isWorkshopOperator(role){return role==='admin'||role==='manager'||role==='mechanic';}
 function canViewWorkshop(role){return role==='admin'||role==='manager'||role==='mechanic'||role==='accountant';}
 function referenceFrom(result){return String(Array.isArray(result)?result[0]?.next_document_no||result[0]||'':result||'');}
 async function nextReference(prefix){return referenceFrom(await rpc('next_document_no',{p_prefix:prefix}));}
@@ -61,7 +61,7 @@ export async function startMechanicAction(message,identity,action){
     if(action==='summary')return sendWorkshopSummary(chatId);
     return sendPriceRequests(chatId);
   }
-  if(!isWorkshopOperator(role))return sendMessage(chatId,'تسجيل أعمال الورشة متاح لمسؤول الورشة ومدير النظام فقط.');
+  if(!isWorkshopOperator(role))return sendMessage(chatId,'تسجيل أعمال الورشة متاح لمسؤول الورشة ومدير المصنع ومدير النظام فقط.');
   if(action==='daily'){
     await setSession(chatId,userId,'mechanic_daily_report',{startedAt:now()});
     return sendMessage(chatId,'أرسل التقرير اليومي في رسالة واحدة بهذا الترتيب:\n\nالسيارات والمعدات التي فحصتها:\nالأعمال التي نفذتها:\nالإجراءات الوقائية المطلوبة:\nالأعطال المفتوحة:\nقطع الغيار المطلوبة:\nملاحظات السلامة أو التوقف:\n\nاكتب «إلغاء» للخروج.');
