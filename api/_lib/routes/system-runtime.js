@@ -55,5 +55,18 @@ export async function databaseReadiness(req,res){
 export async function status(req,res){
   if(!method(req,res,['GET']))return;
   const base=readiness();
-  json(res,200,{ok:true,version:'2026.07.18-schema-24-financial-command-center',...base,publicUrlConfigured:Boolean(process.env.PUBLIC_APP_URL||process.env.VERCEL_PROJECT_PRODUCTION_URL),placesConfigured:Boolean(process.env.GOOGLE_PLACES_API_KEY||process.env.PLACES_DIRECTORY_KEY),pdfConfigured:Boolean(process.env.PDF_API_URL||process.env.PDF_SERVICE_URL),webhookVersion:3,directOperationsSchema:24,conversationHistory:true,operationsActions:true,reportsCenter:true,documentVerification:true,notificationOutbox:true,schedulerWorkflow:true,dailyReportImport:true,dailyReportIdempotency:true,dailyReportCustomerMaster:true,fifoReplay:true,costLedgerFoundation:true,costEngine:true,maintenanceCostReversals:true,granularPermissions:true,backupTooling:true,gpsAdapter:true,financialPeriodClose:true,creditOverrideWorkflow:true,unifiedAssetRegister:true,complianceRegister:true,custodyControl:true,restoreTestRegister:true,handoverAcceptance:true,governanceCenter:true,creditBreachDiscrepancies:true,assetDuplicateControl:true,accountingLedger:true,balancedJournalPosting:true,correctReversalLedger:true,telegramUpdateIdempotency:true,importLifecycle:true,factoryOperationalReset:true,employeeNickname:true,financialDirector:true,administrativeControlCenter:true,vercelFunctionsExpected:6});
+  // تشخيص إعداد PDF بدون كشف أي سر: المزوّد المكتشف، اسم النطاق فقط، وهل ما زال
+  // الرابط يحتوي العنصر النائب ACCOUNT_ID، وأي متغير بيئة هو المستخدم فعلًا.
+  const pdfUrl=String(process.env.PDF_API_URL||process.env.PDF_SERVICE_URL||''),pdfKey=String(process.env.PDF_API_KEY||process.env.PDF_SERVICE_API_KEY||'');
+  let pdfHost='';try{pdfHost=pdfUrl?new URL(pdfUrl).host:'';}catch(_){pdfHost='رابط غير صالح';}
+  const pdfDiagnostics={
+    urlVariable:process.env.PDF_API_URL?'PDF_API_URL':process.env.PDF_SERVICE_URL?'PDF_SERVICE_URL':'',
+    keySet:Boolean(pdfKey),host:pdfHost,
+    provider:/browser-rendering\/pdf/i.test(pdfUrl)?'cloudflare':/gotenberg|forms\/chromium/i.test(pdfUrl)?'gotenberg':pdfUrl?'json':'',
+    accountPlaceholderStillPresent:/\/accounts\/ACCOUNT_ID\//i.test(pdfUrl),
+    accountIdLooksValid:/\/accounts\/[0-9a-f]{32}\//i.test(pdfUrl),
+    pathLooksCorrect:/\/browser-rendering\/pdf\/?$/i.test(pdfUrl),
+    keyLooksLikeGlobalApiKey:pdfKey.length>0&&pdfKey.length<=37&&/^[0-9a-f]+$/i.test(pdfKey)
+  };
+  json(res,200,{ok:true,version:'2026.07.18-schema-24-financial-command-center',...base,pdfDiagnostics,publicUrlConfigured:Boolean(process.env.PUBLIC_APP_URL||process.env.VERCEL_PROJECT_PRODUCTION_URL),placesConfigured:Boolean(process.env.GOOGLE_PLACES_API_KEY||process.env.PLACES_DIRECTORY_KEY),pdfConfigured:Boolean(process.env.PDF_API_URL||process.env.PDF_SERVICE_URL),webhookVersion:3,directOperationsSchema:24,conversationHistory:true,operationsActions:true,reportsCenter:true,documentVerification:true,notificationOutbox:true,schedulerWorkflow:true,dailyReportImport:true,dailyReportIdempotency:true,dailyReportCustomerMaster:true,fifoReplay:true,costLedgerFoundation:true,costEngine:true,maintenanceCostReversals:true,granularPermissions:true,backupTooling:true,gpsAdapter:true,financialPeriodClose:true,creditOverrideWorkflow:true,unifiedAssetRegister:true,complianceRegister:true,custodyControl:true,restoreTestRegister:true,handoverAcceptance:true,governanceCenter:true,creditBreachDiscrepancies:true,assetDuplicateControl:true,accountingLedger:true,balancedJournalPosting:true,correctReversalLedger:true,telegramUpdateIdempotency:true,importLifecycle:true,factoryOperationalReset:true,employeeNickname:true,financialDirector:true,administrativeControlCenter:true,vercelFunctionsExpected:6});
 }
