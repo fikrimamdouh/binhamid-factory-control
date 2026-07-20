@@ -18,15 +18,15 @@ export function mechanicMenu(){return keyboard([
   [{text:'📝 التقرير اليومي',callback_data:'mech:daily'},{text:'🔍 فحص معدة أو أصل',callback_data:'mech:inspection'}],
   [{text:'🧰 طلب قطع غيار',callback_data:'mech:parts'},{text:'🔧 بلاغ أصل بدون لوحة',callback_data:'mech:general_fault'}],
   [{text:'📌 تحديث أمر إصلاح',callback_data:'mech:update'},{text:'📋 المهام المفتوحة',callback_data:'mech:tasks'}],
-  [{text:'🔎 بحث سعر قطعة',callback_data:'proc:product'},{text:'📷 بحث بصورة القطعة',callback_data:'proc:product_image'}],
-  [{text:'🏪 بحث عن قطعة أو مورد',callback_data:'proc:search'},{text:'🧾 طلب عرض سعر',callback_data:'proc:rfq'}],
+  [{text:'🔎 بحث قطعة ومورد',callback_data:'proc:product'},{text:'📷 بحث بصورة القطعة',callback_data:'proc:product_image'}],
+  [{text:'🏪 بحث دليل الموردين',callback_data:'proc:search'},{text:'🧾 طلب عرض سعر',callback_data:'proc:rfq'}],
   [{text:'📋 عروض الأسعار المفتوحة',callback_data:'proc:open'},{text:'💰 طلبات تسعير الورشة',callback_data:'mech:price_requests'}],
   [{text:'📊 سجل الورشة اليوم',callback_data:'mech:summary'}]
 ]);}
 export async function showMechanicMenu(message,identity){
   if(!canView(identity))return deny(message,identity,'قائمة الورشة متاحة لمسؤول الورشة والإدارة والمحاسب.');
   const name=displayName(identity,message.from);
-  return sendMessage(message.chat.id,`مرحبًا ${esc(name)}. أعمال الورشة وقطع الغيار والمنتجات والأسعار أصبحت في قائمة واحدة. اختر العملية المطلوبة:`,mechanicMenu());
+  return sendMessage(message.chat.id,`مرحبًا ${esc(name)}. أعمال الورشة وقطع الغيار والبحث عن الموردين في قائمة واحدة. نتائج الموردين وأرقام الاتصال تظهر داخل البوت فقط.`,mechanicMenu());
 }
 export async function startMechanicAction(message,identity,action){
   if(['tasks','summary','price_requests'].includes(action))return canView(identity)?mechanic.startMechanicAction(message,identity,action):deny(message,identity,'ليست لديك صلاحية عرض سجل الورشة.');
