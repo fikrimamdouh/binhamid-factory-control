@@ -191,7 +191,15 @@ jobs:
           SQL
 
       - name: Apply migration 025 atomically
-        run: psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction --file supabase/migrations/025_workshop_central_data_model.sql
+        shell: bash
+        run: |
+          set -uo pipefail
+          set +e
+          psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction --file supabase/migrations/025_workshop_central_data_model.sql > workshop-migration-apply.log 2>&1
+          status=$?
+          set -e
+          tail -n 160 workshop-migration-apply.log || true
+          exit "$status"
 
       - name: Verify preservation, linkage and target schema
         env:
@@ -217,7 +225,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: workshop-migration-025-validation-${{ github.run_id }}
-          path: workshop-migration-result.json
+          path: |
+            workshop-migration-apply.log
+            workshop-migration-result.json
           if-no-files-found: warn
           retention-days: 30
 
