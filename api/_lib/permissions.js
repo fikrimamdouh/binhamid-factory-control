@@ -3,16 +3,17 @@ import { select } from './supabase.js';
 
 export const ROLE_CAPABILITIES=Object.freeze({
   admin:['*'],
-  manager:['dashboard.manager','daily_report.view','daily_report.approve','imports.read','imports.manage','costs.view','audit.view','governance.view','credit_override.approve','assets.view','compliance.view','handover.view','accounting.view','mix_design.view','mix_design.manage','mix_design.calculate','mix_design.approve','mix_material_prices.manage'],
-  accountant:['daily_report.view','daily_report.import','daily_report.approve','imports.read','imports.manage','costs.view','costs.calculate','governance.view','financial_period.manage','credit_override.request','custody.manage','custody.approve','accounting.view','accounting.post','mix_design.view','mix_design.manage','mix_design.calculate','mix_design.approve','mix_material_prices.manage'],
+  manager:['dashboard.manager','daily_report.view','daily_report.approve','imports.read','imports.manage','costs.view','audit.view','governance.view','credit_override.approve','assets.view','compliance.view','handover.view','accounting.view','mix_design.view','mix_design.manage','mix_design.calculate','mix_design.approve','mix_material_prices.manage','workshop.view','workshop.manage','workshop.approve','workshop.close','workshop.cost.view'],
+  accountant:['daily_report.view','daily_report.import','daily_report.approve','imports.read','imports.manage','costs.view','costs.calculate','governance.view','financial_period.manage','credit_override.request','custody.manage','custody.approve','accounting.view','accounting.post','mix_design.view','mix_design.manage','mix_design.calculate','mix_design.approve','mix_material_prices.manage','workshop.view','workshop.cost.view','workshop.cost.manage'],
   block_sales:['daily_report.view'],
   concrete_sales:['daily_report.view','mix_design.price.view'],
-  mechanic:['maintenance.manage','assets.view'],
+  mechanic:['maintenance.manage','assets.view','workshop.view','workshop.create','workshop.update','workshop.diagnose','workshop.labor','workshop.test'],
   fuel_operator:['fuel.import','assets.view'],
   hr:['costs.view','governance.view','compliance.manage','assets.view'],
-  procurement:['maintenance.manage','assets.view'],
+  procurement:['maintenance.manage','assets.view','workshop.view','workshop.parts.manage'],
   quality:['mix_design.view','mix_design.manage'],
-  driver:[],employee:[],collector:[],warehouse:[],pending:[]
+  warehouse:['workshop.view','workshop.parts.issue'],
+  driver:[],employee:[],collector:[],pending:[]
 });
 
 export function capabilitiesForRole(role){return[...(ROLE_CAPABILITIES[String(role||'pending')]||[])];}
