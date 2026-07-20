@@ -27,13 +27,13 @@ export async function dashboard(req,res){
       select('user_channels','select=external_id,external_username,active,user_id,last_seen_at,app_users(full_name,role,active)&channel=eq.telegram&order=last_seen_at.desc&limit=1000'),
       select('telegram_messages',`select=id&created_at=gte.${today}T00:00:00Z&limit=1000`)
     ]);
-    const normalizedUsers=(users||[]).map(x=>({external_id:x.external_id,external_username:x.external_username,active:Boolean(x.active&&x.app_users?.active),full_name:x.app_users?.full_name||'',role:x.app_users?.role||'pending',last_seen_at:x.last_seen_at||null}));
+    const normalizedUsers=(users||[]).filter(x=>String(x.external_id)!==TEST_IDENTITY).map(x=>({external_id:x.external_id,external_username:x.external_username,active:Boolean(x.active&&x.app_users?.active),full_name:x.app_users?.full_name||'',role:x.app_users?.role||'pending',last_seen_at:x.last_seen_at||null}));
     json(res,200,{ok:true,counts:{pendingImports:(imports||[]).filter(x=>!['approved','rejected','opened_in_program'].includes(x.status)).length,openApprovals:(approvals||[]).filter(x=>x.status==='pending').length,openDiscrepancies:(discrepancies||[]).length,messagesToday:(messages||[]).length,telegramUsers:normalizedUsers.length,activeTelegramUsers:normalizedUsers.filter(x=>x.active).length},imports:(imports||[]).map(x=>({...x,status_label:label[x.status]||x.status})),approvals:approvals||[],groups:groups||[],users:normalizedUsers});
   }catch(error){errorResponse(res,error);}
 }
 
 function cleanMessage(row){
-  return{id:row.id,chat_id:String(row.chat_id||''),message_id:String(row.message_id||''),direction:row.direction||((row.sender_external_id==='bot')?'outgoing':'incoming'),delivery_status:row.delivery_status||'received',sender_external_id:row.sender_external_id||'',sender_name:row.sender_name||row.app_users?.full_name||row.raw?.message?.from?.first_name||'',sender_role:row.app_users?.role||'',chat_type:row.chat_type||row.raw?.message?.chat?.type||'',message_type:row.message_type||'text',text:row.text||'',transcription:row.transcription||'',file_name:row.file_name||'',mime_type:row.mime_type||'',file_path:row.file_path||'',related_entity_type:row.related_entity_type||'',related_entity_id:row.related_entity_id||'',reply_to_message_id:row.reply_to_message_id||'',bot_method:row.bot_method||'',action_name:row.action_name||'',action_payload:row.action_payload||{},created_at:row.created_at};
+  return{id:row.id,chat_id:String(row.chat_id||''),message_id:String(row.message_id||''),direction:row.direction||((row.sender_external_id==='bot')?'outgoing':'incoming'),delivery_status:row.delivery_status||'received',sender_external_id:row.sender_external_id||'',sender_username:String(row.raw?.message?.from?.username||''),sender_name:row.sender_name||row.app_users?.full_name||row.raw?.message?.from?.first_name||'',sender_role:row.app_users?.role||'',chat_type:row.chat_type||row.raw?.message?.chat?.type||'',message_type:row.message_type||'text',text:row.text||'',transcription:row.transcription||'',file_name:row.file_name||'',mime_type:row.mime_type||'',file_path:row.file_path||'',related_entity_type:row.related_entity_type||'',related_entity_id:row.related_entity_id||'',reply_to_message_id:row.reply_to_message_id||'',bot_method:row.bot_method||'',action_name:row.action_name||'',action_payload:row.action_payload||{},created_at:row.created_at};
 }
 async function fetchRows(query){
   const modern='id,chat_id,message_id,sender_external_id,message_type,text,transcription,file_name,mime_type,file_path,related_entity_type,related_entity_id,raw,created_at,direction,delivery_status,sender_name,chat_type,reply_to_message_id,bot_method,action_name,action_payload,app_users(full_name,role)';
@@ -45,23 +45,29 @@ async function fetchRows(query){
 function buildThreads(messages){
   const map=new Map();
   for(const msg of messages){
-    const key=msg.chat_id,old=map.get(key)||{chat_id:key,chat_type:msg.chat_type||'',display_name:'',external_user_id:'',role:'',last_message:'',last_message_type:'',last_direction:'',last_at:'',message_count:0,incoming_count:0,outgoing_count:0,file_count:0};
+    const key=msg.chat_id,old=map.get(key)||{chat_id:key,chat_type:msg.chat_type||'',display_name:'',external_user_id:'',username:'',role:'',last_message:'',last_message_type:'',last_direction:'',last_status:'',last_related_type:'',last_related_id:'',last_at:'',message_count:0,incoming_count:0,outgoing_count:0,file_count:0};
     old.message_count++;if(msg.direction==='outgoing')old.outgoing_count++;else old.incoming_count++;
     if(msg.file_path||msg.file_name||['photo','voice','document'].includes(msg.message_type))old.file_count++;
     if(!old.display_name&&msg.direction!=='outgoing')old.display_name=msg.sender_name||msg.sender_external_id||key;
     if(!old.external_user_id&&msg.direction!=='outgoing')old.external_user_id=msg.sender_external_id||'';
+    if(!old.username&&msg.direction!=='outgoing')old.username=msg.sender_username||'';
     if(!old.role&&msg.sender_role)old.role=msg.sender_role;
     if(!old.last_at||String(msg.created_at)>String(old.last_at)){old.last_at=msg.created_at;old.last_message=msg.text||msg.transcription||msg.file_name||`[${msg.message_type}]`;old.last_message_type=msg.message_type;old.last_direction=msg.direction;old.chat_type=msg.chat_type||old.chat_type;}
+    if(msg.direction!=='outgoing'&&(!old.last_incoming_at||String(msg.created_at)>String(old.last_incoming_at))){old.last_incoming_at=msg.created_at;old.last_status=msg.delivery_status||'received';old.last_related_type=msg.related_entity_type||'';old.last_related_id=msg.related_entity_id||'';}
     map.set(key,old);
   }
   return[...map.values()].sort((a,b)=>String(b.last_at).localeCompare(String(a.last_at)));
 }
-function messageQuery({chatId='',before='',direction='',messageType='',from='',to='',limit=300}={}){
-  const filters=[];
+// هوية اختبار قديمة (workflow فحص تجريبي) — تُستبعد من كل عروض التفاعلات
+// والمستخدمين حتى لا تظهر إلا البيانات الحقيقية.
+const TEST_IDENTITY='9900000001';
+function messageQuery({chatId='',before='',direction='',messageType='',status='',from='',to='',limit=300}={}){
+  const filters=[`chat_id=neq.${TEST_IDENTITY}`];
   if(chatId)filters.push(`chat_id=eq.${encodeURIComponent(chatId)}`);
   if(before)filters.push(`created_at=lt.${encodeURIComponent(before)}`);
   if(direction)filters.push(`direction=eq.${encodeURIComponent(direction)}`);
   if(messageType)filters.push(`message_type=eq.${encodeURIComponent(messageType)}`);
+  if(status)filters.push(`delivery_status=eq.${encodeURIComponent(status)}`);
   if(from)filters.push(`created_at=gte.${encodeURIComponent(`${from}T00:00:00Z`)}`);
   if(to)filters.push(`created_at=lte.${encodeURIComponent(`${to}T23:59:59.999Z`)}`);
   return[...filters,'order=created_at.desc',`limit=${limit}`].join('&');
@@ -89,10 +95,11 @@ export async function conversations(req,res){
     if(req.method==='POST')return await sendAdminReply(req,res);
     requireAdmin(req);const p=params(req),downloadId=clean(p.get('download'),100);
     if(downloadId)return await downloadConversationFile(res,downloadId);
-    const chatId=clean(p.get('chatId'),100),search=normalize(p.get('q')),limit=clamp(p.get('limit'),1,1000,300),before=clean(p.get('before'),100),direction=clean(p.get('direction'),20),messageType=clean(p.get('messageType'),30),role=clean(p.get('role'),80),chatType=clean(p.get('chatType'),30),from=clean(p.get('from'),10),to=clean(p.get('to'),10);
+    const chatId=clean(p.get('chatId'),100),search=normalize(p.get('q')),limit=clamp(p.get('limit'),1,1000,300),before=clean(p.get('before'),100),direction=clean(p.get('direction'),20),messageType=clean(p.get('messageType'),30),status=clean(p.get('status'),20),role=clean(p.get('role'),80),chatType=clean(p.get('chatType'),30),from=clean(p.get('from'),10),to=clean(p.get('to'),10);
     if(direction&&!['incoming','outgoing','system'].includes(direction))throw Object.assign(new Error('اتجاه الرسالة غير صحيح'),{status:400});
-    if(chatId){const raw=await fetchRows(messageQuery({chatId,before,direction,messageType,from,to,limit})),hasMore=(raw||[]).length===limit;let rows=(raw||[]).map(cleanMessage);if(search)rows=rows.filter(x=>normalize(`${x.text} ${x.transcription} ${x.file_name} ${x.sender_name}`).includes(search));rows.reverse();return json(res,200,{ok:true,chat_id:chatId,messages:rows,next_before:hasMore&&rows.length?rows[0].created_at:null,has_more:hasMore});}
-    const rows=(await fetchRows(messageQuery({direction,messageType,from,to,limit}))||[]).map(cleanMessage);let threads=buildThreads(rows);if(search)threads=threads.filter(x=>normalize(`${x.display_name} ${x.external_user_id} ${x.role} ${x.last_message}`).includes(search));if(role)threads=threads.filter(x=>x.role===role);if(chatType)threads=threads.filter(x=>x.chat_type===chatType);return json(res,200,{ok:true,threads,total:threads.length,source_messages:rows.length,filters:{role,chatType,direction,messageType,from,to}});
+    if(status&&!['received','processing','sent','delivered','failed'].includes(status))throw Object.assign(new Error('حالة المعالجة غير صحيحة'),{status:400});
+    if(chatId){const raw=await fetchRows(messageQuery({chatId,before,direction,messageType,status,from,to,limit})),hasMore=(raw||[]).length===limit;let rows=(raw||[]).map(cleanMessage);if(search)rows=rows.filter(x=>normalize(`${x.text} ${x.transcription} ${x.file_name} ${x.sender_name}`).includes(search));rows.reverse();return json(res,200,{ok:true,chat_id:chatId,messages:rows,next_before:hasMore&&rows.length?rows[0].created_at:null,has_more:hasMore});}
+    const rows=(await fetchRows(messageQuery({direction,messageType,status,from,to,limit}))||[]).map(cleanMessage);let threads=buildThreads(rows);if(search)threads=threads.filter(x=>normalize(`${x.display_name} ${x.external_user_id} ${x.username} ${x.role} ${x.last_message}`).includes(search));if(role)threads=threads.filter(x=>x.role===role);if(chatType)threads=threads.filter(x=>x.chat_type===chatType);return json(res,200,{ok:true,threads,total:threads.length,source_messages:rows.length,filters:{role,chatType,direction,messageType,status,from,to}});
   }catch(error){if(!res.headersSent)errorResponse(res,error);else res.end();}
 }
 

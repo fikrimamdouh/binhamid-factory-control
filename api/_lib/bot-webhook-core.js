@@ -36,9 +36,29 @@ export async function ensureTelegramIdentity(from){
   const raw=await rpc('register_telegram_identity',{p_external_id:externalId,p_username:String(from.username||''),p_full_name:[from.first_name,from.last_name].filter(Boolean).join(' ')||externalId,p_make_owner:Boolean(config.telegramOwnerId&&externalId===config.telegramOwnerId)});
   const identity=await enrichIdentity(raw,from);await syncEmployeeMaster(identity,from);await notifyOwnerOfNewIdentity(identity,from,wasKnown);return identity;
 }
+// إخفاء الأسرار قبل الحفظ: التوكنات وكلمات المرور التي قد يرسلها المستخدم
+// بالخطأ لا تُسجَّل أبدًا — لا في نص الرسالة ولا في النسخة الخام المحفوظة.
+// ردود البوت ومنطقه يستخدمان النص الأصلي؛ الإخفاء يمس التخزين فقط.
+const SECRET_PATTERNS=[
+  /\b\d{8,10}:[A-Za-z0-9_-]{35}\b/g,                                       // Telegram bot token
+  /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g,
+  /\bghp_[A-Za-z0-9]{36}\b/g,
+  /\bsk-[A-Za-z0-9_-]{20,}\b/g,
+  /\beyJ[A-Za-z0-9_-]{15,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}\b/g,     // JWT
+  /\b[A-Fa-f0-9]{48,}\b/g                                                  // مفاتيح hex طويلة
+];
+const SECRET_LABELS=/(كلمة\s*(?:ال)?(?:مرور|سر)|الباسورد|password|passcode|secret|token|توكن|api[\s_-]?key|مفتاح\s*(?:سري|API))\s*[:=]\s*(\S{4,})/gi;
+export function maskSensitive(value){
+  let text=String(value||'');
+  for(const pattern of SECRET_PATTERNS)text=text.replace(pattern,'•••قيمة حساسة مخفية•••');
+  return text.replace(SECRET_LABELS,(_,label)=>`${label}: •••قيمة حساسة مخفية•••`);
+}
 export async function storeTelegramMessage(updateId,message,group,identity){
   const type=message.voice?'voice':message.document?'document':message.photo?'photo':message.location?'location':message.contact?'contact':message.text?'text':'other';
-  const text=message.text||message.caption||(message.location?`${message.location.latitude},${message.location.longitude}`:'');
+  const text=maskSensitive(message.text||message.caption||(message.location?`${message.location.latitude},${message.location.longitude}`:''));
+  const rawMessage={...message};
+  if(rawMessage.text)rawMessage.text=maskSensitive(rawMessage.text);
+  if(rawMessage.caption)rawMessage.caption=maskSensitive(rawMessage.caption);
   const senderName=[message.from?.first_name,message.from?.last_name].filter(Boolean).join(' ')||identity?.full_name||String(message.from?.id||'');
   const row={
     update_id:String(updateId),chat_id:String(message.chat.id),message_id:String(message.message_id),group_id:group?.id||null,
@@ -46,7 +66,7 @@ export async function storeTelegramMessage(updateId,message,group,identity){
     message_type:type,text,transcription:null,file_id:message.voice?.file_id||message.document?.file_id||message.photo?.at(-1)?.file_id||null,
     file_name:message.document?.file_name||null,mime_type:message.document?.mime_type||message.voice?.mime_type||null,file_path:null,
     related_entity_type:null,related_entity_id:null,direction:'incoming',delivery_status:'received',reply_to_message_id:message.reply_to_message?.message_id?String(message.reply_to_message.message_id):null,
-    bot_method:null,action_name:null,action_payload:{},raw:{message},created_at:new Date((message.date||Date.now()/1000)*1000).toISOString()
+    bot_method:null,action_name:null,action_payload:{},raw:{message:rawMessage},created_at:new Date((message.date||Date.now()/1000)*1000).toISOString()
   };
   try{return(await upsert('telegram_messages',[row],'chat_id,message_id'))?.[0]||row;}
   catch(error){

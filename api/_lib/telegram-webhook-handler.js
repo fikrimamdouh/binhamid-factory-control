@@ -162,6 +162,14 @@ async function handleMessage(update){
   return handleText(message,group,identity,text,'',stored);
 }
 
+// تحديث حالة المعالجة في سجل التفاعلات بعد اكتمال (أو فشل) معالجة الرسالة.
+// عمود delivery_status فقط — لا يغيّر شيئًا في منطق الردود أو ترتيبها.
+async function markMessageOutcome(update,status){
+  const updateId=String(update?.update_id||'');
+  if(!updateId||!(update?.message||update?.edited_message))return;
+  await patch('telegram_messages',`update_id=eq.${encodeURIComponent(updateId)}`,{delivery_status:status}).catch(()=>{});
+}
+
 export default async function handler(req,res){
   if(!method(req,res,['POST']))return;
   let update;
@@ -171,8 +179,9 @@ export default async function handler(req,res){
   }
   try{
     if(update.callback_query)await handleCallback(update);
-    else if(update.message||update.edited_message)await handleMessage(update);
+    else if(update.message||update.edited_message){await handleMessage(update);await markMessageOutcome(update,'delivered');}
   }catch(error){
+    await markMessageOutcome(update,'failed');
     if(req.telegramGatewayManaged)throw error;
     console.error('[telegram webhook enterprise]',{code:String(error?.code||'PROCESSING_FAILED').slice(0,120),status:Number(error?.status||error?.upstreamStatus||0),message:String(error?.message||'').slice(0,300)});
     return json(res,503,{ok:false,retryable:true,error:'تعذر إكمال معالجة تحديث Telegram مؤقتًا.'});
