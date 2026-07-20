@@ -3,7 +3,7 @@ import { sendMessage } from './telegram.js';
 import { allowed, reportSummary } from './domain.js';
 import { displayName, roleLabel } from './bot-profile.js';
 import { welcomeMessage, helpMessage, jobCatalogMessage } from './bot-help.js';
-import { registrationKeyboard, startRegistration, registrationStatus, startWorkshopRegistration } from './bot-registration.js';
+import { registrationKeyboard, startRegistration, registrationStatus, startWorkshopRegistration, startBlockSalesRegistration } from './bot-registration.js';
 import { reportKeyboard, sendReport } from './bot-reports.js';
 import { showAttendanceMenu } from './bot-attendance.js';
 import { startDriverRegistration } from './bot-driver-registration.js';
@@ -98,6 +98,14 @@ export async function handleBuiltInCommand({message,identity,text}){
   if(/^\/start(?:@\w+)?\s+(workshop|ورشة|ورشه)$/i.test(raw)){
     if(active)await sendMessage(chatId,`أنت مسجّل بالفعل بوظيفة <b>${esc(roleLabel(role))}</b>. لو محتاج تتسجل كموظف ورشة تواصل مع مدير النظام.`);
     else await startWorkshopRegistration(message,identity);
+    return true;
+  }
+  // رابط تسجيل مندوب البلوك المستقل: t.me/<bot>?start=block يبدأ فورم
+  // التسجيل بوظيفة "مندوب بلوك" مثبّتة مسبقًا — يكتب اسمه ورقمه الوظيفي
+  // ويرسل الطلب، ولا تُمنح أي صلاحية قبل اعتماد مدير النظام.
+  if(/^\/start(?:@\w+)?\s+(block|بلوك|بلوك_مبيعات)$/i.test(raw)){
+    if(active)await sendMessage(chatId,`أنت مسجّل بالفعل بوظيفة <b>${esc(roleLabel(role))}</b>. لو محتاج تتسجل كمندوب بلوك تواصل مع مدير النظام.`);
+    else await startBlockSalesRegistration(message,identity);
     return true;
   }
   if(/^\/start(?:@\w+)?\s+attendance$/i.test(raw)){
