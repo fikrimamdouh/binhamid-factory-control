@@ -19,7 +19,8 @@ test('workshop API is capability scoped and registered under one router function
   const [route,router,vercel,permissions]=await Promise.all([
     read('api/_lib/routes/workshop.js'),read('api/router.js'),read('vercel.json'),read('api/_lib/permissions.js')
   ]);
-  for(const capability of ['workshop.view','workshop.create','workshop.update','workshop.manage','workshop.approve','workshop.close','workshop.diagnose','workshop.labor','workshop.parts.manage'])assert.match(`${route}\n${permissions}`,new RegExp(capability.replace('.','\\.')));
+  for(const capability of ['workshop.view','workshop.create','workshop.update','workshop.manage','workshop.approve','workshop.close','workshop.diagnose','workshop.labor','workshop.parts.request','workshop.parts.manage'])assert.match(`${route}\n${permissions}`,new RegExp(capability.replace('.','\\.')));
+  assert.match(route,/part_request[\s\S]*workshop\.parts\.request/);
   assert.match(router,/'workshop':workshop\.workshop/);
   assert.match(vercel,/"source":"\/api\/workshop","destination":"\/api\/router\?route=workshop"/);
 });
