@@ -162,7 +162,7 @@ async function handleMessage(update){
     if(stored?.id){
       const values={transcription:result.text||null,related_entity_type:result.text?'voice_transcribed':`voice_${result.reason||'failed'}`};
       if(uploaded)values.file_path=path;
-      await patch('telegram_messages',`update_id=eq.${encodeURIComponent(updateId)}`,{delivery_status:status}).catch(()=>{});
+      await patch('telegram_messages',`id=eq.${stored.id}`,values).catch(error=>console.warn('[telegram voice message patch]',{message:String(error?.message||'').slice(0,220)}));
     }
     if(result.text)await sendMessage(message.chat.id,`تم فهم التسجيل: <b>${esc(result.text).slice(0,500)}</b>\nجارٍ تنفيذ الطلب...`).catch(()=>{});
     return result.text?handleText(message,group,identity,result.text,uploaded?path:'',stored):sendMessage(message.chat.id,voiceFailureMessage(result));
