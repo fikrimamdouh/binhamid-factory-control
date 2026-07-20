@@ -143,7 +143,7 @@ create index if not exists operational_records_entity_lookup_idx
 
 -- Link only deterministic one-to-one reference matches.
 with deterministic as (
-  select mo.id maintenance_id,mo.reference_no,min(o.id) operational_id
+  select mo.id maintenance_id,mo.reference_no,min(o.id::text)::uuid operational_id
   from public.maintenance_orders mo
   join public.operational_records o on o.reference_no=mo.reference_no
   group by mo.id,mo.reference_no
@@ -540,15 +540,23 @@ on conflict do nothing;
 -- ---------------------------------------------------------------------------
 
 create or replace view public.workshop_order_cost_summary as
+with labor as (
+  select maintenance_id,sum(total_labor_cost)::numeric(18,2) labor_cost
+  from public.maintenance_labor_entries
+  group by maintenance_id
+), parts as (
+  select maintenance_id,sum(total_cost)::numeric(18,2) parts_cost
+  from public.maintenance_parts
+  group by maintenance_id
+)
 select mo.id maintenance_id,mo.reference_no,mo.asset_external_id,mo.vehicle_external_id,mo.status,mo.priority,
-       coalesce(sum(distinct l.total_labor_cost),0)::numeric(18,2) labor_cost,
-       coalesce(sum(distinct p.total_cost),0)::numeric(18,2) parts_cost,
+       coalesce(l.labor_cost,0)::numeric(18,2) labor_cost,
+       coalesce(p.parts_cost,0)::numeric(18,2) parts_cost,
        coalesce(mo.actual_cost,0)::numeric(18,2) recorded_actual_cost,
-       (coalesce(sum(distinct l.total_labor_cost),0)+coalesce(sum(distinct p.total_cost),0)+coalesce(mo.actual_cost,0))::numeric(18,2) total_cost
+       (coalesce(l.labor_cost,0)+coalesce(p.parts_cost,0)+coalesce(mo.actual_cost,0))::numeric(18,2) total_cost
 from public.maintenance_orders mo
-left join public.maintenance_labor_entries l on l.maintenance_id=mo.id
-left join public.maintenance_parts p on p.maintenance_id=mo.id
-group by mo.id,mo.reference_no,mo.asset_external_id,mo.vehicle_external_id,mo.status,mo.priority,mo.actual_cost;
+left join labor l on l.maintenance_id=mo.id
+left join parts p on p.maintenance_id=mo.id;
 
 create or replace view public.workshop_order_aging as
 select mo.id,mo.reference_no,mo.asset_external_id,mo.plate_snapshot,mo.status,mo.priority,mo.vehicle_stopped,
