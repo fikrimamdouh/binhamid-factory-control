@@ -53,12 +53,14 @@ export async function dashboard(req,res){
       safeSelect('app_users','select=id,employee_external_id,full_name,nickname,role,active,created_at,updated_at&order=created_at.desc&limit=1000'),
       safeSelect('telegram_messages',`created_at=gte.${encodeURIComponent(new Date(Date.now()-30*24*36e5).toISOString())}&select=direction,sender_external_id,sender_name,message_type,text,transcription,file_name,delivery_status,action_name,created_at&order=created_at.desc&limit=10000`)
     ]);
+    // هوية اختبار قديمة من فحص تجريبي — تُستبعد من كل عروض المستخدمين.
+    const TEST_IDENTITY='9900000001';
     const appById=new Map(appUsers.map(row=>[String(row.id),row]));
-    const users=channels.map(channel=>{
+    const users=channels.filter(channel=>String(channel.external_id||'')!==TEST_IDENTITY).map(channel=>{
       const user=appById.get(String(channel.app_user_id||channel.user_id||''))||{};
       return{id:user.id||channel.app_user_id||null,full_name:user.full_name||channel.full_name||channel.external_username||'',external_username:channel.external_username||channel.username||'',external_id:String(channel.external_id||channel.channel_user_id||user.external_id||''),employee_external_id:user.employee_external_id||null,role:user.role||channel.role||'pending',active:user.active!==false&&channel.active!==false,created_at:channel.created_at||user.created_at||null};
     });
-    for(const user of appUsers)if(!users.some(row=>String(row.id)===String(user.id)))users.push({...user,external_username:'',external_id:String(user.external_id||'')});
+    for(const user of appUsers)if(String(user.full_name||'')!=='مستخدم اختبار النظام'&&!users.some(row=>String(row.id)===String(user.id)))users.push({...user,external_username:'',external_id:String(user.external_id||'')});
     json(res,200,{ok:true,restricted:false,snapshot,lastUpdated:snapshot.generatedAt,imports,groups,users,botActivity:botActivity(messages,users),automation:{twoWay:true,pollSeconds:15,approvalRequired:true,browserAssist:true,serverPosting:true}});
   }catch(error){errorResponse(res,error);}
 }

@@ -205,7 +205,7 @@ function groups(){
 function users(){
   const rows=dash?.users||[];
   if(!rows.length)return'<div class="bh-empty">لسه مفيش مستخدم مسجّل. اطلب من الموظف إرسال أمر /whoami للبوت ليظهر هنا وتحدد دوره.</div>';
-  return '<div class="bh-table-wrap"><table class="bh-table"><thead><tr><th>الاسم</th><th>Telegram ID</th><th>الدور</th><th>الحالة</th><th></th></tr></thead><tbody>'+rows.map(r=>'<tr><td>'+esc(r.full_name||r.external_username)+'</td><td>'+esc(r.external_id)+'</td><td>'+esc(r.role)+'</td><td>'+pill(r.active)+'</td><td><button class="bh-btn ghost" onclick="bhCloudApproveUser(\''+r.external_id+'\',\''+esc(r.full_name||'')+'\',\''+esc(r.role||'pending')+'\','+(r.active!==false)+',\''+esc(r.nickname||'')+'\')">تحديد الدور</button></td></tr>').join('')+'</tbody></table></div>';
+  return '<div class="bh-table-wrap"><table class="bh-table"><thead><tr><th>الاسم</th><th>Telegram ID</th><th>الدور</th><th>الحالة</th><th></th></tr></thead><tbody>'+rows.map(r=>'<tr><td>'+esc(r.full_name||r.external_username)+'</td><td>'+esc(r.external_id)+'</td><td>'+esc(r.role)+'</td><td>'+pill(r.active)+'</td><td><button class="bh-btn ghost" onclick="bhCloudApproveUser(\''+r.external_id+'\',\''+esc(r.full_name||'')+'\',\''+esc(r.role||'pending')+'\','+(r.active!==false)+',\''+esc(r.nickname||'')+'\')">تحديد الدور</button> <button class="bh-btn ghost" style="color:#8b2525" onclick="bhCloudDeleteUser(\''+r.external_id+'\',\''+esc(r.full_name||r.external_username||'')+'\')">حذف</button></td></tr>').join('')+'</tbody></table></div>';
 }
 
 /* ============================================================
@@ -304,6 +304,14 @@ window.bhCloudApproveGroup=async(id,title)=>{
   const d=prompt('قسم المجموعة: workshop / finance / block / concrete','workshop');if(!d)return;
   try{await api('/api/admin/groups',{method:'POST',body:JSON.stringify({chatId:id,department:d,active:true})});load()}
   catch(e){toast(e.message,true)}
+};
+window.bhCloudDeleteUser=async(id,name)=>{
+  if(!confirm('حذف صلاحية «'+(name||id)+'»؟\n\nسيتم إلغاء ربطه بالبوت وإيقاف حسابه فورًا، ولن يقدر يستخدم البوت ولا الموقع.\nسجل رسائله السابق يفضل محفوظًا، وتقدر تعتمده من جديد في أي وقت.'))return;
+  try{
+    await api('/api/admin/users',{method:'POST',body:JSON.stringify({action:'delete',externalId:id})});
+    toast('تم حذف صلاحية: '+(name||id));
+    load();
+  }catch(e){toast('تعذر الحذف: '+e.message,true)}
 };
 const BH_ROLES=['admin','manager','accountant','mechanic','block_sales','concrete_sales','collector','driver','employee','warehouse','fuel_operator','hr','procurement','quality'];
 window.bhCloudApproveUser=async(id,name,currentRole,currentActive,currentNickname)=>{

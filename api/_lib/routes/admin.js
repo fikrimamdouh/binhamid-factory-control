@@ -19,7 +19,19 @@ export async function users(req,res){
   if(!method(req,res,['POST']))return;
   try{
     await requireCapability(req,'users.manage');
-    const input=await body(req),role=String(input.role||'');
+    const input=await body(req);
+    // حذف مستخدم: يُلغى ربطه بتليجرام ويُعطَّل حسابه ويُحوَّل إلى pending،
+    // فلا يقدر يستخدم البوت ولا الموقع، وسجل رسائله السابق يفضل محفوظًا.
+    if(input.action==='delete'){
+      const external=String(input.externalId||'').trim();
+      if(!external)throw Object.assign(new Error('معرّف تليجرام مطلوب'),{status:400});
+      if(external===String(process.env.OWNER_TELEGRAM_ID||''))throw Object.assign(new Error('لا يمكن حذف حساب المالك'),{status:400});
+      const link=(await select('user_channels',`channel=eq.telegram&external_id=eq.${encodeURIComponent(external)}&select=user_id&limit=1`).catch(()=>[]))?.[0];
+      if(link?.user_id)await patch('app_users',`id=eq.${encodeURIComponent(link.user_id)}`,{active:false,role:'pending'}).catch(error=>console.warn('[admin users delete]',error?.message||error));
+      await patch('user_channels',`channel=eq.telegram&external_id=eq.${encodeURIComponent(external)}`,{active:false}).catch(error=>console.warn('[admin users delete channel]',error?.message||error));
+      return json(res,200,{ok:true,deleted:external});
+    }
+    const role=String(input.role||'');
     if(!ROLES.includes(role))throw Object.assign(new Error('الدور غير صحيح'),{status:400});
     const result=await rpc('approve_telegram_user',{p_external_id:String(input.externalId),p_full_name:String(input.fullName||'').slice(0,500),p_role:role,p_active:input.active!==false,p_employee_external_id:String(input.employeeExternalId||'').slice(0,200)||null});
     const nickname=String(input.nickname||'').trim().slice(0,120);
