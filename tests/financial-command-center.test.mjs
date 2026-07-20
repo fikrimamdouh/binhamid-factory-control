@@ -35,21 +35,25 @@ test('financial control requests notify management and administrative forms enfo
   for(const phrase of ['مدير مالي','طلب ميزانية','التزام مورد','مطالبة مصروف','كنية الموظف'])assert.match(voice,new RegExp(phrase));
 });
 
-test('schema 024 remains intact while runtime readiness advances to workshop schema 025',async()=>{
-  const [migration24,migration25,audit,runtime]=await Promise.all([
+test('schema 024 and 025 remain intact while runtime readiness advances to workshop service schema 027',async()=>{
+  const [migration24,migration25,migration26,migration27,audit,runtime]=await Promise.all([
     read('supabase/migrations/024_employee_nickname_and_financial_command_center.sql'),
     read('supabase/migrations/025_workshop_central_data_model.sql'),
+    read('supabase/migrations/026_workshop_service_rpcs.sql'),
+    read('supabase/migrations/027_workshop_service_compatibility.sql'),
     read('scripts/audit-migrations.mjs'),
     read('api/_lib/routes/system-runtime.js')
   ]);
   assert.match(migration24,/values\(24,'024_employee_nickname_and_financial_command_center'\)/);
   assert.match(migration25,/values\(25,'025_workshop_central_data_model'\)/);
-  assert.match(audit,/const latest=25/);
-  assert.match(audit,/version===24/);
-  assert.match(audit,/version===25/);
-  assert.match(runtime,/LATEST_REQUIRED_VERSION=25/);
+  assert.match(migration26,/values\(26,'026_workshop_service_rpcs'\)/);
+  assert.match(migration27,/values\(27,'027_workshop_service_compatibility'\)/);
+  assert.match(audit,/const latest=27/);
+  for(const version of [24,25,26,27])assert.match(audit,new RegExp(`version===${version}`));
+  assert.match(runtime,/LATEST_REQUIRED_VERSION=27/);
   assert.match(runtime,/maintenance_reconciliation_queue/);
-  assert.match(runtime,/workshopCentralDataModel:true/);
+  assert.match(runtime,/workshop_command_receipts/);
+  assert.match(runtime,/workshopCentralService:true/);
   assert.match(runtime,/app_users:\['nickname'\]/);
   assert.match(runtime,/employees:\['nickname'\]/);
   assert.match(runtime,/user_invitations:\['nickname'\]/);
