@@ -38,7 +38,7 @@ export async function continueMechanicSession(message,identity,session,text){
 }
 export async function handleMechanicTextCommand(message,identity,text){
   const value=String(text||'').toLowerCase().trim();
-  if(/^\/?(?:workshop)?$/i.test(value)||/^(قائمه الورشه|قائمة الورشة|موظف الورشه|موظف الورشة|مهام الميكانيكي|الورشه|الورشة)$/.test(value)){await showMechanicMenu(message,identity);return true;}
+  if(/^\/workshop(?:@\w+)?$/i.test(value)||/^(قائمه الورشه|قائمة الورشة|موظف الورشه|موظف الورشة|مهام الميكانيكي|الورشه|الورشة)$/.test(value)){await showMechanicMenu(message,identity);return true;}
   const view=/سجل الورشه|سجل الورشة|مهام الورشه|مهام الورشة|طلبات التسعير/.test(value);
   if(view&&!canView(identity)){await deny(message,identity,'ليست لديك صلاحية عرض سجل الورشة.');return true;}
   const operation=/تقرير يومي للورشه|تقرير يومي للورشة|فحص معده|فحص معدات|طلب قطع غيار|اصل بدون لوحه|أصل بدون لوحة|تحديث امر اصلاح|تحديث أمر إصلاح/.test(value);
