@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>إدارة الورشة — مصنع بن حامد</title>
+  <meta name="theme-color" content="#0b1120">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root{--bg:#07101f;--panel:#111c2e;--panel2:#18253a;--line:#2b3b53;--text:#eef4ff;--muted:#9fb0c6;--primary:#38bdf8;--success:#22c55e;--warning:#f59e0b;--danger:#ef4444;--shadow:0 18px 45px rgba(0,0,0,.28)}
+    *{box-sizing:border-box}body{margin:0;background:linear-gradient(150deg,#07101f,#0d1930 60%,#07101f);color:var(--text);font-family:'Cairo',sans-serif;min-height:100vh}.wrap{max-width:1600px;margin:auto;padding:20px}.topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;background:rgba(17,28,46,.94);border:1px solid var(--line);border-radius:18px;padding:16px 20px;box-shadow:var(--shadow);position:sticky;top:10px;z-index:20}.title h1{margin:0;font-size:24px}.title p{margin:4px 0 0;color:var(--muted);font-size:13px}.actions{display:flex;gap:8px;flex-wrap:wrap}.btn{border:0;border-radius:10px;padding:9px 14px;font:inherit;font-weight:700;cursor:pointer;background:#24344c;color:var(--text)}.btn:hover{filter:brightness(1.12)}.btn.primary{background:var(--primary);color:#03121d}.btn.success{background:var(--success);color:#04130a}.btn.danger{background:var(--danger)}.btn.ghost{background:transparent;border:1px solid var(--line)}.btn.small{padding:6px 9px;font-size:12px}.statusbar{margin:14px 0;padding:10px 14px;border-radius:12px;background:#101c30;border:1px solid var(--line);color:var(--muted);font-size:13px}.statusbar.error{border-color:var(--danger);color:#fecaca}.statusbar.ok{border-color:#166534;color:#bbf7d0}.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:12px;margin:16px 0}.kpi{background:rgba(17,28,46,.96);border:1px solid var(--line);border-radius:15px;padding:15px}.kpi .label{color:var(--muted);font-size:12px}.kpi .value{font-size:27px;font-weight:800;margin-top:5px}.toolbar{display:flex;gap:9px;flex-wrap:wrap;background:var(--panel);border:1px solid var(--line);padding:12px;border-radius:14px;margin-bottom:14px}.field{display:flex;flex-direction:column;gap:5px;min-width:170px;flex:1}.field label{font-size:12px;color:var(--muted)}input,select,textarea{width:100%;border:1px solid var(--line);border-radius:9px;background:#091426;color:var(--text);padding:9px 11px;font:inherit}textarea{min-height:100px;resize:vertical}.section-title{display:flex;align-items:center;justify-content:space-between;margin:18px 0 10px}.section-title h2{margin:0;font-size:18px}.kanban{display:grid;grid-template-columns:repeat(6,minmax(230px,1fr));gap:12px;overflow:auto;padding-bottom:8px}.column{background:rgba(17,28,46,.88);border:1px solid var(--line);border-radius:14px;min-height:280px;max-height:610px;overflow:auto}.column h3{position:sticky;top:0;background:#17253a;margin:0;padding:10px 12px;border-bottom:1px solid var(--line);font-size:13px;z-index:2}.column .count{float:left;background:#263a55;padding:1px 8px;border-radius:20px}.card{margin:9px;padding:10px;border-radius:11px;background:#0b172a;border:1px solid #273850;cursor:pointer}.card:hover{border-color:var(--primary)}.card .ref{font-weight:800;font-size:13px}.card .asset{color:#c9d5e6;font-size:12px;margin:5px 0}.card .problem{color:var(--muted);font-size:11px;line-height:1.7}.tags{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px}.tag{padding:2px 7px;border-radius:20px;font-size:10px;background:#24344c}.tag.urgent{background:#7c2d12;color:#fed7aa}.tag.stopped{background:#7f1d1d;color:#fecaca}.table-wrap{overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:14px}table{width:100%;border-collapse:collapse;min-width:900px}th,td{padding:10px;border-bottom:1px solid var(--line);font-size:12px;text-align:right}th{background:#17253a;color:#cbd7e8;position:sticky;top:0}tr:hover td{background:#14233a}.empty{padding:30px;text-align:center;color:var(--muted)}dialog{width:min(1000px,94vw);max-height:90vh;border:1px solid var(--line);border-radius:18px;background:#0b1527;color:var(--text);padding:0;box-shadow:var(--shadow)}dialog::backdrop{background:rgba(0,0,0,.72)}.dialog-head{display:flex;justify-content:space-between;align-items:center;padding:15px 18px;background:#15243a;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:3}.dialog-head h2{margin:0;font-size:18px}.dialog-body{padding:16px}.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.info{background:#101e33;border:1px solid var(--line);padding:11px;border-radius:10px}.info b{display:block;color:var(--muted);font-size:11px;margin-bottom:3px}.tabs{display:flex;gap:6px;flex-wrap:wrap;margin:15px 0}.tab{padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:#132139;color:var(--text);cursor:pointer}.tab.active{background:var(--primary);color:#03121d}.panel{display:none}.panel.active{display:block}.timeline{border-right:2px solid #334a67;margin-right:8px;padding-right:17px}.event{position:relative;margin:0 0 12px;background:#101e33;border:1px solid var(--line);border-radius:10px;padding:10px}.event:before{content:'';position:absolute;right:-23px;top:14px;width:10px;height:10px;border-radius:50%;background:var(--primary)}.action-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin:14px 0}.subform{display:none;background:#101e33;border:1px solid var(--line);padding:12px;border-radius:12px;margin-top:10px}.subform.active{display:block}.toast{position:fixed;left:20px;bottom:20px;max-width:420px;background:#15243a;border:1px solid var(--line);padding:12px 16px;border-radius:12px;box-shadow:var(--shadow);display:none;z-index:100}.toast.show{display:block}.toast.error{border-color:var(--danger)}@media(max-width:900px){.wrap{padding:10px}.topbar{position:static}.kanban{grid-template-columns:repeat(6,260px)}.grid2,.grid3{grid-template-columns:1fr}.actions .btn{flex:1}.dialog-body{padding:10px}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="topbar">
+      <div class="title"><h1>إدارة الورشة والصيانة</h1><p>أوامر الإصلاح، الأصول، الفنيون، القطع، الاختبار والتسليم من مصدر واحد</p></div>
+      <div class="actions">
+        <button class="btn primary" id="newOrderBtn">أمر صيانة جديد</button>
+        <button class="btn" id="refreshBtn">تحديث</button>
+        <button class="btn ghost" onclick="location.href='/control-center.html'">مركز الرقابة</button>
+        <button class="btn ghost" onclick="location.href='/'">الرئيسية</button>
+      </div>
+    </header>
+    <div id="statusBar" class="statusbar">جارٍ تحميل أوامر الورشة...</div>
+    <section id="kpis" class="kpis"></section>
+    <section class="toolbar">
+      <div class="field"><label>بحث</label><input id="searchInput" placeholder="المرجع، الأصل أو وصف العطل"></div>
+      <div class="field"><label>الحالة</label><select id="statusFilter"><option value="">كل الحالات</option></select></div>
+      <div class="field"><label>الأولوية</label><select id="priorityFilter"><option value="">كل الأولويات</option><option value="normal">عادي</option><option value="urgent">عاجل</option><option value="critical">حرج</option></select></div>
+      <div class="field"><label>الفني</label><select id="technicianFilter"><option value="">كل الفنيين</option></select></div>
+    </section>
+    <div class="section-title"><h2>لوحة سير العمل</h2><span id="orderCount"></span></div>
+    <section id="kanban" class="kanban"></section>
+    <div class="section-title"><h2>قائمة الأوامر</h2><button class="btn small ghost" id="exportBtn">تصدير CSV</button></div>
+    <section class="table-wrap"><table><thead><tr><th>المرجع</th><th>الأصل</th><th>العطل</th><th>الحالة</th><th>الأولوية</th><th>الفني</th><th>التكلفة</th><th>آخر تحديث</th></tr></thead><tbody id="ordersBody"></tbody></table></section>
+  </div>
+
+  <dialog id="createDialog">
+    <div class="dialog-head"><h2>إنشاء أمر صيانة</h2><button class="btn ghost" data-close="createDialog">إغلاق</button></div>
+    <form id="createForm" class="dialog-body">
+      <div class="grid2">
+        <div class="field"><label>الأصل المسجل</label><select id="createAsset" required><option value="">اختر الأصل</option></select></div>
+        <div class="field"><label>الأولوية</label><select id="createPriority"><option value="normal">عادي</option><option value="urgent">عاجل</option><option value="critical">حرج</option></select></div>
+      </div>
+      <div class="grid2">
+        <div class="field"><label>تصنيف العطل</label><input id="createCategory" placeholder="محرك، كهرباء، هيدروليك..."></div>
+        <div class="field"><label><input id="createStopped" type="checkbox" style="width:auto"> الأصل متوقف عن العمل</label></div>
+      </div>
+      <div class="field"><label>وصف العطل</label><textarea id="createProblem" required></textarea></div>
+      <button class="btn primary" type="submit">حفظ المسودة</button>
+    </form>
+  </dialog>
+
+  <dialog id="detailDialog">
+    <div class="dialog-head"><h2 id="detailTitle">تفاصيل أمر الصيانة</h2><button class="btn ghost" data-close="detailDialog">إغلاق</button></div>
+    <div class="dialog-body">
+      <div id="detailInfo" class="grid3"></div>
+      <div id="detailActions" class="action-grid"></div>
+      <div id="actionForms">
+        <form class="subform" id="assignForm"><div class="field"><label>الفني</label><select id="assignTechnician"></select></div><button class="btn primary">تعيين</button></form>
+        <form class="subform" id="diagnosticForm"><div class="field"><label>التشخيص</label><textarea id="diagnosisText" required></textarea></div><div class="grid2"><input id="rootCause" placeholder="السبب الجذري"><input id="proposedAction" placeholder="الإجراء المقترح"></div><button class="btn primary">حفظ التشخيص</button></form>
+        <form class="subform" id="laborForm"><div class="grid3"><input id="laborHours" type="number" step="0.25" min="0.25" placeholder="الساعات" required><input id="laborType" placeholder="نوع العمل" required><input id="laborCost" type="number" step="0.01" min="0" placeholder="تكلفة الساعة"></div><textarea id="laborNotes" placeholder="ملاحظات"></textarea><button class="btn primary">حفظ الساعات</button></form>
+        <form class="subform" id="partForm"><div class="grid3"><input id="partName" placeholder="اسم القطعة" required><input id="partQty" type="number" step="0.01" min="0.01" placeholder="الكمية" required><input id="partUnit" placeholder="الوحدة"></div><select id="partUrgency"><option value="normal">عادي</option><option value="urgent">عاجل</option><option value="critical">حرج</option></select><button class="btn primary">طلب القطعة</button></form>
+        <form class="subform" id="transitionForm"><div class="field"><label>الحالة الجديدة</label><select id="transitionTarget"></select></div><textarea id="transitionNote" placeholder="ملاحظة وسبب الانتقال"></textarea><div class="grid2"><label><input id="testPassed" type="checkbox" style="width:auto"> الاختبار ناجح</label><label><input id="handoverAccepted" type="checkbox" style="width:auto"> تم استلام الأصل</label></div><button class="btn success">تأكيد الانتقال</button></form>
+      </div>
+      <div class="tabs"><button class="tab active" data-tab="history">سجل الحالات</button><button class="tab" data-tab="diagnostics">التشخيص</button><button class="tab" data-tab="labor">الساعات</button><button class="tab" data-tab="parts">القطع</button><button class="tab" data-tab="attachments">المرفقات</button></div>
+      <section id="panel-history" class="panel active"></section><section id="panel-diagnostics" class="panel"></section><section id="panel-labor" class="panel"></section><section id="panel-parts" class="panel"></section><section id="panel-attachments" class="panel"></section>
+    </div>
+  </dialog>
+  <div id="toast" class="toast"></div>
+  <script type="module" src="/assets/workshop-app.js?v=20260720-ws04"></script>
+</body>
+</html>
