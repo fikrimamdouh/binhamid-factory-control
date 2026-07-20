@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { select, insert } from './supabase.js';
 import { sendDocumentBuffer, sendMessage } from './telegram.js';
+import { htmlToPdf } from './pdf-service.js';
 import { displayName } from './bot-profile.js';
 import { enterpriseSnapshot } from './bot-enterprise-priorities.js';
 import { enterpriseEvents, esc, formatAmount, operationLine, reduceEnterpriseOperations } from './bot-enterprise-store.js';
@@ -34,11 +35,11 @@ function htmlDocument({title,body,requestedBy,verification,verifyUrl}){
   return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial,Tahoma,sans-serif;color:#173746;padding:34px;line-height:1.7}h1{font-size:24px;border-bottom:3px solid #a97926;padding-bottom:12px}h2{font-size:18px;margin-top:28px}table{width:100%;border-collapse:collapse;margin:14px 0}th,td{border:1px solid #bbc7cc;padding:8px;text-align:right}th{background:#eef2f3}.card{border:1px solid #d5dddf;border-radius:8px;padding:10px;margin:8px 0}.meta{font-size:12px;color:#60737c}.verify{margin-top:35px;border:2px solid #173746;border-radius:10px;padding:14px}.code{font-family:monospace;font-size:18px;letter-spacing:2px}</style></head><body><h1>${escapeHtml(title)}</h1><div class="meta">مصنع بن حامد للبلوك والخرسانة الجاهزة<br>تاريخ الإنشاء: ${new Date().toLocaleString('ar-SA',{timeZone:'Asia/Riyadh'})}<br>طالب التقرير: ${escapeHtml(requestedBy)}</div>${body}<div class="verify"><strong>رمز التحقق:</strong> <span class="code">${escapeHtml(verification)}</span><br><a href="${escapeHtml(verifyUrl)}">التحقق من المستند إلكترونيًا</a><br><span class="meta">تم إنشاء المستند من السجل المركزي. يلزم مراجعة المصدر عند الاعتماد المالي أو النظامي.</span></div></body></html>`;
 }
 async function convertToPdf(html){
-  const url=String(process.env.PDF_API_URL||process.env.PDF_SERVICE_URL||'').trim();if(!url)return null;
-  const headers={'Content-Type':'application/json'};const key=String(process.env.PDF_API_KEY||process.env.PDF_SERVICE_API_KEY||'').trim();if(key)headers.Authorization=`Bearer ${key}`;
-  const response=await fetch(url,{method:'POST',headers,body:JSON.stringify({html,format:'A4',printBackground:true})});
-  if(!response.ok)throw new Error(`تعذر إنشاء PDF: ${response.status}`);
-  return Buffer.from(await response.arrayBuffer());
+  // كانت هنا نسخة ثانية من منطق التحويل ترسل صيغة طلب ثابتة، فتفشل مع
+  // Cloudflare بـ 400 حتى بعد إصلاح الخدمة المركزية. التحويل الآن يمر عبر
+  // pdf-service وحده حتى يبقى مزوّد PDF واحدًا لكل مخرجات النظام.
+  if(!String(process.env.PDF_API_URL||process.env.PDF_SERVICE_URL||'').trim())return null;
+  return htmlToPdf(html,{filename:'report'});
 }
 export async function sendOperationalDocument(message,identity,kind){
   if(!['admin','manager','accountant'].includes(identity?.role))return sendMessage(message.chat.id,'إنشاء التقارير التنفيذية متاح للإدارة والمحاسب.');
