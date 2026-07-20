@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const directory=resolve('supabase/migrations'),files=readdirSync(directory).filter(name=>/^\d{3}_.+\.sql$/.test(name)).sort(),versions=files.map(name=>Number(name.slice(0,3))),errors=[];
-const latest=25;
+const latest=27;
 for(let version=1;version<=latest;version++){if(!versions.includes(version))errors.push(`missing migration ${String(version).padStart(3,'0')}`);}
 if(new Set(versions).size!==versions.length)errors.push('duplicate migration version');
 if(Math.max(...versions)!==latest)errors.push(`latest migration must be ${String(latest).padStart(3,'0')}`);
@@ -27,5 +27,7 @@ for(const file of files){
   if(version===23){for(const marker of ['MIGRATION_022_REQUIRED','reset_factory_operational_data','RESET_FACTORY_OPERATIONAL_DATA','backupsPreserved','identitiesPreserved'])if(!sql.includes(marker))errors.push(`${file}: missing ${marker}`);}
   if(version===24){for(const marker of ['app_users','employees','user_invitations','nickname','sync_app_user_nickname_to_employee','024_employee_nickname_and_financial_command_center'])if(!sql.includes(marker))errors.push(`${file}: missing ${marker}`);}
   if(version===25){for(const marker of ['maintenance_reconciliation_queue','maintenance_status_history','maintenance_labor_entries','maintenance_diagnostics','maintenance_parts','maintenance_attachments','preventive_maintenance_plans','asset_meter_readings','workshop_daily_reports','workshop_status_transition_allowed','operational_records_maintenance_order_fk','025_workshop_central_data_model'])if(!sql.includes(marker))errors.push(`${file}: missing ${marker}`);}
+  if(version===26){for(const marker of ['workshop_command_receipts','workshop_create_order','workshop_transition_order','workshop_assign_technician','assigned_technician_id','approval_required','test_passed','workshop.approve','026_workshop_service_rpcs'])if(!sql.includes(marker))errors.push(`${file}: missing ${marker}`);}
+  if(version===27){for(const marker of ['maintenance_orders add column if not exists metadata','maintenance_diagnostics_request_full_uidx','maintenance_labor_request_full_uidx','maintenance_parts_request_full_uidx','027_workshop_service_compatibility'])if(!sql.includes(marker))errors.push(`${file}: missing ${marker}`);}
 }
 if(errors.length){console.error(errors.join('\n'));process.exit(1);}console.log(`MIGRATIONS_OK=${files.length};LATEST=${String(latest).padStart(3,'0')}`);
