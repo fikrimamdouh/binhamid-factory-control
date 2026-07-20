@@ -1,39 +1,14 @@
-name: Operational Scheduler
+name: Operational Scheduler Disabled
 
 on:
-  schedule:
-    - cron: '12 * * * *'
   workflow_dispatch:
-    inputs:
-      mode:
-        description: Scheduler mode
-        required: false
-        default: all
-        type: choice
-        options: [all, outbox, alerts, brief, retry]
 
 permissions:
   contents: read
 
 jobs:
-  run:
+  disabled:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
     steps:
-      - name: Validate scheduler secrets
-        env:
-          ENDPOINT: ${{ secrets.BINHAMID_CRON_URL }}
-          SECRET: ${{ secrets.BINHAMID_CRON_SECRET }}
-        run: |
-          test -n "$ENDPOINT" || { echo "BINHAMID_CRON_URL is missing"; exit 1; }
-          test -n "$SECRET" || { echo "BINHAMID_CRON_SECRET is missing"; exit 1; }
-      - name: Process notifications and alerts
-        env:
-          ENDPOINT: ${{ secrets.BINHAMID_CRON_URL }}
-          SECRET: ${{ secrets.BINHAMID_CRON_SECRET }}
-          MODE: ${{ inputs.mode || 'all' }}
-        run: |
-          curl --fail-with-body --silent --show-error \
-            --retry 2 --retry-delay 5 --max-time 90 \
-            -H "Authorization: Bearer $SECRET" \
-            "$ENDPOINT?mode=$MODE"
+      - name: Confirm on-demand-only mode
+        run: echo "Proactive notifications, reminders, retries, outbox processing, and scheduled exports are disabled."
