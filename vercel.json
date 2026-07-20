@@ -1,5 +1,5 @@
 {
-  "git": {"deploymentEnabled": false},
+  "git": {"deploymentEnabled": true},
   "functions": {"api/**/*.js": {"maxDuration": 30}, "api/state.js": {"maxDuration": 60}},
   "rewrites": [
     {"source":"/api/admin/groups","destination":"/api/router?route=admin/groups"},
