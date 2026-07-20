@@ -8,7 +8,23 @@ async function syncMasters(payload){
   const employees=(legacy.emp||[]).map(x=>({external_id:clean(x.id,120),employee_no:clean(x.no,120),national_id:clean(x.nid,120),full_name:clean(x.name),phone:clean(x.tel,80),role:clean(x.role,120),salary:Number(x.salary||x.sal||0),active:x.act!==false,source_updated_at:now})).filter(x=>x.external_id);
   const vehicles=(legacy.veh||[]).map(x=>({external_id:clean(x.id,120),plate_no:clean(x.plate,120),asset_no:clean(x.acct,120),vehicle_type:clean(x.type,180),make:clean(x.make,180),model:clean(x.model,120),driver_external_id:clean(x.drv,120),status:clean(x.status||'active',80),active:x.act!==false,source_updated_at:now})).filter(x=>x.external_id);
   const customers=(legacy.cli||[]).map(x=>({external_id:clean(x.id,120),customer_code:clean(x.code||x.no,120),customer_name:clean(x.name),phone:clean(x.tel,80),segment:clean(x.seg,80),credit_limit:Number(x.cap||x.credit||0),payment_days:Number(x.days||0),active:x.act!==false,source_updated_at:now})).filter(x=>x.external_id);
-  for(const[table,rows]of[['employees',employees],['vehicles',vehicles],['customers',customers]])for(let i=0;i<rows.length;i+=200)await upsert(table,rows.slice(i,i+200),'external_id');
+  // مزامنة متوازية محدودة (4 دفعات معًا) بمهلة كلية 15 ثانية: حفظ الحالة نفسه
+  // اكتمل قبل هذه الخطوة، فلو ضاقت المهلة تُستكمل الدفعات المتبقية تلقائيًا في
+  // الحفظة التالية (القوائم تُرسل كاملة كل مرة) بدل أن تلتهم مهلة الدالة وتُفشل
+  // المزامنة كلها بـ FUNCTION_INVOCATION_TIMEOUT كما كان يحدث تسلسليًا.
+  const jobs=[];
+  for(const[table,rows]of[['employees',employees],['vehicles',vehicles],['customers',customers]])
+    for(let i=0;i<rows.length;i+=200){const slice=rows.slice(i,i+200);jobs.push(()=>upsert(table,slice,'external_id'));}
+  const deadline=Date.now()+15_000;let skipped=0;
+  async function worker(){
+    while(jobs.length){
+      if(Date.now()>deadline){skipped+=jobs.length;jobs.length=0;return;}
+      const job=jobs.shift();
+      await job().catch(error=>console.warn('[state master chunk]',String(error?.message||'').slice(0,200)));
+    }
+  }
+  await Promise.all([worker(),worker(),worker(),worker()]);
+  if(skipped)console.warn('[state master sync] deadline reached, deferred chunks:',skipped);
 }
 export default async function handler(req,res){
   if(!method(req,res,['GET','PUT']))return;
