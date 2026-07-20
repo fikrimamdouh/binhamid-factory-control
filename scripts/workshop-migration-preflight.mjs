@@ -13,6 +13,8 @@ function run(sql){
 const number=sql=>{const value=Number(run(sql));return Number.isFinite(value)?value:0;};
 const bool=sql=>run(sql)==='t';
 const version=number('select coalesce(max(version),0) from public.migration_history');
+const hasAssetColumn=bool("select exists(select 1 from information_schema.columns where table_schema='public' and table_name='maintenance_orders' and column_name='asset_external_id')");
+const assetExpression=hasAssetColumn?"coalesce(nullif(mo.asset_external_id,''),nullif(mo.vehicle_external_id,''))":"nullif(mo.vehicle_external_id,'')";
 const result={
   format:'binhamid-workshop-migration-preflight-v1',
   checkedAt:new Date().toISOString(),
@@ -29,7 +31,7 @@ const result={
   anomalies:{
     maintenanceWithoutOperational:number('select count(*) from public.maintenance_orders mo where not exists(select 1 from public.operational_records o where o.reference_no=mo.reference_no)'),
     orphanWorkshopOperational:number("select count(*) from public.operational_records o where (o.department='workshop' or o.entity_type in ('maintenance','maintenance_order','workshop','spare_parts_request')) and not exists(select 1 from public.maintenance_orders mo where mo.reference_no=o.reference_no)"),
-    maintenanceWithoutUnifiedAsset:number("select count(*) from public.maintenance_orders mo left join public.unified_assets ua on ua.external_id=coalesce(nullif(mo.asset_external_id,''),nullif(mo.vehicle_external_id,'')) where ua.id is null")
+    maintenanceWithoutUnifiedAsset:number(`select count(*) from public.maintenance_orders mo left join public.unified_assets ua on ua.external_id=${assetExpression} where ua.id is null`)
   },
   migrationAlreadyApplied:version>=25,
   requiredTablesPresent:['maintenance_orders','maintenance_updates','operational_records','audit_log','unified_assets'].every(table=>bool(`select to_regclass('public.${table}') is not null`)),
