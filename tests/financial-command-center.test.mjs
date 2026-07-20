@@ -35,12 +35,21 @@ test('financial control requests notify management and administrative forms enfo
   for(const phrase of ['مدير مالي','طلب ميزانية','التزام مورد','مطالبة مصروف','كنية الموظف'])assert.match(voice,new RegExp(phrase));
 });
 
-test('schema 024 exposes employee nickname and financial command center readiness',async()=>{
-  const [migration,audit,runtime]=await Promise.all([read('supabase/migrations/024_employee_nickname_and_financial_command_center.sql'),read('scripts/audit-migrations.mjs'),read('api/_lib/routes/system-runtime.js')]);
-  assert.match(migration,/values\(24,'024_employee_nickname_and_financial_command_center'\)/);
-  assert.match(audit,/const latest=24/);
+test('schema 024 remains intact while runtime readiness advances to workshop schema 025',async()=>{
+  const [migration24,migration25,audit,runtime]=await Promise.all([
+    read('supabase/migrations/024_employee_nickname_and_financial_command_center.sql'),
+    read('supabase/migrations/025_workshop_central_data_model.sql'),
+    read('scripts/audit-migrations.mjs'),
+    read('api/_lib/routes/system-runtime.js')
+  ]);
+  assert.match(migration24,/values\(24,'024_employee_nickname_and_financial_command_center'\)/);
+  assert.match(migration25,/values\(25,'025_workshop_central_data_model'\)/);
+  assert.match(audit,/const latest=25/);
   assert.match(audit,/version===24/);
-  assert.match(runtime,/LATEST_REQUIRED_VERSION=24/);
+  assert.match(audit,/version===25/);
+  assert.match(runtime,/LATEST_REQUIRED_VERSION=25/);
+  assert.match(runtime,/maintenance_reconciliation_queue/);
+  assert.match(runtime,/workshopCentralDataModel:true/);
   assert.match(runtime,/app_users:\['nickname'\]/);
   assert.match(runtime,/employees:\['nickname'\]/);
   assert.match(runtime,/user_invitations:\['nickname'\]/);
