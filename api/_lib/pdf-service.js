@@ -4,10 +4,13 @@ const cleanUrl=value=>String(value||'').trim().replace(/\/$/,'');
 const providerName=()=>String(config.pdfProvider||process.env.PDF_PROVIDER||'auto').trim().toLowerCase();
 
 function resolvedProvider(){
+  const url=String(config.pdfApiUrl||'');
+  // رابط Cloudflare له صيغة طلب خاصة (pdfOptions)، وإرسال صيغة مزوّد آخر إليه
+  // يفشل دائمًا بـ 400. لذلك شكل الرابط يحسم المزوّد حتى لو كان PDF_PROVIDER
+  // مضبوطًا على قيمة قديمة أو خاطئة.
+  if(/api\.cloudflare\.com\/client\/v4\/accounts\/[^/]+\/browser-rendering\/pdf/i.test(url))return 'cloudflare';
   const explicit=providerName();
   if(explicit&&explicit!=='auto')return explicit;
-  const url=String(config.pdfApiUrl||'');
-  if(/api\.cloudflare\.com\/client\/v4\/accounts\/[^/]+\/browser-rendering\/pdf/i.test(url))return 'cloudflare';
   return /gotenberg|\/forms\/chromium\/convert\/html/i.test(url)?'gotenberg':'json';
 }
 
