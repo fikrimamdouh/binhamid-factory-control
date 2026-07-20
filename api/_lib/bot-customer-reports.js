@@ -210,7 +210,15 @@ async function sendSmallestOrLargest(chatId,identity,count,thresholdValue,filter
 async function sendBalanceFilter(chatId,identity,mode,min,max=null,page=0){
   const data=await loadCustomerAnalytics(identity);let rows=data.rows.filter(row=>row.debitBalance>0.009);
   if(mode==='gt')rows=rows.filter(row=>row.debitBalance>min);else if(mode==='lt')rows=rows.filter(row=>row.debitBalance<min);else rows=rows.filter(row=>row.debitBalance>=Math.min(min,max)&&row.debitBalance<=Math.max(min,max));
-  rows.sort((a,b)=>b.debitBalance-a.debitBalance);if(!rows.length)return sendMessage(chatId,'لا يوجد عملاء يطابقون شرط الرصيد.');
+  rows.sort((a,b)=>b.debitBalance-a.debitBalance);
+  if(!rows.length){
+    // رسالة تشخيصية بدل الرفض الجاف: تعرض ما فهمه النظام ومدى الأرصدة
+    // الفعلية، فيتضح فورًا إن كان الرقم مكتوبًا بالغلط أو المدى فاضي فعلًا.
+    const all=data.rows.filter(row=>row.debitBalance>0.009).map(row=>row.debitBalance).sort((a,b)=>a-b);
+    const understood=mode==='gt'?`أكبر من ${money(min)}`:mode==='lt'?`أقل من ${money(min)}`:`بين ${money(Math.min(min,max))} و${money(Math.max(min,max))}`;
+    const range=all.length?`أرصدة العملاء الحالية تتراوح بين <b>${money(all[0])}</b> و<b>${money(all[all.length-1])}</b> (عدد العملاء المدينين: ${all.length}).`:'لا يوجد حاليًا أي عميل برصيد مدين.';
+    return sendMessage(chatId,`لا يوجد عملاء ضمن هذا المدى.\n\nالشرط المفهوم: <b>${understood}</b>\n${range}\n\nجرّب مدى أوسع، مثل: «عملاء أكبر من 1000».`);
+  }
   const total=rows.reduce((sum,row)=>sum+row.debitBalance,0);
   const label=mode==='gt'?`أكبر من ${money(min)}`:mode==='lt'?`أقل من ${money(min)}`:`بين ${money(Math.min(min,max))} و${money(Math.max(min,max))}`;
   const formatRow=(row,index)=>`${index+1}. <b>${esc(row.name)}</b>${row.code?` — <code>${esc(row.code)}</code>`:''} — ${money(row.debitBalance)}`;
