@@ -20,6 +20,7 @@ import * as webAuth from './_lib/routes/web-auth.js';
 import * as factoryReset from './_lib/routes/factory-reset.js';
 import * as telegramMiniApp from './_lib/routes/telegram-mini-app.js';
 import * as reportsTelegram from './_lib/routes/reports-telegram.js';
+import * as workshop from './_lib/routes/workshop.js';
 
 const routes={
   'admin/groups':admin.groups,
@@ -36,6 +37,7 @@ const routes={
   'daily-report':dailyReport.dailyReport,
   'daily-report/fifo':fifo.fifo,
   'accounting':accounting.accounting,
+  'workshop':workshop.workshop,
   'system/database-readiness':systemRuntime.databaseReadiness,
   'system/status':systemRuntime.status,
   'telegram/register':telegramAdmin.register,
