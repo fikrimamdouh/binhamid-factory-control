@@ -23,12 +23,12 @@ import { sendOperationalDocument } from './bot-documents.js';
 import { sendGpsFleetStatus } from './bot-gps.js';
 import { handleInsightCommand } from './bot-insights.js';
 import { showAttendanceMenu, continueAttendanceSession, handleAttendanceLocation, handleAttendancePhoto, handleAttendanceCallback } from './bot-attendance.js';
-import { botModuleAllowed, moduleForCallback, moduleForSession, moduleForText } from './bot-menu-permissions.js';
+import { botMenuItem, botModuleAllowed, moduleForCallback, moduleForSession, moduleForText } from './bot-menu-permissions.js';
 
 const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const norm=value=>String(value||'').toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ًٌٍَُِّْـ]/g,'').replace(/[؟?!.,،؛:]+/g,'').replace(/\s+/g,' ').trim();
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
-async function denyBotModule(chatId,identity,moduleId){if(!moduleId||await botModuleAllowed(identity,moduleId))return false;await sendMessage(chatId,'هذه الوحدة مخفية وموقوفة لحسابك من إعدادات صلاحيات البوت.');return true;}
+async function denyBotModule(chatId,identity,moduleId){if(!moduleId||botMenuItem(moduleId)?.ownerOnly||await botModuleAllowed(identity,moduleId))return false;await sendMessage(chatId,'هذه الوحدة مخفية وموقوفة لحسابك من إعدادات صلاحيات البوت.');return true;}
 
 // Telegram callback_data uses the first colon to separate the action from its
 // payload. Customer pagination payloads legitimately contain more colons
@@ -42,11 +42,11 @@ export function splitCallbackData(value){
 async function handleText(message,group,identity,text,voicePath='',stored=null){
   const chatId=message.chat.id,role=identity.role||'pending',active=Boolean(identity.active),raw=String(text||'').trim(),normalized=norm(raw),name=displayName(identity,message.from);
   if(await handleInvitationStart(message,identity,raw))return;
+  if(active&&await denyBotModule(chatId,identity,moduleForText(raw)))return;
   const builtIn=await handleBuiltInCommand({message,identity,text:raw});
   if(builtIn){if(/^\/start(?:@\w+)?(?:\s+\w+)?$/i.test(raw)&&active)await showRoleHome(message,identity);return;}
   if(!active)return sendMessage(chatId,`مرحبًا ${esc(name)}. فهمت رسالتك وسجلتها، لكن حسابك غير معتمد لتنفيذ الإجراءات. أرسل رقمك من /whoami إلى مدير النظام.`);
   if(['group','supergroup'].includes(message.chat.type)&&!group.active)return sendMessage(chatId,'فهمت الرسالة وسجلتها، لكن المجموعة لم تعتمد بعد. يجب تحديد قسمها قبل التوجيه النهائي.');
-  if(await denyBotModule(chatId,identity,moduleForText(raw)))return;
   if(/^\/attendance(?:@\w+)?$/i.test(raw)||/^(الحضور والمواقع|تسجيل حضور|تسجيل انصراف|قائمه الحضور|قائمة الحضور|لوحه السائق|لوحة السائق)$/.test(normalized))return showAttendanceMenu(message,identity);
   if(/^(حاله الورشه|وضع الورشه|وضع الميكانيكي|ملخص اعمال الميكانيكي|تقرير تنفيذي للورشه)$/.test(normalized)){
     if(!['admin','manager','mechanic','accountant'].includes(role))return sendMessage(chatId,'عرض الحالة التنفيذية للورشة متاح لمدير النظام ومدير المصنع والمحاسب ومسؤول الورشة.');
@@ -178,8 +178,6 @@ async function handleMessage(update){
   return handleText(message,group,identity,text,'',stored);
 }
 
-// تحديث حالة المعالجة في سجل التفاعلات بعد اكتمال (أو فشل) معالجة الرسالة.
-// عمود delivery_status فقط — لا يغيّر شيئًا في منطق الردود أو ترتيبها.
 async function markMessageOutcome(update,status){
   const updateId=String(update?.update_id||'');
   if(!updateId||!(update?.message||update?.edited_message))return;
@@ -202,9 +200,6 @@ export default async function handler(req,res){
     console.error('[telegram webhook enterprise]',{code:String(error?.code||'PROCESSING_FAILED').slice(0,120),status:Number(error?.status||error?.upstreamStatus||0),message:String(error?.message||'').slice(0,300)});
     return json(res,503,{ok:false,retryable:true,error:'تعذر إكمال معالجة تحديث Telegram مؤقتًا.'});
   }
-  // The gateway records completion before it acknowledges Telegram. It owns
-  // the response for managed requests so an incomplete receipt remains
-  // retryable rather than being acknowledged as successful.
   if(req.telegramGatewayManaged)return;
   if(!res.headersSent)json(res,200,{ok:true});
 }
