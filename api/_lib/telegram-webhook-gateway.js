@@ -5,7 +5,7 @@ import { sendMessage, answerCallback } from './telegram.js';
 import { ensureTelegramGroup, ensureTelegramIdentity, storeTelegramMessage } from './bot-webhook-core.js';
 import { getBotSession, clearMaintenanceSession } from './bot-maintenance.js';
 import { showProcurementMenu, continueProcurementSession, handleProcurementCallback, handleProcurementTextCommand } from './bot-procurement-secure.js';
-import { showSalesMenu, startSalesAction, continueSalesSession, confirmSalesOrder, cancelSalesDraft, handleSalesTextCommand, startGuidedSales, continueGuidedSales, handleGuidedSalesCallback } from './bot-sales-secure.js';
+import { showSalesMenu, startSalesAction, continueSalesSession, confirmSalesOrder, cancelSalesDraft, handleSalesTextCommand, startGuidedSales, continueGuidedSales, handleGuidedSalesCallback, isStructuredSalesOrder, isNaturalSalesMessage, handleStructuredSalesOrder, handleNaturalSalesMessage } from './bot-sales-secure.js';
 import { showMechanicMenu, startMechanicAction, continueMechanicSession, confirmSparePartsRequest, handleMechanicTextCommand } from './bot-mechanic-secure.js';
 import { showAttendanceMenu, continueAttendanceSession, handleAttendanceLocation, handleAttendancePhoto, handleAttendanceCallback } from './bot-attendance-secure.js';
 import { sendGpsFleetStatus } from './bot-gps.js';
@@ -101,8 +101,9 @@ async function interceptMessage(update){
     if(await handleRegistrationTextCommand(message,identity,raw))return true;
   }
   const procurementSession=state==='product_market_query'||state.startsWith('supplier_')||state.startsWith('rfq_'),salesSession=state.startsWith('sales_')||state.startsWith('guided_sales_'),mechanicSession=state.startsWith('mechanic_'),attendanceSession=state.startsWith('driver_')||state.startsWith('attendance_');
+  const structuredSalesCommand=isStructuredSalesOrder(identity,raw),naturalSalesCommand=isNaturalSalesMessage(identity,raw);
   const procurementCommand=/^\/(suppliers|products)(?:@\w+)?$/i.test(raw)||procurementText.test(normalized)||productPriceText.test(raw),salesCommand=/^\/sales(?:@\w+)?$/i.test(raw)||salesText.test(normalized),mechanicCommand=/^\/workshop(?:@\w+)?$/i.test(raw)||mechanicText.test(normalized),attendanceCommand=/^\/attendance(?:@\w+)?$/i.test(raw)||attendanceText.test(normalized),gpsCommand=/^\/gps(?:@\w+)?$/i.test(raw)||gpsText.test(normalized);
-  if(!procurementSession&&!salesSession&&!mechanicSession&&!attendanceSession&&!procurementCommand&&!salesCommand&&!mechanicCommand&&!attendanceCommand&&!gpsCommand)return false;
+  if(!procurementSession&&!salesSession&&!mechanicSession&&!attendanceSession&&!procurementCommand&&!salesCommand&&!structuredSalesCommand&&!naturalSalesCommand&&!mechanicCommand&&!attendanceCommand&&!gpsCommand)return false;
   if(!await logIntercepted(update,message,identity))return true;
   if(!identity.active){await sendMessage(message.chat.id,'حسابك غير معتمد لتنفيذ هذا الإجراء.');return true;}
   if(gpsCommand){await sendGpsFleetStatus(message.chat.id,'',identity);return true;}
@@ -115,6 +116,8 @@ async function interceptMessage(update){
   if(/^\/workshop(?:@\w+)?$/i.test(raw)){await showMechanicMenu(message,identity);return true;}
   if(/^\/(suppliers|products)(?:@\w+)?$/i.test(raw)){await showProcurementMenu(message,identity);return true;}
   if(await handleSalesTextCommand(message,identity,raw))return true;
+  if(structuredSalesCommand&&await handleStructuredSalesOrder(message,identity,raw))return true;
+  if(naturalSalesCommand&&await handleNaturalSalesMessage(message,identity,raw))return true;
   if(await handleMechanicTextCommand(message,identity,raw))return true;
   if(await handleProcurementTextCommand(message,identity,raw))return true;
   return false;
@@ -130,9 +133,6 @@ export default async function handler(req,res){
   catch(error){console.error('[telegram webhook claim]',{code:safeErrorCode(error),message:String(error?.message||'').slice(0,300)});return json(res,503,{ok:false,retryable:true,error:'تعذر حجز تحديث Telegram للمعالجة.'});}
   if(!claim?.claimed){
     if(claim?.status==='completed')return json(res,200,{ok:true,duplicate:true,updateId});
-    // A receipt still being processed is not a duplicate. Returning 5xx keeps
-    // Telegram retrying instead of acknowledging work that may have died in an
-    // interrupted serverless invocation.
     return json(res,503,{ok:false,retryable:true,updateId,error:'التحديث قيد المعالجة؛ سيعيد Telegram المحاولة.'});
   }
   try{

@@ -12,6 +12,7 @@ const active=identity=>Boolean(identity?.active);
 const canView=identity=>active(identity)&&VIEW_ROLES.has(identity.role);
 const canCreate=identity=>active(identity)&&CREATE_ROLES.has(identity.role);
 const canUpdate=identity=>active(identity)&&UPDATE_ROLES.has(identity.role);
+const norm=value=>String(value||'').toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ًٌٍَُِّْـ]/g,'').replace(/[؟?!.,،؛:]+/g,'').replace(/\s+/g,' ').trim();
 async function deny(message,identity,text='ليست لديك صلاحية تنفيذ عملية المبيعات هذه.'){
   await clearMaintenanceSession(message.chat.id,identity?.external_id||message.from?.id).catch(()=>{});
   return sendMessage(message.chat.id,text);
@@ -19,6 +20,35 @@ async function deny(message,identity,text='ليست لديك صلاحية تنف
 function typeAllowed(identity,type){const own=roleType(identity?.role);return canCreate(identity)&&(!own||own===type);}
 async function sessionFor(message,identity){return(await select('bot_sessions',`channel=eq.telegram&chat_id=eq.${encodeURIComponent(String(message.chat.id))}&external_user_id=eq.${encodeURIComponent(String(identity.external_id||message.from?.id))}&select=*&limit=1`))?.[0]||null;}
 function sessionType(session){return session?.context?.salesType||session?.context?.draft?.sales_type||'';}
+
+export function isStructuredSalesOrder(identity,text){
+  if(!active(identity)||!roleType(identity?.role))return false;
+  const raw=String(text||'');
+  const customer=/(?:^|\n)\s*(?:العميل|اسم العميل)\s*[:：-]/i.test(raw);
+  const item=/(?:^|\n)\s*(?:الصنف|المنتج|نوع البلوك|نوع الخرسانه|نوع الخرسانة)\s*[:：-]/i.test(raw);
+  const quantity=/(?:^|\n)\s*(?:الكميه|الكمية)\s*[:：-]/i.test(raw);
+  return customer&&item&&quantity;
+}
+export function isNaturalSalesMessage(identity,text){
+  const type=roleType(identity?.role),value=norm(text);
+  if(!active(identity)||!type||!value)return false;
+  if(/^(سعر|اسعار|أسعار|بحث سعر|قارن اسعار|قارن أسعار)\b/.test(value))return false;
+  return /(?:سجل|تسجيل|اعمل|افتح|عايز|اريد|عندي).*(?:امر بيع|طلب بيع|عمليه بيع|عملية بيع|توريد)/.test(value)
+    ||/(?:العميل|عميل).*(?:عايز|يريد|طلب|طالب|محتاج).*(?:بلوك|خرسانه|توريد)/.test(value)
+    ||/(?:بيع|توريد).*(?:بلوك|خرسانه).*(?:عميل|كميه|كمية)/.test(value);
+}
+export async function handleStructuredSalesOrder(message,identity,text){
+  const type=roleType(identity?.role);
+  if(!type||!isStructuredSalesOrder(identity,text))return false;
+  await continueSalesSession(message,identity,{state:'sales_new_order',context:{salesType:type,source:'role_structured_message'}},text);
+  return true;
+}
+export async function handleNaturalSalesMessage(message,identity,text){
+  const type=roleType(identity?.role);
+  if(!type||!isNaturalSalesMessage(identity,text))return false;
+  await startGuidedSales(message,identity,type);
+  return true;
+}
 
 export async function showSalesMenu(message,identity){return canView(identity)?sales.showSalesMenu(message,identity):deny(message,identity,'قائمة المبيعات متاحة لموظفي المبيعات والإدارة والمحاسب.');}
 export async function startSalesAction(message,identity,action){
