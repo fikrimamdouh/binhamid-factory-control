@@ -21,6 +21,7 @@ import * as webAuth from './_lib/routes/web-auth.js';
 import * as factoryReset from './_lib/routes/factory-reset.js';
 import * as telegramMiniApp from './_lib/routes/telegram-mini-app.js';
 import * as reportsTelegram from './_lib/routes/reports-telegram.js';
+import * as attendanceSafe from './_lib/routes/attendance-safe.js';
 import { openingBalances } from './_lib/routes/opening-balances.js';
 
 const routes={
@@ -55,6 +56,7 @@ const routes={
   'factory-reset':factoryReset.factoryReset,
   'telegram/mini-app':telegramMiniApp.telegramMiniApp,
   'reports/send-telegram':reportsTelegram.sendPrintedReport,
+  'attendance-safe':attendanceSafe.attendanceSafe,
   'opening-balances':openingBalances
 };
 
