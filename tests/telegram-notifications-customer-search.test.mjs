@@ -14,5 +14,5 @@ test('customer name search returns selectable account numbers and formatted stat
   const [search,enterprise,data]=await Promise.all([read('api/_lib/bot-customer-search.js'),read('api/_lib/bot-enterprise.js'),read('api/_lib/bot-customer-report-data.js')]);
   for(const marker of ['enterprise_customer_choose','customer_pick|','رقم الحساب','كشف حساب عميل — مصنع بن حامد','الحركات المعتمدة من التقرير اليومي تظهر تلقائيًا'])assert.ok(search.includes(marker),`missing ${marker}`);
   for(const marker of ['handleSelectableCustomerTextCommand','continueSelectableCustomerSession','handleSelectableCustomerCallback'])assert.ok(enterprise.includes(marker),`missing route ${marker}`);
-  for(const marker of ["pagedSelect('sales_orders'","pagedSelect('collection_events'",'openingBalances:openingRows(payload)'])assert.ok(data.includes(marker),`daily ledger source missing ${marker}`);
+  for(const marker of ["pagedSelect('sales_orders'","pagedSelect('collection_events'",'openingBalances:await openingRows(payload)'])assert.ok(data.includes(marker),`daily ledger source missing ${marker}`);
 });

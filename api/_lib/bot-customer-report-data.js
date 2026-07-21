@@ -56,7 +56,13 @@ function mergeLocalCustomers(customers=[],payload={}){
   }
   return merged;
 }
-function openingRows(payload={}){return Array.isArray(payload?.ops?.customerOpeningBalances)?payload.ops.customerOpeningBalances:[];}
+async function openingRows(payload={}){
+  // المصدر الأول: جدول الأرصدة المستقل (يُرفع على دفعات ولا يمسحه أي جهاز).
+  // الاحتياط: النسخة المضمّنة القديمة داخل الحالة إن كان الجدول فارغًا.
+  const tableRows=await select('customer_opening_balances','select=customer_code,customer_name,client_id,balance,previous,debit,credit,cheques,difference,balance_date&limit=10000').catch(()=>null);
+  if(Array.isArray(tableRows)&&tableRows.length)return tableRows.map(row=>({customerCode:row.customer_code,customerName:row.customer_name,clientId:row.client_id,amount:Number(row.balance)||0,previous:Number(row.previous)||0,debit:Number(row.debit)||0,credit:Number(row.credit)||0,cheques:Number(row.cheques)||0,difference:Number(row.difference)||0,date:row.balance_date||''}));
+  return Array.isArray(payload?.ops?.customerOpeningBalances)?payload.ops.customerOpeningBalances:[];
+}
 
 export function buildCustomerAnalytics({customers=[],sales=[],collections=[],openingBalances=[],role='admin',asOf=riyadhToday()}={}){
   customers=(customers||[]).filter(c=>!isExcludedCustomer(c.external_id||c.customer_code,c.customer_name));
@@ -119,5 +125,5 @@ export async function loadCustomerAnalytics(identity){
     select('app_state','key=eq.primary&select=payload&limit=1').catch(()=>[])
   ]);
   const payload=stateRows?.[0]?.payload||{},customers=mergeLocalCustomers(databaseCustomers,payload);
-  return buildCustomerAnalytics({customers,sales,collections,openingBalances:openingRows(payload),role:identity?.role||''});
+  return buildCustomerAnalytics({customers,sales,collections,openingBalances:await openingRows(payload),role:identity?.role||''});
 }

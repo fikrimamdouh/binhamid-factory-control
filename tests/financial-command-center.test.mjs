@@ -38,7 +38,7 @@ test('financial control requests notify management and administrative forms enfo
 test('schema 024 exposes employee nickname and financial command center readiness',async()=>{
   const [migration,audit,runtime]=await Promise.all([read('supabase/migrations/024_employee_nickname_and_financial_command_center.sql'),read('scripts/audit-migrations.mjs'),read('api/_lib/routes/system-runtime.js')]);
   assert.match(migration,/values\(24,'024_employee_nickname_and_financial_command_center'\)/);
-  assert.match(audit,/const latest=24/);
+  assert.match(audit,/const latest=25/);
   assert.match(audit,/version===24/);
   assert.match(runtime,/LATEST_REQUIRED_VERSION=24/);
   assert.match(runtime,/app_users:\['nickname'\]/);

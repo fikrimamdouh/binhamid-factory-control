@@ -1,0 +1,125 @@
+// [BinHamid] 2026.07.21-opening-balances-chunked-sync-v1
+// رفع الأرصدة الافتتاحية إلى جدولها المستقل على دفعات صغيرة (250 صفًا)،
+// بدل تضمينها في سجل الحالة الموحد الذي تجاوز حجمه مهلة قاعدة البيانات.
+// بعد نجاح الرفع الكامل تُستثنى الأرصدة من حمولة المزامنة فيعود الحفظ خفيفًا،
+// وتبقى نسخة الجهاز محفوظة محليًا كما هي.
+(function(){
+  'use strict';
+  var VERSION='2026.07.21-opening-balances-chunked-sync-v1';
+  var FLAG='bh_opening_externalized_v1';
+  var CHUNK=250;
+
+  function el(id){return document.getElementById(id);}
+  function toastMsg(message,kind){if(typeof window.toast==='function')window.toast(message,kind);else if(typeof window.opsToast==='function')window.opsToast(message,kind);}
+  function localRows(){
+    try{
+      var OPS=window.OPS;
+      return OPS&&Array.isArray(OPS.customerOpeningBalances)?OPS.customerOpeningBalances:[];
+    }catch(_){return[];}
+  }
+
+  async function api(pathname,options){
+    var uid=String(localStorage.getItem('binhamid_cloud_app_user_id')||'').trim();
+    var tk=String(localStorage.getItem('binhamid_cloud_access_token')||'');if(tk==='device-session')tk='';
+    var headers={'Content-Type':'application/json'};
+    if(tk)headers.Authorization='Bearer '+tk;
+    if(uid)headers['x-app-user-id']=uid;
+    var deviceId=String(localStorage.getItem('binhamid_cloud_device_id')||'');
+    var response=await fetch(pathname,Object.assign({credentials:'same-origin',headers:headers},options||{}));
+    var data=await response.json().catch(function(){return{};});
+    if(!response.ok||data.ok===false){var error=new Error(data.error||('HTTP '+response.status));error.code=data.code;throw error;}
+    return data;
+  }
+
+  async function pushAllChunks(reason){
+    var all=localRows();
+    if(!all.length)return{skipped:true};
+    var total=all.length,sent=0;
+    toastMsg('جاري رفع '+total+' رصيد افتتاحي على دفعات...');
+    for(var i=0;i<all.length;i+=CHUNK){
+      var slice=all.slice(i,i+CHUNK).map(function(row){return{
+        customerCode:row.customerCode,customerName:row.customerName,clientId:row.clientId,
+        amount:row.amount,previous:row.previous,debit:row.debit,credit:row.credit,
+        cheques:row.cheques,difference:row.difference,date:row.date,sourceFile:row.sourceFile||reason||''
+      };});
+      await api('/api/router?route=opening-balances',{method:'POST',body:JSON.stringify({rows:slice})});
+      sent+=slice.length;
+      if(sent<total)toastMsg('رفع الأرصدة: '+sent+' من '+total+'...');
+    }
+    localStorage.setItem(FLAG,'1');
+    toastMsg('✅ اكتمل رفع '+total+' رصيد افتتاحي إلى السحابة.');
+    return{sent:sent};
+  }
+  window.bhPushOpeningBalances=pushAllChunks;
+
+  // 1) بعد اعتماد ملف أرصدة جديد: الرفع على دفعات تلقائيًا.
+  var originalPersist=window.opsPersist;
+  function hookPersist(){
+    if(typeof window.opsPersist!=='function'||window.opsPersist._bhOpb)return typeof window.opsPersist==='function';
+    var inner=window.opsPersist;
+    window.opsPersist=async function(reason){
+      var text=String(reason||'');
+      if(/أرصدة افتتاحية/.test(text)){
+        try{await pushAllChunks(text);}catch(error){
+          toastMsg('تعذر رفع الأرصدة على دفعات: '+error.message,'err');
+          if(error.code==='OPENING_TABLE_MISSING')return inner.apply(this,arguments);
+        }
+      }
+      return inner.apply(this,arguments);
+    };
+    window.opsPersist._bhOpb=true;
+    return true;
+  }
+
+  // 2) تخفيف حمولة المزامنة: بعد نجاح الرفع الكامل لا تُرسل الأرصدة ضمن الحالة.
+  //    (تبقى محليًا كما هي؛ فقط تُستبعد من الحمولة المرسلة للسحابة.)
+  var originalFetch=window.fetch;
+  window.fetch=function(input,init){
+    try{
+      var url=typeof input==='string'?input:String(input&&input.url||'');
+      if(url.indexOf('/api/state')>=0&&init&&init.method==='PUT'&&typeof init.body==='string'&&localStorage.getItem(FLAG)==='1'){
+        var parsed=JSON.parse(init.body);
+        var opening=parsed&&parsed.payload&&parsed.payload.ops&&parsed.payload.ops.customerOpeningBalances;
+        if(Array.isArray(opening)&&opening.length){
+          parsed.payload.ops.customerOpeningBalances=[];
+          parsed.payload.ops.customerOpeningBalancesExternalized=true;
+          init=Object.assign({},init,{body:JSON.stringify(parsed)});
+        }
+      }
+    }catch(_){/* أي خلل في التخفيف لا يعطل المزامنة الأصلية */}
+    return originalFetch.call(this,input,init);
+  };
+
+  // 3) حماية السحب: نسخة سحابية بلا أرصدة (لأنها في الجدول المستقل) لا تمسح
+  //    النسخة المحلية عند التحميل.
+  function guardPull(){
+    var K='binhamid_factory_control_v3';
+    var originalSet=Storage.prototype.setItem;
+    Storage.prototype.setItem=function(key,value){
+      try{
+        if(key===K&&localStorage.getItem(FLAG)==='1'){
+          var incoming=JSON.parse(value);
+          var localRaw=localStorage.getItem(K);
+          if(localRaw&&incoming&&incoming.customerOpeningBalances!==undefined){
+            var current=JSON.parse(localRaw);
+            var localOpening=current&&Array.isArray(current.customerOpeningBalances)?current.customerOpeningBalances:[];
+            var incomingOpening=Array.isArray(incoming.customerOpeningBalances)?incoming.customerOpeningBalances:[];
+            if(localOpening.length&&!incomingOpening.length){
+              incoming.customerOpeningBalances=localOpening;
+              value=JSON.stringify(incoming);
+            }
+          }
+        }
+      }catch(_){/* الحماية تحسين ولا تعطل التخزين */}
+      return originalSet.call(this,key,value);
+    };
+  }
+
+  guardPull();
+  var attempts=0;
+  (function waitAndHook(){
+    if(hookPersist()){console.log('[BinHamid] '+VERSION+' ready');return;}
+    if(++attempts>300)return;
+    setTimeout(waitAndHook,150);
+  })();
+})();

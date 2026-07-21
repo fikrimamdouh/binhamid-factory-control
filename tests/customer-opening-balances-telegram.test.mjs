@@ -49,6 +49,6 @@ test('Telegram exposes executive customer reporting, balance lookup and amount f
   for(const marker of ['customer_credit','customer_concentration','customer_no_movement','customer_zero','الملخص التنفيذي للعملاء','تحليل تركيز المديونية','كشف حساب العميل','عملاء أكبر من 50000','كشف حساب مؤسسة بن حامد','(10|20|50)'])assert.ok(reports.includes(marker),`missing ${marker}`);
   assert.match(reports,/رصيد\(\?: العميل\)\?/);
   assert.match(reports,/عملاء\\s\+بين/);
-  for(const marker of ["select('app_state'","payload?.ops?.customerOpeningBalances",'openingBalances:openingRows(payload)','openingDebit','openingCredit','netBalance','debitBalance','creditBalance'])assert.ok(data.includes(marker),`missing ${marker}`);
+  for(const marker of ["select('app_state'","customer_opening_balances",'openingBalances:await openingRows(payload)','openingDebit','openingCredit','netBalance','debitBalance','creditBalance'])assert.ok(data.includes(marker),`missing ${marker}`);
   assert.match(index,/customer-opening-balances\.js\?v=20260719-2/);
 });

@@ -20,6 +20,7 @@ import * as webAuth from './_lib/routes/web-auth.js';
 import * as factoryReset from './_lib/routes/factory-reset.js';
 import * as telegramMiniApp from './_lib/routes/telegram-mini-app.js';
 import * as reportsTelegram from './_lib/routes/reports-telegram.js';
+import { openingBalances } from './_lib/routes/opening-balances.js';
 
 const routes={
   'admin/groups':admin.groups,
@@ -51,7 +52,8 @@ const routes={
   'auth/verify':webAuth.verifyWebLogin,
   'factory-reset':factoryReset.factoryReset,
   'telegram/mini-app':telegramMiniApp.telegramMiniApp,
-  'reports/send-telegram':reportsTelegram.sendPrintedReport
+  'reports/send-telegram':reportsTelegram.sendPrintedReport,
+  'opening-balances':openingBalances
 };
 
 export default async function handler(req,res){
