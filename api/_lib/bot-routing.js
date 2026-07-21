@@ -5,6 +5,16 @@ import { displayName, roleLabel } from './bot-profile.js';
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const INTENTS=new Set(['greeting','thanks','report','maintenance','fuel','payroll','collection','sales','quotation','finance','department_message','general']);
 const salesTypeForRole=role=>role==='block_sales'?'block':role==='concrete_sales'?'concrete':'';
+const normalize=value=>String(value||'').toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ًٌٍَُِّْـ]/g,'').replace(/[؟?!.,،؛:]+/g,'').replace(/\s+/g,' ').trim();
+function wantsSalesEntry(text){
+  const raw=String(text||''),value=normalize(raw);
+  const structured=/(?:^|\n)\s*(?:العميل|اسم العميل)\s*[:：-]/i.test(raw)&&/(?:^|\n)\s*(?:الصنف|المنتج|نوع البلوك|نوع الخرسانة)\s*[:：-]/i.test(raw)&&/(?:^|\n)\s*(?:الكمية|الكميه)\s*[:：-]/i.test(raw);
+  if(structured)return true;
+  if(/^(سعر|اسعار|أسعار|بحث سعر|قارن اسعار|قارن أسعار)\b/.test(value))return false;
+  return /(?:سجل|تسجيل|اعمل|افتح|عايز|اريد|عندي).*(?:امر بيع|طلب بيع|عمليه بيع|عملية بيع|توريد)/.test(value)
+    ||/(?:العميل|عميل).*(?:عايز|يريد|طلب|طالب|محتاج).*(?:بلوك|خرسانه|توريد)/.test(value)
+    ||/(?:بيع|توريد).*(?:بلوك|خرسانه).*(?:عميل|كميه|كمية)/.test(value);
+}
 async function getSession(chatId,userId){return (await select('bot_sessions',`channel=eq.telegram&chat_id=eq.${encodeURIComponent(String(chatId))}&external_user_id=eq.${encodeURIComponent(String(userId))}&select=*&limit=1`))?.[0]||null;}
 async function remember(chatId,userId,userText,assistantText){
   const session=await getSession(chatId,userId),context=session?.context||{},history=Array.isArray(context.aiHistory)?context.aiHistory:[];
@@ -45,13 +55,13 @@ export async function interpretMessage({message,group,identity,text,stored}){
   route.summary=String(route.summary||fallback.summary||text).slice(0,500);
   route.reply=String(route.reply||fallbackReply(route,name,text,aiError)).slice(0,1800);
   let directResponse='';
-  if(route.intent==='sales'&&salesTypeForRole(role)){
+  if(route.intent==='sales'&&salesTypeForRole(role)&&wantsSalesEntry(text)){
     directResponse=await startRoleSalesSession(chatId,userId,role,history);
     route.destination=role==='block_sales'?'مبيعات البلوك':'مبيعات الخرسانة';
     route.summary=`بدء تسجيل أمر بيع ${role==='block_sales'?'بلوك':'خرسانة'} من رسالة طبيعية أو صوتية`;
   }
   const operational=!['greeting','thanks','general'].includes(route.intent);
-  const response=directResponse|| (operational?`${esc(route.reply)}\n\n<b>المسار المقترح:</b> ${esc(route.destination)}\n<b>فهم الرسالة:</b> ${esc(route.summary)}\n<b>الحالة:</b> محفوظة في مركز الاتصال ولم تُرحّل نهائيًا بعد.`:esc(route.reply));
+  const response=directResponse||(operational?`${esc(route.reply)}\n\n<b>المسار المقترح:</b> ${esc(route.destination)}\n<b>فهم الرسالة:</b> ${esc(route.summary)}\n<b>الحالة:</b> محفوظة في مركز الاتصال ولم تُرحّل نهائيًا بعد.`:esc(route.reply));
   if(stored?.id)await patch('telegram_messages',`id=eq.${encodeURIComponent(stored.id)}`,{related_entity_type:operational?`route_${String(route.intent).replace(/[^a-z_]/g,'')}`:'conversation',action_name:directResponse?'sales_guided_started':ai?'ai_answered':'ai_fallback',action_payload:{intent:route.intent,destination:route.destination,confidence:Number(route.confidence||0),ai_ok:Boolean(ai),error_code:aiError?.code||null}}).catch(()=>{});
   await remember(chatId,userId,text,response);
   return {route,response,aiOk:Boolean(ai),guidedSales:Boolean(directResponse)};
