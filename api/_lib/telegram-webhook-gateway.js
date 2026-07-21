@@ -1,11 +1,11 @@
 import { verifyTelegram } from './auth.js';
 import { json, method, body, errorResponse } from './http.js';
-import { rpc } from './supabase.js';
+import { insert, rpc } from './supabase.js';
 import { sendMessage, answerCallback } from './telegram.js';
 import { ensureTelegramGroup, ensureTelegramIdentity, storeTelegramMessage } from './bot-webhook-core.js';
 import { getBotSession, clearMaintenanceSession } from './bot-maintenance.js';
 import { showProcurementMenu, continueProcurementSession, handleProcurementCallback, handleProcurementTextCommand } from './bot-procurement-secure.js';
-import { showSalesMenu, startSalesAction, continueSalesSession, confirmSalesOrder, cancelSalesDraft, handleSalesTextCommand, startGuidedSales, continueGuidedSales, handleGuidedSalesCallback } from './bot-sales-secure.js';
+import { showSalesMenu, startSalesAction, continueSalesSession, confirmSalesOrder, cancelSalesDraft, handleSalesTextCommand, startGuidedSales, continueGuidedSales, handleGuidedSalesCallback, isStructuredSalesOrder, isNaturalSalesMessage, handleStructuredSalesOrder, handleNaturalSalesMessage } from './bot-sales-secure.js';
 import { showMechanicMenu, startMechanicAction, continueMechanicSession, confirmSparePartsRequest, handleMechanicTextCommand } from './bot-mechanic-secure.js';
 import { showAttendanceMenu, continueAttendanceSession, handleAttendanceLocation, handleAttendancePhoto, handleAttendanceCallback } from './bot-attendance-secure.js';
 import { sendGpsFleetStatus } from './bot-gps.js';
@@ -50,6 +50,12 @@ function sessionAllowed(identity,session){
 }
 async function rejectSession(message,identity){await clearMaintenanceSession(message.chat.id,identity?.external_id||message.from?.id).catch(()=>{});await sendMessage(message.chat.id,'تم إيقاف الجلسة لأن صلاحيتك الحالية لا تسمح بإكمال العملية.');return true;}
 async function logIntercepted(update,message,identity){const group=await ensureTelegramGroup(message.chat);await storeTelegramMessage(update.update_id,message,group,identity);if(['group','supergroup'].includes(message.chat.type)&&!group.active){await sendMessage(message.chat.id,'المجموعة لم تعتمد بعد.');return false;}return true;}
+async function prepareSalesVoiceSession(message,identity,session){
+  const salesType=roleType(identity?.role);if(!salesType)return false;
+  const stamp=new Date().toISOString(),userId=String(identity.external_id||message.from?.id||'');
+  await insert('bot_sessions',[{channel:'telegram',chat_id:String(message.chat.id),external_user_id:userId,state:'sales_new_order',context:{...(session?.context||{}),salesType,source:'role_voice_default',startedAt:stamp},updated_at:stamp}],{query:'on_conflict=channel,chat_id,external_user_id',prefer:'resolution=merge-duplicates,return=minimal'});
+  return true;
+}
 
 async function interceptCallback(update){
   const query=update.callback_query,message=query?.message;if(!query||!message)return false;
@@ -92,7 +98,11 @@ async function interceptMessage(update){
   }
   if(message.location&&(state.startsWith('driver_')||state.startsWith('attendance_')||message.location.live_period||message.edit_date)){if(!await logIntercepted(update,message,identity))return true;await handleAttendanceLocation(message,identity,session);return true;}
   if(message.photo?.length&&state==='driver_fuel_photo'){if(!await logIntercepted(update,message,identity))return true;await handleAttendancePhoto(message,identity,session);return true;}
-  if(message.voice||message.document||message.photo?.length)return false;
+  if(message.voice){
+    if(identity.active&&roleType(identity.role)&&(!state||state==='idle'))await prepareSalesVoiceSession(message,identity,session);
+    return false;
+  }
+  if(message.document||message.photo?.length)return false;
   const raw=String(message.text||message.caption||'').trim(),normalized=norm(raw),registrationSession=state.startsWith('registration_')&&state!=='registration_submitted',registrationCommand=isRegistrationCommand(raw)||/^(الوظائف|الوظائف المتاحه|الوظائف المتاحة|حاله التسجيل|حالة التسجيل|حاله طلبي|حالة طلبي)$/.test(normalized);
   if(registrationSession||registrationCommand){
     if(message.chat.type!=='private'){await sendMessage(message.chat.id,'تسجيل الموظف يتم من المحادثة الخاصة مع البوت.');return true;}
@@ -101,8 +111,9 @@ async function interceptMessage(update){
     if(await handleRegistrationTextCommand(message,identity,raw))return true;
   }
   const procurementSession=state==='product_market_query'||state.startsWith('supplier_')||state.startsWith('rfq_'),salesSession=state.startsWith('sales_')||state.startsWith('guided_sales_'),mechanicSession=state.startsWith('mechanic_'),attendanceSession=state.startsWith('driver_')||state.startsWith('attendance_');
+  const structuredSalesCommand=isStructuredSalesOrder(identity,raw),naturalSalesCommand=isNaturalSalesMessage(identity,raw);
   const procurementCommand=/^\/(suppliers|products)(?:@\w+)?$/i.test(raw)||procurementText.test(normalized)||productPriceText.test(raw),salesCommand=/^\/sales(?:@\w+)?$/i.test(raw)||salesText.test(normalized),mechanicCommand=/^\/workshop(?:@\w+)?$/i.test(raw)||mechanicText.test(normalized),attendanceCommand=/^\/attendance(?:@\w+)?$/i.test(raw)||attendanceText.test(normalized),gpsCommand=/^\/gps(?:@\w+)?$/i.test(raw)||gpsText.test(normalized);
-  if(!procurementSession&&!salesSession&&!mechanicSession&&!attendanceSession&&!procurementCommand&&!salesCommand&&!mechanicCommand&&!attendanceCommand&&!gpsCommand)return false;
+  if(!procurementSession&&!salesSession&&!mechanicSession&&!attendanceSession&&!procurementCommand&&!salesCommand&&!structuredSalesCommand&&!naturalSalesCommand&&!mechanicCommand&&!attendanceCommand&&!gpsCommand)return false;
   if(!await logIntercepted(update,message,identity))return true;
   if(!identity.active){await sendMessage(message.chat.id,'حسابك غير معتمد لتنفيذ هذا الإجراء.');return true;}
   if(gpsCommand){await sendGpsFleetStatus(message.chat.id,'',identity);return true;}
@@ -115,6 +126,8 @@ async function interceptMessage(update){
   if(/^\/workshop(?:@\w+)?$/i.test(raw)){await showMechanicMenu(message,identity);return true;}
   if(/^\/(suppliers|products)(?:@\w+)?$/i.test(raw)){await showProcurementMenu(message,identity);return true;}
   if(await handleSalesTextCommand(message,identity,raw))return true;
+  if(structuredSalesCommand&&await handleStructuredSalesOrder(message,identity,raw))return true;
+  if(naturalSalesCommand&&await handleNaturalSalesMessage(message,identity,raw))return true;
   if(await handleMechanicTextCommand(message,identity,raw))return true;
   if(await handleProcurementTextCommand(message,identity,raw))return true;
   return false;
