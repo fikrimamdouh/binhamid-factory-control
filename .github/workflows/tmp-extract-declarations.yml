@@ -1,0 +1,64 @@
+name: Temporary Declaration Text Extractor
+
+on:
+  push:
+    branches:
+      - fix/restore-original-declaration-texts
+    paths:
+      - '.github/workflows/tmp-extract-declarations.yml'
+      - 'legacy.html'
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/restore-original-declaration-texts
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Extract declaration defaults and renderers
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          src = Path('legacy.html').read_text(encoding='utf-8').splitlines()
+          anchors = [
+              r'\bconst\s+DEF\b', r'\blet\s+DEF\b', r'\bvar\s+DEF\b',
+              r'\btxt\s*:', r'إقرار استلام عهدة', r'إقرار مسؤولية عن محفظة',
+              r'إقرار وتعهد', r'إخلاء الطرف', r'مسؤولية التحصيل والائتمان',
+              r'function\s+print', r'function\s+.*Doc', r'function\s+.*Ack'
+          ]
+          hits=[]
+          for i,line in enumerate(src):
+              if any(re.search(pattern,line) for pattern in anchors):
+                  hits.append(i)
+          ranges=[]
+          for hit in hits:
+              start=max(0,hit-80); end=min(len(src),hit+260)
+              if ranges and start <= ranges[-1][1]+20:
+                  ranges[-1]=(ranges[-1][0],max(ranges[-1][1],end))
+              else:
+                  ranges.append((start,end))
+          out=[]
+          for start,end in ranges:
+              out.append(f'===== legacy.html lines {start+1}-{end} =====')
+              out.extend(f'{idx+1:05d}: {src[idx]}' for idx in range(start,end))
+          Path('debug').mkdir(exist_ok=True)
+          Path('debug/declaration-texts-current.txt').write_text('\n'.join(out),encoding='utf-8')
+          print(f'anchors={len(hits)} ranges={len(ranges)} output_lines={len(out)}')
+          PY
+      - name: Commit extracted text
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add debug/declaration-texts-current.txt
+          git diff --cached --quiet && exit 0
+          git commit -m 'chore: extract current declaration texts'
+          git push origin HEAD:fix/restore-original-declaration-texts
