@@ -9,7 +9,7 @@ const router=fs.readFileSync(apiPath(['router.js']),'utf8');
 const index=fs.readFileSync(new URL('../index.html',import.meta.url),'utf8');
 
 test('exact Telegram button reuses the print button result',()=>{
-  assert.match(asset,/طباعة\s\*النموذج/);
+  assert.ok(asset.includes('/طباعة\\s*النموذج/'));
   assert.match(asset,/window\.print=function\(\)\{\}/);
   assert.match(asset,/printButton\.click\(\)/);
   assert.match(asset,/bhSendSheetToTelegram/);
