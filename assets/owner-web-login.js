@@ -2,7 +2,7 @@
   'use strict';
   if(window.__BH_OWNER_WEB_LOGIN_INSTALLED__)return;
   window.__BH_OWNER_WEB_LOGIN_INSTALLED__=true;
-  const VERSION='2026.07.19-owner-web-login-v3-rate-limit-safe',USER_KEY='binhamid_cloud_app_user_id',TOKEN_KEY='binhamid_cloud_access_token',DEVICE_KEY='binhamid_cloud_device_id';
+  const VERSION='2026.07.19-owner-web-login-v4-hard-gate',USER_KEY='binhamid_cloud_app_user_id',TOKEN_KEY='binhamid_cloud_access_token',DEVICE_KEY='binhamid_cloud_device_id';
   const originalFetch=window.fetch.bind(window);
   let requestBusy=false,verifyBusy=false,cooldownUntil=0,cooldownTimer=null;
   const device=()=>{let id=localStorage.getItem(DEVICE_KEY)||'';if(!/^dev-[A-Za-z0-9-]{8,150}$/.test(id)){id='dev-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10);localStorage.setItem(DEVICE_KEY,id);}return id;};
@@ -41,12 +41,33 @@
       const code=document.getElementById('bhOwnerCode').value.trim();if(!/^\d{6}$/.test(code))throw new Error('اكتب رمز Telegram المكوّن من 6 أرقام.');
       message('جارٍ التحقق من الرمز...');
       const r=await originalFetch('/api/auth/verify',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({deviceId:device(),code})}),d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||'الرمز غير صحيح');
-      localStorage.setItem(USER_KEY,String(d.user?.id||''));localStorage.setItem(TOKEN_KEY,'device-session');message('تم الدخول بنجاح. سيُستكمل حفظ البيانات تلقائيًا.',true);setTimeout(()=>{gate()?.classList.remove('on');window.dispatchEvent(new CustomEvent('binhamid-owner-authenticated',{detail:{userId:String(d.user?.id||'')}}));},250);
+      localStorage.setItem(USER_KEY,String(d.user?.id||''));localStorage.setItem(TOKEN_KEY,'device-session');message('تم الدخول بنجاح. سيُستكمل حفظ البيانات تلقائيًا.',true);setTimeout(()=>{gate()?.classList.remove('on');document.documentElement.classList.remove('bh-locked');window.dispatchEvent(new CustomEvent('binhamid-owner-authenticated',{detail:{userId:String(d.user?.id||'')}}));},250);
     }catch(error){message(error.message||'تعذر التحقق من الرمز');}
     finally{verifyBusy=false;if(button)button.disabled=false;}
   }
   // `device-session` is only a browser-side transport marker. The server validates the signed HttpOnly device cookie and app-user id on every request.
   function restoreCloudMarker(){try{if(user())localStorage.setItem(TOKEN_KEY,'device-session');}catch{}}
-  function install(){restoreCloudMarker();style();window.bhCloudLogin=show;const ready=()=>{if(!user())show();};setTimeout(ready,2600);console.info('[BinHamid]',VERSION,'ready');}
+  // حجب كامل للواجهة: لا يظهر أي محتوى قبل تسجيل الدخول برمز تليجرام.
+  // الحجب يبدأ فورًا عند التحميل (لا انتظار)، ولا يُرفع إلا بعد تحقق ناجح.
+  function lockStyle(){
+    if(document.getElementById('bhOwnerLockStyle'))return;
+    document.head.insertAdjacentHTML('beforeend','<style id="bhOwnerLockStyle">html.bh-locked body>*:not(.bh-owner-gate):not(#bhOwnerLoginStyle):not(#bhOwnerLockStyle){visibility:hidden!important;pointer-events:none!important}html.bh-locked{overflow:hidden!important}</style>');
+  }
+  function lock(){lockStyle();document.documentElement.classList.add('bh-locked');}
+  function unlock(){document.documentElement.classList.remove('bh-locked');}
+  function enforce(){
+    if(user()){unlock();return;}
+    lock();show();
+  }
+  function install(){
+    restoreCloudMarker();style();lockStyle();
+    if(!user())lock();
+    window.bhCloudLogin=show;
+    // فحص متكرر: أي محاولة لعرض الصفحة دون جلسة معتمدة تُحجب من جديد.
+    const start=()=>{enforce();setInterval(()=>{if(!user())lock();},1500);};
+    if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);else start();
+    window.addEventListener('binhamid-owner-authenticated',unlock);
+    console.info('[BinHamid]',VERSION,'ready');
+  }
   install();
 })();
