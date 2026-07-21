@@ -19,11 +19,29 @@ async function telegramIdentity(externalId){
   if(!row?.app_users?.active)throw Object.assign(new Error('حسابك غير معتمد أو موقوف'),{status:403,code:'ATTENDANCE_USER_INACTIVE'});
   return{userId:row.user_id,externalId:String(externalId),...row.app_users};
 }
-async function assignmentFor(userId){
-  return(await select('employee_assignments',`app_user_id=eq.${userId}&active=eq.true&select=*,work_sites(id,code,name,address,latitude,longitude,radius_m,active)&limit=1`))?.[0]||null;
+async function storedEmployeeSites(){
+  const rows=await select('app_state','key=eq.primary&select=employees:payload->legacy->emp&limit=1').catch(()=>[]);
+  const employees=rows?.[0]?.employees;
+  return Array.isArray(employees)?employees:[];
+}
+async function defaultSiteForEmployee(employeeExternalId){
+  const id=clean(employeeExternalId);
+  if(!id)return null;
+  const employees=await storedEmployeeSites(),employee=employees.find(row=>clean(row?.id||row?.external_id)===id);
+  const siteId=clean(employee?.attendanceSiteId||employee?.workSiteId||employee?.siteId);
+  if(!siteId)return null;
+  const site=(await select('work_sites',`id=eq.${encodeURIComponent(siteId)}&active=eq.true&select=id,code,name,address,latitude,longitude,radius_m,active&limit=1`).catch(()=>[]))?.[0];
+  return site?{employee,site}:null;
+}
+async function assignmentFor(userId,employeeExternalId=''){
+  const row=(await select('employee_assignments',`app_user_id=eq.${encodeURIComponent(userId)}&active=eq.true&select=*,work_sites(id,code,name,address,latitude,longitude,radius_m,active)&limit=1`))?.[0]||null;
+  if(row?.site_id&&row?.work_sites?.active!==false)return row;
+  const fallback=await defaultSiteForEmployee(employeeExternalId||row?.employee_external_id);
+  if(!fallback)return row;
+  return{...(row||{}),app_user_id:userId,employee_external_id:clean(employeeExternalId||row?.employee_external_id),site_id:fallback.site.id,active:true,work_sites:fallback.site,inherited_site:true};
 }
 async function recordWebAppAttendance(input){
-  const verified=validateTelegramWebApp(input.initData),identity=await telegramIdentity(verified.user.id),assignment=await assignmentFor(identity.userId),site=assignment?.work_sites;
+  const verified=validateTelegramWebApp(input.initData),identity=await telegramIdentity(verified.user.id),assignment=await assignmentFor(identity.userId,identity.employee_external_id),site=assignment?.work_sites;
   if(!assignment||!assignment.employee_external_id||!assignment.site_id)throw Object.assign(new Error('لم يتم ربط حسابك بموظف وموقع عمل'),{status:409,code:'ATTENDANCE_ASSIGNMENT_REQUIRED'});
   if(!site?.active||site.latitude==null||site.longitude==null)throw Object.assign(new Error('موقع العمل غير مكتمل أو غير مفعل'),{status:409,code:'ATTENDANCE_SITE_INVALID'});
   const eventType=clean(input.eventType);
@@ -33,20 +51,44 @@ async function recordWebAppAttendance(input){
   if(!Number.isFinite(accuracy)||accuracy<=0||accuracy>150)throw Object.assign(new Error(`دقة الموقع غير كافية (${Math.round(accuracy||0)} متر)`),{status:422,code:'ATTENDANCE_GPS_ACCURACY'});
   if(!Number.isFinite(capturedAt.getTime())||capturedAge< -30000||capturedAge>120000)throw Object.assign(new Error('قراءة الموقع قديمة. أعد فتح شاشة الحضور'),{status:422,code:'ATTENDANCE_GPS_STALE'});
   const distance=haversine(latitude,longitude,Number(site.latitude),Number(site.longitude)),within=distance<=Number(site.radius_m||250);
-  // Only an already accepted movement is a duplicate. A rejected outside-range
-  // attempt may be retried immediately after the employee reaches the site.
   const recent=await select('attendance_events',`app_user_id=eq.${identity.userId}&event_type=eq.${eventType}&within_geofence=eq.true&occurred_at=gte.${encodeURIComponent(new Date(Date.now()-5*60000).toISOString())}&select=reference_no,occurred_at,distance_from_site_m,within_geofence&order=occurred_at.desc&limit=1`);
   if(recent?.[0])return{ok:true,duplicate:true,accepted:true,reference:recent[0].reference_no,eventType,site:{name:site.name,radiusM:site.radius_m},distanceM:Number(recent[0].distance_from_site_m||0),occurredAt:recent[0].occurred_at,employee:identity.full_name};
   const refResult=await rpc('next_document_no',{p_prefix:'ATT'}),reference=String(Array.isArray(refResult)?refResult[0]?.next_document_no||refResult[0]||'':refResult||''),occurredAt=new Date().toISOString();
   await insert('attendance_events',[{reference_no:reference,app_user_id:identity.userId,employee_external_id:assignment.employee_external_id||identity.employee_external_id||null,site_id:assignment.site_id,event_type:eventType,latitude,longitude,horizontal_accuracy_m:Number(accuracy.toFixed(2)),distance_from_site_m:Number(distance.toFixed(2)),within_geofence:within,note:within?'GPS مباشر داخل النطاق':'محاولة GPS مباشرة خارج النطاق — لم تعتمد كحضور صحيح',source_chat_id:`webapp:${verified.user.id}`,source_message_id:verified.queryId||null,occurred_at:occurredAt}]);
   return{ok:true,duplicate:false,accepted:within,reference,eventType,site:{name:site.name,radiusM:site.radius_m},distanceM:Number(distance.toFixed(1)),accuracyM:Number(accuracy.toFixed(1)),occurredAt,employee:identity.full_name};
 }
+async function setEmployeeSite(input){
+  const employeeExternalId=clean(input.employeeExternalId),siteId=clean(input.siteId);
+  if(!employeeExternalId)throw Object.assign(new Error('سجل الموظف مطلوب'),{status:400,code:'ATTENDANCE_EMPLOYEE_REQUIRED'});
+  const employee=(await select('employees',`external_id=eq.${encodeURIComponent(employeeExternalId)}&active=eq.true&select=external_id,full_name,active&limit=1`))?.[0];
+  if(!employee)throw Object.assign(new Error('سجل الموظف غير موجود أو موقوف'),{status:409,code:'ATTENDANCE_EMPLOYEE_INVALID'});
+  let site=null;
+  if(siteId){
+    site=(await select('work_sites',`id=eq.${encodeURIComponent(siteId)}&active=eq.true&select=id,code,name,latitude,longitude,radius_m,active&limit=1`))?.[0];
+    if(!site||site.latitude==null||site.longitude==null)throw Object.assign(new Error('موقع الحضور غير فعال أو إحداثياته غير مكتملة'),{status:409,code:'ATTENDANCE_SITE_INVALID'});
+  }
+  const users=await select('app_users',`employee_external_id=eq.${encodeURIComponent(employeeExternalId)}&active=eq.true&select=id&limit=100`).catch(()=>[]);
+  if(!users?.length)return{employee,site,linkedUsers:0,assignments:[]};
+  const ids=users.map(row=>row.id).filter(Boolean),oldRows=ids.length?await select('employee_assignments',`app_user_id=in.(${ids.join(',')})&select=app_user_id,employee_external_id,site_id,vehicle_external_id,job_title,shift_name,active,updated_at&limit=100`).catch(()=>[]):[],oldByUser=new Map((oldRows||[]).map(row=>[row.app_user_id,row]));
+  const stamp=new Date().toISOString(),assignments=await Promise.all(ids.map(async appUserId=>{
+    const previous=oldByUser.get(appUserId);
+    if(!siteId){
+      if(!previous)return null;
+      return(await patch('employee_assignments',`app_user_id=eq.${encodeURIComponent(appUserId)}`,{site_id:null,active:false,updated_at:stamp}))?.[0]||{...previous,site_id:null,active:false,updated_at:stamp};
+    }
+    const values={app_user_id:appUserId,employee_external_id:employeeExternalId,site_id:siteId,vehicle_external_id:previous?.vehicle_external_id||null,job_title:previous?.job_title||null,shift_name:previous?.shift_name||null,active:previous?previous.active!==false:true,updated_at:stamp};
+    return(await upsert('employee_assignments',[values],'app_user_id'))?.[0]||values;
+  }));
+  return{employee,site,linkedUsers:ids.length,assignments:assignments.filter(Boolean)};
+}
 async function saveAssignment(input){
-  const appUserId=clean(input.appUserId),externalId=clean(input.externalId),employeeExternalId=clean(input.employeeExternalId),siteId=clean(input.siteId),vehicleExternalId=clean(input.vehicleExternalId),role=clean(input.role),active=input.active!==false;
+  const appUserId=clean(input.appUserId),externalId=clean(input.externalId),employeeExternalId=clean(input.employeeExternalId),vehicleExternalId=clean(input.vehicleExternalId),role=clean(input.role),active=input.active!==false;
+  let siteId=clean(input.siteId);
+  if(!siteId&&employeeExternalId)siteId=(await defaultSiteForEmployee(employeeExternalId))?.site?.id||'';
   if(!appUserId||!externalId)throw Object.assign(new Error('مستخدم Telegram مطلوب'),{status:400,code:'ATTENDANCE_USER_REQUIRED'});
   if(!ROLES.includes(role)||role==='pending')throw Object.assign(new Error('الدور غير صحيح'),{status:400,code:'ATTENDANCE_ROLE_INVALID'});
   if(!employeeExternalId)throw Object.assign(new Error('اختر سجل الموظف'),{status:400,code:'ATTENDANCE_EMPLOYEE_REQUIRED'});
-  if(!siteId)throw Object.assign(new Error('اختر موقع العمل'),{status:400,code:'ATTENDANCE_SITE_REQUIRED'});
+  if(!siteId)throw Object.assign(new Error('اختر موقع العمل من صفحة الموظفين أو شاشة الحضور'),{status:400,code:'ATTENDANCE_SITE_REQUIRED'});
   const [channelRows,employeeRows,siteRows,vehicleRows,previousRows]=await Promise.all([
     select('user_channels',`channel=eq.telegram&external_id=eq.${encodeURIComponent(externalId)}&user_id=eq.${encodeURIComponent(appUserId)}&select=user_id,external_id,active,app_users(id,full_name,active)&limit=1`),
     select('employees',`external_id=eq.${encodeURIComponent(employeeExternalId)}&active=eq.true&select=external_id,full_name,active&limit=1`),
@@ -87,6 +129,7 @@ export default async function handler(req,res){
         return json(res,200,{ok:true,site:result?.[0]||values});
       }
       if(action==='assign_user')return json(res,200,{ok:true,...await saveAssignment(input)});
+      if(action==='assign_employee_site')return json(res,200,{ok:true,...await setEmployeeSite(input)});
       if(action==='toggle_site'){
         const id=clean(input.id);if(!id)throw Object.assign(new Error('معرف الموقع مطلوب'),{status:400,code:'ATTENDANCE_SITE_ID_REQUIRED'});
         const result=await patch('work_sites',`id=eq.${encodeURIComponent(id)}`,{active:Boolean(input.active),updated_at:new Date().toISOString()});
@@ -96,16 +139,19 @@ export default async function handler(req,res){
     }
     await requireCapability(req,'attendance.view');
     const range=riyadhDayRange();
-    const [sites,assignments,users,vehicles,employees,attendance,driverEvents]=await Promise.all([
+    const [sites,assignments,users,vehicles,employees,attendance,driverEvents,stateEmployeesRows]=await Promise.all([
       select('work_sites','select=*&order=name.asc&limit=500'),
       select('employee_assignments','select=*,work_sites(id,code,name,address,latitude,longitude,radius_m),app_users(id,full_name,role,active)&order=updated_at.desc&limit=1000'),
       select('user_channels','select=external_id,external_username,active,user_id,app_users(id,full_name,role,active,employee_external_id)&channel=eq.telegram&order=last_seen_at.desc&limit=1000'),
       select('vehicles','active=eq.true&select=external_id,plate_no,asset_no,vehicle_type,make,model,driver_external_id,status&order=plate_no.asc&limit=2000'),
       select('employees','active=eq.true&select=external_id,employee_no,full_name,phone,role&order=full_name.asc&limit=3000'),
       select('attendance_events',`occurred_at=gte.${encodeURIComponent(range.start)}&occurred_at=lt.${encodeURIComponent(range.end)}&select=id,reference_no,event_type,occurred_at,within_geofence,distance_from_site_m,latitude,longitude,app_users(full_name,role),work_sites(name)&order=occurred_at.desc&limit=1000`),
-      select('driver_events',`occurred_at=gte.${encodeURIComponent(range.start)}&occurred_at=lt.${encodeURIComponent(range.end)}&select=id,reference_no,event_type,occurred_at,vehicle_external_id,latitude,longitude,odometer,fuel_liters,fuel_amount,app_users(full_name)&order=occurred_at.desc&limit=1000`)
+      select('driver_events',`occurred_at=gte.${encodeURIComponent(range.start)}&occurred_at=lt.${encodeURIComponent(range.end)}&select=id,reference_no,event_type,occurred_at,vehicle_external_id,latitude,longitude,odometer,fuel_liters,fuel_amount,app_users(full_name)&order=occurred_at.desc&limit=1000`),
+      select('app_state','key=eq.primary&select=employees:payload->legacy->emp&limit=1').catch(()=>[])
     ]);
     const normalizedUsers=(users||[]).map(row=>({external_id:row.external_id,external_username:row.external_username,user_id:row.user_id,channel_active:row.active,id:row.app_users?.id||row.user_id,full_name:row.app_users?.full_name||'',role:row.app_users?.role||'pending',active:Boolean(row.app_users?.active&&row.active),employee_external_id:row.app_users?.employee_external_id||''}));
-    return json(res,200,{ok:true,sites:sites||[],assignments:assignments||[],users:normalizedUsers,vehicles:vehicles||[],employees:employees||[],attendance:attendance||[],driverEvents:driverEvents||[],dayRange:range});
+    const storedEmployees=Array.isArray(stateEmployeesRows?.[0]?.employees)?stateEmployeesRows[0].employees:[],storedById=new Map(storedEmployees.map(row=>[clean(row?.id||row?.external_id),row]));
+    const normalizedEmployees=(employees||[]).map(row=>{const stored=storedById.get(clean(row.external_id));return{...row,attendance_site_id:clean(stored?.attendanceSiteId||stored?.workSiteId||stored?.siteId)||null};});
+    return json(res,200,{ok:true,sites:sites||[],assignments:assignments||[],users:normalizedUsers,vehicles:vehicles||[],employees:normalizedEmployees,attendance:attendance||[],driverEvents:driverEvents||[],dayRange:range});
   }catch(error){errorResponse(res,error);}
 }
