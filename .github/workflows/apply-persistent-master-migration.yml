@@ -1,0 +1,230 @@
+name: Apply Persistent Employee Asset Master
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/apply-persistent-master-migration.yml'
+      - 'scripts/persistent-master-migration-preflight.mjs'
+      - 'scripts/persistent-master-migration-verify.mjs'
+      - 'scripts/resolve-supabase-connection.mjs'
+      - 'scripts/restore-drill.mjs'
+      - 'scripts/apply-isolated-accounting-migrations.mjs'
+      - 'scripts/verify-backup-files.mjs'
+      - 'scripts/backup-supabase.mjs'
+      - 'scripts/production-db-readiness.mjs'
+      - 'api/_lib/routes/system-runtime.js'
+      - 'supabase/migrations/025_customer_opening_balances_table.sql'
+      - 'supabase/migrations/026_persistent_employee_asset_identity_link.sql'
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: binhamid-persistent-master-migration
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: persistent_master_clone
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d persistent_master_clone"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      LOCAL_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/persistent_master_clone
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+
+      - name: Validate repository and migration contracts
+        run: |
+          set -euo pipefail
+          npm install --ignore-scripts --no-audit --no-fund
+          node --check scripts/persistent-master-migration-preflight.mjs
+          node --check scripts/persistent-master-migration-verify.mjs
+          node --check scripts/apply-isolated-accounting-migrations.mjs
+          node --check scripts/restore-drill.mjs
+          node --check api/_lib/routes/master-data.js
+          node --check api/_lib/employee-identity-link.js
+          node --check api/_lib/master-data-workbook.js
+          npm run audit:migrations
+          npm test
+          npm run check:api
+          npm run check:functions
+
+      - name: Install PostgreSQL 17 client
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y curl ca-certificates
+          sudo install -d -m 0755 /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          . /etc/os-release
+          printf '%s\n' 'Types: deb' 'URIs: https://apt.postgresql.org/pub/repos/apt' "Suites: ${VERSION_CODENAME}-pgdg" 'Components: main' 'Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc' | sudo tee /etc/apt/sources.list.d/pgdg.sources > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client-17
+          echo '/usr/lib/postgresql/17/bin' >> "$GITHUB_PATH"
+
+      - name: Resolve protected database connection
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          SUPABASE_POOLER_HOST: ${{ vars.SUPABASE_POOLER_HOST }}
+          CONNECTION_DIAGNOSTIC_PATH: persistent-master-connection.json
+        run: node scripts/resolve-supabase-connection.mjs
+
+      - name: Create and verify encrypted pre-migration backup
+        env:
+          BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+          BACKUP_ENVIRONMENT: production-pre-persistent-master
+          BACKUP_OUTPUT_DIR: pre-master-backup
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf pre-master-backup
+          mkdir -p pre-master-backup
+          : > pre-master-backup-result.jsonl
+          node scripts/backup-supabase.mjs | tee pre-master-backup-result.jsonl
+          test "${PIPESTATUS[0]}" -eq 0
+          BACKUP_RESULT_FILE=pre-master-backup-result.jsonl \
+          BACKUP_OUTPUT_DIR=pre-master-backup \
+          BACKUP_VERIFICATION_FILE=pre-master-backup-verification.json \
+          BACKUP_MANIFEST_ENV_NAME=PRE_MIGRATION_MANIFEST \
+          node scripts/verify-backup-files.mjs
+
+      - name: Run persistent master preflight
+        env:
+          MASTER_MIGRATION_PREFLIGHT_PATH: persistent-master-preflight.json
+        run: node scripts/persistent-master-migration-preflight.mjs
+
+      - name: Restore production backup to isolated PostgreSQL 17
+        env:
+          BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+          RESTORE_ARTIFACT_DIR: pre-master-backup
+          RESTORE_DRILL_RESULT: persistent-master-isolated-restore.json
+          SUPABASE_DB_URL: ''
+        run: node scripts/restore-drill.mjs
+
+      - name: Prepare isolated PostgreSQL extensions
+        run: psql "$LOCAL_DATABASE_URL" -X -v ON_ERROR_STOP=1 -c 'create extension if not exists pgcrypto;'
+
+      - name: Apply migrations 25-26 to isolated clone atomically
+        env:
+          ISOLATED_MIGRATION_TARGET: '26'
+          ISOLATED_MIGRATION_APPLY_RESULT: persistent-master-isolated-apply.json
+        run: node scripts/apply-isolated-accounting-migrations.mjs
+
+      - name: Verify isolated persistent master schema
+        env:
+          SUPABASE_DB_URL: ${{ env.LOCAL_DATABASE_URL }}
+          MASTER_MIGRATION_PREFLIGHT_PATH: persistent-master-preflight.json
+          MASTER_MIGRATION_RESULT_PATH: persistent-master-isolated-result.json
+        run: node scripts/persistent-master-migration-verify.mjs
+
+      - name: Apply pending migrations 25-26 to production atomically
+        shell: bash
+        run: |
+          set -euo pipefail
+          current_version="$(node -e "const x=require('./persistent-master-preflight.json');process.stdout.write(String(x.currentVersion))")"
+          if [ "$current_version" -lt 26 ]; then
+            : > persistent-master-pending.sql
+            for version in $(seq $((current_version + 1)) 26); do
+              file="$(find supabase/migrations -maxdepth 1 -type f -name "$(printf '%03d' "$version")_*.sql" -print -quit)"
+              test -n "$file"
+              printf '\n-- BEGIN %s\n' "$file" >> persistent-master-pending.sql
+              cat "$file" >> persistent-master-pending.sql
+              printf '\n-- END %s\n' "$file" >> persistent-master-pending.sql
+            done
+            psql "$SUPABASE_DB_URL" -X -v ON_ERROR_STOP=1 --single-transaction --file persistent-master-pending.sql
+            rm -f persistent-master-pending.sql
+          else
+            echo 'Database is already at schema version 26.'
+          fi
+
+      - name: Verify production schema 26 and protected row counts
+        env:
+          MASTER_MIGRATION_PREFLIGHT_PATH: persistent-master-preflight.json
+          MASTER_MIGRATION_RESULT_PATH: persistent-master-result.json
+          PRODUCTION_READINESS_PATH: persistent-master-production-readiness.json
+        run: |
+          set -euo pipefail
+          node scripts/persistent-master-migration-verify.mjs
+          node scripts/production-db-readiness.mjs
+
+      - name: Create and verify encrypted post-migration backup
+        env:
+          BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+          BACKUP_ENVIRONMENT: production-post-persistent-master
+          BACKUP_OUTPUT_DIR: post-master-backup
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf post-master-backup
+          mkdir -p post-master-backup
+          : > post-master-backup-result.jsonl
+          node scripts/backup-supabase.mjs | tee post-master-backup-result.jsonl
+          test "${PIPESTATUS[0]}" -eq 0
+          BACKUP_RESULT_FILE=post-master-backup-result.jsonl \
+          BACKUP_OUTPUT_DIR=post-master-backup \
+          BACKUP_VERIFICATION_FILE=post-master-backup-verification.json \
+          BACKUP_MANIFEST_ENV_NAME=POST_MIGRATION_MANIFEST \
+          EXPECTED_SCHEMA_VERSION=26 \
+          node scripts/verify-backup-files.mjs
+
+      - name: Upload persistent master migration evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: persistent-master-migration-evidence-${{ github.run_id }}
+          path: |
+            persistent-master-connection.json
+            persistent-master-preflight.json
+            persistent-master-isolated-restore.json
+            persistent-master-isolated-apply.json
+            persistent-master-isolated-result.json
+            persistent-master-result.json
+            persistent-master-production-readiness.json
+            pre-master-backup-verification.json
+            post-master-backup-verification.json
+            pre-master-backup/*.enc
+            pre-master-backup/*.manifest.json
+            post-master-backup/*.enc
+            post-master-backup/*.manifest.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Publish persistent master migration status
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          node <<'NODE'
+          const success=process.env.JOB_STATUS==='success';
+          const response=await fetch(`https://api.github.com/repos/${process.env.REPOSITORY}/statuses/${process.env.HEAD_SHA}`,{
+            method:'POST',
+            headers:{Accept:'application/vnd.github+json',Authorization:`Bearer ${process.env.GITHUB_TOKEN}`,'X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'},
+            body:JSON.stringify({state:success?'success':'failure',context:'persistent-master-migration',target_url:process.env.RUN_URL,description:success?'Schema 26 employee and asset master applied, verified and backed up.':'Persistent master migration stopped before acceptance.'})
+          });
+          if(!response.ok)throw new Error(`Status publication failed with HTTP ${response.status}`);
+          NODE
