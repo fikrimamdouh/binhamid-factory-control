@@ -2,7 +2,7 @@
   'use strict';
   if(window.__BH_OWNER_WEB_LOGIN_INSTALLED__)return;
   window.__BH_OWNER_WEB_LOGIN_INSTALLED__=true;
-  const VERSION='2026.07.19-owner-web-login-v4-hard-gate',USER_KEY='binhamid_cloud_app_user_id',TOKEN_KEY='binhamid_cloud_access_token',DEVICE_KEY='binhamid_cloud_device_id';
+  const VERSION='2026.07.19-owner-web-login-v5-gate-visible',USER_KEY='binhamid_cloud_app_user_id',TOKEN_KEY='binhamid_cloud_access_token',DEVICE_KEY='binhamid_cloud_device_id';
   const originalFetch=window.fetch.bind(window);
   let requestBusy=false,verifyBusy=false,cooldownUntil=0,cooldownTimer=null;
   const device=()=>{let id=localStorage.getItem(DEVICE_KEY)||'';if(!/^dev-[A-Za-z0-9-]{8,150}$/.test(id)){id='dev-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10);localStorage.setItem(DEVICE_KEY,id);}return id;};
@@ -61,10 +61,11 @@
   }
   function install(){
     restoreCloudMarker();style();lockStyle();
-    if(!user())lock();
+    // القفل لا يُطبَّق قبل بناء البوابة، وإلا حُجبت الصفحة بلا أي مدخل للدخول.
+    if(!user()&&document.body){show();lock();}
     window.bhCloudLogin=show;
     // فحص متكرر: أي محاولة لعرض الصفحة دون جلسة معتمدة تُحجب من جديد.
-    const start=()=>{enforce();setInterval(()=>{if(!user())lock();},1500);};
+    const start=()=>{enforce();setInterval(()=>{if(!user()){show();lock();}},1500);};
     if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);else start();
     window.addEventListener('binhamid-owner-authenticated',unlock);
     console.info('[BinHamid]',VERSION,'ready');
