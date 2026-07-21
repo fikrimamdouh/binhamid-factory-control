@@ -1,7 +1,8 @@
 import { select } from './supabase.js';
 
 const APP_ROLES=new Set(['employee','driver','mechanic','accountant','block_sales','concrete_sales','collector','warehouse','fuel_operator','hr','procurement','quality','manager','admin']);
-const digits=value=>String(value??'').replace(/[^0-9]/g,'').slice(0,15);
+const westernDigits=value=>String(value??'').replace(/[٠-٩]/g,d=>String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/[۰-۹]/g,d=>String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)));
+const digits=value=>westernDigits(value).replace(/[^0-9]/g,'').slice(0,15);
 const norm=value=>String(value??'').toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ًٌٍَُِّْـ]/g,'').replace(/[^a-z0-9\u0600-\u06ff]+/g,' ').replace(/\s+/g,' ').trim();
 
 export const normalizeNationalId=value=>digits(value);
