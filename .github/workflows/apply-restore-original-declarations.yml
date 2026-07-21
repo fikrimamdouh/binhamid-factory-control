@@ -1,0 +1,181 @@
+name: Apply Original Declaration Texts
+on:
+  push:
+    branches:
+      - fix/restore-original-declaration-texts
+    paths:
+      - '.github/workflows/apply-restore-original-declarations.yml'
+permissions:
+  contents: write
+jobs:
+  apply-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/restore-original-declaration-texts
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+      - name: Restore original legal texts and add the approved customer clause
+        run: |
+          git show bf6bc69e1a452af7a32e6b270cf57d15646ab9a6:legacy.html > /tmp/legacy-original.html
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          import re
+
+          CURRENT = Path('legacy.html')
+          ORIGINAL = Path('/tmp/legacy-original.html')
+          VERSION = '2026-07-21-original-plus-liquidity-v1'
+          NEW_CLAUSE = ('ألتزم بمتابعة المبالغ غير المسددة خلال مهلة {الأيام} أيام من تاريخ التوريد، ورفع حالة المتأخرات للإدارة. '
+                        'ألتزم بأن مهلة السداد المحددة أعلاه ({الأيام} أيام) نافذة فقط في حال توفر السيولة الكافية لدى المنشأة لشراء المواد الخام التشغيلية؛ '
+                        'وفي حال عدم توفر هذه السيولة، ألتزم أنا (المحصل أو مسؤول مبيعات الخرسانة) بتحصيل دفعة مقدمة من العميل قبل التوريد، أو بتحصيل كامل قيمة الحساب فورًا، '
+                        'ولا يجوز الاعتداد بمهلة السداد المذكورة في هذه الحالة إلا بموافقة كتابية مسبقة من الإدارة.')
+
+          def get_block(text, marker):
+              lines = text.splitlines()
+              start = next(i for i,line in enumerate(lines) if marker in line)
+              end = next(i for i in range(start + 1, len(lines)) if lines[i].strip() == '};')
+              return '\n'.join(lines[start:end+1])
+
+          def replace_block(text, marker, replacement):
+              lines = text.splitlines()
+              start = next(i for i,line in enumerate(lines) if marker in line)
+              end = next(i for i in range(start + 1, len(lines)) if lines[i].strip() == '};')
+              return '\n'.join(lines[:start] + replacement.splitlines() + lines[end+1:]) + ('\n' if text.endswith('\n') else '')
+
+          original_text = ORIGINAL.read_text(encoding='utf-8')
+          current_text = CURRENT.read_text(encoding='utf-8')
+
+          original_vehicle = get_block(original_text, 'const VEH_CLAUSES = {')
+          original_def = get_block(original_text, 'const DEF = {')
+          def_lines = original_def.splitlines()
+          cli_start = next(i for i,line in enumerate(def_lines) if line.startswith('cli:`'))
+          cli_end = next(i for i in range(cli_start, len(def_lines)) if def_lines[i].endswith('`,'))
+          if NEW_CLAUSE in original_def:
+              raise SystemExit('new clause already exists in source defaults')
+          def_lines[cli_end] = def_lines[cli_end][:-2]
+          def_lines.insert(cli_end + 1, NEW_CLAUSE + '`,')
+          restored_def = '\n'.join(def_lines)
+
+          current_text = replace_block(current_text, 'const VEH_CLAUSES = {', original_vehicle)
+          current_text = replace_block(current_text, 'const DEF = {', restored_def)
+
+          locked_merge = '''function mergeTxt(saved,customized){
+            // النسخة القانونية الأصلية هي المرجع الملزم لجميع النماذج.
+            // لا تسمح النسخ السحابية القديمة أو النصوص المخصصة باستبدالها.
+            return {...DEF};
+          }'''
+          current_text, count = re.subn(
+              r'function mergeTxt\(saved,customized\)\{[\s\S]*?\n\}',
+              locked_merge,
+              current_text,
+              count=1
+          )
+          if count != 1:
+              raise SystemExit(f'mergeTxt replacement count={count}')
+          CURRENT.write_text(current_text, encoding='utf-8')
+
+          cli_lines = []
+          restored_lines = restored_def.splitlines()
+          start = next(i for i,line in enumerate(restored_lines) if line.startswith('cli:`'))
+          end = next(i for i in range(start, len(restored_lines)) if restored_lines[i].endswith('`,'))
+          for i in range(start, end + 1):
+              line = restored_lines[i]
+              if i == start:
+                  line = line[len('cli:`'):]
+              if i == end:
+                  line = line[:-2]
+              cli_lines.append(line)
+
+          module = [
+              f"export const DECLARATION_TEXT_VERSION={json.dumps(VERSION, ensure_ascii=False)};",
+              'export const CUSTOMER_PORTFOLIO_CLAUSES=Object.freeze(' + json.dumps(cli_lines, ensure_ascii=False, indent=2) + ');',
+              "export const CUSTOMER_PORTFOLIO_DECLARATION_TEXT=CUSTOMER_PORTFOLIO_CLAUSES.join('\\n');",
+              ''
+          ]
+          Path('api/_lib/declaration-texts.js').write_text('\n'.join(module), encoding='utf-8')
+
+          portfolio = Path('api/_lib/customer-portfolio-pdf.js')
+          portfolio_text = portfolio.read_text(encoding='utf-8')
+          import_line = "import { CUSTOMER_PORTFOLIO_DECLARATION_TEXT } from './declaration-texts.js';"
+          if import_line not in portfolio_text:
+              anchor = "import { loadProjectedCumulativeDailyReport } from './daily-cumulative-report-data.js';"
+              portfolio_text = portfolio_text.replace(anchor, anchor + '\n' + import_line)
+          portfolio_text = re.sub(
+              r'// يجلب نص الإقرار الحالي \(D\.txt\.cli\)[\s\S]*?async function loadAppState\(\)\{',
+              '// يستخدم النص القانوني المركزي نفسه في الموقع وتيليجرام، بينما تبقى بيانات المنشأة والموظفين من الحالة السحابية.\nasync function loadAppState(){',
+              portfolio_text,
+              count=1
+          )
+          portfolio_text, count = re.subn(
+              r"declarationText:legacy\?\.txt\?\.cli\|\|'',",
+              'declarationText:CUSTOMER_PORTFOLIO_DECLARATION_TEXT,',
+              portfolio_text,
+              count=1
+          )
+          if count != 1:
+              raise SystemExit(f'portfolio declaration replacement count={count}')
+          portfolio.write_text(portfolio_text, encoding='utf-8')
+
+          test = f'''import test from 'node:test';
+          import assert from 'node:assert/strict';
+          import {{ readFileSync }} from 'node:fs';
+          import {{ CUSTOMER_PORTFOLIO_CLAUSES, CUSTOMER_PORTFOLIO_DECLARATION_TEXT, DECLARATION_TEXT_VERSION }} from '../api/_lib/declaration-texts.js';
+
+          test('restores the eight original customer clauses and adds one approved clause',()=>{{
+            assert.equal(DECLARATION_TEXT_VERSION,{json.dumps(VERSION, ensure_ascii=False)});
+            assert.equal(CUSTOMER_PORTFOLIO_CLAUSES.length,9);
+            assert.equal(CUSTOMER_PORTFOLIO_CLAUSES[0],{json.dumps(cli_lines[0], ensure_ascii=False)});
+            assert.equal(CUSTOMER_PORTFOLIO_CLAUSES[7],{json.dumps(cli_lines[7], ensure_ascii=False)});
+            assert.equal(CUSTOMER_PORTFOLIO_CLAUSES[8],{json.dumps(NEW_CLAUSE, ensure_ascii=False)});
+            assert.equal(CUSTOMER_PORTFOLIO_DECLARATION_TEXT.split('\\n').length,9);
+          }});
+
+          test('removes the replacement wording and locks legacy forms to the restored defaults',()=>{{
+            const legacy=readFileSync(new URL('../legacy.html',import.meta.url),'utf8');
+            assert.match(legacy,/function mergeTxt\(saved,customized\)\{{[\s\S]*?return \{{\.\.\.DEF\}};/);
+            assert.ok(!legacy.includes('ألتزم بإثبات كل توريد باسم العميل الصحيح'));
+            assert.equal((legacy.match(/{re.escape(NEW_CLAUSE)}/g)||[]).length,1);
+            for(const clause of CUSTOMER_PORTFOLIO_CLAUSES)assert.ok(legacy.includes(clause));
+          }});
+
+          test('Telegram portfolio PDFs use the same central declaration text',()=>{{
+            const source=readFileSync(new URL('../api/_lib/customer-portfolio-pdf.js',import.meta.url),'utf8');
+            assert.match(source,/declarationText:CUSTOMER_PORTFOLIO_DECLARATION_TEXT/);
+            assert.ok(!source.includes("declarationText:legacy?.txt?.cli||''"));
+          }});
+          '''
+          test = '\n'.join(line[10:] if line.startswith('          ') else line for line in test.splitlines()) + '\n'
+          Path('tests/declaration-texts.test.mjs').write_text(test, encoding='utf-8')
+          PY
+      - name: Remove temporary diagnostics
+        run: |
+          rm -f .github/workflows/tmp-extract-declarations.yml
+          rm -f .github/workflows/tmp-extract-declaration-hits.yml
+          rm -f .github/workflows/tmp-extract-declaration-hits-v2.yml
+          rm -f .github/workflows/tmp-extract-def-block.yml
+          rm -f .github/workflows/tmp-extract-original-def.yml
+          rm -f .github/workflows/tmp-extract-preliquidity-def.yml
+          rm -f .github/workflows/apply-restore-original-declarations.yml
+          rm -rf debug
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Validate syntax and tests
+        run: |
+          node --check api/_lib/declaration-texts.js
+          node --check api/_lib/customer-portfolio-pdf.js
+          node --check tests/declaration-texts.test.mjs
+          npm test
+          npm run audit:legacy
+      - name: Commit tested restoration
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m 'fix: restore original declaration texts and add customer liquidity clause'
+          git push origin HEAD:fix/restore-original-declaration-texts
