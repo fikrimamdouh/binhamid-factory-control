@@ -49,8 +49,19 @@
     var counts={clients:0,opening:0};
     try{
       if(result.payload.legacy){
-        localStorage.setItem(LEGACY_KEY,JSON.stringify(result.payload.legacy));
-        counts.clients=(result.payload.legacy.cli||[]).length;
+        var incomingLegacy=result.payload.legacy;
+        try{
+          var runtimeLegacy=typeof D!=='undefined'&&D?D:null;
+          var localLegacyRaw=localStorage.getItem(LEGACY_KEY),localLegacy=localLegacyRaw?JSON.parse(localLegacyRaw):null;
+          var approvedLegacy=runtimeLegacy&&runtimeLegacy.declarationTextVersion==='2026-07-14-original-plus-portfolio-v1'?runtimeLegacy:(localLegacy&&localLegacy.declarationTextVersion==='2026-07-14-original-plus-portfolio-v1'?localLegacy:null);
+          if(approvedLegacy&&approvedLegacy.txt){
+            incomingLegacy.txt=approvedLegacy.txt;
+            incomingLegacy.txtCustom=false;
+            incomingLegacy.declarationTextVersion=approvedLegacy.declarationTextVersion;
+          }
+        }catch(_){/* لا تعطل سحب باقي البيانات */}
+        localStorage.setItem(LEGACY_KEY,JSON.stringify(incomingLegacy));
+        counts.clients=(incomingLegacy.cli||[]).length;
       }
       if(result.payload.ops){
         // الأرصدة تعيش في جدولها المستقل؛ لا نسمح لنسخة سحابية بلا أرصدة

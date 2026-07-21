@@ -1,7 +1,0 @@
-Traceback (most recent call last):
-  File "/tmp/apply-reporting-professional-patches.py", line 163, in <module>
-    text = replace_once(
-           ^^^^^^^^^^^^^
-  File "/tmp/apply-reporting-professional-patches.py", line 9, in replace_once
-    raise RuntimeError(f'{label}: expected one marker, found {count}')
-RuntimeError: missing date instruction: expected one marker, found 0
