@@ -1,0 +1,74 @@
+name: Recovery Freshness Gate
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/database-backup.yml'
+      - '.github/workflows/backup-restore-drill.yml'
+      - 'scripts/backup-supabase.mjs'
+      - 'scripts/restore-supabase.mjs'
+      - '.github/workflows/recovery-freshness.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '7 4 * * *'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  recovery-freshness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read latest successful recovery runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          backup_json="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow database-backup.yml --status success --limit 1 --json databaseId,createdAt,updatedAt,headSha,url,conclusion)"
+          restore_json="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow backup-restore-drill.yml --status success --limit 1 --json databaseId,createdAt,updatedAt,headSha,url,conclusion)"
+          BACKUP_JSON="$backup_json" RESTORE_JSON="$restore_json" node <<'NODE'
+          const fs=require('node:fs');
+          const backup=JSON.parse(process.env.BACKUP_JSON||'[]')[0];
+          const restore=JSON.parse(process.env.RESTORE_JSON||'[]')[0];
+          const now=Date.now();
+          const hours=value=>(now-Date.parse(value))/3600000;
+          const fail=[];
+          if(!backup)fail.push('No successful encrypted database backup run was found.');
+          if(!restore)fail.push('No successful encrypted restore drill run was found.');
+          const backupAge=backup?hours(backup.updatedAt||backup.createdAt):null;
+          const restoreAge=restore?hours(restore.updatedAt||restore.createdAt):null;
+          if(backupAge!==null&&backupAge>30)fail.push(`Latest successful backup is ${backupAge.toFixed(1)} hours old; maximum is 30 hours.`);
+          if(restoreAge!==null&&restoreAge>192)fail.push(`Latest successful restore drill is ${(restoreAge/24).toFixed(1)} days old; maximum is 8 days.`);
+          const evidence={
+            format:'binhamid-recovery-freshness-v1',
+            checkedAt:new Date().toISOString(),
+            backup:backup?{...backup,ageHours:Number(backupAge.toFixed(2))}:null,
+            restore:restore?{...restore,ageHours:Number(restoreAge.toFixed(2))}:null,
+            ready:fail.length===0,
+            blockers:fail
+          };
+          fs.mkdirSync('artifacts/recovery-freshness',{recursive:true});
+          fs.writeFileSync('artifacts/recovery-freshness/evidence.json',JSON.stringify(evidence,null,2));
+          const summary=[
+            '# Recovery Freshness',
+            '',
+            `- Backup: ${backup?`run ${backup.databaseId}, age ${backupAge.toFixed(1)} hours`:'missing'}`,
+            `- Restore drill: ${restore?`run ${restore.databaseId}, age ${(restoreAge/24).toFixed(1)} days`:'missing'}`,
+            `- Decision: ${fail.length?'BLOCKED':'READY'}`,
+            ...fail.map(item=>`- Blocker: ${item}`)
+          ].join('\n');
+          fs.writeFileSync('artifacts/recovery-freshness/summary.md',summary);
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,summary+'\n');
+          if(fail.length){console.error(fail.join('\n'));process.exit(1);}
+          NODE
+      - name: Upload recovery freshness evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: recovery-freshness-${{ github.run_id }}
+          path: artifacts/recovery-freshness/
+          if-no-files-found: error
+          retention-days: 30
