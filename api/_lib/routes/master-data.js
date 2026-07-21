@@ -1,7 +1,7 @@
 import * as XLSX from 'xlsx';
 import { body,errorResponse,json,method } from '../http.js';
 import { requireCapability } from '../permissions.js';
-import { insert,select,upsert } from '../supabase.js';
+import { insert,patch,select,upsert } from '../supabase.js';
 import { parseUnifiedMasterWorkbook,normalizePlate } from '../master-data-workbook.js';
 
 const clean=(value,max=500)=>String(value??'').trim().slice(0,max);
@@ -15,7 +15,30 @@ async function overview(){
     select('unified_assets','active=eq.true&select=external_id,asset_type,asset_name,plate_no,asset_no,assigned_employee_external_id,operational_status,diesel_expected&order=asset_type.asc,asset_no.asc.nullslast&limit=10000').catch(()=>[]),
     select('vehicles','active=eq.true&select=external_id,plate_no,asset_no,vehicle_type,driver_external_id,status&order=plate_no.asc.nullslast&limit=10000').catch(()=>[])
   ]);
-  return{employees,assets,vehicles,stats:{employees:employees.length,employeesWithIdentity:employees.filter(row=>row.national_id).length,employeesWithRole:employees.filter(row=>row.role).length,assets:assets.length,linkedAssets:assets.filter(row=>row.assigned_employee_external_id).length,dieselAssets:assets.filter(row=>row.diesel_expected===true).length,vehicles:vehicles.length}};
+  const dieselAssets=assets.filter(row=>row.diesel_expected===true);
+  return{employees,assets,vehicles,stats:{employees:employees.length,employeesWithIdentity:employees.filter(row=>row.national_id).length,employeesWithRole:employees.filter(row=>row.role).length,assets:assets.length,linkedAssets:assets.filter(row=>row.assigned_employee_external_id).length,dieselAssets:dieselAssets.length,unlinkedDieselAssets:dieselAssets.filter(row=>!row.assigned_employee_external_id).length,vehicles:vehicles.length}};
+}
+
+async function assignAssetEmployee(req,input){
+  const identity=await requireCapability(req,'assets.manage'),actor=actorOf(identity),assetExternalId=clean(input.assetExternalId,200),employeeExternalId=clean(input.employeeExternalId,200);
+  if(!assetExternalId)throw Object.assign(new Error('حدد اللوحة أو الأصل المطلوب ربطه.'),{status:400,code:'MASTER_ASSET_REQUIRED'});
+  const asset=(await select('unified_assets',`external_id=eq.${encodeURIComponent(assetExternalId)}&active=eq.true&select=external_id,asset_name,plate_no,asset_no,assigned_employee_external_id,diesel_expected&limit=1`))?.[0];
+  if(!asset)throw Object.assign(new Error('اللوحة أو الأصل غير موجود في السجل الدائم.'),{status:404,code:'MASTER_ASSET_NOT_FOUND'});
+  let employee=null;
+  if(employeeExternalId){
+    employee=(await select('employees',`external_id=eq.${encodeURIComponent(employeeExternalId)}&active=eq.true&select=external_id,full_name,national_id,role&limit=1`))?.[0];
+    if(!employee)throw Object.assign(new Error('الموظف المختار غير موجود أو غير نشط.'),{status:404,code:'MASTER_EMPLOYEE_NOT_FOUND'});
+  }
+  const previousEmployeeExternalId=clean(asset.assigned_employee_external_id,200)||null,updatedAt=new Date().toISOString(),nextEmployeeExternalId=employee?.external_id||null;
+  await patch('unified_assets',`external_id=eq.${encodeURIComponent(assetExternalId)}`,{assigned_employee_external_id:nextEmployeeExternalId,updated_at:updatedAt});
+  try{
+    await patch('vehicles',`external_id=eq.${encodeURIComponent(assetExternalId)}`,{driver_external_id:nextEmployeeExternalId,updated_at:updatedAt});
+  }catch(error){
+    await patch('unified_assets',`external_id=eq.${encodeURIComponent(assetExternalId)}`,{assigned_employee_external_id:previousEmployeeExternalId,updated_at:new Date().toISOString()}).catch(()=>{});
+    throw error;
+  }
+  await insert('audit_log',[{actor_type:'web',actor_id:actor,action:nextEmployeeExternalId?'master_asset_employee_linked':'master_asset_employee_unlinked',entity_type:'unified_asset',entity_id:assetExternalId,details:{assetExternalId,plateNo:asset.plate_no||null,assetNo:asset.asset_no||null,previousEmployeeExternalId,nextEmployeeExternalId,employeeName:employee?.full_name||null}}],{prefer:'return=minimal'}).catch(()=>{});
+  return{action:'assign_asset_employee',assetExternalId,plateNo:asset.plate_no||null,assetNo:asset.asset_no||null,employeeExternalId:nextEmployeeExternalId,employeeName:employee?.full_name||null};
 }
 
 async function importWorkbook(req,input){
@@ -52,6 +75,6 @@ export async function masterData(req,res){
   if(!method(req,res,['GET','POST']))return;
   try{
     if(req.method==='GET'){await requireCapability(req,'governance.view');return json(res,200,{ok:true,...await overview(),generatedAt:new Date().toISOString()});}
-    const input=await body(req,5_000_000),result=await importWorkbook(req,input);return json(res,200,{ok:true,result,...await overview(),generatedAt:new Date().toISOString()});
+    const input=await body(req,5_000_000),result=input.action==='assign_asset_employee'?await assignAssetEmployee(req,input):await importWorkbook(req,input);return json(res,200,{ok:true,result,...await overview(),generatedAt:new Date().toISOString()});
   }catch(error){errorResponse(res,error);}
 }
