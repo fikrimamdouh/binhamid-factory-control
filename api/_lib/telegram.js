@@ -18,6 +18,29 @@ async function fetchRetry(url, options = {}, tries = 3) {
 }
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
+export function inferTelegramButtonStyle(button={}){
+  if(button.style)return button.style;
+  const value=`${String(button.text||'')} ${String(button.callback_data||'')}`.toLowerCase();
+  if(/حذف|الغاء|إلغاء|رفض|ايقاف|إيقاف|خروج|تراجع|cancel|delete|reject|decline|stop|close/.test(value))return'danger';
+  if(/تأكيد|تاكيد|اعتماد|حفظ|ارسال|إرسال|تنفيذ|استلام|موافق|اكمال|إكمال|تم|confirm|approve|accept|save|send|submit|complete|success/.test(value))return'success';
+  if(/فتح|عرض|تعديل|بحث|التالي|السابق|رجوع|القائمه|القائمة|الرئيسيه|الرئيسية|تحديث|تفاصيل|open|view|edit|search|next|prev|back|menu|home|refresh|details/.test(value))return'primary';
+  return'';
+}
+
+export function styleTelegramMarkup(replyMarkup){
+  if(!replyMarkup||typeof replyMarkup!=='object')return replyMarkup;
+  for(const key of ['inline_keyboard','keyboard']){
+    const rows=replyMarkup[key];
+    if(!Array.isArray(rows))continue;
+    replyMarkup[key]=rows.map(row=>(row||[]).map(button=>{
+      if(!button||typeof button!=='object')return button;
+      const style=inferTelegramButtonStyle(button);
+      return style&&!button.style?{...button,style}:button;
+    }));
+  }
+  return replyMarkup;
+}
+
 export async function telegram(method, payload = {}) {
   ensure();
   const response = await fetchRetry(`https://api.telegram.org/bot${config.telegramToken}/${method}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
@@ -66,6 +89,7 @@ async function recordOutgoing(result, method, fallback = {}) {
 
 export async function sendMessage(chatId, text, extra = {}) {
   const { action_name: actionName, action_payload: actionPayload, ...telegramExtra } = extra || {};
+  if(telegramExtra.reply_markup)telegramExtra.reply_markup=styleTelegramMarkup(telegramExtra.reply_markup);
   const result = await telegram('sendMessage', { chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true, ...telegramExtra });
   await recordOutgoing(result, 'sendMessage', { text, actionName, actionPayload });
   return result;
@@ -117,8 +141,8 @@ export async function downloadTelegramFile(fileId,options={}) {
   if(maxBytes&&buffer.length>maxBytes)throw Object.assign(new Error('file is too big'),{status:413,code:'TELEGRAM_FILE_TOO_LARGE'});
   return { buffer, filePath: info.file_path, contentType: response.headers.get('content-type') || 'application/octet-stream' };
 }
-export function keyboard(rows) { return { reply_markup: { inline_keyboard: rows } }; }
-export function replyKeyboard(rows, options = {}) { return { reply_markup: { keyboard: rows, resize_keyboard: true, one_time_keyboard: Boolean(options.oneTime), selective: true } }; }
+export function keyboard(rows) { return { reply_markup: styleTelegramMarkup({ inline_keyboard: rows }) }; }
+export function replyKeyboard(rows, options = {}) { return { reply_markup: styleTelegramMarkup({ keyboard: rows, resize_keyboard: true, one_time_keyboard: Boolean(options.oneTime), selective: true }) }; }
 
 export async function sendVoiceBuffer(chatId, buffer, caption = '') {
   ensure();
