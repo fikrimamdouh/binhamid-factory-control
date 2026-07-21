@@ -1,21 +1,24 @@
-// [BinHamid] 2026.07.21-opening-balances-chunked-sync-v1
+// [BinHamid] 2026.07.21-opening-balances-chunked-sync-v2-load-order-safe
 // رفع الأرصدة الافتتاحية إلى جدولها المستقل على دفعات صغيرة (250 صفًا)،
 // بدل تضمينها في سجل الحالة الموحد الذي تجاوز حجمه مهلة قاعدة البيانات.
 // بعد نجاح الرفع الكامل تُستثنى الأرصدة من حمولة المزامنة فيعود الحفظ خفيفًا،
 // وتبقى نسخة الجهاز محفوظة محليًا كما هي.
 (function(){
   'use strict';
-  var VERSION='2026.07.21-opening-balances-chunked-sync-v1';
+  var VERSION='2026.07.21-opening-balances-chunked-sync-v2-load-order-safe';
   var FLAG='bh_opening_externalized_v1';
   var CHUNK=250;
 
   function el(id){return document.getElementById(id);}
   function toastMsg(message,kind){if(typeof window.toast==='function')window.toast(message,kind);else if(typeof window.opsToast==='function')window.opsToast(message,kind);}
   function localRows(){
+    // المصدر الموثوق هو التخزين المحلي (يُكتب قبل كل مزامنة)؛ متغير OPS
+    // معرّف بـ let داخل الصفحة فلا يظهر على window.
     try{
-      var OPS=window.OPS;
-      return OPS&&Array.isArray(OPS.customerOpeningBalances)?OPS.customerOpeningBalances:[];
-    }catch(_){return[];}
+      var raw=localStorage.getItem('binhamid_factory_control_v3');
+      if(raw){var parsed=JSON.parse(raw);if(parsed&&Array.isArray(parsed.customerOpeningBalances)&&parsed.customerOpeningBalances.length)return parsed.customerOpeningBalances;}
+    }catch(_){/* نجرب المصدر الثاني */}
+    try{return(0,eval)('typeof OPS!=="undefined"&&OPS&&Array.isArray(OPS.customerOpeningBalances)?OPS.customerOpeningBalances:[]');}catch(_){return[];}
   }
 
   async function api(pathname,options){
@@ -50,7 +53,17 @@
     toastMsg('✅ اكتمل رفع '+total+' رصيد افتتاحي إلى السحابة.');
     return{sent:sent};
   }
+  var pushing=false;
+  function ensurePushed(){
+    if(pushing||localStorage.getItem(FLAG)==='1')return;
+    if(!localRows().length)return;
+    pushing=true;
+    pushAllChunks('مزامنة تلقائية').catch(function(error){toastMsg('تعذر رفع الأرصدة على دفعات: '+error.message,'err');}).finally(function(){pushing=false;});
+  }
   window.bhPushOpeningBalances=pushAllChunks;
+  // وحدة المزامنة السحابية تُحمَّل لاحقًا وتستبدل opsPersist، فنعيد التركيب
+  // دوريًا على النسخة الحالية أيًا كانت.
+  setInterval(hookPersist,2000);
 
   // 1) بعد اعتماد ملف أرصدة جديد: الرفع على دفعات تلقائيًا.
   var originalPersist=window.opsPersist;
@@ -77,6 +90,11 @@
   window.fetch=function(input,init){
     try{
       var url=typeof input==='string'?input:String(input&&input.url||'');
+      if(url.indexOf('/api/state')>=0&&init&&init.method==='PUT'&&typeof init.body==='string'&&localStorage.getItem(FLAG)!=='1'){
+        // أول مزامنة تحمل أرصدة: نطلق الرفع بالدفعات فورًا في الخلفية،
+        // فتُشال الأرصدة من حمولة المزامنات التالية تلقائيًا بعد اكتماله.
+        try{var probe=JSON.parse(init.body);var probeRows=probe&&probe.payload&&probe.payload.ops&&probe.payload.ops.customerOpeningBalances;if(Array.isArray(probeRows)&&probeRows.length)ensurePushed();}catch(_){/**/}
+      }
       if(url.indexOf('/api/state')>=0&&init&&init.method==='PUT'&&typeof init.body==='string'&&localStorage.getItem(FLAG)==='1'){
         var parsed=JSON.parse(init.body);
         var opening=parsed&&parsed.payload&&parsed.payload.ops&&parsed.payload.ops.customerOpeningBalances;
