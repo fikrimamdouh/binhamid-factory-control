@@ -72,15 +72,27 @@ jobs:
       - name: Verify no unrelated files changed
         run: |
           git status --porcelain
-          unexpected="$(git status --porcelain | sed -E 's/^.. //' | grep -Ev '^(api/_lib/routes/daily-report\.js|api/_lib/daily-cumulative-pdf\.js|api/_lib/daily-cumulative-report-data\.js|api/_lib/bot-files\.js|api/_lib/telegram-webhook-gateway\.js|assets/login-sync\.js|tests/reporting-professional\.test\.mjs|debug/reporting-patch-error\.txt)$' || true)"
+          unexpected="$(git status --porcelain | sed -E 's/^.. //' | grep -Ev '^(api/_lib/routes/daily-report\.js|api/_lib/daily-cumulative-pdf\.js|api/_lib/daily-cumulative-report-data\.js|api/_lib/bot-files\.js|api/_lib/telegram-webhook-gateway\.js|assets/login-sync\.js|tests/reporting-professional\.test\.mjs|debug/reporting-patch-error\.txt|debug/reporting-test-error\.txt)$' || true)"
           test -z "$unexpected" || { echo 'Unexpected changed files:'; echo "$unexpected"; exit 1; }
       - name: Install dependencies
         run: npm install --ignore-scripts --no-audit --no-fund
       - name: Run test and API gates
         run: |
-          npm test
-          npm run check:api
-          npm run check:functions
+          set +e
+          mkdir -p debug
+          { npm test && npm run check:api && npm run check:functions; } > debug/reporting-test-error.txt 2>&1
+          code=$?
+          cat debug/reporting-test-error.txt
+          if [ "$code" -ne 0 ]; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add debug/reporting-test-error.txt
+            git commit -m 'chore: capture reporting test failure' || true
+            git push origin HEAD:feat/telegram-reporting-professional-v2 || true
+            exit "$code"
+          fi
+          rm -f debug/reporting-test-error.txt
+          rmdir debug 2>/dev/null || true
       - name: Remove temporary workflow files
         if: success()
         run: |
