@@ -17,7 +17,7 @@ test('employee role and identity normalization covers factory roles',()=>{
   assert.equal(employeeRoleToAppRole(''),'');
 });
 
-test('unified workbook creates persistent employee, asset and assignment records',()=>{
+test('unified workbook keeps diesel as primary assignment and ERP as financial reference',()=>{
   const workbook=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook,sheet([
     ['المصدر','رقم الهوية / الإقامة','اسم الموظف','الراتب الأساسي','بدل السكن','بدل النقل','إجمالي راتب مدد','تابع للمصنع؟','الموقع','الوظيفة','الراتب الفعلي','الرقم الوظيفي','الجوال','الحالة','ملاحظات'],
@@ -28,8 +28,8 @@ test('unified workbook creates persistent employee, asset and assignment records
     [TEST_PLATE,TEST_PLATE,'موظف اختبار','مركبة اختبار','','Diesel',2,200,400,'','','']
   ]),'لوحات الديزل');
   XLSX.utils.book_append_sheet(workbook,sheet([
-    ['رقم الأصل ERP','رقم اللوحة / التشغيل','Column1','نوع الأصل','المجموعة','الماركة والموديل','سنة الصنع','رقم الهيكل VIN','تكلفة الشراء','الحالة التشغيلية','الموقع','ملاحظات'],
-    [TEST_ASSET,'0001','','قلاب اختبار','السيارات ووسائل النقل','طراز اختباري',2020,'VIN-TEST',350000,'Working','موقع اختبار','']
+    ['رقم الأصل ERP','رقم اللوحة القديمة / التشغيل','الحالة الفعلية من ERP','نوع الأصل','المجموعة','الماركة والموديل','سنة الصنع','رقم الهيكل VIN','تكلفة الشراء','الحالة التشغيلية','الموقع','ملاحظات','اللوحة الجديدة / لوحة الديزل'],
+    [TEST_ASSET,'0001','Working','قلاب اختبار','السيارات ووسائل النقل','طراز اختباري',2020,'VIN-TEST',350000,'غير محدد','موقع اختبار','',TEST_PLATE]
   ]),'الأصول الثابتة');
   XLSX.utils.book_append_sheet(workbook,sheet([
     ['قالب الربط الموحد'],['تعليمات'],[],[],
@@ -37,11 +37,16 @@ test('unified workbook creates persistent employee, asset and assignment records
     ['تحديث/إنشاء','نعم',TEST_ID,'موظف اختبار',400,600,500,1500,1700,'موقع اختبار','سائق',TEST_PLATE,'','','Diesel',TEST_ASSET,'','قلاب اختبار','','',350000,'مطابق','2026-01-01',100,'']
   ]),'الربط الموحد');
   const parsed=parseUnifiedMasterWorkbook(workbook,XLSX);
+  const diesel=parsed.assets.find(asset=>asset.dieselExpected===true);
+  const erp=parsed.assets.find(asset=>asset.assetNo===TEST_ASSET&&asset.dieselExpected===false);
   assert.equal(parsed.stats.employees,1);
   assert.equal(parsed.stats.linkedAssets,1);
-  assert.equal(parsed.assets[0].assetNo,TEST_ASSET);
-  assert.equal(parsed.assets[0].assignedNationalId,TEST_ID);
-  assert.equal(normalizePlate(parsed.assets[0].plateNo),'TST0001');
+  assert.equal(diesel.assignedNationalId,TEST_ID);
+  assert.equal(normalizePlate(diesel.plateNo),'TST0001');
+  assert.equal(diesel.metadata.erpReference.assetNo,TEST_ASSET);
+  assert.equal(diesel.metadata.erpReference.purchaseCost,350000);
+  assert.equal(erp.assignedNationalId,null);
+  assert.equal(erp.operationalStatus,'in_service');
   assert.equal(parsed.employees[0].role,'سائق');
 });
 
