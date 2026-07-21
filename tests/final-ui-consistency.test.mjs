@@ -19,6 +19,7 @@ test('opening balances are injected into the active ledger and customer table',(
   assert.match(asset,/openingBalance:opening/);
   assert.match(asset,/patchCustomerTable/);
   assert.match(asset,/OPS\.customerOpeningBalances=rows/);
+  assert.match(asset,/client&&client\.openingBalance/);
 });
 
 test('employee attendance GET uses a degraded central route instead of the failing optional endpoint',()=>{
