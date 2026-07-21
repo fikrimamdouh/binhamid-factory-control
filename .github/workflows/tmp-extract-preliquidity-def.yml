@@ -1,0 +1,37 @@
+name: Extract Pre-liquidity Declaration Defaults
+on:
+  push:
+    branches:
+      - fix/restore-original-declaration-texts
+    paths:
+      - '.github/workflows/tmp-extract-preliquidity-def.yml'
+permissions:
+  contents: write
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/restore-original-declaration-texts
+          fetch-depth: 0
+      - name: Extract defaults from pre-liquidity commit
+        run: |
+          git show bf6bc69e1a452af7a32e6b270cf57d15646ab9a6:legacy.html > /tmp/legacy-preliquidity.html
+          python - <<'PY'
+          from pathlib import Path
+          src=Path('/tmp/legacy-preliquidity.html').read_text(encoding='utf-8').splitlines()
+          start=next(i for i,line in enumerate(src) if 'const DEF = {' in line)
+          end=next(i for i in range(start,len(src)) if src[i].strip()=='};')
+          Path('debug').mkdir(exist_ok=True)
+          Path('debug/declaration-defaults-preliquidity.txt').write_text('\n'.join(src[start:end+1]),encoding='utf-8')
+          print(start+1,end+1)
+          PY
+      - name: Commit result
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add debug/declaration-defaults-preliquidity.txt
+          git diff --cached --quiet && exit 0
+          git commit -m 'chore: extract pre-liquidity declaration defaults'
+          git push origin HEAD:fix/restore-original-declaration-texts
