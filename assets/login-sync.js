@@ -1,11 +1,11 @@
-// [BinHamid] 2026.07.21-login-sync-v1
+// [BinHamid] 2026.07.21-login-sync-v2-empty-device-recovery
 // المزامنة عند الدخول: السيرفر هو المرجع لحظة تسجيل الدخول.
 // عند نجاح الدخول برمز تليجرام، يُسحب المحتوى السحابي ويُعتمد رقم نسخته،
 // فتنتهي أخطاء «توجد نسخة سحابية أحدث» (409) التي كانت توقف الحفظ، ويبدأ
 // العمل من نسخة مطابقة للسيرفر. بعدها يعمل الحفظ التلقائي المعتاد.
 (function(){
   'use strict';
-  var VERSION='2026.07.21-login-sync-v1';
+  var VERSION='2026.07.21-login-sync-v2-empty-device-recovery';
   var USER_KEY='binhamid_cloud_app_user_id';
   var REV_KEY='binhamid_cloud_revision';
   var LEGACY_KEY='binhamid_v1';
@@ -105,7 +105,16 @@
 
   // يعمل عند نجاح الدخول، وعند فتح الصفحة بجلسة سارية.
   window.addEventListener('binhamid-owner-authenticated',function(){setTimeout(runLoginSync,400);});
-  function start(){if(userId())setTimeout(runLoginSync,1200);}
+  function localClientCount(){
+    try{var raw=localStorage.getItem(LEGACY_KEY);if(!raw)return 0;var parsed=JSON.parse(raw);return Array.isArray(parsed&&parsed.cli)?parsed.cli.length:0;}catch(_){return 0;}
+  }
+  // جهاز فارغ أمام سحابة مليانة = يجب السحب فورًا قبل أي محاولة حفظ.
+  function start(){
+    if(!userId())return;
+    if(!localClientCount())sessionStorage.removeItem(DONE_KEY);
+    runLoginSync();
+    setTimeout(function(){if(userId()&&!localClientCount()){sessionStorage.removeItem(DONE_KEY);runLoginSync();}},4000);
+  }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);else start();
   console.info('[BinHamid]',VERSION,'ready');
 })();

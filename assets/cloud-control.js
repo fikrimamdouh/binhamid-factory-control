@@ -64,6 +64,17 @@ async function status(){try{server=await fetch('/api/system/status',{cache:'no-s
 /* ---------- الحفظ السحابي (رفع/سحب) ---------- */
 async function push(reason='حفظ تلقائي',force=false){
   if(busy)return;
+  // لا نرفع حالة فارغة أبدًا: متصفح فقد بياناته (امتلاء مساحة أو نسخة جديدة)
+  // كان يحاول الكتابة فوق النسخة السحابية الكاملة، فيرفضه الخادم في كل مرة.
+  // الصحيح أن نسحب من السحابة أولًا بدل محاولة الدفع.
+  try{
+    const snapshot=shot();
+    const localClients=(snapshot?.legacy?.cli||[]).length;
+    if(!force&&!localClients){
+      if(typeof window.bhLoginSync==='function')window.bhLoginSync();
+      return;
+    }
+  }catch(_){/* عند أي خلل نكمل بالسلوك المعتاد */}
   if(!S.configured||(!token()&&!localStorage.getItem('binhamid_cloud_app_user_id'))){queue();badge();return}
   const body=JSON.stringify({baseRevision:force?null:rev(),reason,deviceId:device(),payload:shot()});
   if(new Blob([body]).size>4e6){S.error='حجم البيانات أكبر من حد الطلب';queue();badge();return toast('تم الحفظ محليًا لكن المزامنة تحتاج تقسيم البيانات.',true)}
