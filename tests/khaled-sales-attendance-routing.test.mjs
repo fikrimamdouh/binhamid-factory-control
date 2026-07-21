@@ -19,20 +19,25 @@ test('block sales natural and structured messages enter a sales workflow',()=>{
   assert.match(gateway,/handleNaturalSalesMessage/);
 });
 
-test('sales-role voice messages are prepared for order parsing before transcription returns',()=>{
+test('sales-role voice is routed only after its transcription is understood',()=>{
   const gateway=read('api/_lib/telegram-webhook-gateway.js');
-  assert.match(gateway,/prepareSalesVoiceSession/);
-  assert.match(gateway,/state:'sales_new_order'/);
-  assert.match(gateway,/source:'role_voice_default'/);
-  assert.match(gateway,/if\(message\.voice\)/);
-  assert.match(gateway,/roleType\(identity\.role\)/);
+  const routing=read('api/_lib/bot-routing.js');
+  assert.doesNotMatch(gateway,/prepareSalesVoiceSession|role_voice_default/);
+  assert.match(gateway,/if\(message\.voice\|\|message\.document/);
+  assert.match(routing,/route\.intent==='sales'/);
+  assert.match(routing,/salesTypeForRole/);
+  assert.match(routing,/state:'guided_sales_customer'/);
+  assert.match(routing,/voice_or_natural_sales_intent/);
+  assert.match(routing,/اكتب اسم العميل فقط/);
 });
 
-test('attendance checks employee and site binding before opening GPS',()=>{
+test('attendance checks employee and effective site binding before opening GPS',()=>{
   const secure=read('api/_lib/bot-attendance-secure.js');
   assert.match(secure,/attendanceReadiness/);
   assert.match(secure,/employee_assignments/);
-  assert.match(secure,/work_sites\(id,name,latitude,longitude,radius_m,active\)/);
+  assert.match(secure,/storedSiteForEmployee/);
+  assert.match(secure,/payload->legacy->emp/);
+  assert.match(secure,/work_sites/);
   assert.match(secure,/لم تُسجل أي حركة حضور أو انصراف/);
   assert.match(secure,/ARABIC_SALES_ROLES/);
   assert.match(secure,/language_code:'ar'/);
