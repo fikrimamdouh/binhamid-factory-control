@@ -68,8 +68,25 @@ export async function handleEmployeeRegistrationAction(message,from,identity,val
       // يظهر الاسم في سجل الموظفين ولا في نماذج الإقرار الخاصة بوظيفته.
       // ننشئ السجل هنا (أو نحدّثه إن وُجد) دون المساس بأي موظف آخر.
       try{
-        const externalId=employeeExternalId||`tg-${String(row.external_id)}`;
-        await upsert('employees',[{external_id:externalId,full_name:fullName||'موظف',role,employee_no:employeeExternalId||null,phone:String(context.phone||'')||null,active:true,updated_at:new Date().toISOString()}],'external_id');
+        // الربط بالأولوية: رقم الهوية أولًا (المعرّف الثابت)، ثم الاسم المطابق،
+        // وإلا يُنشأ سجل جديد. هكذا يلتحق الموظف بسجله القائم بدل تكراره.
+        const nationalId=String(context.nationalId||'').replace(/[^0-9]/g,'').slice(0,15);
+        const normalise=text=>String(text||'').replace(/\s+/g,' ').trim();
+        let existing=null;
+        if(nationalId){
+          const byId=await select('employees',`national_id=eq.${encodeURIComponent(nationalId)}&select=id,external_id,full_name&limit=1`).catch(()=>[]);
+          existing=byId?.[0]||null;
+        }
+        if(!existing&&fullName){
+          const byName=await select('employees',`full_name=eq.${encodeURIComponent(normalise(fullName))}&select=id,external_id,full_name&limit=1`).catch(()=>[]);
+          existing=byName?.[0]||null;
+        }
+        const externalId=existing?.external_id||employeeExternalId||(nationalId?`nid-${nationalId}`:`tg-${String(row.external_id)}`);
+        const record={external_id:externalId,full_name:fullName||existing?.full_name||'موظف',role,active:true,updated_at:new Date().toISOString()};
+        if(nationalId)record.national_id=nationalId;
+        if(employeeExternalId)record.employee_no=employeeExternalId;
+        await upsert('employees',[record],'external_id');
+        console.log('[approve employee record]',{linkedTo:existing?'existing':'new',externalId,hasNationalId:Boolean(nationalId)});
       }catch(employeeError){console.warn('[approve employee record]',String(employeeError?.message||employeeError).slice(0,200));}
       await insert('audit_log',[{actor_type:'telegram',actor_id:String(identity.external_id||from?.id||''),action:'approve_telegram_employee_registration',entity_type:'app_user',entity_id:String(row.id),details:{external_id:row.external_id,full_name:fullName,requested_role:requestedRole(row)||null,approved_role:role,employee_external_id:employeeExternalId,preferred_language:context.preferredLanguage||null,driver_vehicle:assignment?.vehicleExternalId||null,driver_documents:context.driverDocuments||null}}],{prefer:'return=minimal'}).catch(()=>{});
       if(row.registration)await patch('bot_sessions',`channel=eq.telegram&external_user_id=eq.${encodeURIComponent(String(row.external_id))}`,{state:'registration_approved',context:{...context,approvedRole:role,approvedAt:new Date().toISOString(),approvedBy:String(identity.external_id||from?.id||'')},updated_at:new Date().toISOString()}).catch(()=>{});
