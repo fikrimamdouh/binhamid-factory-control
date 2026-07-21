@@ -1,13 +1,13 @@
-// [BinHamid] 2026.07.21-final-ui-consistency-v1
-// يثبت ثلاث نقاط دون تغيير البيانات: إظهار الأرصدة الافتتاحية في الذاكرة والجدول،
-// إرسال نفس نتيجة «طباعة النموذج» إلى Telegram، ومنع خطأ حضور اختياري من إسقاط الصفحة.
+// [BinHamid] 2026.07.21-final-ui-consistency-v2-mobile-loop-fix
+// يثبت الأرصدة ونتيجة الطباعة ومسار الحضور دون إنشاء حلقة تغييرات DOM على الهاتف.
 (function(){
   'use strict';
   if(window.__BH_FINAL_UI_CONSISTENCY__)return;
   window.__BH_FINAL_UI_CONSISTENCY__=true;
-  var VERSION='2026.07.21-final-ui-consistency-v1';
+  var VERSION='2026.07.21-final-ui-consistency-v2-mobile-loop-fix';
   var OPS_KEY='binhamid_factory_control_v3';
   var previousFetch=window.fetch.bind(window);
+  var installing=false,installTimer=null;
 
   function clean(value){return String(value??'').trim();}
   function code(value){return clean(value).replace(/[٠-٩]/g,function(d){return String('٠١٢٣٤٥٦٧٨٩'.indexOf(d));}).replace(/\.0+$/,'').replace(/\s+/g,'').toUpperCase();}
@@ -57,13 +57,16 @@
       if(!client)return;
       var ledger=window.bhClientLedger(client.id),cell=row.cells[5];
       var credit=Number(ledger.creditBalance||0)?'<div style="color:#1F7A4C;font-size:11px">دائن '+money(ledger.creditBalance)+'</div>':'';
-      cell.className='mono '+(Number(ledger.remaining||0)?'client-balance-positive':'client-balance-clear');cell.innerHTML=money(ledger.remaining)+credit;
+      var nextClass='mono '+(Number(ledger.remaining||0)?'client-balance-positive':'client-balance-clear');
+      var nextHtml=money(ledger.remaining)+credit;
+      if(cell.className!==nextClass)cell.className=nextClass;
+      if(cell.innerHTML!==nextHtml)cell.innerHTML=nextHtml;
     });
   }
 
   function wrapCustomerRenderers(){
-    if(typeof window.rCli==='function'&&!window.rCli.__bhOpeningIntegrated){var originalRcli=window.rCli;window.rCli=function(){var result=originalRcli.apply(this,arguments);setTimeout(patchCustomerTable,0);return result;};window.rCli.__bhOpeningIntegrated=true;}
-    if(typeof window.rAll==='function'&&!window.rAll.__bhOpeningIntegrated){var originalRall=window.rAll;window.rAll=function(){var result=originalRall.apply(this,arguments);setTimeout(patchCustomerTable,0);return result;};window.rAll.__bhOpeningIntegrated=true;}
+    if(typeof window.rCli==='function'&&!window.rCli.__bhOpeningIntegrated){var originalRcli=window.rCli;window.rCli=function(){var result=originalRcli.apply(this,arguments);setTimeout(scheduleInstall,0);return result;};window.rCli.__bhOpeningIntegrated=true;}
+    if(typeof window.rAll==='function'&&!window.rAll.__bhOpeningIntegrated){var originalRall=window.rAll;window.rAll=function(){var result=originalRall.apply(this,arguments);setTimeout(scheduleInstall,0);return result;};window.rAll.__bhOpeningIntegrated=true;}
   }
 
   function syncRuntimeBalances(){
@@ -75,7 +78,7 @@
         var localKey=rows.length+'|'+rows.reduce(function(sum,row){return sum+Number(row.amount??row.balance??0);},0);
         if(currentKey!==localKey)OPS.customerOpeningBalances=rows;
       }
-      clients().forEach(function(client){var value=openingFor(client);if(value||client.openingBalance!==undefined)client.openingBalance=value;});
+      clients().forEach(function(client){var value=openingFor(client);if((value||client.openingBalance!==undefined)&&Number(client.openingBalance||0)!==Number(value))client.openingBalance=value;});
     }catch(_){ }
     ensureLedger();wrapCustomerRenderers();patchCustomerTable();
   }
@@ -95,8 +98,21 @@
     });
   }
 
-  function install(){syncRuntimeBalances();injectDirectTelegramButtons();}
-  var timer=setInterval(install,750);setTimeout(function(){clearInterval(timer);install();},30000);
-  new MutationObserver(function(){install();}).observe(document.documentElement,{childList:true,subtree:true});
+  function install(){
+    if(installing)return;
+    installing=true;
+    try{syncRuntimeBalances();injectDirectTelegramButtons();}
+    finally{installing=false;}
+  }
+  function scheduleInstall(){
+    if(installTimer)return;
+    installTimer=setTimeout(function(){installTimer=null;install();},80);
+  }
+
+  install();
+  var timer=setInterval(scheduleInstall,1000);setTimeout(function(){clearInterval(timer);scheduleInstall();},20000);
+  new MutationObserver(function(mutations){
+    for(var i=0;i<mutations.length;i++)if(mutations[i].addedNodes&&mutations[i].addedNodes.length){scheduleInstall();break;}
+  }).observe(document.documentElement,{childList:true,subtree:true});
   console.info('[BinHamid]',VERSION,'ready');
 })();
