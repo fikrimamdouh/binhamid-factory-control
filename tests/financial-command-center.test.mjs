@@ -35,15 +35,21 @@ test('financial control requests notify management and administrative forms enfo
   for(const phrase of ['مدير مالي','طلب ميزانية','التزام مورد','مطالبة مصروف','كنية الموظف'])assert.match(voice,new RegExp(phrase));
 });
 
-test('schema 024 exposes employee nickname and financial command center readiness',async()=>{
-  const [migration,audit,runtime]=await Promise.all([read('supabase/migrations/024_employee_nickname_and_financial_command_center.sql'),read('scripts/audit-migrations.mjs'),read('api/_lib/routes/system-runtime.js')]);
-  assert.match(migration,/values\(24,'024_employee_nickname_and_financial_command_center'\)/);
-  assert.match(audit,/const latest=25/);
+test('schema readiness includes employee nickname and persistent employee asset master',async()=>{
+  const [migration24,migration26,audit,runtime]=await Promise.all([read('supabase/migrations/024_employee_nickname_and_financial_command_center.sql'),read('supabase/migrations/026_persistent_employee_asset_identity_link.sql'),read('scripts/audit-migrations.mjs'),read('api/_lib/routes/system-runtime.js')]);
+  assert.match(migration24,/values\(24,'024_employee_nickname_and_financial_command_center'\)/);
+  assert.match(migration26,/values\(26,'026_persistent_employee_asset_identity_link'\)/);
+  assert.match(audit,/const latest=26/);
   assert.match(audit,/version===24/);
-  assert.match(runtime,/LATEST_REQUIRED_VERSION=24/);
+  assert.match(audit,/version===26/);
+  assert.match(runtime,/LATEST_REQUIRED_VERSION=26/);
   assert.match(runtime,/app_users:\['nickname'\]/);
-  assert.match(runtime,/employees:\['nickname'\]/);
+  assert.match(runtime,/employees:\['nickname','national_id','site'/);
   assert.match(runtime,/user_invitations:\['nickname'\]/);
+  assert.match(runtime,/master_data_import_runs/);
+  assert.match(runtime,/employee_asset_directory/);
   assert.match(runtime,/financialDirector:true/);
   assert.match(runtime,/administrativeControlCenter:true/);
+  assert.match(runtime,/persistentEmployeeMaster:true/);
+  assert.match(runtime,/telegramIdentityAutoLink:true/);
 });

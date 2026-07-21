@@ -1,14 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { calculateUnitEconomics, normalizePeriod } from '../api/_lib/cost-engine.js';
-import { capabilitiesForRole, roleAllows } from '../api/_lib/permissions.js';
-import { detectManagerAlerts, stableAlertDigest } from '../api/_lib/manager-metrics.js';
+import { calculateUnitEconomics,normalizePeriod } from '../api/_lib/cost-engine.js';
+import { capabilitiesForRole,roleAllows } from '../api/_lib/permissions.js';
+import { detectManagerAlerts,stableAlertDigest } from '../api/_lib/manager-metrics.js';
 
 const read=path=>readFile(new URL(`../${path}`,import.meta.url),'utf8');
 
 process.env.NODE_ENV='test';
-const { MockGpsAdapter, compareFuelToGps, normalizeGpsEvent }=await import('../api/_lib/gps-provider.js');
+const { MockGpsAdapter,compareFuelToGps,normalizeGpsEvent }=await import('../api/_lib/gps-provider.js');
 
 test('unit-cost economics distinguish reliable and incomplete results',()=>{
   const result=calculateUnitEconomics([
@@ -78,8 +78,8 @@ test('migrations 011 through 018 contain non-destructive operational and governa
 
 test('router keeps enterprise features consolidated under one Vercel function',async()=>{
   const router=await read('api/router.js'),vercel=JSON.parse(await read('vercel.json'));
-  for(const route of ["'daily-report'","'daily-report/fifo'","'costs'","'driver/webapp'","'resilience'","'dashboard'","'control-center'","'governance'"])assert.ok(router.includes(route));
-  for(const source of ['/api/daily-report','/api/daily-report/fifo','/api/costs','/api/driver/webapp','/api/resilience','/api/control-center','/api/governance'])assert.ok(vercel.rewrites.some(item=>item.source===source));
+  for(const route of ["'daily-report'","'daily-report/fifo'","'costs'","'driver/webapp'","'resilience'","'dashboard'","'control-center'","'governance'","'master-data'"])assert.ok(router.includes(route));
+  for(const source of ['/api/daily-report','/api/daily-report/fifo','/api/costs','/api/driver/webapp','/api/resilience','/api/control-center','/api/governance','/api/master-data'])assert.ok(vercel.rewrites.some(item=>item.source===source));
   assert.equal(Object.keys(vercel.functions).length,1);
 });
 
@@ -91,9 +91,9 @@ test('sync conflict and Telegram WebApp validation remain server-side',async()=>
   assert.match(driver,/vehicleFor/);assert.match(driver,/client_event_id/);assert.match(driver,/receiptDataUrl/);assert.match(driver,/مركبة مسندة/);
 });
 
-test('readiness requires schema 24 and reports accounting, governance and reset gaps',async()=>{
+test('readiness requires schema 26 and reports accounting, governance, reset and persistent master gaps',async()=>{
   const readiness=await read('api/_lib/routes/system-runtime.js');
-  assert.match(readiness,/LATEST_REQUIRED_VERSION=24/);
-  for(const marker of ['missingTables','missingColumns','missingMigrations','migration_history.sequence','collectDatabaseReadiness','financial_periods','credit_override_requests','unified_assets','compliance_documents','handover_acceptance_runs','control_asset_duplicates','credit_override_id','chart_of_accounts','journal_entries','journal_entry_lines','general_ledger','trial_balance','accounting_integrity_report','telegram_update_receipts','user_invitations','nickname'])assert.match(readiness,new RegExp(marker));
+  assert.match(readiness,/LATEST_REQUIRED_VERSION=26/);
+  for(const marker of ['missingTables','missingColumns','missingMigrations','migration_history.sequence','collectDatabaseReadiness','financial_periods','credit_override_requests','unified_assets','compliance_documents','handover_acceptance_runs','control_asset_duplicates','credit_override_id','chart_of_accounts','journal_entries','journal_entry_lines','general_ledger','trial_balance','accounting_integrity_report','telegram_update_receipts','user_invitations','nickname','master_data_import_runs','employee_asset_directory','control_employee_identity_duplicates','national_id','persistentEmployeeMaster','telegramIdentityAutoLink'])assert.match(readiness,new RegExp(marker));
   assert.doesNotMatch(readiness,/ready:\s*true,\s*schemaVersion/);
 });

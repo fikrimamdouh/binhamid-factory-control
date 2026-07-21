@@ -7,6 +7,7 @@ import * as telegramAdmin from './_lib/routes/telegram-admin.js';
 import * as managerDashboard from './_lib/routes/manager-dashboard.js';
 import * as controlCenter from './_lib/routes/control-center.js';
 import * as governance from './_lib/routes/governance.js';
+import * as masterData from './_lib/routes/master-data.js';
 import * as deviceSession from './_lib/routes/device-session.js';
 import * as costs from './_lib/routes/costs.js';
 import * as mixDesigns from './_lib/routes/mix-designs.js';
@@ -28,6 +29,7 @@ const routes={
   'dashboard':managerDashboard.dashboard,
   'control-center':controlCenter.controlCenter,
   'governance':governance.governance,
+  'master-data':masterData.masterData,
   'device/session':deviceSession.deviceSession,
   'conversations':management.conversations,
   'operations':management.operations,
