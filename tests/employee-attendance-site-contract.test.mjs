@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-const api=readFileSync(new URL('../api/admin/attendance.js',import.meta.url),'utf8');
-const ui=readFileSync(new URL('../assets/attendance-control.js',import.meta.url),'utf8');
+const api=readFileSync(new URL('../api/admin/'+'attendance.js',import.meta.url),'utf8');
+const ui=readFileSync(new URL('../assets/'+'attendance-control.js',import.meta.url),'utf8');
 
 test('employee page exposes saved attendance work sites without editing legacy employee code',()=>{
   assert.match(ui,/bhEmployeeAttendanceSiteHeader/);
