@@ -3,6 +3,34 @@ import { json, method, body, errorResponse } from './_lib/http.js';
 import { select, rpc, upsert, insert } from './_lib/supabase.js';
 
 function clean(v,max=500){return String(v??'').trim().slice(0,max);}
+async function selectPages(table,query,maxRows=10000){
+  const rows=[],pageSize=1000;
+  for(let offset=0;offset<maxRows;offset+=pageSize){
+    const page=await select(table,`${query}&offset=${offset}&limit=${pageSize}`);
+    if(!Array.isArray(page)||!page.length)break;
+    rows.push(...page);
+    if(page.length<pageSize)break;
+  }
+  return rows;
+}
+function appendMissing(current,masters,convert){
+  const rows=Array.isArray(current)?current.map(row=>({...row})):[],known=new Set(rows.map(row=>clean(row?.id,120)).filter(Boolean));
+  for(const master of masters||[]){const id=clean(master?.external_id,120);if(!id||known.has(id))continue;rows.push(convert(master));known.add(id);}
+  return rows;
+}
+async function enrichStatePayload(payload){
+  if(!payload||typeof payload!=='object')return payload;
+  const [employees,customers,vehicles]=await Promise.all([
+    selectPages('employees','active=eq.true&select=external_id,employee_no,national_id,full_name,phone,role,salary,active&order=full_name.asc',5000).catch(()=>[]),
+    selectPages('customers','active=eq.true&select=external_id,customer_code,customer_name,phone,segment,credit_limit,payment_days,active&order=customer_name.asc',10000).catch(()=>[]),
+    selectPages('vehicles','active=eq.true&select=external_id,plate_no,asset_no,vehicle_type,make,model,driver_external_id,status,active&order=plate_no.asc',5000).catch(()=>[])
+  ]);
+  const legacy={...(payload.legacy||{})};
+  legacy.emp=appendMissing(legacy.emp,employees,row=>({id:row.external_id,no:row.employee_no||row.external_id,nid:row.national_id||'',name:row.full_name||row.external_id,tel:row.phone||'',role:row.role||'employee',salary:Number(row.salary||0),act:row.active!==false}));
+  legacy.cli=appendMissing(legacy.cli,customers,row=>({id:row.external_id,code:row.customer_code||row.external_id,name:row.customer_name||row.external_id,tel:row.phone||'',seg:row.segment||'',cap:Number(row.credit_limit||0),days:Number(row.payment_days||0),act:row.active!==false}));
+  legacy.veh=appendMissing(legacy.veh,vehicles,row=>({id:row.external_id,plate:row.plate_no||'',acct:row.asset_no||'',type:row.vehicle_type||'',make:row.make||'',model:row.model||'',drv:row.driver_external_id||'',status:row.status||'active',act:row.active!==false}));
+  return{...payload,legacy};
+}
 async function syncMasters(payload){
   const legacy=payload?.legacy||{},now=new Date().toISOString();
   const employees=(legacy.emp||[]).map(x=>({external_id:clean(x.id,120),employee_no:clean(x.no,120),national_id:clean(x.nid,120),full_name:clean(x.name),phone:clean(x.tel,80),role:clean(x.role,120),salary:Number(x.salary||x.sal||0),active:x.act!==false,source_updated_at:now})).filter(x=>x.external_id);
@@ -34,7 +62,9 @@ export default async function handler(req,res){
     const actor=requireAdminOrDevice(req,req.method==='GET'?'state.read':'state.write');
     if(req.method==='GET'){
       const rows=await select('app_state','key=eq.primary&select=key,revision,updated_at,updated_by,device_id,payload&limit=1'),row=rows?.[0];
-      return json(res,200,row?{revision:row.revision,updatedAt:row.updated_at,updatedBy:row.updated_by,deviceId:row.device_id,payload:row.payload}:{revision:0,payload:null});
+      if(!row)return json(res,200,{revision:0,payload:null});
+      const payload=await enrichStatePayload(row.payload);
+      return json(res,200,{revision:row.revision,updatedAt:row.updated_at,updatedBy:row.updated_by,deviceId:row.device_id,payload});
     }
     const startedAt=Date.now(),input=await body(req),deviceId=clean(input.deviceId,160);
     const payloadBytes=JSON.stringify(input.payload||{}).length;
@@ -92,6 +122,6 @@ export default async function handler(req,res){
     console.log('[state save] rpc ms',Date.now()-saveStartedAt);
     await syncMasters(input.payload).catch(error=>console.error('master sync failed',error));
     await insert('audit_log',[{actor_type:actor.kind==='device'?'device':'web',actor_id:actor.actor,action:'state_sync',entity_type:'app_state',entity_id:'primary',details:{reason:clean(input.reason,300),deviceId,revision:saved?.revision}}],{prefer:'return=minimal'}).catch(()=>{});
-    json(res,200,{ok:true,revision:Number(saved?.revision||0),updatedAt:saved?.updated_at||new Date().toISOString()});
+    json(res,200,{ok:true,revision:Number(saved?.revision||0),updatedAt:saved?.updated_at||new Date().toISOString(),elapsedMs:Date.now()-startedAt});
   }catch(error){if(/revision conflict/i.test(error.message||'')||error.data?.code==='40001')error.status=409;errorResponse(res,error);}
 }

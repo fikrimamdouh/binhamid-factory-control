@@ -26,5 +26,10 @@ export async function body(req, limit = 4_200_000) {
 export function errorResponse(res, error) {
   console.error(error);
   const status = Number(error?.status || error?.statusCode || 500);
-  json(res, status, { error: status >= 500 ? 'تعذر تنفيذ العملية على الخادم' : error.message, detail: process.env.NODE_ENV === 'development' ? error.message : undefined });
+  const code=String(error?.code||'').replace(/[^A-Z0-9_-]/gi,'').slice(0,120)||undefined;
+  json(res, status, {
+    error: status >= 500 ? 'تعذر تنفيذ العملية على الخادم' : error.message,
+    code,
+    detail: process.env.NODE_ENV === 'development' ? error.message : undefined
+  });
 }

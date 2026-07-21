@@ -3,13 +3,13 @@ import { select } from './supabase.js';
 
 export const ROLE_CAPABILITIES=Object.freeze({
   admin:['*'],
-  manager:['dashboard.manager','daily_report.view','daily_report.approve','imports.read','imports.manage','costs.view','audit.view','governance.view','credit_override.approve','assets.view','maintenance.manage','compliance.view','handover.view','accounting.view','mix_design.view','mix_design.manage','mix_design.calculate','mix_design.approve','mix_material_prices.manage'],
+  manager:['dashboard.manager','daily_report.view','daily_report.approve','imports.read','imports.manage','costs.view','audit.view','governance.view','credit_override.approve','assets.view','maintenance.manage','compliance.view','handover.view','accounting.view','mix_design.view','mix_design.manage','mix_design.calculate','mix_design.approve','mix_material_prices.manage','attendance.view','attendance.manage'],
   accountant:['daily_report.view','daily_report.import','daily_report.approve','imports.read','imports.manage','costs.view','costs.calculate','governance.view','financial_period.manage','credit_override.request','custody.manage','custody.approve','accounting.view','accounting.post','mix_design.view','mix_design.manage','mix_design.calculate','mix_design.approve','mix_material_prices.manage'],
   block_sales:['daily_report.view'],
   concrete_sales:['daily_report.view','mix_design.price.view'],
   mechanic:['maintenance.manage','assets.view'],
   fuel_operator:['fuel.import','assets.view'],
-  hr:['costs.view','governance.view','compliance.manage','assets.view'],
+  hr:['costs.view','governance.view','compliance.manage','assets.view','attendance.view','attendance.manage'],
   procurement:['maintenance.manage','assets.view'],
   quality:['mix_design.view','mix_design.manage'],
   driver:[],employee:[],collector:[],warehouse:[],pending:[]
@@ -46,10 +46,10 @@ export function resolveCapabilityGateway(gateway,appUserId,capability){
 
 export async function requireCapability(req,capability){
   if(!String(capability||'').trim())throw accessError('اسم الصلاحية مطلوب',500,'CAPABILITY_NAME_REQUIRED');
-  // A transport-only device cookie never authenticates an app user. Passing the
-  // requested capability here makes such a cookie fail closed before a caller
-  // supplied x-app-user-id can be used for an authorization decision.
-  const gateway=requireAdminOrDevice(req,capability),appUserId=header(req,'x-app-user-id'),resolved=resolveCapabilityGateway(gateway,appUserId,capability);
+  // Prefer the signed app-user identity already carried by the HttpOnly device
+  // session. The legacy x-app-user-id header remains supported, but is no longer
+  // required for normal browser navigation or data synchronisation.
+  const gateway=requireAdminOrDevice(req,capability),requestedAppUserId=header(req,'x-app-user-id'),appUserId=requestedAppUserId||String(gateway?.appUserId||'').trim(),resolved=resolveCapabilityGateway(gateway,appUserId,capability);
   if(resolved)return resolved;
   const users=await select('app_users',`id=eq.${encodeURIComponent(appUserId)}&active=eq.true&select=id,full_name,role,active&limit=1`),user=users?.[0];
   if(!user)throw accessError('المستخدم غير معتمد أو موقوف',403,'USER_NOT_ACTIVE');
