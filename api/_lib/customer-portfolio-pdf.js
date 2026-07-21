@@ -1,6 +1,7 @@
 import { select } from './supabase.js';
 import { htmlToPdf } from './pdf-service.js';
 import { loadProjectedCumulativeDailyReport } from './daily-cumulative-report-data.js';
+import { CUSTOMER_PORTFOLIO_DECLARATION_TEXT } from './declaration-texts.js';
 
 const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const money=value=>Number(value||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -13,8 +14,7 @@ const accent=type=>type==='block'?'#8a5a2c':'#0d6a4a';
 const ROLE_BY_TYPE={block:'مسؤول مبيعات البلوك',concrete:'مسؤول مبيعات الخرسانة'};
 
 // نفس دالة استبدال المتغيرات {الموظف}/{المنشأة}/{الأيام} المستخدمة في نموذج
-// الموقع (tpl في legacy.html) حتى يطابق النص المطبوع من تليجرام النص المطبوع
-// من الموقع تمامًا.
+// الموقع حتى يطابق النص المطبوع من تليجرام النص المطبوع من الموقع تمامًا.
 function applyTemplate(line,ctx){
   return esc(line)
     .replace(/\{الموظف\}/g,`<b>${esc(ctx.emp||'……………')}</b>`)
@@ -27,14 +27,13 @@ function clauseList(text,ctx){
   return `<ol class="clauses">${lines.map(line=>`<li>${applyTemplate(line,ctx)}</li>`).join('')}</ol>`;
 }
 
-// يجلب نص الإقرار الحالي (D.txt.cli) واسم المنشأة ومهلة السداد وقائمة
-// الموظفين من نفس نسخة الحالة السحابية (app_state) التي يحفظها الموقع —
-// أي تعديل تعمليه على نصوص البنود من الموقع ينعكس تلقائيًا هنا.
+// النص القانوني ثابت ومشترك بين الموقع وتليجرام. بيانات المنشأة والموظفين
+// ومهلة السداد فقط تُقرأ من الحالة السحابية.
 async function loadAppState(){
   const rows=await select('app_state','key=eq.primary&select=payload&limit=1').catch(()=>[]);
   const legacy=rows?.[0]?.payload?.legacy||{};
   return{
-    declarationText:legacy?.txt?.cli||'',
+    declarationText:CUSTOMER_PORTFOLIO_DECLARATION_TEXT,
     companyName:legacy?.cfg?.name||'مصنع بن حامد للبلوك والخرسانة الجاهزة',
     days:Number(legacy?.cfg?.days||3)||3,
     employees:Array.isArray(legacy?.emp)?legacy.emp:[]
