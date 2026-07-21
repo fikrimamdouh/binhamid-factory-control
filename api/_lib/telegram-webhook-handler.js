@@ -23,10 +23,12 @@ import { sendOperationalDocument } from './bot-documents.js';
 import { sendGpsFleetStatus } from './bot-gps.js';
 import { handleInsightCommand } from './bot-insights.js';
 import { showAttendanceMenu, continueAttendanceSession, handleAttendanceLocation, handleAttendancePhoto, handleAttendanceCallback } from './bot-attendance.js';
+import { botModuleAllowed, moduleForCallback, moduleForSession, moduleForText } from './bot-menu-permissions.js';
 
 const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const norm=value=>String(value||'').toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ًٌٍَُِّْـ]/g,'').replace(/[؟?!.,،؛:]+/g,'').replace(/\s+/g,' ').trim();
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+async function denyBotModule(chatId,identity,moduleId){if(!moduleId||await botModuleAllowed(identity,moduleId))return false;await sendMessage(chatId,'هذه الوحدة مخفية وموقوفة لحسابك من إعدادات صلاحيات البوت.');return true;}
 
 // Telegram callback_data uses the first colon to separate the action from its
 // payload. Customer pagination payloads legitimately contain more colons
@@ -44,6 +46,7 @@ async function handleText(message,group,identity,text,voicePath='',stored=null){
   if(builtIn){if(/^\/start(?:@\w+)?(?:\s+\w+)?$/i.test(raw)&&active)await showRoleHome(message,identity);return;}
   if(!active)return sendMessage(chatId,`مرحبًا ${esc(name)}. فهمت رسالتك وسجلتها، لكن حسابك غير معتمد لتنفيذ الإجراءات. أرسل رقمك من /whoami إلى مدير النظام.`);
   if(['group','supergroup'].includes(message.chat.type)&&!group.active)return sendMessage(chatId,'فهمت الرسالة وسجلتها، لكن المجموعة لم تعتمد بعد. يجب تحديد قسمها قبل التوجيه النهائي.');
+  if(await denyBotModule(chatId,identity,moduleForText(raw)))return;
   if(/^\/attendance(?:@\w+)?$/i.test(raw)||/^(الحضور والمواقع|تسجيل حضور|تسجيل انصراف|قائمه الحضور|قائمة الحضور|لوحه السائق|لوحة السائق)$/.test(normalized))return showAttendanceMenu(message,identity);
   if(/^(حاله الورشه|وضع الورشه|وضع الميكانيكي|ملخص اعمال الميكانيكي|تقرير تنفيذي للورشه)$/.test(normalized)){
     if(!['admin','manager','mechanic','accountant'].includes(role))return sendMessage(chatId,'عرض الحالة التنفيذية للورشة متاح لمدير النظام ومدير المصنع والمحاسب ومسؤول الورشة.');
@@ -57,6 +60,7 @@ async function handleText(message,group,identity,text,voicePath='',stored=null){
     return sendGpsFleetStatus(chatId);
   }
   const session=await getBotSession(chatId,message.from.id);
+  if(await denyBotModule(chatId,identity,moduleForSession(session?.state)))return;
   if(session?.state?.startsWith('attendance_')||session?.state?.startsWith('driver_')){if(await continueAttendanceSession(message,identity,session,raw))return;}
   if(session?.state?.startsWith('enterprise_')){if(await continueEnterpriseSession(message,identity,session,raw))return;}
   if(session?.state?.startsWith('supplier_')||session?.state?.startsWith('rfq_')){if(await continueProcurementSession(message,identity,session,raw))return;}
@@ -80,17 +84,19 @@ async function handleText(message,group,identity,text,voicePath='',stored=null){
   if(await handleMechanicTextCommand(message,identity,raw))return;
   if(await handleStoredReportTextCommand(message,identity,raw))return;
   if(/^(تقارير|تقرير|ملخص)$/i.test(raw)||/اعرض.*تقارير/.test(raw)){
+    if(await denyBotModule(chatId,identity,'reports'))return;
     if(!allowed(role,'report'))return sendMessage(chatId,'فهمت أنك تطلب التقارير، لكن الإجراء متاح لمدير المصنع ومدير النظام فقط.');
     return sendMessage(chatId,`حاضر ${esc(name)}. اختر التقرير المطلوب:`,reportKeyboard());
   }
   if((group.department==='workshop'||role==='mechanic'||role==='admin')&&isFaultMessage(raw)){
+    if(await denyBotModule(chatId,identity,'workshop'))return;
     if(!allowed(role,'maintenance')&&!allowed(role,'approve'))return sendMessage(chatId,'فهمت أنها رسالة صيانة، لكن دورك لا يسمح بفتح بلاغات الورشة.');
     return createMaintenanceDraft({chatId,messageId:message.message_id,identity,text:raw,plate:extractPlate(raw),voicePath});
   }
   const smart=await interpretMessage({message,group,identity,text:raw,stored});
-  if(smart.route.intent==='attendance')return showAttendanceMenu(message,identity);
-  if(smart.route.intent==='report'&&allowed(role,'report'))return sendMessage(chatId,`${smart.response}\n\nاختر التقرير المطلوب:`,reportKeyboard());
-  if(smart.route.intent==='maintenance'&&(allowed(role,'maintenance')||allowed(role,'approve')))return createMaintenanceDraft({chatId,messageId:message.message_id,identity,text:raw,plate:extractPlate(raw),voicePath});
+  if(smart.route.intent==='attendance'){if(await denyBotModule(chatId,identity,'attendance'))return;return showAttendanceMenu(message,identity);}
+  if(smart.route.intent==='report'&&allowed(role,'report')){if(await denyBotModule(chatId,identity,'reports'))return;return sendMessage(chatId,`${smart.response}\n\nاختر التقرير المطلوب:`,reportKeyboard());}
+  if(smart.route.intent==='maintenance'&&(allowed(role,'maintenance')||allowed(role,'approve'))){if(await denyBotModule(chatId,identity,'workshop'))return;return createMaintenanceDraft({chatId,messageId:message.message_id,identity,text:raw,plate:extractPlate(raw),voicePath});}
   return sendMessage(chatId,smart.response);
 }
 
@@ -99,6 +105,7 @@ async function handleCallback(update){
   await answerCallback(query.id);
   if(!identity.active)return sendMessage(message.chat.id,'حسابك غير معتمد لتنفيذ هذا الإجراء.');
   const[action,value]=splitCallbackData(query.data);
+  if(!['ent','entopt','entconfirm','entcancel','entstatus'].includes(action)&&await denyBotModule(message.chat.id,identity,moduleForCallback(action,value)))return;
   if(action==='home'){
     if(value==='workshop')return showMechanicMenu({...message,from:query.from},identity);
     if(value==='sales')return showSalesMenu({...message,from:query.from},identity);
@@ -148,9 +155,9 @@ async function handleMessage(update){
   const message=update.message||update.edited_message;
   if(!message?.from||message.from.is_bot)return;
   const[group,identity]=await Promise.all([ensureTelegramGroup(message.chat),ensureTelegramIdentity(message.from)]),stored=await storeTelegramMessage(update.update_id,message,group,identity),session=await getBotSession(message.chat.id,message.from.id);
-  if(message.location){if(await handleAttendanceLocation(message,identity,session))return;return handleText(message,group,identity,`الموقع ${message.location.latitude},${message.location.longitude}`,'',stored);}
+  if(message.location){if(await denyBotModule(message.chat.id,identity,moduleForSession(session?.state)||'attendance'))return;if(await handleAttendanceLocation(message,identity,session))return;return handleText(message,group,identity,`الموقع ${message.location.latitude},${message.location.longitude}`,'',stored);}
   if(message.document){const name=message.document.file_name||'';return /\.(xlsx|xls)$/i.test(name)||/spreadsheet|excel/i.test(message.document.mime_type||'')?handleExcel(message,group,identity,stored):handleAttachment(message,group,identity,stored);}
-  if(message.photo?.length){if(await handleAttendancePhoto(message,identity,session))return;return handleAttachment(message,group,identity,stored);}
+  if(message.photo?.length){if(await denyBotModule(message.chat.id,identity,moduleForSession(session?.state)))return;if(await handleAttendancePhoto(message,identity,session))return;return handleAttachment(message,group,identity,stored);}
   if(message.voice){
     await sendMessage(message.chat.id,'تم استلام رسالتك الصوتية، جارٍ فهمها وتنفيذ طلبك...').catch(error=>console.warn('[telegram voice acknowledgement]',{message:String(error?.message||'').slice(0,200)}));
     let downloaded;
@@ -158,7 +165,7 @@ async function handleMessage(update){
     catch(error){console.warn('[telegram voice download]',{message:String(error?.message||'').slice(0,220)});return sendMessage(message.chat.id,'تم استلام الرسالة الصوتية، لكن تعذر تنزيلها من Telegram. أعد إرسال التسجيل مرة واحدة.');}
     const hash=sha256(downloaded.buffer),path=`telegram/${group.department||'unassigned'}/${new Date().toISOString().slice(0,10)}/voice-${hash.slice(0,16)}.ogg`,contentType=message.voice.mime_type||downloaded.contentType;
     const uploadTask=uploadObject(path,downloaded.buffer,contentType).then(()=>true).catch(error=>{console.warn('[telegram voice upload]',{message:String(error?.message||'').slice(0,220)});return false;});
-    const [result,uploaded]=await Promise.all([transcribeTelegramVoice(downloaded.buffer,contentType),Promise.race([uploadTask,delay(1200).then(()=>false)])]);
+    const[result,uploaded]=await Promise.all([transcribeTelegramVoice(downloaded.buffer,contentType),Promise.race([uploadTask,delay(1200).then(()=>false)])]);
     if(stored?.id){
       const values={transcription:result.text||null,related_entity_type:result.text?'voice_transcribed':`voice_${result.reason||'failed'}`};
       if(uploaded)values.file_path=path;
