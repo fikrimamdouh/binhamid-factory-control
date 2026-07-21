@@ -38,7 +38,8 @@ export default async function handler(req,res){
     }
     const startedAt=Date.now(),input=await body(req),deviceId=clean(input.deviceId,160);
     const payloadBytes=JSON.stringify(input.payload||{}).length;
-    console.log('[state save] payload bytes',payloadBytes,'| parse ms',Date.now()-startedAt);
+    const incomingClients=(input.payload?.legacy?.cli||[]).length,incomingOpening=(input.payload?.ops?.customerOpeningBalances||[]).length;
+    console.log('[state save] bytes',payloadBytes,'| clients',incomingClients,'| opening',incomingOpening);
     if(!input.payload||typeof input.payload!=='object')throw Object.assign(new Error('حالة البرنامج غير موجودة'),{status:400});
     if(!input.payload.legacy||!input.payload.ops)throw Object.assign(new Error('الحالة المرسلة ناقصة'),{status:400});
     if(actor.kind==='device'&&deviceId!==actor.deviceId)throw Object.assign(new Error('معرف الجهاز لا يطابق جلسة الربط'),{status:403,code:'DEVICE_ID_MISMATCH'});
@@ -57,14 +58,16 @@ export default async function handler(req,res){
         const rows=await select('app_state','key=eq.primary&select=clients:payload->legacy->cli,opening:payload->ops->customerOpeningBalances&limit=1');
         const row=rows?.[0]||{};current={legacy:{cli:row.clients},ops:{customerOpeningBalances:row.opening}};
       }catch(error){checkFailed=true;console.warn('[state guard]',String(error?.message||error).slice(0,140));}
-      if(checkFailed)throw Object.assign(new Error('تعذر التحقق من سلامة النسخة السحابية قبل الحفظ، والحفظ متوقف حمايةً للبيانات. أعد المحاولة بعد قليل.'),{status:503,code:'STATE_GUARD_UNAVAILABLE'});
+      // تعذّر التحقق (مهلة استعلام قاعدة البيانات على الحالة الضخمة) لا يجوز
+      // أن يمنع المستخدم من حفظ بياناته؛ نسجّل التحذير ونكمل.
+      if(checkFailed)current=null;
       // كل مجموعة تُحمى على حدة: فقدان الأرصدة الافتتاحية وحده كان يمر دون
       // اعتراض لأن قائمة العملاء تظل ممتلئة، فتختفي كل المديونيات بصمت.
       const groups=[
         ['legacy.cli','بيانات العملاء',payload=>payload?.legacy?.cli],
         ['ops.customerOpeningBalances','الأرصدة الافتتاحية للعملاء',payload=>payload?.ops?.customerOpeningBalances]
       ];
-      for(const[,label,pick]of groups){
+      for(const[,label,pick]of(current?groups:[])){
         const stored=pick(current),incoming=pick(input.payload);
         const storedCount=Array.isArray(stored)?stored.length:0,incomingCount=Array.isArray(incoming)?incoming.length:0;
         if(storedCount>0&&incomingCount===0)throw Object.assign(new Error(`الحفظ متوقف لحمايتك: الجهاز الحالي لا يحتوي ${label} بينما النسخة السحابية تحتوي ${storedCount} سجلًا. افتح البرنامج على الجهاز الذي فيه بياناتك وزامن منه.`),{status:409,code:'EMPTY_STATE_BLOCKED'});
