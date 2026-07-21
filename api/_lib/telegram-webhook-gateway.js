@@ -1,6 +1,6 @@
 import { verifyTelegram } from './auth.js';
 import { json, method, body, errorResponse } from './http.js';
-import { insert, rpc } from './supabase.js';
+import { rpc } from './supabase.js';
 import { sendMessage, answerCallback } from './telegram.js';
 import { ensureTelegramGroup, ensureTelegramIdentity, storeTelegramMessage } from './bot-webhook-core.js';
 import { getBotSession, clearMaintenanceSession } from './bot-maintenance.js';
@@ -50,12 +50,6 @@ function sessionAllowed(identity,session){
 }
 async function rejectSession(message,identity){await clearMaintenanceSession(message.chat.id,identity?.external_id||message.from?.id).catch(()=>{});await sendMessage(message.chat.id,'تم إيقاف الجلسة لأن صلاحيتك الحالية لا تسمح بإكمال العملية.');return true;}
 async function logIntercepted(update,message,identity){const group=await ensureTelegramGroup(message.chat);await storeTelegramMessage(update.update_id,message,group,identity);if(['group','supergroup'].includes(message.chat.type)&&!group.active){await sendMessage(message.chat.id,'المجموعة لم تعتمد بعد.');return false;}return true;}
-async function prepareSalesVoiceSession(message,identity,session){
-  const salesType=roleType(identity?.role);if(!salesType)return false;
-  const stamp=new Date().toISOString(),userId=String(identity.external_id||message.from?.id||'');
-  await insert('bot_sessions',[{channel:'telegram',chat_id:String(message.chat.id),external_user_id:userId,state:'sales_new_order',context:{...(session?.context||{}),salesType,source:'role_voice_default',startedAt:stamp},updated_at:stamp}],{query:'on_conflict=channel,chat_id,external_user_id',prefer:'resolution=merge-duplicates,return=minimal'});
-  return true;
-}
 
 async function interceptCallback(update){
   const query=update.callback_query,message=query?.message;if(!query||!message)return false;
@@ -98,11 +92,7 @@ async function interceptMessage(update){
   }
   if(message.location&&(state.startsWith('driver_')||state.startsWith('attendance_')||message.location.live_period||message.edit_date)){if(!await logIntercepted(update,message,identity))return true;await handleAttendanceLocation(message,identity,session);return true;}
   if(message.photo?.length&&state==='driver_fuel_photo'){if(!await logIntercepted(update,message,identity))return true;await handleAttendancePhoto(message,identity,session);return true;}
-  if(message.voice){
-    if(identity.active&&roleType(identity.role)&&(!state||state==='idle'))await prepareSalesVoiceSession(message,identity,session);
-    return false;
-  }
-  if(message.document||message.photo?.length)return false;
+  if(message.voice||message.document||message.photo?.length)return false;
   const raw=String(message.text||message.caption||'').trim(),normalized=norm(raw),registrationSession=state.startsWith('registration_')&&state!=='registration_submitted',registrationCommand=isRegistrationCommand(raw)||/^(الوظائف|الوظائف المتاحه|الوظائف المتاحة|حاله التسجيل|حالة التسجيل|حاله طلبي|حالة طلبي)$/.test(normalized);
   if(registrationSession||registrationCommand){
     if(message.chat.type!=='private'){await sendMessage(message.chat.id,'تسجيل الموظف يتم من المحادثة الخاصة مع البوت.');return true;}
@@ -143,9 +133,6 @@ export default async function handler(req,res){
   catch(error){console.error('[telegram webhook claim]',{code:safeErrorCode(error),message:String(error?.message||'').slice(0,300)});return json(res,503,{ok:false,retryable:true,error:'تعذر حجز تحديث Telegram للمعالجة.'});}
   if(!claim?.claimed){
     if(claim?.status==='completed')return json(res,200,{ok:true,duplicate:true,updateId});
-    // A receipt still being processed is not a duplicate. Returning 5xx keeps
-    // Telegram retrying instead of acknowledging work that may have died in an
-    // interrupted serverless invocation.
     return json(res,503,{ok:false,retryable:true,updateId,error:'التحديث قيد المعالجة؛ سيعيد Telegram المحاولة.'});
   }
   try{
