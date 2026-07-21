@@ -4,7 +4,7 @@ const VERSION='2026.07.21-admin-nav-v4-grouped-session-controls';
 const LINKS=[
   ['🏠','البرنامج','/','التشغيل'],
   ['⚙️','مركز الإدارة','/control-center.html','الإدارة'],
-  ['👥','الموظفون والأصول','/master-data.html','الإدارة'],
+  ['👥','الموظفون والمعدات','/master-data.html','الإدارة'],
   ['💰','الحسابات','/accounting.html','المالية'],
   ['🧪','الخلطات والأسعار','/mix-designs.html','المالية'],
   ['🕐','الحضور والسائقون','/attendance-admin.html','الموظفون'],
