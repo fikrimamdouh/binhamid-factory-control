@@ -45,6 +45,7 @@ export const BOT_MENU_CATALOG=Object.freeze([
 const byId=new Map(BOT_MENU_CATALOG.map(item=>[item.id,item]));
 const cache=new Map();
 const userIdOf=identity=>String(identity?.user_id||identity?.id||identity?.app_user_id||'').trim();
+const normalize=value=>String(value||'').toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ًٌٍَُِّْـ]/g,'').replace(/[؟?!.,،؛:]+/g,'').replace(/\s+/g,' ').trim();
 export const botMenuCapability=id=>`${BOT_MENU_PREFIX}${id}`;
 export const botMenuItem=id=>byId.get(String(id||''))||null;
 export const defaultBotModulesForRole=role=>new Set(BOT_MENU_CATALOG.filter(item=>!item.ownerOnly&&item.defaultRoles.includes(String(role||'pending'))).map(item=>item.id));
@@ -84,7 +85,7 @@ export function moduleForCallback(action,value=''){
   if(/^finance_/.test(form)||form==='finance_menu')return'finance';if(/^collection_/.test(form)||form==='collection_menu')return'collection';
   if(/^inventory_/.test(form)||form==='inventory_menu')return'inventory';if(form==='purchase')return'procurement';if(/^fuel_/.test(form)||form==='fuel_menu'||form==='insight_fuel')return'fuel';
   if(/^hr_/.test(form)||form==='hr_menu')return'hr';if(/^quality_/.test(form)||form==='quality_menu')return'quality';if(/^trip_/.test(form)||form==='trip_menu')return'trips';
-  if(['people_menu','my_tasks','team_tasks','task_new','daily_reports'].includes(form))return'people';if(['priorities'].includes(form))return'priorities';if(form==='approvals')return'approvals';if(form==='operations')return'operations';if(form==='search')return'search';
+  if(['people_menu','my_tasks','team_tasks','task_new','daily_reports'].includes(form))return'people';if(form==='priorities')return'priorities';if(form==='approvals')return'approvals';if(form==='operations')return'operations';if(form==='search')return'search';
   if(form==='documents')return'documents';if(['alerts','insights_help','insight_inventory','insight_debt'].includes(form))return'alerts';if(form==='admin_menu'||/^admin_/.test(form)||['risk_register','contract_renewal','governance_summary','administration_summary'].includes(form))return'governance';
   if(form==='systems_menu')return'systems';if(form==='integrations')return'integrations';if(['management_suggestion','management_problem'].includes(form))return'feedback';if(form==='daily_report')return'reports';
   return null;
@@ -101,6 +102,43 @@ export function filterBotKeyboard(markup,policy){
 }
 
 export function moduleForText(rawText){
-  const raw=String(rawText||'').trim().toLowerCase();
-  if(/^\/(attendance)/.test(raw)||/الحضور|الانصراف/.test(raw))return'attendance';if(/^\/sales/.test(raw)||/اوامر البيع|أوامر البيع|المبيعات/.test(raw))return'sales';if(/^\/workshop/.test(raw)||/الورشه|الورشة|صيانه|صيانة/.test(raw))return'workshop';if(/^\/suppliers/.test(raw)||/مورد|قطعه|قطعة/.test(raw))return'procurement';if(/^\/gps/.test(raw)||/الاسطول|الأسطول|موقع السيارات/.test(raw))return'fleet';if(/^\/(cfo|finance_manager)/.test(raw))return'cfo';if(/^\/(integrations|keys)/.test(raw))return'integrations';if(/^\/(suggestion|problem|complaint)/.test(raw))return'feedback';if(/^\/tasks/.test(raw))return'people';return null;
+  const raw=String(rawText||'').trim(),value=normalize(raw);
+  if(/^\/(menu|home|start|whoami|help)(?:@\w+)?\b/i.test(raw))return null;
+  if(/^\/(attendance)(?:@\w+)?\b/i.test(raw)||/الحضور|الانصراف|لوحه السائق|لوحة السائق/.test(value))return'attendance';
+  if(/^\/sales(?:@\w+)?\b/i.test(raw)||/اوامر البيع|المبيعات|امر بيع|أمر بيع/.test(value))return'sales';
+  if(/^\/workshop(?:@\w+)?\b/i.test(raw)||/الورشه|الورشة|صيانه|صيانة|قطع غيار|عطل معده|عطل معدات/.test(value))return'workshop';
+  if(/^\/suppliers(?:@\w+)?\b/i.test(raw)||/مورد|الموردين|قطعه|قطعة|طلب شراء/.test(value))return'procurement';
+  if(/^\/gps(?:@\w+)?\b/i.test(raw)||/الاسطول|الأسطول|موقع السيارات|حاله gps|حالة gps/.test(value))return'fleet';
+  if(/^\/(cfo|finance_manager)(?:@\w+)?\b/i.test(raw)||/مساعد المدير المالي|المركز المالي|الموقف المالي|السيوله|السيولة/.test(value))return'cfo';
+  if(/^\/(integrations|keys)(?:@\w+)?\b/i.test(raw)||/التكاملات|المفاتيح/.test(value))return'integrations';
+  if(/^\/(suggestion|problem|complaint)(?:@\w+)?\b/i.test(raw)||/اقتراح للاداره|اقتراح للادارة|مشكله للاداره|مشكلة للادارة|شكوى للاداره|شكوى للادارة/.test(value))return'feedback';
+  if(/^\/tasks(?:@\w+)?\b/i.test(raw)||/مهامي|مهام الفريق|مهمه جديده|مهمة جديدة/.test(value))return'people';
+  if(/بحث شامل|ابحث في النظام|ابحث في البرنامج/.test(value))return'search';
+  if(/ما يحتاج تدخلي|اولويات اليوم|أولويات اليوم/.test(value))return'priorities';
+  if(/الاعتمادات|اعتماد|رفض/.test(value))return'approvals';
+  if(/لوحه التشغيل|لوحة التشغيل|عمليات المصنع/.test(value))return'operations';
+  if(/الخرسان|الخرسانة|رخسان/.test(value))return'concrete';
+  if(/البلوك/.test(value))return'block';
+  if(/سند قبض|سند صرف|فاتوره مورد|فاتورة مورد|تسويه صندوق|تسوية صندوق|طلب ميزانيه|طلب ميزانية|التزام مورد|مطالبه مصروف|مطالبة مصروف|طلب عهده|طلب عهدة/.test(value))return'finance';
+  if(/تحصيل|زياره عميل|زيارة عميل|وعد سداد|لم يرد/.test(value))return'collection';
+  if(/عميل جديد|كشف حساب عميل|تقارير العملاء|مديونيه العملاء|مديونية العملاء/.test(value))return'customer';
+  if(/التكاليف|الربحيه|الربحية|تكلفه العامل|تكلفة العامل/.test(value))return'costs';
+  if(/المخزون|استلام صنف|صرف صنف|جرد سريع|صنف منخفض/.test(value))return'inventory';
+  if(/ديزل|وقود|عداد/.test(value))return'fuel';
+  if(/رحله|رحلة|تم التحميل|وصلت الموقع|تم التسليم|تأخير رحلة|عطل اثناء رحله|عطل أثناء رحلة/.test(value))return'trips';
+  if(/طلب اجازه|طلب إجازة|طلب سلفه|طلب سلفة|تعريف راتب|انتهاء مستند|بلاغ اصابه|بلاغ إصابة|الموارد البشريه|الموارد البشرية/.test(value))return'hr';
+  if(/فحص جوده|فحص جودة|عدم مطابقه|عدم مطابقة|اجراء تصحيحي|إجراء تصحيحي/.test(value))return'quality';
+  if(/تقرير|تقارير|ملخص/.test(value))return'reports';
+  if(/قرار اداري|قرار إداري|محضر اجتماع|تعميم اداري|تعميم إداري|سياسه|سياسة|تسجيل خطر|خطر تشغيلي|خطر اداري|خطر إداري/.test(value))return'governance';
+  return null;
+}
+
+export function moduleForSession(stateValue){
+  const state=String(stateValue||'');if(!state)return null;
+  if(state.startsWith('attendance_'))return'attendance';if(state.startsWith('driver_'))return'trips';
+  if(state==='enterprise_search')return'search';if(state.startsWith('enterprise_form:'))return moduleForCallback('ent',state.split(':')[1]||'');
+  if(state.startsWith('supplier_')||state.startsWith('rfq_'))return'procurement';if(state.startsWith('guided_sales_')||state.startsWith('sales_'))return'sales';
+  if(state.startsWith('mechanic_')||state==='waiting_plate')return'workshop';if(state.startsWith('accounting_'))return'accounting';
+  if(state.startsWith('customer_')||state.startsWith('select_customer_')||state.startsWith('customer_report_'))return'customer';
+  if(state.startsWith('notification_'))return'notifications';return null;
 }
