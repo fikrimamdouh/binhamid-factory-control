@@ -30,3 +30,12 @@ test('employee attendance GET uses a degraded central route instead of the faili
   assert.match(router,/'attendance-safe':attendanceSafe\.attendanceSafe/);
   assert.match(index,/final-ui-consistency\.js/);
 });
+
+test('mobile DOM observer is debounced and cache version is advanced',()=>{
+  assert.match(asset,/installTimer/);
+  assert.match(asset,/function scheduleInstall/);
+  assert.match(asset,/setTimeout\(function\(\)\{installTimer=null;install\(\);\},80\)/);
+  assert.match(asset,/if\(cell\.innerHTML!==nextHtml\)cell\.innerHTML=nextHtml/);
+  assert.doesNotMatch(asset,/new MutationObserver\(function\(\)\{install\(\);\}\)/);
+  assert.match(index,/final-ui-consistency\.js\?v=20260721-2/);
+});
