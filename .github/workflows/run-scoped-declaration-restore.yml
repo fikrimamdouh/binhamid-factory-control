@@ -6,6 +6,9 @@ on:
     paths:
       - '.github/workflows/run-scoped-declaration-restore.yml'
       - 'scripts/run-scoped-declaration-restore.txt'
+  pull_request:
+    branches:
+      - main
 permissions:
   contents: write
 jobs:
