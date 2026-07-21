@@ -12,23 +12,30 @@ test('automatic device bootstrap grants no business-data capability',()=>{
   assert.match(source,/DEVICE_CAPABILITY_REQUIRED/);
 });
 
-test('production readiness follows schema 24 and never references schema 15 as current',()=>{
+test('accounting acceptance stays schema 24 while persistent master advances production to schema 26',()=>{
   const workflow=read('.github/workflows/production-readiness.yml');
-  const migrations=read('.github/workflows/apply-pending-migrations.yml');
-  const preflight=read('scripts/governance-migration-preflight.mjs');
-  const verify=read('scripts/governance-migration-verify.mjs');
+  const accountingMigrations=read('.github/workflows/apply-pending-migrations.yml');
+  const masterMigrations=read('.github/workflows/apply-persistent-master-migration.yml');
+  const accountingPreflight=read('scripts/governance-migration-preflight.mjs');
+  const accountingVerify=read('scripts/governance-migration-verify.mjs');
+  const masterPreflight=read('scripts/persistent-master-migration-preflight.mjs');
+  const masterVerify=read('scripts/persistent-master-migration-verify.mjs');
   const runtime=read('api/_lib/routes/system-runtime.js');
   assert.doesNotMatch(workflow,/directOperationsSchema\)!==15|expected schema 15|schema 15/);
   assert.match(workflow,/directOperationsSchema\)!==24|directOperationsSchema\)===24|directOperationsSchema===24/);
-  assert.match(runtime,/LATEST_REQUIRED_VERSION=24/);
+  assert.match(runtime,/LATEST_REQUIRED_VERSION=26/);
   assert.match(runtime,/directOperationsSchema:24/);
-  assert.match(migrations,/024_employee_nickname_and_financial_command_center\.sql/);
-  assert.ok(migrations.includes("ISOLATED_MIGRATION_TARGET: '24'"));
-  assert.ok(migrations.includes('$(seq $((current_version + 1)) 24)'));
-  assert.match(migrations,/EXPECTED_SCHEMA_VERSION=24/);
-  assert.match(preflight,/targetVersion=24/);
-  assert.match(verify,/targetVersion=24/);
-  for(const marker of ['appUsersNickname','employeesNickname','userInvitationsNickname','nicknameSyncTrigger'])assert.match(verify,new RegExp(marker));
+  assert.match(accountingMigrations,/024_employee_nickname_and_financial_command_center\.sql/);
+  assert.ok(accountingMigrations.includes("ISOLATED_MIGRATION_TARGET: '24'"));
+  assert.ok(accountingMigrations.includes('$(seq $((current_version + 1)) 24)'));
+  assert.match(accountingMigrations,/EXPECTED_SCHEMA_VERSION=24/);
+  assert.match(accountingPreflight,/targetVersion=24/);
+  assert.match(accountingVerify,/targetVersion=24/);
+  for(const marker of ['appUsersNickname','employeesNickname','userInvitationsNickname','nicknameSyncTrigger'])assert.match(accountingVerify,new RegExp(marker));
+  for(const marker of ['025_customer_opening_balances_table.sql','026_persistent_employee_asset_identity_link.sql',"ISOLATED_MIGRATION_TARGET: '26'",'$(seq $((current_version + 1)) 26)','EXPECTED_SCHEMA_VERSION=26','persistent-master-migration-verify.mjs','production-db-readiness.mjs'])assert.ok(masterMigrations.includes(marker),`missing ${marker}`);
+  assert.match(masterPreflight,/targetVersion=26/);
+  assert.match(masterVerify,/targetVersion=26/);
+  for(const marker of ['masterImportRuns','employeeAssetDirectory','identityDuplicateControl','identityGuard','assetVehicleSync'])assert.match(masterVerify,new RegExp(marker));
 });
 
 test('accounting migrations provide balanced journals, ledger, reversal and trial balance',()=>{
@@ -94,7 +101,7 @@ test('structured accounting API and page are present',()=>{
   assert.match(vercel,/api\/accounting/);
 });
 
-test('isolated final database acceptance requires Schema 24 and resolves status transition arguments exactly',()=>{
+test('isolated accounting acceptance remains Schema 24 and resolves status transition arguments exactly',()=>{
   const source=read('scripts/final-acceptance-database.mjs');
   assert.match(source,/max\(version\),0\) from public\.migration_history\)<>24/);
   assert.match(source,/Number\(evidence\.schemaVersion\)!==24/);
