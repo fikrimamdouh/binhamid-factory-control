@@ -1,0 +1,34 @@
+name: code-risk-audit
+
+on:
+  pull_request:
+    paths:
+      - 'api/**'
+      - 'assets/**'
+      - '*.html'
+      - 'scripts/audit-code-risks.mjs'
+      - '.github/workflows/code-risk-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Scan silent failures and HTML sinks
+        run: node scripts/audit-code-risks.mjs
+      - name: Publish summary
+        run: cat artifacts/code-risk-audit/report.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload audit evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-risk-audit-${{ github.sha }}
+          path: artifacts/code-risk-audit/
+          if-no-files-found: error
+          retention-days: 14
