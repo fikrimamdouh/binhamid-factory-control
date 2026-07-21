@@ -35,7 +35,11 @@ export function issueDeviceSession(req,res,deviceId,appUserId=''){
   const userId=clean(appUserId);if(!validAppUserId(userId))throw Object.assign(new Error('معرف المستخدم غير صالح'),{status:400,code:'DEVICE_APP_USER_INVALID'});
   const now=Math.floor(Date.now()/1000),payload={v:SESSION_VERSION,mode:userId?'authenticated-user':'transport-only',deviceId:id,appUserId:userId||null,iat:now,exp:now+MAX_AGE_SECONDS,capabilities:DEVICE_CAPABILITIES},body=encode(payload),token=`${body}.${sign(body)}`;
   const secure=(forwarded(req,'proto')||'https')==='https'?'; Secure':'';
-  res.setHeader('Set-Cookie',`${DEVICE_COOKIE}=${encodeURIComponent(token)}; Path=/; Max-Age=${MAX_AGE_SECONDS}; HttpOnly; SameSite=Strict${secure}`);
+  // البرنامج يعمل داخل إطار (iframe) داخل الموقع نفسه، والمتصفح لا يرسل كوكي
+  // SameSite=Strict من داخل إطار، فكانت الجلسة تُنشأ ثم لا تصل مع أي طلب
+  // لاحق فتفشل الأرصدة والحضور وسجل الموظفين جميعًا بـ401. القيمة Lax تسمح
+  // بإرسالها ضمن الموقع نفسه مع بقاء الحماية من مواقع خارجية.
+  res.setHeader('Set-Cookie',`${DEVICE_COOKIE}=${encodeURIComponent(token)}; Path=/; Max-Age=${MAX_AGE_SECONDS}; HttpOnly; SameSite=Lax${secure}`);
   return payload;
 }
 export function readDeviceSession(req){
