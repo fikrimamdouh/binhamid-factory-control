@@ -29,7 +29,8 @@ test('encrypted customer bootstrap persists the package until authenticated clou
     "credentials:'same-origin'"
   ])assert.ok(bootstrap.includes(marker),`missing ${marker}`);
   assert.ok(!bootstrap.includes('2792 عميل'), 'customer rows must not be embedded in the public bootstrap source');
-  for(const marker of ['r.status===429','Retry-After','cooldownUntil','button.disabled=true','binhamid-owner-authenticated'])assert.ok(login.includes(marker),`missing login guard ${marker}`);
-  assert.match(index,/owner-web-login\.js\?v=20260721-gate-fix/);
+  for(const marker of ['r.status===429','Retry-After','cooldownUntil','button.disabled=true','binhamid-owner-authenticated','SESSION_TIMEOUT=2500'])assert.ok(login.includes(marker),`missing login guard ${marker}`);
+  assert.match(index,/owner-web-login\.js\?v=20260721-7/);
   assert.match(index,/customer-opening-balances-bootstrap\.js\?v=20260719-2/);
+  assert.match(index,/loadOptionalExtensions\(win,optionalExtensions,load,sequence\)/);
 });

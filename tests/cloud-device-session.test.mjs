@@ -40,12 +40,14 @@ test('router and Vercel expose transport session without adding a serverless fun
   assert.match(vercel,/\/api\/router\?route=device\/session/);
 });
 
-test('verified owner sessions survive reload and communication center navigation never hides every pane',()=>{
+test('verified owner sessions survive reload and cannot lock the page indefinitely',()=>{
   const login=read('assets/owner-web-login.js'),navigation=read('assets/cloud-control-navigation-fix.js'),index=read('index.html');
   assert.match(login,/restoreCloudMarker/);
   assert.match(login,/refreshExistingSession/);
   assert.match(login,/localStorage\.setItem\(TOKEN_KEY,'device-session'\)/);
-  assert.match(index,/owner-web-login\.js\?v=20260721-gate-fix/);
+  assert.match(login,/SESSION_TIMEOUT=2500/);
+  assert.match(login,/AbortController/);
+  assert.match(index,/owner-web-login\.js\?v=20260721-7/);
   assert.match(navigation,/This extension owns the communication-center tab/);
   assert.match(navigation,/window\.bhCloudView\?\.\('overview'\)/);
   assert.doesNotMatch(navigation,/runWithoutLegacyCommsNavigation/);
