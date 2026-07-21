@@ -9,18 +9,19 @@ const router=fs.readFileSync(apiPath(['router.js']),'utf8');
 const index=fs.readFileSync(new URL('../index.html',import.meta.url),'utf8');
 
 test('exact Telegram button reuses the print button result',()=>{
-  assert.match(asset,/طباعة\\s\*النموذج/);
+  assert.ok(asset.includes('/طباعة\\s*النموذج/'));
   assert.match(asset,/window\.print=function\(\)\{\}/);
   assert.match(asset,/printButton\.click\(\)/);
   assert.match(asset,/bhSendSheetToTelegram/);
 });
 
-test('opening balances are injected into the active ledger and customer table',()=>{
+test('opening balances are indexed and injected into the active ledger',()=>{
   assert.match(asset,/customerOpeningBalances/);
   assert.match(asset,/openingBalance:opening/);
   assert.match(asset,/patchCustomerTable/);
-  assert.match(asset,/OPS\.customerOpeningBalances=rows/);
-  assert.match(asset,/client&&client\.openingBalance/);
+  assert.match(asset,/ensureBalanceIndex/);
+  assert.match(asset,/byClientId:new Map/);
+  assert.match(asset,/byCode:new Map/);
 });
 
 test('employee attendance GET uses a degraded central route instead of the failing optional endpoint',()=>{
@@ -31,11 +32,11 @@ test('employee attendance GET uses a degraded central route instead of the faili
   assert.match(index,/final-ui-consistency\.js/);
 });
 
-test('mobile DOM observer is debounced and cache version is advanced',()=>{
+test('runtime observer is targeted and periodic full-page scans are removed',()=>{
   assert.match(asset,/installTimer/);
   assert.match(asset,/function scheduleInstall/);
   assert.match(asset,/setTimeout\(function\(\)\{installTimer=null;install\(\);\},80\)/);
-  assert.match(asset,/if\(cell\.innerHTML!==nextHtml\)cell\.innerHTML=nextHtml/);
-  assert.doesNotMatch(asset,/new MutationObserver\(function\(\)\{install\(\);\}\)/);
-  assert.match(index,/final-ui-consistency\.js\?v=20260721-2/);
+  assert.match(asset,/text\.includes\('طباعة'\)/);
+  assert.doesNotMatch(asset,/setInterval\(scheduleInstall/);
+  assert.match(index,/final-ui-consistency\.js\?v=20260721-3/);
 });

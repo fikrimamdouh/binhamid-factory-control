@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const here=dirname(fileURLToPath(import.meta.url));
 const api=readFileSync(join(here,'..','api','admin','attendance.js'),'utf8');
+const safeApi=readFileSync(join(here,'..','api','_lib','routes','attendance-safe.js'),'utf8');
 const ui=readFileSync(join(here,'..','assets','attendance-control.js'),'utf8');
 
 test('employee page exposes saved attendance work sites without editing legacy employee code',()=>{
@@ -38,4 +39,12 @@ test('attendance falls back to the site saved beside the employee',()=>{
 test('telegram user linking uses the employee saved site when site is omitted',()=>{
   assert.match(api,/if\(!siteId&&employeeExternalId\)siteId=/);
   assert.match(api,/اختر موقع العمل من صفحة الموظفين أو شاشة الحضور/);
+});
+
+test('employee site UI lazy-loads a lightweight scope without a global DOM observer',()=>{
+  assert.match(ui,/scope=employee-sites/);
+  assert.match(ui,/employeePaneActive/);
+  assert.match(ui,/byId=new Map/);
+  assert.doesNotMatch(ui,/new MutationObserver/);
+  assert.match(safeApi,/scope==='employee-sites'/);
 });

@@ -55,9 +55,9 @@
       await load('binhamid-cloud-device-autolink','/assets/cloud-device-autolink.js?v=20260718-stable-shell-1','تعذر تحميل الربط التلقائي للجهاز.');
       await Promise.resolve(win.bhCloudDeviceReady).catch(error=>console.error('[BinHamid] تعذر إنشاء جلسة الجهاز التلقائية.',error));
       await injectScript(doc,'binhamid-cloud-script','/assets/cloud-control.js?v=20260721-empty-guard','تعذر تحميل مركز الاتصال، بينما النسخة الأساسية ما زالت متاحة.');
-      await injectScript(doc,'binhamid-final-ui-consistency','/assets/final-ui-consistency.js?v=20260721-2','تعذر تحميل تثبيت الأرصدة والطباعة الآمنة.');
+      await injectScript(doc,'binhamid-final-ui-consistency','/assets/final-ui-consistency.js?v=20260721-3','تعذر تحميل تثبيت الأرصدة والطباعة الآمنة.');
       const criticalExtensions=[
-        ['binhamid-attendance-control','/assets/attendance-control.js?v=20260716-2'],
+        ['binhamid-attendance-control','/assets/attendance-control.js?v=20260721-3'],
         ['binhamid-owner-web-login','/assets/owner-web-login.js?v=20260721-gate-fix'],
         ['binhamid-customer-opening-balances','/assets/customer-opening-balances.js?v=20260719-2'],
         ['binhamid-customer-encrypted-bootstrap','/assets/customer-opening-balances-bootstrap.js?v=20260719-2'],

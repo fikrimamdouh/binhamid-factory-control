@@ -22,7 +22,15 @@ export async function attendanceSafe(req,res){
   if(!method(req,res,['GET']))return;
   try{
     await requireCapability(req,'attendance.view');
-    const warnings=[],range=riyadhDayRange();
+    const warnings=[],scope=clean(req.query?.scope);
+    if(scope==='employee-sites'){
+      const [sites,assignments]=await Promise.all([
+        safeSelect('work_sites','work_sites','active=eq.true&select=id,code,name,address,latitude,longitude,radius_m,active&order=name.asc&limit=50',warnings),
+        safeSelect('employee_assignments','employee_assignments','active=eq.true&select=app_user_id,employee_external_id,site_id,active,updated_at,work_sites(id,code,name,address,latitude,longitude,radius_m,active)&order=updated_at.desc&limit=3000',warnings)
+      ]);
+      return json(res,200,{ok:true,degraded:warnings.length>0,warnings,sites:sites||[],assignments:assignments||[],employees:[]});
+    }
+    const range=riyadhDayRange();
     const [sites,assignments,users,vehicles,employees,attendance,driverEvents,stateRows]=await Promise.all([
       safeSelect('work_sites','work_sites','select=*&order=name.asc&limit=500',warnings),
       safeSelect('employee_assignments','employee_assignments','select=*,work_sites(id,code,name,address,latitude,longitude,radius_m),app_users(id,full_name,role,active)&order=updated_at.desc&limit=1000',warnings),
