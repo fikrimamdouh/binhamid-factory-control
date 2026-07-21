@@ -1,88 +1,38 @@
 (function(){
   'use strict';
-
-  const TOKEN_KEY='binhamid_cloud_access_token';
-  const ROLES=[
-    ['pending','بانتظار الاعتماد'],
-    ['admin','مدير النظام'],
-    ['manager','مدير المصنع'],
-    ['accountant','المحاسب'],
-    ['mechanic','الميكانيكي / مسؤول الورشة'],
-    ['block_sales','مبيعات البلوك'],
-    ['concrete_sales','مبيعات الخرسانة'],
-    ['collector','التحصيل'],
-    ['driver','السائق'],
-    ['employee','الموظف'],
-    ['warehouse','مسؤول المخزن'],
-    ['fuel_operator','مسؤول الديزل'],
-    ['hr','الموارد البشرية'],
-    ['procurement','المشتريات'],
-    ['quality','الجودة والرقابة']
-  ];
+  const VERSION='2026.07.21-bot-icon-permissions-v1';
+  const TOKEN_KEY='binhamid_cloud_access_token',USER_KEY='binhamid_cloud_app_user_id';
+  const ROLES=[['pending','بانتظار الاعتماد'],['admin','مدير النظام'],['manager','مدير المصنع'],['accountant','المحاسب'],['mechanic','الميكانيكي / مسؤول الورشة'],['block_sales','مبيعات البلوك'],['concrete_sales','مبيعات الخرسانة'],['collector','التحصيل'],['driver','السائق'],['employee','الموظف'],['warehouse','مسؤول المخزن'],['fuel_operator','مسؤول الديزل'],['hr','الموارد البشرية'],['procurement','المشتريات'],['quality','الجودة والرقابة']];
   const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
-  const token=()=>localStorage.getItem(TOKEN_KEY)||'';
-
+  const headers=()=>({'Content-Type':'application/json',...(localStorage.getItem(TOKEN_KEY)?{Authorization:`Bearer ${localStorage.getItem(TOKEN_KEY)}`} :{}),...(localStorage.getItem(USER_KEY)?{'x-app-user-id':localStorage.getItem(USER_KEY)}:{})});
+  async function api(url,options={}){const response=await fetch(url,{...options,credentials:'same-origin',headers:{...headers(),...(options.headers||{})}}),data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.error||data.message||`HTTP ${response.status}`);return data;}
   function style(){
-    if(document.getElementById('bh-user-role-style'))return;
-    const element=document.createElement('style');
-    element.id='bh-user-role-style';
-    element.textContent=`
-      .bh-role-modal{position:fixed;inset:0;z-index:100000;background:rgba(8,25,35,.58);display:grid;place-items:center;padding:18px}
-      .bh-role-card{width:min(520px,96vw);background:#fff;border-radius:16px;padding:20px;box-shadow:0 22px 70px rgba(0,0,0,.24)}
-      .bh-role-head{display:flex;gap:8px;align-items:center;border-bottom:1px solid #ece5da;padding-bottom:11px}.bh-role-head h3{margin:0;flex:1}
-      .bh-role-form{display:grid;gap:11px;margin-top:15px}.bh-role-form label{display:grid;gap:5px;font-size:12px;color:#61737c}
-      .bh-role-form input,.bh-role-form select{width:100%;box-sizing:border-box;border:1px solid #ccd6d8;border-radius:9px;padding:10px;font:inherit}
-      .bh-role-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:15px}.bh-role-actions button,.bh-role-head button{border:0;border-radius:9px;padding:9px 13px;background:#0d7896;color:#fff;cursor:pointer;font:inherit}.bh-role-actions button.alt,.bh-role-head button{background:#465f6a}
-      .bh-role-note{font-size:11px;line-height:1.7;color:#6b7d84;background:#f5f2ec;border-radius:9px;padding:9px}.bh-role-error{background:#fff0f0;color:#8b2525;padding:9px;border-radius:8px}
-    `;
-    document.head.appendChild(element);
+    if(document.getElementById('bh-user-role-style'))return;const element=document.createElement('style');element.id='bh-user-role-style';element.textContent=`
+      .bh-role-modal{position:fixed;inset:0;z-index:100000;background:rgba(8,25,35,.58);display:grid;place-items:center;padding:18px}.bh-role-card{width:min(900px,97vw);max-height:94vh;overflow:auto;background:#fff;border-radius:16px;padding:20px;box-shadow:0 22px 70px rgba(0,0,0,.24)}
+      .bh-role-head{display:flex;gap:8px;align-items:center;border-bottom:1px solid #ece5da;padding-bottom:11px}.bh-role-head h3{margin:0;flex:1}.bh-role-form{display:grid;gap:11px;margin-top:15px}.bh-role-form label{display:grid;gap:5px;font-size:12px;color:#61737c}.bh-role-form input,.bh-role-form select{width:100%;box-sizing:border-box;border:1px solid #ccd6d8;border-radius:9px;padding:10px;font:inherit}
+      .bh-role-actions{position:sticky;bottom:-20px;background:#fff;border-top:1px solid #ece5da;padding-top:12px;display:flex;gap:8px;justify-content:flex-end;margin-top:15px}.bh-role-actions button,.bh-role-head button{border:0;border-radius:9px;padding:9px 13px;background:#0d7896;color:#fff;cursor:pointer;font:inherit}.bh-role-actions button.alt,.bh-role-head button{background:#465f6a}.bh-role-note{font-size:11px;line-height:1.7;color:#6b7d84;background:#f5f2ec;border-radius:9px;padding:9px}.bh-role-error{background:#fff0f0;color:#8b2525;padding:9px;border-radius:8px}
+      .bh-bot-head{display:flex;gap:10px;align-items:center;margin-top:6px}.bh-bot-head h4{margin:0;flex:1;color:#183e50}.bh-bot-preview{display:flex;gap:6px;flex-wrap:wrap;padding:10px;border-radius:10px;background:#f2f7f8;min-height:42px}.bh-bot-chip{display:inline-flex;align-items:center;gap:4px;background:#fff;border:1px solid #d9e3e5;border-radius:99px;padding:5px 9px;font-size:11px;color:#294b58}
+      .bh-bot-groups{display:grid;gap:12px}.bh-bot-group{border:1px solid #e2e8e9;border-radius:12px;padding:11px}.bh-bot-group h5{margin:0 0 8px;color:#173f51}.bh-bot-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px}.bh-bot-item{display:grid;grid-template-columns:auto 1fr;gap:8px;align-items:center;border:1px solid #e6ebec;border-radius:10px;padding:9px;background:#fbfcfc}.bh-bot-icon{font-size:23px}.bh-bot-item b{font-size:12px;color:#234653}.bh-bot-item small{display:block;color:#7a8c92;font-size:10px}.bh-bot-item select{grid-column:1/-1;padding:7px}.bh-bot-item.locked{opacity:.62;background:#f3f3f3}
+    `;document.head.appendChild(element);
   }
-
-  async function save(externalId,fullName,role,active,nickname){
-    const response=await fetch('/api/admin/users',{
-      method:'POST',
-      headers:{'Content-Type':'application/json',...(token()?{Authorization:`Bearer ${token()}`}:{})},
-      body:JSON.stringify({externalId,fullName,role,active,nickname})
-    });
-    const data=await response.json().catch(()=>({}));
-    if(!response.ok)throw new Error(data.error||'تعذر حفظ صلاحية المستخدم');
-    return data;
+  async function saveUser(externalId,fullName,role,active,nickname){return api('/api/admin/users',{method:'POST',body:JSON.stringify({externalId,fullName,role,active,nickname})});}
+  async function loadPermissions(externalId,role){return api(`/api/router?route=bot-permissions&externalId=${encodeURIComponent(externalId)}&role=${encodeURIComponent(role)}`,{cache:'no-store'});}
+  async function savePermissions(externalId,overrides){return api('/api/router?route=bot-permissions',{method:'POST',body:JSON.stringify({externalId,overrides})});}
+  function effective(item,select){if(item.locked)return item.effective;const mode=select?.value||'inherit';return mode==='allow'?true:mode==='deny'?false:Boolean(item.defaultEnabled);}
+  function updatePreview(modal){const preview=modal.querySelector('#bhBotPreview');if(!preview)return;const items=[...modal.querySelectorAll('.bh-bot-item')].filter(card=>effective(card._item,card.querySelector('select')));preview.innerHTML=items.length?items.map(card=>`<span class="bh-bot-chip">${esc(card._item.icon)} ${esc(card._item.label)}</span>`).join(''):'<span class="bh-role-error">لن تظهر أي وحدات تشغيلية لهذا المستخدم.</span>';}
+  function renderCatalog(modal,data){
+    const host=modal.querySelector('#bhBotPermissions'),groups=new Map();for(const item of data.catalog||[]){if(!groups.has(item.group))groups.set(item.group,[]);groups.get(item.group).push(item);}host.innerHTML='';
+    for(const [group,items] of groups){const section=document.createElement('section');section.className='bh-bot-group';section.innerHTML=`<h5>${esc(group)}</h5><div class="bh-bot-grid"></div>`;const grid=section.querySelector('.bh-bot-grid');for(const item of items){const card=document.createElement('label');card.className='bh-bot-item'+(item.locked?' locked':'');card._item=item;const mode=item.override===true?'allow':item.override===false?'deny':'inherit';card.innerHTML=`<span class="bh-bot-icon">${esc(item.icon)}</span><span><b>${esc(item.label)}</b><small>${item.locked?'خاص بحساب المالك ولا يُعدل':`افتراضي الدور: ${item.defaultEnabled?'ظاهر':'مخفي'}`}</small></span><select data-bot-module="${esc(item.id)}" ${item.locked?'disabled':''}><option value="inherit" ${mode==='inherit'?'selected':''}>حسب الدور</option><option value="allow" ${mode==='allow'?'selected':''}>إظهار وإتاحة</option><option value="deny" ${mode==='deny'?'selected':''}>إخفاء ومنع</option></select>`;card.querySelector('select')?.addEventListener('change',()=>updatePreview(modal));grid.appendChild(card);}host.appendChild(section);}
+    updatePreview(modal);
   }
-
-  function refreshCurrentPage(){
-    setTimeout(()=>{
-      const activeButton=document.querySelector('.bh-side button.on');
-      if(activeButton&&activeButton.id!=='bhConversationsNav'&&activeButton.id!=='bhOperationsNav'&&activeButton.id!=='bhReportsNav')activeButton.click();
-    },300);
-  }
-
+  async function refreshCatalog(modal){const result=modal.querySelector('#bhRoleResult'),externalId=modal.querySelector('#bhRoleExternal').value,role=modal.querySelector('#bhRoleSelect').value;result.innerHTML='<div class="bh-role-note">جارٍ تحميل أيقونات البوت…</div>';try{const data=await loadPermissions(externalId,role);renderCatalog(modal,data);result.textContent='';}catch(error){result.innerHTML=`<div class="bh-role-error">تعذر تحميل صلاحيات البوت: ${esc(error.message)}</div>`;}}
+  function collectOverrides(modal){const result={};modal.querySelectorAll('[data-bot-module]').forEach(select=>{result[select.dataset.botModule]=select.value==='inherit'?null:select.value==='allow';});return result;}
+  function refreshCurrentPage(){setTimeout(()=>{const activeButton=document.querySelector('.bh-side button.on');if(activeButton&&activeButton.id!=='bhConversationsNav'&&activeButton.id!=='bhOperationsNav'&&activeButton.id!=='bhReportsNav')activeButton.click();},300);}
   function open(externalId,currentName='',currentRole='pending',currentActive=true,currentNickname=''){
-    style();
-    const modal=document.createElement('div');
-    modal.className='bh-role-modal';
-    modal.innerHTML=`<section class="bh-role-card"><div class="bh-role-head"><h3>اعتماد مستخدم Telegram</h3><button data-close>إغلاق</button></div><div class="bh-role-form"><label>Telegram ID<input id="bhRoleExternal" value="${esc(externalId)}" readonly></label><label>اسم الموظف<input id="bhRoleName" maxlength="200" value="${esc(currentName)}"></label><label>الاسم المستعار (اختياري — هذا ما يخاطب البوت الشخص به بدلاً من اسمه الكامل)<input id="bhRoleNickname" maxlength="120" placeholder="مثال: أبو فلاح" value="${esc(currentNickname)}"></label><label>الدور<select id="bhRoleSelect">${ROLES.map(([value,label])=>`<option value="${value}" ${value===currentRole?'selected':''}>${label}</option>`).join('')}</select></label><label><span><input id="bhRoleActive" type="checkbox" ${currentActive!==false?'checked':''} style="width:auto"> الحساب نشط ومسموح له باستخدام البوت</span></label><div class="bh-role-note">تغيير الدور يوقف الجلسات الحساسة القديمة تلقائيًا عند الخطوة التالية. اربط الموقع والوردية والمركبة من شاشة الحضور والسائقين.</div><div id="bhRoleResult"></div></div><div class="bh-role-actions"><button class="alt" data-close>إلغاء</button><button id="bhRoleSave">حفظ الدور</button></div></section>`;
-    document.body.appendChild(modal);
-    modal.querySelectorAll('[data-close]').forEach(button=>button.onclick=()=>modal.remove());
-    modal.onclick=event=>{if(event.target===modal)modal.remove();};
-    modal.querySelector('#bhRoleSave').onclick=async()=>{
-      const button=modal.querySelector('#bhRoleSave'),result=modal.querySelector('#bhRoleResult');
-      button.disabled=true;result.textContent='';
-      try{
-        await save(externalId,modal.querySelector('#bhRoleName').value.trim(),modal.querySelector('#bhRoleSelect').value,modal.querySelector('#bhRoleActive').checked,modal.querySelector('#bhRoleNickname').value.trim());
-        result.innerHTML='<div class="bh-role-note">تم حفظ الدور بنجاح.</div>';
-        setTimeout(()=>{modal.remove();refreshCurrentPage();},600);
-      }catch(error){button.disabled=false;result.innerHTML=`<div class="bh-role-error">${esc(error.message)}</div>`;}
-    };
+    style();const modal=document.createElement('div');modal.className='bh-role-modal';modal.innerHTML=`<section class="bh-role-card"><div class="bh-role-head"><h3>اعتماد مستخدم Telegram وصلاحيات البوت</h3><button data-close>إغلاق</button></div><div class="bh-role-form"><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px"><label>Telegram ID<input id="bhRoleExternal" value="${esc(externalId)}" readonly></label><label>اسم الموظف<input id="bhRoleName" maxlength="200" value="${esc(currentName)}"></label><label>الاسم المستعار<input id="bhRoleNickname" maxlength="120" placeholder="مثال: أبو فلاح" value="${esc(currentNickname)}"></label><label>الدور<select id="bhRoleSelect">${ROLES.map(([value,label])=>`<option value="${value}" ${value===currentRole?'selected':''}>${label}</option>`).join('')}</select></label></div><label><span><input id="bhRoleActive" type="checkbox" ${currentActive!==false?'checked':''} style="width:auto"> الحساب نشط ومسموح له باستخدام البوت</span></label><div class="bh-role-note">الدور يضع الإعداد الافتراضي. من الأسفل يمكن إظهار أو إخفاء أيقونة لمستخدم بعينه. الإخفاء يمنع مدخل الوحدة من الأزرار والاستدعاء المباشر، بينما الاعتمادات المالية الحساسة تظل خاضعة لصلاحيات النظام.</div><div class="bh-bot-head"><h4>الأيقونات التي ستظهر للمستخدم</h4></div><div id="bhBotPreview" class="bh-bot-preview"></div><div id="bhBotPermissions" class="bh-bot-groups"></div><div id="bhRoleResult"></div></div><div class="bh-role-actions"><button class="alt" data-close>إلغاء</button><button id="bhRoleSave">حفظ الدور والأيقونات</button></div></section>`;
+    document.body.appendChild(modal);modal.querySelectorAll('[data-close]').forEach(button=>button.onclick=()=>modal.remove());modal.onclick=event=>{if(event.target===modal)modal.remove();};modal.querySelector('#bhRoleSelect').addEventListener('change',()=>refreshCatalog(modal));refreshCatalog(modal);
+    modal.querySelector('#bhRoleSave').onclick=async()=>{const button=modal.querySelector('#bhRoleSave'),result=modal.querySelector('#bhRoleResult');button.disabled=true;result.innerHTML='<div class="bh-role-note">جارٍ حفظ الدور وصلاحيات البوت…</div>';try{await saveUser(externalId,modal.querySelector('#bhRoleName').value.trim(),modal.querySelector('#bhRoleSelect').value,modal.querySelector('#bhRoleActive').checked,modal.querySelector('#bhRoleNickname').value.trim());await savePermissions(externalId,collectOverrides(modal));result.innerHTML='<div class="bh-role-note">تم حفظ الدور والأيقونات. افتح /menu في البوت لرؤية القائمة الجديدة.</div>';setTimeout(()=>{modal.remove();refreshCurrentPage();},900);}catch(error){button.disabled=false;result.innerHTML=`<div class="bh-role-error">${esc(error.message)}</div>`;}};
   }
-
-  function install(){
-    if(window.bhCloudApproveUser&&window.bhCloudApproveUser.__controlledRoles)return;
-    const controlled=function(externalId,currentName='',currentRole='pending',currentActive=true,currentNickname=''){return open(String(externalId||''),String(currentName||''),String(currentRole||'pending'),currentActive,String(currentNickname||''));};
-    controlled.__controlledRoles=true;
-    window.bhCloudApproveUser=controlled;
-  }
-
-  new MutationObserver(install).observe(document.documentElement,{childList:true,subtree:true});
-  setInterval(install,1000);
-  install();
+  function install(){if(window.bhCloudApproveUser&&window.bhCloudApproveUser.__controlledRoles)return;const controlled=function(externalId,currentName='',currentRole='pending',currentActive=true,currentNickname=''){return open(String(externalId||''),String(currentName||''),String(currentRole||'pending'),currentActive,String(currentNickname||''));};controlled.__controlledRoles=true;window.bhCloudApproveUser=controlled;}
+  install();new MutationObserver(mutations=>{for(const mutation of mutations)if(mutation.addedNodes?.length){install();break;}}).observe(document.documentElement,{childList:true,subtree:true});console.info('[BinHamid]',VERSION,'ready');
 })();
