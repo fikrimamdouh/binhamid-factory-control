@@ -1,0 +1,7 @@
+Traceback (most recent call last):
+  File "/tmp/apply-reporting-professional-patches.py", line 142, in <module>
+    text = replace_once(text, old_duplicate, new_duplicate, 'duplicate review state')
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/apply-reporting-professional-patches.py", line 9, in replace_once
+    raise RuntimeError(f'{label}: expected one marker, found {count}')
+RuntimeError: duplicate review state: expected one marker, found 0
