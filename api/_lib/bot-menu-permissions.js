@@ -103,7 +103,10 @@ export function filterBotKeyboard(markup,policy){
 
 export function moduleForText(rawText){
   const raw=String(rawText||'').trim(),value=normalize(raw);
-  if(/^\/(menu|home|start|whoami|help)(?:@\w+)?\b/i.test(raw))return null;
+  if(/^\/start(?:@\w+)?\s+attendance$/i.test(raw))return'attendance';
+  if(/^\/(menu|home|help|whoami)(?:@\w+)?\b/i.test(raw)||/^\/start(?:@\w+)?(?:\s+(driver|workshop|block|سائق|سواق|ورشه|ورشة|بلوك|بلوك_مبيعات))?$/i.test(raw))return null;
+  if(/^\/(reports|report)(?:@\w+)?(?:\s|$)/i.test(raw))return'reports';
+  if(/^\/status(?:@\w+)?\b/i.test(raw)||/حاله النظام|حالة النظام|حاله الربط|حالة الربط|اخر مزامنه|آخر مزامنة|البرنامج متصل|بيانات البرنامج/.test(value))return'operations';
   if(/^\/(attendance)(?:@\w+)?\b/i.test(raw)||/الحضور|الانصراف|لوحه السائق|لوحة السائق/.test(value))return'attendance';
   if(/^\/sales(?:@\w+)?\b/i.test(raw)||/اوامر البيع|المبيعات|امر بيع|أمر بيع/.test(value))return'sales';
   if(/^\/workshop(?:@\w+)?\b/i.test(raw)||/الورشه|الورشة|صيانه|صيانة|قطع غيار|عطل معده|عطل معدات/.test(value))return'workshop';
@@ -113,6 +116,7 @@ export function moduleForText(rawText){
   if(/^\/(integrations|keys)(?:@\w+)?\b/i.test(raw)||/التكاملات|المفاتيح/.test(value))return'integrations';
   if(/^\/(suggestion|problem|complaint)(?:@\w+)?\b/i.test(raw)||/اقتراح للاداره|اقتراح للادارة|مشكله للاداره|مشكلة للادارة|شكوى للاداره|شكوى للادارة/.test(value))return'feedback';
   if(/^\/tasks(?:@\w+)?\b/i.test(raw)||/مهامي|مهام الفريق|مهمه جديده|مهمة جديدة/.test(value))return'people';
+  if(/حلل وضع المصنع|تحليل وضع المصنع|تنبيهات|تحليل رقابي/.test(value))return'alerts';
   if(/بحث شامل|ابحث في النظام|ابحث في البرنامج/.test(value))return'search';
   if(/ما يحتاج تدخلي|اولويات اليوم|أولويات اليوم/.test(value))return'priorities';
   if(/الاعتمادات|اعتماد|رفض/.test(value))return'approvals';
