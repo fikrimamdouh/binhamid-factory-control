@@ -1,10 +1,10 @@
-// [BinHamid] 2026.07.21-telegram-pdf-declarations-v3-print-fidelity
+// [BinHamid] 2026.07.21-telegram-pdf-declarations-v4-hook-fix
 // إرسال أي مستند مطبوع من البرنامج (إقرار الخرسانة اليومي، إقرار البلوك اليومي،
 // حركة المخازن، تقرير المدير...) كملف PDF إلى تليجرام المصنع بضغطة واحدة،
 // عبر المسار الموجود reports/send-telegram — دون أي تغيير على منطق الطباعة نفسه.
 (function(){
   'use strict';
-  var VERSION='2026.07.21-telegram-pdf-declarations-v3-print-fidelity';
+  var VERSION='2026.07.21-telegram-pdf-declarations-v4-hook-fix';
 
   function el(id){return document.getElementById(id);}
   function toast(message,kind){if(typeof window.opsToast==='function')window.opsToast(message,kind);else if(typeof window.toast==='function')window.toast(message,kind);else alert(message);}
@@ -151,7 +151,9 @@
       };
       window.opsOpenImportDeclarations._bhTgWrapped=true;
     }
-    return typeof originalPrintReport==='function';
+    // الدالة كانت ترجع متغيرًا حُذف عند تعميم الأزرار فتفشل عند كل محاولة
+    // ولا يظهر أي زر. النجاح الآن = وجود أي دالة طباعة تم ربطها فعلًا.
+    return PRINTERS.some(function(name){return typeof window[name]==='function'&&window[name]._bhTgWrapped;});
   }
 
   var attempts=0;

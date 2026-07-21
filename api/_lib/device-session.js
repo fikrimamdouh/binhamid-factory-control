@@ -21,7 +21,14 @@ const forwarded=(req,name)=>String(req?.headers?.[`x-forwarded-${name}`]||'').sp
 const validAppUserId=value=>!value||/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value));
 export function assertSameOrigin(req){
   const host=forwarded(req,'host')||String(req?.headers?.host||'').trim(),proto=forwarded(req,'proto')||'https',expected=`${proto}://${host}`,origin=String(req?.headers?.origin||'').trim(),referer=String(req?.headers?.referer||'').trim();
-  if(!host||origin!==expected||(referer&&!referer.startsWith(`${expected}/`)))throw Object.assign(new Error('طلب ربط الجهاز يجب أن يصدر من نفس موقع النظام'),{status:403,code:'DEVICE_ORIGIN_REQUIRED'});
+  // بعض المتصفحات لا ترسل ترويسة Origin مع طلبات same-origin الصادرة من داخل
+  // إطار التطبيق، فكان الربط يُرفض ويسقط معه كل ما يعتمد على جلسة الجهاز.
+  // الحماية تبقى قائمة: إن وُجد Origin وجب تطابقه، وإن غاب وجب أن يثبت
+  // الـReferer أن الطلب صادر من الموقع نفسه؛ ويُرفض الطلب إذا غاب الاثنان.
+  if(!host)throw Object.assign(new Error('طلب ربط الجهاز يجب أن يصدر من نفس موقع النظام'),{status:403,code:'DEVICE_ORIGIN_REQUIRED'});
+  if(origin&&origin!==expected)throw Object.assign(new Error('طلب ربط الجهاز يجب أن يصدر من نفس موقع النظام'),{status:403,code:'DEVICE_ORIGIN_REQUIRED'});
+  if(referer&&!referer.startsWith(`${expected}/`))throw Object.assign(new Error('طلب ربط الجهاز يجب أن يصدر من نفس موقع النظام'),{status:403,code:'DEVICE_ORIGIN_REQUIRED'});
+  if(!origin&&!referer)throw Object.assign(new Error('طلب ربط الجهاز يجب أن يصدر من نفس موقع النظام'),{status:403,code:'DEVICE_ORIGIN_REQUIRED'});
 }
 export function issueDeviceSession(req,res,deviceId,appUserId=''){
   const id=clean(deviceId);if(!/^dev-[A-Za-z0-9-]{8,150}$/.test(id))throw Object.assign(new Error('معرف الجهاز غير صالح'),{status:400,code:'DEVICE_ID_INVALID'});
