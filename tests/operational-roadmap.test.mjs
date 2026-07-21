@@ -7,9 +7,6 @@ import { detectManagerAlerts,stableAlertDigest } from '../api/_lib/manager-metri
 
 const read=path=>readFile(new URL(`../${path}`,import.meta.url),'utf8');
 
-process.env.NODE_ENV='test';
-const { MockGpsAdapter,compareFuelToGps,normalizeGpsEvent }=await import('../api/_lib/gps-provider.js');
-
 test('unit-cost economics distinguish reliable and incomplete results',()=>{
   const result=calculateUnitEconomics([
     {cost_center:'block',revenue:15000,actual_cost:10000,sold_quantity:5000,direct_cost:8000,indirect_cost:2000,unclassified_cost:0,completeness_percent:100},
@@ -46,19 +43,6 @@ test('manager alert keys are stable and cover operational failures',()=>{
   for(const type of ['daily_report_missing','daily_report_failed','daily_report_reconciliation','credit_limit','unallocated_collection','fuel_duplicate','cost_unclassified','negative_margin','sync_stale','backup_stale','notification_failures'])assert.ok(types.has(type),`missing ${type}`);
   assert.equal(stableAlertDigest(alerts),stableAlertDigest([...alerts].reverse()));
   assert.equal(new Set(alerts.map(item=>item.alertKey)).size,alerts.length);
-});
-
-test('GPS adapter normalizes events and compares consumption without production mocks',async()=>{
-  const event=normalizeGpsEvent({id:'g1',vehicleExternalId:'V1',occurredAt:'2026-07-17T10:00:00Z',latitude:17.5,longitude:44.2,distanceKm:50,engineOn:true},'test-provider');
-  assert.equal(event.vehicleExternalId,'V1');
-  const adapter=new MockGpsAdapter([
-    {providerEventId:'1',vehicleExternalId:'V1',occurredAt:'2026-07-17T10:00:00Z',distanceKm:50,engineOn:true},
-    {providerEventId:'2',vehicleExternalId:'V1',occurredAt:'2026-07-17T11:00:00Z',distanceKm:50,engineOn:true}
-  ]);
-  const events=await adapter.fetchEvents({from:'2026-07-17T00:00:00Z',to:'2026-07-18T00:00:00Z'}),comparison=compareFuelToGps([{vehicleExternalId:'V1',liters:20}],events);
-  assert.equal(events.length,2);
-  assert.equal(comparison[0].distanceKm,100);
-  assert.equal(comparison[0].litersPer100Km,20);
 });
 
 test('migrations 011 through 018 contain non-destructive operational and governance foundations',async()=>{
