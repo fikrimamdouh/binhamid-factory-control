@@ -29,7 +29,7 @@ jobs:
         run: |
           node --check api/_lib/customer-portfolio-pdf.js
           node scripts/verify-declaration-sales.mjs
-          changed="$(git diff --name-only)"
+          changed="$(git status --porcelain | sed -E 's/^.. //' | sort)"
           echo "$changed"
           test "$changed" = $'api/_lib/customer-portfolio-pdf.js\nlegacy.html\nscripts/verify-declaration-sales.mjs' || { echo 'Unexpected changed files'; exit 1; }
       - name: Run project tests
@@ -40,7 +40,8 @@ jobs:
         if: success()
         run: |
           rm -f scripts/apply-declaration-sales-restore.py scripts/run-scoped-declaration-restore.txt scripts/verify-declaration-sales.mjs
-          rm -f .github/workflows/run-scoped-declaration-restore.yml
+          rm -f .github/workflows/run-scoped-declaration-restore.yml notes/.keep-review
+          rmdir notes 2>/dev/null || true
       - name: Commit validated change
         if: success()
         run: |
