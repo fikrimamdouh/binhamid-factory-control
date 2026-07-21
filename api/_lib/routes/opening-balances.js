@@ -1,4 +1,4 @@
-import { json, method, body, params, errorResponse } from '../http.js';
+import { json, method, body, errorResponse } from '../http.js';
 import { upsert, select, remove } from '../supabase.js';
 import { requireAdminOrDevice } from '../auth.js';
 
@@ -32,7 +32,7 @@ export async function openingBalances(req,res){
   try{
     if(req.method==='GET'){
       requireAdminOrDevice(req,'state.read');
-      const p=params(req);
+      const p=new URL(req.url,'http://x').searchParams;
       if(p.get('summary')==='1'){
         const rows=await select('customer_opening_balances','select=customer_code&limit=10000').catch(()=>null);
         if(rows===null)return json(res,200,{ok:true,tableReady:false,count:0});
