@@ -1,0 +1,47 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { dirname,join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const here=dirname(fileURLToPath(import.meta.url));
+const read=(...parts)=>readFileSync(join(here,'..',...parts),'utf8');
+const stateApi=read('api','state.js');
+const loginSync=read('assets','login-sync.js');
+const bootGuard=read('assets','state-load-performance.js');
+const index=read('index.html');
+
+test('state endpoint offers metadata without enriching the full payload',()=>{
+  assert.match(stateApi,/metaOnly/);
+  assert.match(stateApi,/key,revision,updated_at,updated_by,device_id/);
+  assert.match(stateApi,/if\(metaOnly\)return json/);
+  const metaBranch=stateApi.slice(stateApi.indexOf('if(metaOnly)return json'),stateApi.indexOf('const payload=await enrichStatePayload'));
+  assert.doesNotMatch(metaBranch,/enrichStatePayload/);
+});
+
+test('login sync checks revision before downloading state',()=>{
+  assert.match(loginSync,/pullMeta\(\)/);
+  assert.match(loginSync,/revisionBefore===remoteRevision/);
+  assert.match(loginSync,/\/api\/state\?full=1/);
+  assert.match(loginSync,/revision unchanged/);
+  assert.doesNotMatch(loginSync,/retryTimer/);
+  assert.doesNotMatch(loginSync,/setTimeout\(function\(\)\{if\(userId\(\)&&!localClientCount/);
+});
+
+test('automatic cloud boot state request is downgraded to metadata once',()=>{
+  assert.match(bootGuard,/automatic full state request replaced with revision metadata/);
+  assert.match(bootGuard,/bootStateRequestHandled/);
+  assert.match(bootGuard,/\/api\/state\?meta=1/);
+  assert.match(bootGuard,/info\.url\.pathname==='\/api\/state'/);
+});
+
+test('boot reveals after auth and revision scripts while optional modules load later',()=>{
+  const critical=index.slice(index.indexOf('const criticalExtensions=['),index.indexOf('const optionalExtensions=['));
+  assert.match(critical,/owner-web-login/);
+  assert.match(critical,/login-sync/);
+  assert.doesNotMatch(critical,/attendance-control/);
+  assert.doesNotMatch(critical,/telegram-pdf-declarations/);
+  assert.match(index,/state-load-performance\.js/);
+  assert.ok(index.indexOf('state-load-performance.js')<index.indexOf('cloud-control.js'));
+  assert.match(index,/}},6000\)/);
+});

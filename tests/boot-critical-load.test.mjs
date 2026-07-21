@@ -19,6 +19,7 @@ test('slow optional modules do not trigger the old false timeout error',()=>{
   assert.doesNotMatch(index,/if\(!completed\)fail\(new Error\('استغرق التحميل وقتًا أطول من المتوقع/);
 });
 
-test('the iframe cache key changes for the new boot contract',()=>{
-  assert.match(index,/legacy\.html\?v=20260721-critical-boot-1/);
+test('the iframe cache key changes for the revision-first boot contract',()=>{
+  assert.match(index,/legacy\.html\?v=20260721-state-revision-1/);
+  assert.match(index,/state-load-performance\.js\?v=20260721-1/);
 });
