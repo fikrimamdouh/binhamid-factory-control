@@ -36,6 +36,7 @@ jobs:
           path=Path('/tmp/apply-reporting-professional-patches.py')
           text=path.read_text(encoding='utf-8')
           text=text.replace('old_duplicate = """','old_duplicate = r"""',1).replace('new_duplicate = """','new_duplicate = r"""',1)
+          text=text.replace(r'${esc(postingFailure)}\nافتح',r'${esc(postingFailure)}\\nافتح',1)
           path.write_text(text,encoding='utf-8')
           PY
       - name: Apply scoped reporting patches
