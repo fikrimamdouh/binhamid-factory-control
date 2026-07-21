@@ -3,7 +3,7 @@
   const VERSION='2026.07.21-employee-attendance-sites-1';
   const TOKEN_KEY='binhamid_cloud_access_token',USER_KEY='binhamid_cloud_app_user_id';
   const PREFERRED_CODES=new Set(['FACTORY_MAIN','FACTORY-MAIN','STATION_MAIN','STATION-MAIN']);
-  const state={sites:[],assignments:[],ready:false,loading:false,error:'',rendering:false,wrapped:false};
+  const state={sites:[],assignments:[],ready:false,loading:false,attempted:false,error:'',rendering:false,wrapped:false};
 
   const clean=value=>String(value??'').trim();
   function employeeRows(){try{return typeof D!=='undefined'&&Array.isArray(D.emp)?D.emp:[]}catch{return[]}}
@@ -53,7 +53,7 @@
   }
   async function load(){
     if(state.loading)return;
-    state.loading=true;state.error='';
+    state.loading=true;state.attempted=true;state.error='';
     try{
       const data=await api('/api/admin/attendance',{cache:'no-store'});
       state.sites=Array.isArray(data.sites)?data.sites:[];
@@ -74,6 +74,7 @@
     persistLocal();
     if(select)select.disabled=true;
     try{
+      if(typeof window.bhCloudPush==='function')await window.bhCloudPush();
       const result=await api('/api/admin/attendance',{method:'POST',body:JSON.stringify({action:'assign_employee_site',employeeExternalId:employee.id||employee.external_id,siteId:clean(siteId)})});
       const suffix=result.linkedUsers?` وتم تحديث ${result.linkedUsers} حساب Telegram مرتبط`:' وسيُستخدم تلقائيًا عند ربط حساب Telegram';
       toastMessage(site?`تم تحديد ${siteLabel(site)} للموظف ${employee.name||''}${suffix}`:`تم إلغاء موقع الحضور للموظف ${employee.name||''}`);
@@ -150,9 +151,10 @@
   }
   function install(){
     installAdminLink();wrapEmployeeRenderer();renderEmployeeSites();
-    if(!state.ready&&!state.loading)load();
+    if(!state.ready&&!state.loading&&!state.attempted)load();
   }
   install();
+  window.addEventListener('binhamid-owner-authenticated',()=>{state.attempted=false;state.error='';setTimeout(load,500);});
   new MutationObserver(install).observe(document.documentElement,{childList:true,subtree:true});
   console.info('[BinHamid]',VERSION,'loaded');
 })();
