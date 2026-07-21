@@ -1,11 +1,11 @@
-// [BinHamid] 2026.07.21-login-sync-v3-reload-after-pull
+// [BinHamid] 2026.07.21-login-sync-v4-with-balances
 // المزامنة عند الدخول: السيرفر هو المرجع لحظة تسجيل الدخول.
 // عند نجاح الدخول برمز تليجرام، يُسحب المحتوى السحابي ويُعتمد رقم نسخته،
 // فتنتهي أخطاء «توجد نسخة سحابية أحدث» (409) التي كانت توقف الحفظ، ويبدأ
 // العمل من نسخة مطابقة للسيرفر. بعدها يعمل الحفظ التلقائي المعتاد.
 (function(){
   'use strict';
-  var VERSION='2026.07.21-login-sync-v3-reload-after-pull';
+  var VERSION='2026.07.21-login-sync-v4-with-balances';
   var USER_KEY='binhamid_cloud_app_user_id';
   var REV_KEY='binhamid_cloud_revision';
   var LEGACY_KEY='binhamid_v1';
@@ -81,6 +81,37 @@
     return{revision:result.revision,counts:counts};
   }
 
+
+  // الأرصدة الافتتاحية لم تعد داخل حالة البرنامج بل في جدولها المستقل، لذلك
+  // تُجلب هنا صراحةً بعد سحب الحالة وإلا ظهر كل عميل برصيد صفر في الموقع
+  // بينما البوت يقرأها صحيحة من الجدول نفسه.
+  async function pullOpeningBalances(){
+    var result=await api('/api/router?route=opening-balances');
+    var rows=result&&Array.isArray(result.rows)?result.rows:[];
+    if(!rows.length)return 0;
+    var mapped=rows.map(function(row){
+      return{
+        id:'opb-'+String(row.customer_code),
+        clientId:row.client_id||'',
+        customerCode:String(row.customer_code||''),
+        customerName:String(row.customer_name||''),
+        date:row.balance_date||'',
+        amount:Number(row.balance)||0,
+        previous:Number(row.previous)||0,
+        debit:Number(row.debit)||0,
+        credit:Number(row.credit)||0,
+        cheques:Number(row.cheques)||0,
+        difference:Number(row.difference)||0,
+        sourceFile:row.source_file||''
+      };
+    });
+    var raw=localStorage.getItem(OPS_KEY);
+    var ops=raw?JSON.parse(raw):{};
+    ops.customerOpeningBalances=mapped;
+    localStorage.setItem(OPS_KEY,JSON.stringify(ops));
+    return mapped.length;
+  }
+
   async function runLoginSync(){
     if(!userId())return;
     if(sessionStorage.getItem(DONE_KEY)==='1')return;
@@ -89,8 +120,11 @@
     try{
       var outcome=await pullFromServer();
       if(outcome.empty){banner('');notify('لا توجد نسخة سحابية بعد — سيُرفع محتوى هذا الجهاز عند أول حفظ.');return;}
+      var balanceCount=0;
+      try{balanceCount=await pullOpeningBalances();}
+      catch(balanceError){console.warn('[login-sync] opening balances',balanceError&&balanceError.message);}
       banner('');
-      notify('تمت المزامنة مع السيرفر: '+outcome.counts.clients+' عميل (نسخة رقم '+outcome.revision+')');
+      notify('تمت المزامنة: '+outcome.counts.clients+' عميل و'+balanceCount+' رصيد افتتاحي (نسخة '+outcome.revision+')');
       // إعادة الرسم وحدها لا تكفي: الذاكرة داخل الصفحة ما زالت تحمل النسخة
       // القديمة، وrAll ترسم منها لا من التخزين. لذلك نعيد تحميل الإطار ليقرأ
       // البرنامج التخزين المحدَّث من بدايته — مرة واحدة فقط بعد سحب ناجح.
