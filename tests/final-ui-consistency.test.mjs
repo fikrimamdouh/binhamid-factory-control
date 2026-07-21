@@ -14,7 +14,7 @@ test('Telegram module is the single owner of exact print sending',()=>{
   assert.match(telegram,/clonePrintSheet/);
   assert.match(telegram,/window\.print=function/);
   assert.match(telegram,/bhSendPrintedButtonToTelegram/);
-  assert.doesNotMatch(asset,/bhSendSheetToTelegram|إرسال إلى تليجرام|sendExactPrintResult/);
+  assert.doesNotMatch(asset,/bhSendSheetToTelegram|sendExactPrintResult|bhExactTelegram/);
 });
 
 test('opening balances are indexed and injected into the active ledger',()=>{
