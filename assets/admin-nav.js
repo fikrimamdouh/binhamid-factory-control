@@ -61,6 +61,17 @@ function markPage(){
   document.documentElement.dataset.bhPage=name;
   if(name==='device-access')location.replace('/control-center.html');
 }
+function refreshCurrentPage(){
+  setTimeout(()=>{
+    try{
+      if(typeof window.loadAll==='function'){window.loadAll();return;}
+      if(typeof window.loadData==='function'){window.loadData();return;}
+      const refresh=document.getElementById('refresh');
+      if(refresh&&!refresh.disabled){refresh.click();return;}
+      location.reload();
+    }catch{location.reload();}
+  },120);
+}
 function build(){
   markPage();
   ensureOwnerLogin();
@@ -86,7 +97,9 @@ function build(){
   document.body.insertBefore(top,nav);
 }
 markPage();
+style();
 ensureOwnerLogin();
+window.addEventListener('binhamid-owner-authenticated',refreshCurrentPage);
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',build);
 else build();
 console.info('[BinHamid]',VERSION,'loaded');
