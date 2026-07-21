@@ -4,6 +4,7 @@ on:
     branches:
       - fix/restore-declarations-sales-v3
     paths:
+      - '.github/workflows/run-scoped-declaration-restore.yml'
       - 'scripts/run-scoped-declaration-restore.txt'
 permissions:
   contents: write
