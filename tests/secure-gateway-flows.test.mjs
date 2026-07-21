@@ -47,12 +47,17 @@ test('workshop and attendance wrappers revalidate permissions in every step',asy
   assert.match(attendance,/fuelconfirm/);
 });
 
-test('fleet status enforces role and limits a driver to the assigned vehicle without GPS tracking',async()=>{
-  const gps=await read('api/_lib/bot-gps.js');
-  assert.match(gps,/GPS_ROLES/);
-  assert.match(gps,/employee_assignments/);
-  assert.match(gps,/identity\.role==='driver'/);
-  assert.match(gps,/vehicle_external_id/);
-  assert.match(gps,/attendance_events/);
-  assert.match(gps,/ليست تتبع GPS/);
+test('fleet status is attendance-based, role-guarded and refuses partial data',async()=>{
+  const fleet=await read('api/_lib/bot-fleet-status.js');
+  const bridge=await read('api/_lib/bot-gps.js');
+  assert.match(fleet,/FLEET_STATUS_ROLES/);
+  assert.match(fleet,/employee_assignments/);
+  assert.match(fleet,/identity\.role==='driver'/);
+  assert.match(fleet,/vehicle_external_id/);
+  assert.match(fleet,/attendance_events/);
+  assert.match(fleet,/FLEET_STATUS_READ_FAILED/);
+  assert.match(fleet,/لا تعرض مواقع المركبات/);
+  assert.doesNotMatch(fleet,/TraccarGpsAdapter|GPS_API_BASE_URL|latitude|longitude/);
+  assert.match(bridge,/Compatibility bridge/);
+  assert.match(bridge,/sendFleetAttendanceStatus as sendGpsFleetStatus/);
 });
