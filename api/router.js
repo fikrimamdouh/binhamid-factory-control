@@ -22,6 +22,7 @@ import * as factoryReset from './_lib/routes/factory-reset.js';
 import * as telegramMiniApp from './_lib/routes/telegram-mini-app.js';
 import * as reportsTelegram from './_lib/routes/reports-telegram.js';
 import * as attendanceSafe from './_lib/routes/attendance-safe.js';
+import * as botPermissions from './_lib/routes/bot-permissions.js';
 import { openingBalances } from './_lib/routes/opening-balances.js';
 
 const routes={
@@ -57,6 +58,7 @@ const routes={
   'telegram/mini-app':telegramMiniApp.telegramMiniApp,
   'reports/send-telegram':reportsTelegram.sendPrintedReport,
   'attendance-safe':attendanceSafe.attendanceSafe,
+  'bot-permissions':botPermissions.botPermissions,
   'opening-balances':openingBalances
 };
 
