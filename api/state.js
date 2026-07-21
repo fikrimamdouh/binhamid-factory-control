@@ -3,6 +3,16 @@ import { json, method, body, errorResponse } from './_lib/http.js';
 import { select, rpc, upsert, insert } from './_lib/supabase.js';
 
 function clean(v,max=500){return String(v??'').trim().slice(0,max);}
+async function selectPages(table,query,maxRows=10000){
+  const rows=[],pageSize=1000;
+  for(let offset=0;offset<maxRows;offset+=pageSize){
+    const page=await select(table,`${query}&offset=${offset}&limit=${pageSize}`);
+    if(!Array.isArray(page)||!page.length)break;
+    rows.push(...page);
+    if(page.length<pageSize)break;
+  }
+  return rows;
+}
 function appendMissing(current,masters,convert){
   const rows=Array.isArray(current)?current.map(row=>({...row})):[],known=new Set(rows.map(row=>clean(row?.id,120)).filter(Boolean));
   for(const master of masters||[]){const id=clean(master?.external_id,120);if(!id||known.has(id))continue;rows.push(convert(master));known.add(id);}
@@ -11,9 +21,9 @@ function appendMissing(current,masters,convert){
 async function enrichStatePayload(payload){
   if(!payload||typeof payload!=='object')return payload;
   const [employees,customers,vehicles]=await Promise.all([
-    select('employees','active=eq.true&select=external_id,employee_no,national_id,full_name,phone,role,salary,active&order=full_name.asc&limit=3000').catch(()=>[]),
-    select('customers','active=eq.true&select=external_id,customer_code,customer_name,phone,segment,credit_limit,payment_days,active&order=customer_name.asc&limit=5000').catch(()=>[]),
-    select('vehicles','active=eq.true&select=external_id,plate_no,asset_no,vehicle_type,make,model,driver_external_id,status,active&order=plate_no.asc&limit=2000').catch(()=>[])
+    selectPages('employees','active=eq.true&select=external_id,employee_no,national_id,full_name,phone,role,salary,active&order=full_name.asc',5000).catch(()=>[]),
+    selectPages('customers','active=eq.true&select=external_id,customer_code,customer_name,phone,segment,credit_limit,payment_days,active&order=customer_name.asc',10000).catch(()=>[]),
+    selectPages('vehicles','active=eq.true&select=external_id,plate_no,asset_no,vehicle_type,make,model,driver_external_id,status,active&order=plate_no.asc',5000).catch(()=>[])
   ]);
   const legacy={...(payload.legacy||{})};
   legacy.emp=appendMissing(legacy.emp,employees,row=>({id:row.external_id,no:row.employee_no||row.external_id,nid:row.national_id||'',name:row.full_name||row.external_id,tel:row.phone||'',role:row.role||'employee',salary:Number(row.salary||0),act:row.active!==false}));
