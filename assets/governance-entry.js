@@ -1,7 +1,15 @@
 (function(){
   'use strict';
+  function installDeclarationTexts(){
+    if(document.getElementById('bhOriginalDeclarationTexts'))return;
+    const script=document.createElement('script');
+    script.id='bhOriginalDeclarationTexts';
+    script.src='/assets/original-declaration-texts.js?v=20260721-1';
+    document.head.appendChild(script);
+  }
   function link(href,text,accent=false){const anchor=document.createElement('a');anchor.href=href;anchor.target='_top';anchor.textContent=text;if(accent)anchor.className='accent';return anchor;}
   function install(){
+    installDeclarationTexts();
     if(document.getElementById('bhGovernanceEntry'))return;
     const style=document.createElement('style');style.id='bhGovernanceEntryStyle';style.textContent='.bh-gov-entry{position:fixed;left:18px;bottom:18px;z-index:99990}.bh-gov-entry a{display:block;text-decoration:none;border-radius:11px;padding:10px 13px;background:#173746;color:#fff;font:800 12px system-ui;box-shadow:0 8px 25px #17374644;text-align:center}@media print{.bh-gov-entry{display:none}}';document.head.appendChild(style);
     const box=document.createElement('nav');box.id='bhGovernanceEntry';box.className='bh-gov-entry';box.innerHTML='<a href="/control-center.html" target="_top">مركز إدارة المصنع</a>';document.body.appendChild(box);
