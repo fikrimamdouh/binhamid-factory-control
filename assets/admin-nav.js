@@ -1,19 +1,30 @@
 (function(){
 'use strict';
-/* شريط تنقل موحّد لصفحات الإدارة المستقلة — مبني بنفس ألوان وخط
-   وهيكل الشريط العلوي وشريط التابات في البرنامج الرئيسي (legacy.html)
-   حرفيًا، حتى يبان وكأنه نفس البرنامج مش شريط مضاف من برّه.
-   إضافة صفحة جديدة لاحقًا: زوّد سطر واحد في مصفوفة LINKS بس. */
-const VERSION='2026.07.19-admin-nav-v2-matched';
+/* شريط تنقل موحّد لصفحات الإدارة المستقلة. كل الصفحات تستخدم جلسة المالك
+   نفسها الناتجة من رمز Telegram؛ لا يوجد اعتماد إدارة يدوي داخل الواجهة. */
+const VERSION='2026.07.21-admin-nav-v3-unified-telegram-session';
 const LINKS=[
   ['🏠','البرنامج الرئيسي','/'],
   ['🚪','البوابة','/control-center.html'],
+  ['👥','الموظفون والمعدات','/master-data.html'],
   ['💰','الحسابات','/accounting.html'],
   ['🧪','الخلطات والأسعار','/mix-designs.html'],
   ['⚖️','الحوكمة','/governance.html'],
-  ['🕐','الحضور والسائقين','/attendance-admin.html'],
-  ['🔗','ربط جهاز بمستخدم','/device-access.html']
+  ['🕐','الحضور والسائقين','/attendance-admin.html']
 ];
+function currentPath(){
+  let p=location.pathname||'/';
+  if(p.length>1&&p.endsWith('/'))p=p.slice(0,-1);
+  return p||'/';
+}
+function ensureOwnerLogin(){
+  if(window.__BH_OWNER_WEB_LOGIN_INSTALLED__||document.querySelector('script[data-bh-owner-login]'))return;
+  const script=document.createElement('script');
+  script.src='/assets/owner-web-login.js?v=20260721-unified-admin-session';
+  script.dataset.bhOwnerLogin='1';
+  script.async=false;
+  document.head.appendChild(script);
+}
 function style(){
   if(document.getElementById('bh-admin-nav-style'))return;
   const el=document.createElement('style');
@@ -37,22 +48,28 @@ function style(){
     .bh-admin-nav button:hover{color:var(--bh-navy);background:var(--bh-gold-pale)}
     .bh-admin-nav button.on{color:var(--bh-navy);border-bottom-color:var(--bh-gold)}
     .bh-admin-nav button .ic{margin-inline-end:5px}
+    a[href="/device-access.html"],#altLoginToggle,#loginButton{display:none!important}
+    html[data-bh-page="governance"] #login,
+    html[data-bh-page="attendance-admin"] #login,
+    html[data-bh-page="control-center"] #login{display:none!important}
     @media(max-width:640px){.bh-admin-nav button{padding:10px 9px;font-size:11.5px}.bh-admin-top .t span{display:none}}
   `;
   document.head.appendChild(el);
 }
-function currentPath(){
-  let p=location.pathname||'/';
-  if(p.length>1&&p.endsWith('/'))p=p.slice(0,-1);
-  return p||'/';
+function markPage(){
+  const name=currentPath().replace(/^\//,'').replace(/\.html$/,'')||'home';
+  document.documentElement.dataset.bhPage=name;
+  if(name==='device-access')location.replace('/control-center.html');
 }
 function build(){
+  markPage();
+  ensureOwnerLogin();
   if(document.getElementById('bhAdminNav'))return;
   style();
   const here=currentPath();
   const top=document.createElement('div');
   top.className='bh-admin-top';
-  top.innerHTML='<img src="/assets/branding/binhamid-factory-logo.png" alt=""><div class="t"><b>مصنع بن حامد للبلوك والخرسانة الجاهزة</b><span>نظام العهد والإقرارات والمسؤوليات الوظيفية</span></div>';
+  top.innerHTML='<img src="/assets/branding/binhamid-factory-logo.png" alt=""><div class="t"><b>مصنع بن حامد للبلوك والخرسانة الجاهزة</b><span>جلسة موحدة وآمنة عبر رمز Telegram</span></div>';
   const nav=document.createElement('nav');
   nav.id='bhAdminNav';
   nav.className='bh-admin-nav';
@@ -68,6 +85,8 @@ function build(){
   document.body.insertBefore(nav,document.body.firstChild);
   document.body.insertBefore(top,nav);
 }
+markPage();
+ensureOwnerLogin();
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',build);
 else build();
 console.info('[BinHamid]',VERSION,'loaded');
