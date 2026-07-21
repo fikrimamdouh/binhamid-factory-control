@@ -25,13 +25,15 @@ jobs:
           node-version: '24.x'
       - name: Apply scoped restoration
         run: python scripts/apply-declaration-sales-restore.py
-      - name: Verify changed files are scoped
+      - name: Verify restored content and syntax
         run: |
           node --check api/_lib/customer-portfolio-pdf.js
           node scripts/verify-declaration-sales.mjs
-          changed="$(git status --porcelain | sed -E 's/^.. //' | sort)"
-          echo "$changed"
-          test "$changed" = $'api/_lib/customer-portfolio-pdf.js\nlegacy.html\nscripts/verify-declaration-sales.mjs' || { echo 'Unexpected changed files'; exit 1; }
+      - name: Verify no unrelated files changed
+        run: |
+          git status --porcelain
+          unexpected="$(git status --porcelain | sed -E 's/^.. //' | grep -Ev '^(api/_lib/customer-portfolio-pdf\.js|legacy\.html|scripts/verify-declaration-sales\.mjs)$' || true)"
+          test -z "$unexpected" || { echo "Unexpected changed files:"; echo "$unexpected"; exit 1; }
       - name: Run project tests
         run: |
           npm install --ignore-scripts --no-audit --no-fund
