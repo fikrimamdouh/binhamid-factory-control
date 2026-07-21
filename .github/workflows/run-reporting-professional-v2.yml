@@ -31,6 +31,13 @@ jobs:
           git fetch origin feat/telegram-reporting-professional-v1:refs/remotes/origin/feat/telegram-reporting-professional-v1
           git show origin/feat/telegram-reporting-professional-v1:scripts/apply-reporting-professional-patches.py > /tmp/apply-reporting-professional-patches.py
           git show origin/feat/telegram-reporting-professional-v1:tests/reporting-professional.test.mjs > tests/reporting-professional.test.mjs
+          python - <<'PY'
+          from pathlib import Path
+          path=Path('/tmp/apply-reporting-professional-patches.py')
+          text=path.read_text(encoding='utf-8')
+          text=text.replace('old_duplicate = """','old_duplicate = r"""',1).replace('new_duplicate = """','new_duplicate = r"""',1)
+          path.write_text(text,encoding='utf-8')
+          PY
       - name: Apply scoped reporting patches
         run: |
           set +e
@@ -64,7 +71,7 @@ jobs:
       - name: Verify no unrelated files changed
         run: |
           git status --porcelain
-          unexpected="$(git status --porcelain | sed -E 's/^.. //' | grep -Ev '^(api/_lib/routes/daily-report\.js|api/_lib/daily-cumulative-pdf\.js|api/_lib/daily-cumulative-report-data\.js|api/_lib/bot-files\.js|api/_lib/telegram-webhook-gateway\.js|assets/login-sync\.js|tests/reporting-professional\.test\.mjs)$' || true)"
+          unexpected="$(git status --porcelain | sed -E 's/^.. //' | grep -Ev '^(api/_lib/routes/daily-report\.js|api/_lib/daily-cumulative-pdf\.js|api/_lib/daily-cumulative-report-data\.js|api/_lib/bot-files\.js|api/_lib/telegram-webhook-gateway\.js|assets/login-sync\.js|tests/reporting-professional\.test\.mjs|debug/reporting-patch-error\.txt)$' || true)"
           test -z "$unexpected" || { echo 'Unexpected changed files:'; echo "$unexpected"; exit 1; }
       - name: Install dependencies
         run: npm install --ignore-scripts --no-audit --no-fund
