@@ -1,4 +1,3 @@
-tests/telegram-excel-processing-resilience.test.mjs:7:test('Excel processing success is not converted into a processing failure when result or PDF delivery fails',()=>{
 tests/telegram-server-automation.test.mjs:6:test('Telegram Excel posting runs in the server webhook path and keeps validation atomic',async()=>{
 tests/telegram-server-automation.test.mjs:35:test('authorized Telegram daily sender reaches posting only with daily_report.approve',async()=>{
 tests/telegram-server-automation.test.mjs:42:test('unauthorized Telegram daily sender stays pending and approvers are notified',async()=>{
