@@ -25,10 +25,10 @@ jobs:
           node-version: '24.x'
       - name: Apply scoped restoration
         run: python scripts/apply-declaration-sales-restore.py
-      - name: Verify restored content and syntax
-        run: |
-          node --check api/_lib/customer-portfolio-pdf.js
-          node scripts/verify-declaration-sales.mjs
+      - name: Verify server PDF syntax
+        run: node --check api/_lib/customer-portfolio-pdf.js
+      - name: Verify restored declarations and sales settings
+        run: node scripts/verify-declaration-sales.mjs
       - name: Verify no unrelated files changed
         run: |
           git status --porcelain
