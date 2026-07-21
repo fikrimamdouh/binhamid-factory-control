@@ -1,0 +1,74 @@
+name: Professional Telegram Reporting V2
+
+on:
+  push:
+    branches:
+      - feat/telegram-reporting-professional-v2
+    paths:
+      - '.github/workflows/run-reporting-professional-v2.yml'
+      - 'scripts/run-reporting-professional-v2.txt'
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/telegram-reporting-professional-v2
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+      - name: Load scoped patch and tests
+        run: |
+          git fetch origin feat/telegram-reporting-professional-v1:refs/remotes/origin/feat/telegram-reporting-professional-v1
+          git show origin/feat/telegram-reporting-professional-v1:scripts/apply-reporting-professional-patches.py > /tmp/apply-reporting-professional-patches.py
+          git show origin/feat/telegram-reporting-professional-v1:tests/reporting-professional.test.mjs > tests/reporting-professional.test.mjs
+      - name: Apply scoped reporting patches
+        run: python /tmp/apply-reporting-professional-patches.py
+      - name: Verify JavaScript syntax
+        run: |
+          node --check api/_lib/daily-report-timeline.js
+          node --check api/_lib/daily-customer-movement-pdf.js
+          node --check api/_lib/bot-daily-report-review.js
+          node --check api/_lib/daily-summary-parser.js
+          node --check api/_lib/routes/daily-report.js
+          node --check api/_lib/daily-cumulative-pdf.js
+          node --check api/_lib/daily-cumulative-report-data.js
+          node --check api/_lib/bot-files.js
+          node --check api/_lib/telegram-webhook-gateway.js
+          node --check assets/login-sync.js
+          node --check tests/reporting-professional.test.mjs
+      - name: Verify no unrelated files changed
+        run: |
+          git status --porcelain
+          unexpected="$(git status --porcelain | sed -E 's/^.. //' | grep -Ev '^(api/_lib/routes/daily-report\.js|api/_lib/daily-cumulative-pdf\.js|api/_lib/daily-cumulative-report-data\.js|api/_lib/bot-files\.js|api/_lib/telegram-webhook-gateway\.js|assets/login-sync\.js|tests/reporting-professional\.test\.mjs)$' || true)"
+          test -z "$unexpected" || { echo 'Unexpected changed files:'; echo "$unexpected"; exit 1; }
+      - name: Install dependencies
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Run test and API gates
+        run: |
+          npm test
+          npm run check:api
+          npm run check:functions
+      - name: Remove temporary workflow files
+        if: success()
+        run: |
+          rm -f scripts/run-reporting-professional-v2.txt
+          rm -f .github/workflows/run-reporting-professional-v2.yml
+      - name: Commit validated reporting system
+        if: success()
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --quiet && exit 1
+          git commit -m 'feat: complete professional Telegram daily reporting workflow'
+          git push origin HEAD:feat/telegram-reporting-professional-v2
