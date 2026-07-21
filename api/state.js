@@ -42,34 +42,18 @@ export default async function handler(req,res){
     // يكتب حالة خالية فوق حالة سحابية مليانة فتختفي بيانات العملاء والأرصدة.
     // الحفظ يُرفض إذا كانت الحالة الجديدة فارغة والمحفوظة غير فارغة، إلا
     // بتأكيد صريح (force) — مثل حالة التصفير المتعمد.
-    // دمج غير هادم: الرفع الجديد يحدّث السجلات المطابقة ويضيف الجديدة، ولا
-    // يمسح ما هو موجود في السحابة لمجرد غيابه عن الجهاز الحالي. الاستبدال
-    // الكامل لا يحدث إلا بتأكيد صريح (force) كما في التصفير المتعمد.
-    async function mergeWithCloud(incoming){
-      const rows=await select('app_state','key=eq.primary&select=payload&limit=1').catch(()=>[]);
-      const stored=rows?.[0]?.payload;if(!stored)return incoming;
-      const merged={...incoming,legacy:{...(incoming.legacy||{})},ops:{...(incoming.ops||{})}};
-      const mergeBy=(storedList,incomingList,keyOf)=>{
-        if(!Array.isArray(storedList)||!storedList.length)return incomingList;
-        if(!Array.isArray(incomingList))return storedList;
-        const map=new Map();
-        for(const row of storedList){const key=keyOf(row);if(key)map.set(key,row);}
-        for(const row of incomingList){const key=keyOf(row);if(key)map.set(key,row);}
-        return[...map.values()];
-      };
-      merged.legacy.cli=mergeBy(stored?.legacy?.cli,incoming?.legacy?.cli,row=>String(row?.id||row?.code||row?.no||''));
-      merged.ops.customerOpeningBalances=mergeBy(stored?.ops?.customerOpeningBalances,incoming?.ops?.customerOpeningBalances,row=>String(row?.customerCode||row?.clientId||''));
-      return merged;
-    }
-    if(input.force!==true)input.payload=await mergeWithCloud(input.payload);
-
     // الفحص لا يلزم إلا إذا كانت الحالة الواردة نفسها فارغة في إحدى المجموعات.
     // تحميل الحالة السحابية كاملة في كل حفظة كان يضيف آلاف السجلات إلى زمن
     // الطلب ويتسبب في انتهاء المهلة، والحفظ الطبيعي لا يحتاجه إطلاقًا.
     const incomingEmptyGroup=!(input.payload?.legacy?.cli||[]).length||!(input.payload?.ops?.customerOpeningBalances||[]).length;
     if(input.force!==true&&incomingEmptyGroup){
-      const currentRows=await select('app_state','key=eq.primary&select=payload&limit=1').catch(()=>[]);
-      const current=currentRows?.[0]?.payload||null;
+      let current=null,checkFailed=false;
+      try{
+        // مسارات ضيقة فقط: قراءة الحالة كاملة تتجاوز مهلة استعلام قاعدة البيانات.
+        const rows=await select('app_state','key=eq.primary&select=clients:payload->legacy->cli,opening:payload->ops->customerOpeningBalances&limit=1');
+        const row=rows?.[0]||{};current={legacy:{cli:row.clients},ops:{customerOpeningBalances:row.opening}};
+      }catch(error){checkFailed=true;console.warn('[state guard]',String(error?.message||error).slice(0,140));}
+      if(checkFailed)throw Object.assign(new Error('تعذر التحقق من سلامة النسخة السحابية قبل الحفظ، والحفظ متوقف حمايةً للبيانات. أعد المحاولة بعد قليل.'),{status:503,code:'STATE_GUARD_UNAVAILABLE'});
       // كل مجموعة تُحمى على حدة: فقدان الأرصدة الافتتاحية وحده كان يمر دون
       // اعتراض لأن قائمة العملاء تظل ممتلئة، فتختفي كل المديونيات بصمت.
       const groups=[
