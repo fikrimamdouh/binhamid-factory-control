@@ -42,6 +42,27 @@ export default async function handler(req,res){
     // يكتب حالة خالية فوق حالة سحابية مليانة فتختفي بيانات العملاء والأرصدة.
     // الحفظ يُرفض إذا كانت الحالة الجديدة فارغة والمحفوظة غير فارغة، إلا
     // بتأكيد صريح (force) — مثل حالة التصفير المتعمد.
+    // دمج غير هادم: الرفع الجديد يحدّث السجلات المطابقة ويضيف الجديدة، ولا
+    // يمسح ما هو موجود في السحابة لمجرد غيابه عن الجهاز الحالي. الاستبدال
+    // الكامل لا يحدث إلا بتأكيد صريح (force) كما في التصفير المتعمد.
+    async function mergeWithCloud(incoming){
+      const rows=await select('app_state','key=eq.primary&select=payload&limit=1').catch(()=>[]);
+      const stored=rows?.[0]?.payload;if(!stored)return incoming;
+      const merged={...incoming,legacy:{...(incoming.legacy||{})},ops:{...(incoming.ops||{})}};
+      const mergeBy=(storedList,incomingList,keyOf)=>{
+        if(!Array.isArray(storedList)||!storedList.length)return incomingList;
+        if(!Array.isArray(incomingList))return storedList;
+        const map=new Map();
+        for(const row of storedList){const key=keyOf(row);if(key)map.set(key,row);}
+        for(const row of incomingList){const key=keyOf(row);if(key)map.set(key,row);}
+        return[...map.values()];
+      };
+      merged.legacy.cli=mergeBy(stored?.legacy?.cli,incoming?.legacy?.cli,row=>String(row?.id||row?.code||row?.no||''));
+      merged.ops.customerOpeningBalances=mergeBy(stored?.ops?.customerOpeningBalances,incoming?.ops?.customerOpeningBalances,row=>String(row?.customerCode||row?.clientId||''));
+      return merged;
+    }
+    if(input.force!==true)input.payload=await mergeWithCloud(input.payload);
+
     // الفحص لا يلزم إلا إذا كانت الحالة الواردة نفسها فارغة في إحدى المجموعات.
     // تحميل الحالة السحابية كاملة في كل حفظة كان يضيف آلاف السجلات إلى زمن
     // الطلب ويتسبب في انتهاء المهلة، والحفظ الطبيعي لا يحتاجه إطلاقًا.
