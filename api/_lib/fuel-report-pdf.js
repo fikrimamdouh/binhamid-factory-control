@@ -26,14 +26,15 @@ export function fuelReportHtml({report,sourceFile,reportDate}){
     @page{size:A4 landscape;margin:10mm}
     *{box-sizing:border-box}
     body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;color:#173746;font-size:10px;line-height:1.5}
-    .band{display:flex;align-items:center;gap:12px;border-bottom:4px solid #a1471f;padding-bottom:10px;margin-bottom:10px}
-    .band .badge{width:46px;height:46px;border-radius:12px;background:#a1471f;color:#fff;display:flex;align-items:center;justify-content:center;font-size:24px;flex:none}
+    .band{width:100%;border-bottom:4px solid #a1471f;padding-bottom:10px;margin-bottom:10px}
+    .band .badge{width:46px;height:46px;border-radius:12px;background:#a1471f;color:#fff;text-align:center;line-height:46px;font-size:24px;flex:none}
     .band h1{font-size:22px;margin:0}
     .band .sub{color:#5c6d74;font-size:10px;margin-top:2px}
     .meta{color:#5c6d74;margin-bottom:8px;background:#f7f9fa;border:1px solid #e1e7e9;border-radius:8px;padding:8px 10px}
-    h2{font-size:14px;margin:16px 0 7px;display:flex;align-items:center;gap:6px}
+    h2{font-size:14px;margin:16px 0 7px}
     .summary{border:1px solid #a1471f55;background:#a1471f0d;padding:9px 12px;border-radius:8px;margin:10px 0;font-size:11px}
-    .cards{display:grid;grid-template-columns:repeat(5,1fr);gap:7px;margin:10px 0}
+    .cards{width:100%;border-collapse:separate;border-spacing:7px 0;margin:10px 0}
+    .cards td{border:0;padding:0;vertical-align:top}
     .card{border:1px solid #c5d0d5;border-radius:9px;background:#f7f9fa;padding:8px 9px}
     .card .ic{font-size:14px;margin-bottom:2px;display:block}
     .card strong{display:block;font-size:15px;color:#a1471f;margin-top:2px}
@@ -53,10 +54,10 @@ export function fuelReportHtml({report,sourceFile,reportDate}){
     .chip.clear{background:#eef9f1;color:#1b6b3f}
     .footer{margin-top:14px;color:#60737c;font-size:9px;border-top:1px solid #e1e7e9;padding-top:8px}
   </style></head><body>
-    <div class="band"><div class="badge">⛽</div><div><h1>تقرير الديزل — مطابقة برقم اللوحة</h1><div class="sub">مصنع بن حامد للبلوك والخرسانة الجاهزة</div></div></div>
-    <div class="meta">📄 الملف: <b>${esc(sourceFile)}</b> &nbsp;|&nbsp; 📅 تاريخ الإنشاء: <b>${esc(reportDate)}</b> &nbsp;|&nbsp; 🕓 ${esc(new Date().toLocaleString('ar-SA',{timeZone:'Asia/Riyadh'}))}</div>
+    <table class="band"><tr><td style="width:46px"><div class="badge">⛽</div></td><td style="padding-inline-start:12px"><h1>تقرير الديزل — مطابقة برقم اللوحة</h1><div class="sub">مصنع بن حامد للبلوك والخرسانة الجاهزة</div></td></tr></table>
+    <table class="meta"><tr>📄 الملف: <b>${esc(sourceFile)}</b> &nbsp;|&nbsp; 📅 تاريخ الإنشاء: <b>${esc(reportDate)}</b> &nbsp;|&nbsp; 🕓 ${esc(new Date().toLocaleString('ar-SA',{timeZone:'Asia/Riyadh'}))}</div>
     <div class="summary">${summaryLine}</div>
-    <div class="cards">
+    <table class="cards"><tr>
       <div class="card"><span class="ic">🚛</span><span class="lb">عدد اللوحات</span><strong>${t.plateCount}</strong></div>
       <div class="card"><span class="ic">⛽</span><span class="lb">عدد التعبئات</span><strong>${t.fillCount}</strong></div>
       <div class="card"><span class="ic">📊</span><span class="lb">إجمالي اللترات</span><strong>${qty(t.liters)}</strong></div>

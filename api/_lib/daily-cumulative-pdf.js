@@ -40,15 +40,15 @@ export function cumulativeDepartmentHtml({type,data,sourceFile,reportDate,latest
     @page{size:A4 landscape;margin:10mm}
     *{box-sizing:border-box}
     body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;color:#173746;font-size:10px;line-height:1.5}
-    .band{display:flex;align-items:center;gap:12px;border-bottom:4px solid ${accent(type)};padding-bottom:10px;margin-bottom:10px}
-    .band .badge{width:46px;height:46px;border-radius:12px;background:${accent(type)};color:#fff;display:flex;align-items:center;justify-content:center;font-size:24px;flex:none}
+    .band{width:100%;border-bottom:4px solid ${accent(type)};padding-bottom:10px;margin-bottom:10px}
+    .band .badge{width:46px;height:46px;border-radius:12px;background:${accent(type)};color:#fff;text-align:center;line-height:46px;font-size:24px;flex:none}
     .band h1{font-size:22px;margin:0}
     .band .sub{color:#5c6d74;font-size:10px;margin-top:2px}
     .meta{color:#5c6d74;margin-bottom:8px;background:#f7f9fa;border:1px solid #e1e7e9;border-radius:8px;padding:8px 10px}
-    h2{font-size:14px;margin:16px 0 7px;display:flex;align-items:center;gap:6px}
+    h2{font-size:14px;margin:16px 0 7px}
     .notice{border:1px solid #d79b2e;background:#fff8e8;padding:8px 10px;border-radius:8px;margin:8px 0}
     .summary{border:1px solid ${accent(type)}55;background:${accent(type)}0d;padding:9px 12px;border-radius:8px;margin:10px 0;font-size:11px}
-    .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin:10px 0}
+    .cards{width:100%;border-collapse:separate;border-spacing:7px 0;margin:10px 0}
     .card{border:1px solid #c5d0d5;border-radius:9px;background:#f7f9fa;padding:8px 9px;position:relative;overflow:hidden}
     .card .ic{font-size:14px;margin-bottom:2px;display:block}
     .card strong{display:block;font-size:15px;color:${accent(type)};margin-top:2px}
@@ -71,11 +71,11 @@ export function cumulativeDepartmentHtml({type,data,sourceFile,reportDate,latest
     .advance-value{color:#8a5a00;font-weight:bold}
     .footer{margin-top:14px;color:#60737c;font-size:9px;border-top:1px solid #e1e7e9;padding-top:8px}
   </style></head><body>
-    <div class="band"><div class="badge">${icon(type)}</div><div><h1>${esc(title(type))}</h1><div class="sub">مصنع بن حامد للبلوك والخرسانة الجاهزة</div></div></div>
-    <div class="meta">📄 الملف اليومي الوارد: <b>${esc(sourceFile)}</b> &nbsp;|&nbsp; 📅 تاريخ حركة الملف: <b>${esc(reportDate)}</b> &nbsp;|&nbsp; ⏱️ آخر تقرير معتمد سابقًا: <b>${esc(latestApprovedDate||'لا يوجد')}</b> &nbsp;|&nbsp; 🕓 تاريخ الإنشاء: ${esc(new Date().toLocaleString('ar-SA',{timeZone:'Asia/Riyadh'}))}</div>
+    <table class="band"><tr><td style="width:46px"><div class="badge">${icon(type)}</div></td><td style="padding-inline-start:12px"><h1>${esc(title(type))}</h1><div class="sub">مصنع بن حامد للبلوك والخرسانة الجاهزة</div></td></tr></table>
+    <table class="meta"><tr>📄 الملف اليومي الوارد: <b>${esc(sourceFile)}</b> &nbsp;|&nbsp; 📅 تاريخ حركة الملف: <b>${esc(reportDate)}</b> &nbsp;|&nbsp; ⏱️ آخر تقرير معتمد سابقًا: <b>${esc(latestApprovedDate||'لا يوجد')}</b> &nbsp;|&nbsp; 🕓 تاريخ الإنشاء: ${esc(new Date().toLocaleString('ar-SA',{timeZone:'Asia/Riyadh'}))}</div>
     <div class="notice">📝 <strong>مسودة تراكميّة قبل الاعتماد.</strong> الأرصدة السابقة مأخوذة من قاعدة البيانات، ثم أضيفت مبيعات الملف الحالي ووُزعت تحصيلاته على أقدم الفواتير وفق FIFO. لا تصبح حركة الملف نهائية إلا بعد اعتماده من البرنامج.</div>
     <div class="summary">${summaryLine}</div>
-    <div class="cards">
+    <table class="cards"><tr>
       <div class="card"><span class="ic">👥</span><span class="lb">عدد العملاء</span><strong>${totals.customers||0}</strong></div>
       <div class="card"><span class="ic">🛒</span><span class="lb">اشتروا اليوم</span><strong>${boughtToday.length}</strong></div>
       <div class="card"><span class="ic">💵</span><span class="lb">سدّدوا اليوم</span><strong>${paidToday.length}</strong></div>

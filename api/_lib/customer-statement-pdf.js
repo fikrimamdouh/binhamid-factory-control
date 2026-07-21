@@ -27,18 +27,20 @@ export function customerStatementHtml(row){
     @page{size:A4;margin:12mm}
     *{box-sizing:border-box}
     body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;color:#173746;font-size:10.5px;line-height:1.6}
-    .band{display:flex;align-items:center;gap:12px;border-bottom:4px solid #14425F;padding-bottom:10px;margin-bottom:10px}
-    .band .badge{width:46px;height:46px;border-radius:12px;background:#14425F;color:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;flex:none}
+    .band{width:100%;border-bottom:4px solid #14425F;padding-bottom:10px;margin-bottom:10px}
+    .band .badge{width:46px;height:46px;border-radius:12px;background:#14425F;color:#fff;text-align:center;line-height:46px;font-size:22px;flex:none}
     .band h1{font-size:19px;margin:0}
     .band .sub{color:#5c6d74;font-size:10px;margin-top:2px}
-    .meta{background:#f7f9fa;border:1px solid #e1e7e9;border-radius:8px;padding:8px 10px;margin-bottom:10px;display:grid;grid-template-columns:1fr 1fr;gap:4px 14px}
+    .meta{background:#f7f9fa;border:1px solid #e1e7e9;border-radius:8px;padding:8px 10px;margin-bottom:10px;width:100%}
     .meta div b{color:#14425F}
     .status{display:inline-block;padding:4px 12px;border-radius:99px;font-weight:700;color:#fff;background:${DECISION_COLOR[decision]||'#14425F'}}
     h2{font-size:13px;margin:14px 0 6px}
-    .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin:10px 0}
+    .cards{width:100%;border-collapse:separate;border-spacing:7px 0;margin:10px 0}
     .card{border:1px solid #c5d0d5;border-radius:9px;background:#f7f9fa;padding:8px 9px}
     .card span.lb{color:#5c6d74;display:block;font-size:9px}
     .card strong{display:block;font-size:14px;color:#14425F;margin-top:2px}
+    tr{page-break-inside:avoid}
+    thead{display:table-header-group}
     table{width:100%;border-collapse:collapse;margin:6px 0}
     th,td{border:1px solid #bbc7cc;padding:5px;text-align:right;font-size:9.5px}
     th{background:#14425F;color:#fff}
@@ -49,15 +51,15 @@ export function customerStatementHtml(row){
     .chip{display:inline-block;font-size:8px;padding:2px 6px;border-radius:99px;background:#fdf3e0;color:#8a5a00}
     .footer{margin-top:16px;color:#60737c;font-size:8.5px;border-top:1px solid #e1e7e9;padding-top:7px}
   </style></head><body>
-    <div class="band"><div class="badge">🧾</div><div><h1>كشف حساب عميل</h1><div class="sub">مصنع بن حامد للبلوك والخرسانة الجاهزة</div></div></div>
-    <div class="meta">
+    <table class="band"><tr><td style="width:46px"><div class="badge">🧾</div></td><td style="padding-inline-start:12px"><h1>كشف حساب عميل</h1><div class="sub">مصنع بن حامد للبلوك والخرسانة الجاهزة</div></td></tr></table>
+    <table class="meta"><tr>
       <div>العميل: <b>${esc(row.name)}</b></div>
       <div>رقم الحساب: <b>${esc(row.code||'—')}</b></div>
       <div>الجوال: <b>${esc(row.phone||'—')}</b></div>
       <div>حتى تاريخ: <b>${esc(new Date().toISOString().slice(0,10))}</b></div>
     </div>
     <div style="margin:10px 0">الحالة الائتمانية: <span class="status">${esc(DECISION_LABEL[decision]||decision)}</span></div>
-    <div class="cards">
+    <table class="cards"><tr>
       <div class="card"><span class="lb">الرصيد الافتتاحي</span><strong>${money(row.openingBalance)}</strong></div>
       <div class="card"><span class="lb">إجمالي المبيعات</span><strong>${money(row.grossSales)}</strong></div>
       <div class="card"><span class="lb">إجمالي التحصيلات</span><strong>${money(row.collections)}</strong></div>

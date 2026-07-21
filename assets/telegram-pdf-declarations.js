@@ -1,10 +1,10 @@
-// [BinHamid] 2026.07.20-telegram-pdf-declarations-v1
+// [BinHamid] 2026.07.21-telegram-pdf-declarations-v2-all-documents
 // إرسال أي مستند مطبوع من البرنامج (إقرار الخرسانة اليومي، إقرار البلوك اليومي،
 // حركة المخازن، تقرير المدير...) كملف PDF إلى تليجرام المصنع بضغطة واحدة،
 // عبر المسار الموجود reports/send-telegram — دون أي تغيير على منطق الطباعة نفسه.
 (function(){
   'use strict';
-  var VERSION='2026.07.20-telegram-pdf-declarations-v1';
+  var VERSION='2026.07.21-telegram-pdf-declarations-v2-all-documents';
 
   function el(id){return document.getElementById(id);}
   function toast(message,kind){if(typeof window.opsToast==='function')window.opsToast(message,kind);else if(typeof window.toast==='function')window.toast(message,kind);else alert(message);}
@@ -95,15 +95,34 @@
   }
 
   function hook(){
-    var originalPrintReport=window.opsPrintReport;
-    if(typeof originalPrintReport==='function'&&!originalPrintReport._bhTgWrapped){
-      window.opsPrintReport=function(title){
-        var result=originalPrintReport.apply(this,arguments);
-        try{showFloatingBar(String(title||'المستند'));}catch(_){/* الشريط تحسين لا يعطل الطباعة */}
+    // كل نماذج النظام المطبوعة يجب أن يظهر معها زر الإرسال، لا تقرير واحد فقط:
+    // الإقرارات اليومية، إقرار المبيعات، إقرار المستودع، تقرير الديزل، التقرير
+    // التنفيذي، تقرير المدير، طلب الصيانة، وزيارة العميل.
+    var PRINTERS=['opsPrintReport','opsPrintDailySalesDeclaration','opsPrintSalesDeclaration','opsPrintWarehouseDeclaration','opsPrintDieselReport','opsPrintExecutive','opsPrintManagerReport','opsPrintMaintenanceRequest','opsPrintVisit'];
+    var TITLES={
+      opsPrintDailySalesDeclaration:'إقرار المبيعات اليومي',
+      opsPrintSalesDeclaration:'إقرار المبيعات',
+      opsPrintWarehouseDeclaration:'إقرار المستودع',
+      opsPrintDieselReport:'تقرير الديزل',
+      opsPrintExecutive:'التقرير التنفيذي',
+      opsPrintManagerReport:'تقرير المدير',
+      opsPrintMaintenanceRequest:'طلب الصيانة',
+      opsPrintVisit:'زيارة عميل'
+    };
+    PRINTERS.forEach(function(name){
+      var original=window[name];
+      if(typeof original!=='function'||original._bhTgWrapped)return;
+      window[name]=function(){
+        var result=original.apply(this,arguments);
+        try{
+          var first=arguments.length?arguments[0]:'';
+          var label=(name==='opsPrintReport'&&typeof first==='string'&&first)?first:(TITLES[name]||'المستند');
+          showFloatingBar(String(label));
+        }catch(_){/* الشريط تحسين لا يعطل الطباعة */}
         return result;
       };
-      window.opsPrintReport._bhTgWrapped=true;
-    }
+      window[name]._bhTgWrapped=true;
+    });
     var originalModal=window.opsOpenImportDeclarations;
     if(typeof originalModal==='function'&&!originalModal._bhTgWrapped){
       window.opsOpenImportDeclarations=function(batchId){
