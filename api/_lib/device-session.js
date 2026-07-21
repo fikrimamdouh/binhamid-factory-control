@@ -7,7 +7,10 @@ export const DEVICE_COOKIE='bh_device_session';
 // or the protected administrator credential.
 export const DEVICE_CAPABILITIES=Object.freeze([]);
 const SESSION_VERSION=4;
-const MAX_AGE_SECONDS=30*24*60*60;
+// رمز Telegram يعتمد الجهاز مرة واحدة. كل زيارة لاحقة تجدّد الجلسة الموقعة،
+// لذلك لا يضطر المالك إلى إدخال اعتماد منفصل أو إعادة الربط ما دام يستخدم
+// المتصفح نفسه ولم يمسح بيانات الموقع أو يلغِ الجهاز من النظام.
+const MAX_AGE_SECONDS=365*24*60*60;
 const clean=(value,max=160)=>String(value??'').trim().slice(0,max);
 const signingKey=()=>{
   if(!config.adminToken||!config.supabaseKey)throw Object.assign(new Error('جلسة الجهاز السحابية غير مهيأة على الخادم'),{status:503,code:'DEVICE_SESSION_NOT_CONFIGURED'});
