@@ -68,8 +68,7 @@ test('gateway blocks built-in commands old callbacks voice and active sessions',
 });
 
 test('registration and help remain available while controlled deep links are mapped',()=>{
-  assert.match(policy,/start(?:@\\w\+)?\\s\+attendance/);
-  assert.match(policy,/return'attendance'/);
+  assert.ok(policy.includes("/^\\/start(?:@\\w+)?\\s+attendance$/i.test(raw))return'attendance'"));
   assert.match(policy,/\(menu\|home\|help\|whoami\)/);
   assert.match(policy,/\(reports\|report\)/);
   assert.match(policy,/return'reports'/);
