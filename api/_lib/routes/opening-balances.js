@@ -1,6 +1,6 @@
 import { json, method, body, errorResponse } from '../http.js';
 import { upsert, select, remove } from '../supabase.js';
-import { requireAdminOrDevice } from '../auth.js';
+import { requireCapability } from '../permissions.js';
 
 // الأرصدة الافتتاحية للعملاء — جدول مستقل يُرفع على دفعات صغيرة بدل تضمينها
 // في سجل الحالة الموحد الذي تجاوز حجمه مهلة قاعدة البيانات وأفشل كل مزامنة.
@@ -31,7 +31,7 @@ export async function openingBalances(req,res){
   if(!method(req,res,['GET','POST']))return;
   try{
     if(req.method==='GET'){
-      requireAdminOrDevice(req,'state.read');
+      await requireCapability(req,'daily_report.view');
       const p=new URL(req.url,'http://x').searchParams;
       if(p.get('summary')==='1'){
         const rows=await select('customer_opening_balances','select=customer_code&limit=10000').catch(()=>null);
@@ -50,7 +50,7 @@ export async function openingBalances(req,res){
       }
       return json(res,200,{ok:true,rows,count:rows.length});
     }
-    requireAdminOrDevice(req,'state.write');
+    await requireCapability(req,'daily_report.import');
     const input=await body(req,2_000_000);
     // مسح متعمد وصريح فقط (قبل استيراد ملف ميزان جديد كامل).
     if(input.action==='clear'){

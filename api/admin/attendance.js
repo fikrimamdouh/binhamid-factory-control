@@ -1,4 +1,4 @@
-import { requireAdmin } from '../_lib/auth.js';
+import { requireCapability } from '../_lib/permissions.js';
 import { json, method, body, errorResponse } from '../_lib/http.js';
 import { select, insert, upsert, patch, rpc } from '../_lib/supabase.js';
 import { validateTelegramWebApp } from '../_lib/telegram-webapp.js';
@@ -41,7 +41,7 @@ export default async function handler(req,res){
     if(req.method==='POST'){
       const input=await body(req),action=clean(input.action);
       if(action==='webapp_attendance')return json(res,200,await recordWebAppAttendance(input));
-      requireAdmin(req);
+      await requireCapability(req,'attendance.manage');
       if(action==='save_site'){
         const name=clean(input.name),code=clean(input.code)||`SITE-${Date.now()}`;
         if(!name)throw Object.assign(new Error('اسم موقع العمل مطلوب'),{status:400});
@@ -63,7 +63,7 @@ export default async function handler(req,res){
       }
       throw Object.assign(new Error('الإجراء غير معروف'),{status:400});
     }
-    requireAdmin(req);
+    await requireCapability(req,'attendance.manage');
     const today=new Date().toISOString().slice(0,10);
     const [sites,assignments,users,vehicles,employees,attendance,driverEvents]=await Promise.all([
       select('work_sites','select=*&order=name.asc&limit=500'),
