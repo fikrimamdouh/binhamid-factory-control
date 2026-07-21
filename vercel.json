@@ -42,6 +42,8 @@
     {"source":"/control-center.html","headers":[{"key":"Cache-Control","value":"no-store, no-cache, must-revalidate, max-age=0"}]},
     {"source":"/governance.html","headers":[{"key":"Cache-Control","value":"no-store, no-cache, must-revalidate, max-age=0"}]},
     {"source":"/accounting.html","headers":[{"key":"Cache-Control","value":"no-store, no-cache, must-revalidate, max-age=0"}]},
+    {"source":"/attendance-admin.html","headers":[{"key":"Cache-Control","value":"no-store, no-cache, must-revalidate, max-age=0"}]},
+    {"source":"/attendance.html","headers":[{"key":"Cache-Control","value":"no-store, no-cache, must-revalidate, max-age=0"}]},
     {"source":"/assets/(.*)","headers":[{"key":"Cache-Control","value":"no-store, no-cache, must-revalidate, max-age=0"}]},
     {"source":"/favicon.svg","headers":[{"key":"Cache-Control","value":"public, max-age=86400"}]},
     {"source":"/api/(.*)","headers":[{"key":"Cache-Control","value":"no-store"},{"key":"X-Content-Type-Options","value":"nosniff"},{"key":"Referrer-Policy","value":"same-origin"}]}
