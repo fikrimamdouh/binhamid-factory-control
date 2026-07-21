@@ -16,7 +16,10 @@
     "check": "node scripts/check-enterprise.mjs && node scripts/check-operational-roadmap.mjs && npm run audit:migrations && npm run audit:legacy && node --test tests/*.test.mjs && npm run check:api && npm run check:functions"
   },
   "dependencies": {
-    "xlsx": "^0.18.5"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+  },
+  "overrides": {
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "engines": {
     "node": "24.x"
