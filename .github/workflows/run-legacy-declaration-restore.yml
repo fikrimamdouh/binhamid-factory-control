@@ -1,0 +1,77 @@
+name: Run Legacy Declaration Restoration
+on:
+  push:
+    branches:
+      - fix/restore-original-declaration-texts
+    paths:
+      - '.github/workflows/run-legacy-declaration-restore.yml'
+permissions:
+  contents: write
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/restore-original-declaration-texts
+          fetch-depth: 0
+      - name: Restore only the legal text blocks
+        run: |
+          git show bf6bc69e1a452af7a32e6b270cf57d15646ab9a6:legacy.html > /tmp/legacy-original.html
+          python - <<'PY'
+          from pathlib import Path
+
+          new_clause=('ألتزم بمتابعة المبالغ غير المسددة خلال مهلة {الأيام} أيام من تاريخ التوريد، ورفع حالة المتأخرات للإدارة. '
+                      'ألتزم بأن مهلة السداد المحددة أعلاه ({الأيام} أيام) نافذة فقط في حال توفر السيولة الكافية لدى المنشأة لشراء المواد الخام التشغيلية؛ '
+                      'وفي حال عدم توفر هذه السيولة، ألتزم أنا (المحصل أو مسؤول مبيعات الخرسانة) بتحصيل دفعة مقدمة من العميل قبل التوريد، أو بتحصيل كامل قيمة الحساب فورًا، '
+                      'ولا يجوز الاعتداد بمهلة السداد المذكورة في هذه الحالة إلا بموافقة كتابية مسبقة من الإدارة.')
+
+          def block(text,marker):
+              lines=text.splitlines()
+              start=next(i for i,line in enumerate(lines) if marker in line)
+              end=next(i for i in range(start+1,len(lines)) if lines[i].strip()=='};')
+              return start,end,lines[start:end+1]
+
+          original=Path('/tmp/legacy-original.html').read_text(encoding='utf-8')
+          current_path=Path('legacy.html')
+          current=current_path.read_text(encoding='utf-8')
+
+          _,_,vehicle=block(original,'const VEH_CLAUSES = {')
+          _,_,defaults=block(original,'const DEF = {')
+
+          cli_start=next(i for i,line in enumerate(defaults) if line.startswith('cli:`'))
+          cli_end=next(i for i in range(cli_start,len(defaults)) if defaults[i].endswith('`,'))
+          defaults[cli_end]=defaults[cli_end][:-2]
+          defaults.insert(cli_end+1,new_clause+'`,')
+
+          current_lines=current.splitlines()
+          for marker,replacement in [('const VEH_CLAUSES = {',vehicle),('const DEF = {',defaults)]:
+              start,end,_=block('\n'.join(current_lines),marker)
+              current_lines=current_lines[:start]+replacement+current_lines[end+1:]
+
+          result='\n'.join(current_lines)+'\n'
+          if result.count(new_clause)!=1:
+              raise SystemExit('new clause must occur exactly once in legacy.html')
+          if 'ألتزم بإثبات كل توريد باسم العميل الصحيح' in result:
+              raise SystemExit('replacement customer wording still exists')
+          current_path.write_text(result,encoding='utf-8')
+          PY
+      - name: Remove temporary extraction files
+        run: |
+          rm -f .github/workflows/tmp-extract-declarations.yml
+          rm -f .github/workflows/tmp-extract-declaration-hits.yml
+          rm -f .github/workflows/tmp-extract-declaration-hits-v2.yml
+          rm -f .github/workflows/tmp-extract-def-block.yml
+          rm -f .github/workflows/tmp-extract-original-def.yml
+          rm -f .github/workflows/tmp-extract-preliquidity-def.yml
+          rm -f .github/workflows/apply-restore-original-declarations.yml
+          rm -f .github/workflows/run-legacy-declaration-restore.yml
+          rm -rf debug
+      - name: Commit restoration
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m 'fix: restore original declaration texts in legacy forms'
+          git push origin HEAD:fix/restore-original-declaration-texts
