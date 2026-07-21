@@ -31,7 +31,7 @@
     if(rowCode&&clientCodes.includes(rowCode))return true;
     return norm(row.customerName||row.customer_name)&&norm(row.customerName||row.customer_name)===norm(client.name);
   }
-  function openingFor(client){return openingRows().filter(function(row){return rowMatchesClient(row,client);}).reduce(function(sum,row){return sum+Number(row.amount??row.balance??0);},0);}
+  function openingFor(client){var matched=openingRows().filter(function(row){return rowMatchesClient(row,client);});if(matched.length)return matched.reduce(function(sum,row){return sum+Number(row.amount??row.balance??0);},0);var stored=Number(client&&client.openingBalance);return Number.isFinite(stored)?stored:0;}
 
   function ensureLedger(){
     var previous=window.bhClientLedger;
@@ -67,9 +67,9 @@
   }
 
   function syncRuntimeBalances(){
-    var local=localOps(),rows=local&&local.customerOpeningBalances;if(!Array.isArray(rows)||!rows.length)return;
+    var local=localOps(),rows=local&&local.customerOpeningBalances;
     try{
-      if(typeof OPS!=='undefined'){
+      if(Array.isArray(rows)&&rows.length&&typeof OPS!=='undefined'){
         var current=Array.isArray(OPS.customerOpeningBalances)?OPS.customerOpeningBalances:[];
         var currentKey=current.length+'|'+current.reduce(function(sum,row){return sum+Number(row.amount??row.balance??0);},0);
         var localKey=rows.length+'|'+rows.reduce(function(sum,row){return sum+Number(row.amount??row.balance??0);},0);
