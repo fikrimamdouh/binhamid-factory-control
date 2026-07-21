@@ -32,7 +32,22 @@ jobs:
           git show origin/feat/telegram-reporting-professional-v1:scripts/apply-reporting-professional-patches.py > /tmp/apply-reporting-professional-patches.py
           git show origin/feat/telegram-reporting-professional-v1:tests/reporting-professional.test.mjs > tests/reporting-professional.test.mjs
       - name: Apply scoped reporting patches
-        run: python /tmp/apply-reporting-professional-patches.py
+        run: |
+          set +e
+          mkdir -p debug
+          python /tmp/apply-reporting-professional-patches.py > debug/reporting-patch-error.txt 2>&1
+          code=$?
+          cat debug/reporting-patch-error.txt
+          if [ "$code" -ne 0 ]; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add debug/reporting-patch-error.txt
+            git commit -m 'chore: capture reporting patch failure' || true
+            git push origin HEAD:feat/telegram-reporting-professional-v2 || true
+            exit "$code"
+          fi
+          rm -f debug/reporting-patch-error.txt
+          rmdir debug 2>/dev/null || true
       - name: Verify JavaScript syntax
         run: |
           node --check api/_lib/daily-report-timeline.js
@@ -63,6 +78,7 @@ jobs:
         run: |
           rm -f scripts/run-reporting-professional-v2.txt
           rm -f .github/workflows/run-reporting-professional-v2.yml
+          rm -rf debug
       - name: Commit validated reporting system
         if: success()
         run: |
