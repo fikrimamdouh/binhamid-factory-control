@@ -59,9 +59,9 @@
     }catch(error){employee.attendanceSiteId=previous.id;employee.attendanceSiteCode=previous.code;employee.attendanceSiteName=previous.name;persistLocal();if(select)select.value=previous.id;toastMessage(`لم يُحفظ موقع الحضور: ${error.message}`,true);}
     finally{if(select)select.disabled=false;}
   }
-  function employeeIdFromRow(row,index,visible){
+  function employeeIdFromRow(row,index,visible,byName){
     const button=row.querySelector('[onclick*="empForm"]'),onclick=button?.getAttribute('onclick')||'',match=onclick.match(/empForm\(\s*['"]([^'"]+)['"]/);if(match)return match[1];
-    const name=clean(row.cells?.[0]?.textContent);return clean(visible.find(employee=>clean(employee.name)===name)?.id||visible[index]?.id);
+    const name=clean(row.cells?.[0]?.textContent);return clean(byName.get(name)?.id||visible[index]?.id);
   }
   function ensureHeader(){const header=document.querySelector('#p-emp table thead tr');if(!header||header.querySelector('#bhEmployeeAttendanceSiteHeader'))return;const th=document.createElement('th');th.id='bhEmployeeAttendanceSiteHeader';th.textContent='موقع الحضور';header.insertBefore(th,header.lastElementChild);}
   function ensureNote(){
@@ -73,11 +73,11 @@
     const body=document.getElementById('tEmp');if(!body)return;state.rendering=true;
     try{
       ensureHeader();ensureNote();
-      const all=employeeRows(),filter=clean(document.getElementById('fEmp')?.value),visible=filter?all.filter(employee=>clean(employee.role)===filter):all,sites=availableSites(),rows=[...body.querySelectorAll(':scope > tr')];
+      const all=employeeRows(),filter=clean(document.getElementById('fEmp')?.value),visible=filter?all.filter(employee=>clean(employee.role)===filter):all,sites=availableSites(),rows=[...body.querySelectorAll(':scope > tr')],byId=new Map(all.map(employee=>[clean(employee.id||employee.external_id),employee])),byName=new Map(visible.map(employee=>[clean(employee.name),employee]));
       if(rows.length===1&&!rows[0].querySelector('[onclick*="empForm"]')){const cell=rows[0].cells?.[0];if(cell)cell.colSpan=Math.max(cell.colSpan||0,9);return;}
       rows.forEach((row,index)=>{
         if(row.querySelector('.bh-employee-site-cell'))return;
-        const employeeId=employeeIdFromRow(row,index,visible),employee=all.find(item=>clean(item.id||item.external_id)===clean(employeeId));if(!employee)return;
+        const employeeId=employeeIdFromRow(row,index,visible,byName),employee=byId.get(clean(employeeId));if(!employee)return;
         const cell=document.createElement('td');cell.className='bh-employee-site-cell';cell.style.minWidth='165px';const select=document.createElement('select');select.className='bh-employee-site-select';select.setAttribute('aria-label',`موقع حضور ${employee.name||''}`);select.style.cssText='min-width:150px;padding:6px 8px;font-size:12px;border-color:#d8ccb3;background:#fff;';
         const empty=document.createElement('option');empty.value='';empty.textContent=state.error?'تعذر تحميل المواقع':'— غير محدد —';select.appendChild(empty);for(const site of sites){const option=document.createElement('option');option.value=site.id;option.textContent=siteLabel(site);select.appendChild(option);}select.value=currentSiteId(employee);select.disabled=Boolean(state.error);select.addEventListener('change',()=>assign(employee,select.value,select));cell.appendChild(select);const actionCell=row.lastElementChild;row.insertBefore(cell,actionCell);
       });
