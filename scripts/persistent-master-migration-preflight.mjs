@@ -1,6 +1,7 @@
 import { existsSync,readFileSync,writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 
+// This file is intentionally touched after workflow installation so the main-branch push trigger runs once.
 const databaseUrl=String(process.env.SUPABASE_DB_URL||'').trim();
 const resultPath=process.env.MASTER_MIGRATION_PREFLIGHT_PATH||'persistent-master-preflight.json';
 const targetVersion=26;
