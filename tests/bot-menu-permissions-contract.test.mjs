@@ -60,7 +60,7 @@ test('menus and direct enterprise actions share the same policy',()=>{
 test('gateway blocks built-in commands old callbacks voice and active sessions',()=>{
   assert.match(webhook,/botMenuItem, botModuleAllowed, moduleForCallback, moduleForSession, moduleForText/);
   assert.match(webhook,/active&&await denyBotModule\(chatId,identity,moduleForText\(raw\)\)/);
-  assert.ok(webhook.indexOf('active&&await denyBotModule')<webhook.indexOf('handleBuiltInCommand'), 'permission gate must run before built-in commands');
+  assert.ok(webhook.indexOf('active&&await denyBotModule')<webhook.indexOf('const builtIn=await handleBuiltInCommand'), 'permission gate must run before built-in invocation');
   assert.match(webhook,/moduleForSession\(session\?\.state\)/);
   assert.match(webhook,/moduleForCallback\(action,value\)/);
   assert.match(webhook,/result\.text\?handleText/);
