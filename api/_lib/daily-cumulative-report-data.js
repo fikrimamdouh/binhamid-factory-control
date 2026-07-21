@@ -31,7 +31,7 @@ function blankCustomer(key,code,name){return{key,code:String(code||''),name:Stri
 export function projectCumulativeDailyReport({storedSales=[],dailySales=[],dailyCollections=[],reportDate='',latestApprovedDate=''}={}){
   const customers=new Map();
   const get=(code,name)=>{const key=customerKey(code,name);if(!customers.has(key))customers.set(key,blankCustomer(key,code,name));const customer=customers.get(key);if(!customer.code&&code)customer.code=String(code);if((!customer.name||customer.name==='عميل غير مسمى')&&name)customer.name=String(name);return customer;};
-  for(const row of storedSales||[]){if(closed.has(String(row.status||'')))continue;const sale=storedSale(row);if(sale.type==='other'||(reportDate&&sale.date&&sale.date>=reportDate))continue;get(sale.customerCode,sale.customerName).invoices.push(sale);}
+  for(const row of storedSales||[]){if(closed.has(String(row.status||'')))continue;const sale=storedSale(row);if(sale.type==='other')continue;get(sale.customerCode,sale.customerName).invoices.push(sale);}
   for(const [index,row] of (dailySales||[]).entries()){const sale=dailySale(row,index,reportDate);if(sale.type==='other'||sale.total<=0)continue;get(sale.customerCode,sale.customerName).invoices.push(sale);}
   for(const row of dailyCollections||[]){
     const customer=get(row.customerCode,row.customer),amount=Math.max(0,n(row.amount));customer.currentCollections+=amount;

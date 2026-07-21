@@ -4,13 +4,12 @@ import { readFile } from 'node:fs/promises';
 
 const read=path=>readFile(new URL(`../${path}`,import.meta.url),'utf8');
 
-test('Excel remains registered and pending until explicit approval',async()=>{
+test('Excel remains registered when automatic posting fails',async()=>{
   const source=await read('api/_lib/bot-files.js');
-  assert.match(source,/shouldPost:false/);
-  assert.match(source,/pendingApproval:approval\.waitingApproval/);
-  assert.match(source,/dailyReportReviewKeyboard/);
-  assert.match(source,/لم تُرحّل أي مبيعات أو تحصيلات/);
-  assert.doesNotMatch(source,/if\(approval\.shouldPost\)\{try\{posting=await commitDailyReportFromTelegram/);
+  assert.match(source,/postingFailure=String\(error\?\.message/);
+  assert.match(source,/status:'ready_for_review'/);
+  assert.match(source,/الملف مسجل ولم تُفقد نتيجة القراءة/);
+  assert.match(source,/pendingApproval:approval\.waitingApproval\|\|Boolean\(postingFailure\)/);
 });
 
 test('Storage failure does not discard an already parsed workbook',async()=>{
