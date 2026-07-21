@@ -1,9 +1,10 @@
 import crypto from 'node:crypto';
-import { sendMessage, keyboard } from './telegram.js';
+import { sendMessage, keyboard, sendDocumentBuffer } from './telegram.js';
+import * as XLSX from 'xlsx';
 import { clearMaintenanceSession } from './bot-maintenance.js';
 import { esc, formatAmount, norm, setEnterpriseSession } from './bot-enterprise-store.js';
 import { findCustomers, loadCustomerAnalytics } from './bot-customer-report-data.js';
-import { insert, select } from './supabase.js';
+import { insert, select, upsert } from './supabase.js';
 
 const REPORT_ROLES=new Set(['admin','manager','accountant','block_sales','concrete_sales','collector']);
 const CREATE_ROLES=new Set(['admin','manager','accountant']);
@@ -19,15 +20,46 @@ const currentBalance=row=>Number(row.netBalance??row.balance??0)||0;
 const PAGE_SIZE=15;
 // ترقيم صفحات عام للتقارير الطويلة: يعرض 15 نتيجة ويضيف زرار "التالي/السابق"
 // بدل ما يقصّ القائمة بصمت — أي تقرير عملاء طويل يستخدمها بدل حد أقصى ثابت.
+
+// ===== تصدير النتائج إلى إكسل =====
+// كل تقرير عملاء يُبنى عبر sendPage الموحدة، فتُحفظ نتيجته الكاملة لحظيًا في
+// خانة مستقلة لكل محادثة (لا تمس جلسة المستخدم النشطة)، وزر «تصدير إكسل»
+// يحوّل آخر نتيجة إلى ملف .xlsx كامل الصفوف مهما كان عدد الصفحات.
+const XLSX_HEADERS={code:'كود العميل',name:'اسم العميل',customerName:'اسم العميل',customerCode:'كود العميل',debitBalance:'الرصيد المدين',creditBalance:'الرصيد الدائن',netBalance:'الصافي',openingBalance:'الرصيد الافتتاحي',previous:'ما قبله',debit:'مدين الحركة',credit:'دائن الحركة',cheques:'الشيكات',overdue:'المتأخر',creditLimit:'حد الائتمان',decision:'القرار',phone:'الهاتف',phones:'الهواتف',sector:'القطاع',salesTotal:'إجمالي المبيعات',collectionsTotal:'إجمالي التحصيلات',lastActivity:'آخر حركة',count:'العدد',share:'النسبة'};
+const XLSX_SKIP=new Set(['id','clientId','raw','rows','matches']);
+function cacheLastReport(chatId,title,rows){
+  const compact=(rows||[]).slice(0,5000).map(row=>{const out={};for(const key of Object.keys(row||{})){const value=row[key];if(XLSX_SKIP.has(key)||typeof value==='function'||typeof value==='object'&&value!==null&&!Array.isArray(value))continue;out[key]=Array.isArray(value)?value.join(' / '):value;}return out;});
+  return upsert('bot_sessions',[{channel:'telegram',chat_id:String(chatId),external_user_id:'customer_export_cache',state:'customer_export',context:{title:String(title||'تقرير العملاء').slice(0,200),rows:compact,savedAt:new Date().toISOString()},updated_at:new Date().toISOString()}],'channel,chat_id,external_user_id').catch(()=>null);
+}
+async function sendLastReportAsXlsx(chatId){
+  const cached=(await select('bot_sessions',`channel=eq.telegram&chat_id=eq.${encodeURIComponent(String(chatId))}&external_user_id=eq.customer_export_cache&select=context&limit=1`).catch(()=>[]))?.[0]?.context;
+  const rows=cached?.rows;
+  if(!Array.isArray(rows)||!rows.length)return sendMessage(chatId,'لا يوجد تقرير حديث لتصديره — اطلب أي تقرير عملاء أولًا ثم اضغط زر التصدير.');
+  const preferred=['code','customerCode','name','customerName','debitBalance','creditBalance','netBalance','openingBalance','previous','debit','credit','cheques','overdue','creditLimit','decision','phone','phones','sector','salesTotal','collectionsTotal','lastActivity'];
+  const present=new Set();rows.forEach(row=>Object.keys(row).forEach(key=>present.add(key)));
+  const columns=[...preferred.filter(key=>present.has(key)),...[...present].filter(key=>!preferred.includes(key))];
+  const sheetRows=[columns.map(key=>XLSX_HEADERS[key]||key),...rows.map(row=>columns.map(key=>row[key]??''))];
+  const sheet=XLSX.utils.aoa_to_sheet(sheetRows);
+  sheet['!cols']=columns.map(key=>({wch:key==='name'||key==='customerName'?32:14}));
+  const workbook=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook,sheet,'تقرير العملاء');
+  const buffer=XLSX.write(workbook,{type:'buffer',bookType:'xlsx'});
+  const filename=`customer-report-${new Date().toISOString().slice(0,10)}.xlsx`;
+  return sendDocumentBuffer(chatId,buffer,filename,'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',`📥 ${cached.title} — ${rows.length} صفًا كاملًا`);
+}
+
 function paginationButtons(kind,page,totalPages,extra=''){
   const row=[];
   if(page>0)row.push({text:'◀️ السابق',callback_data:`ent:customer_page|${kind}|${page-1}|${extra}`});
   if(page<totalPages-1)row.push({text:'التالي ▶️',callback_data:`ent:customer_page|${kind}|${page+1}|${extra}`});
-  return row.length?keyboard([row]):undefined;
+  const rowsOut=row.length?[row]:[];
+  rowsOut.push([{text:'📥 تصدير إكسل كامل',callback_data:'ent:customer_xlsx|export'}]);
+  return keyboard(rowsOut);
 }
 function sendPage(chatId,title,rows,formatRow,page,extraHeaderLine=''){
   const totalPages=Math.max(1,Math.ceil(rows.length/PAGE_SIZE)),clampedPage=Math.min(Math.max(0,page),totalPages-1),startIndex=clampedPage*PAGE_SIZE,slice=rows.slice(startIndex,startIndex+PAGE_SIZE);
   const pageLine=totalPages>1?`الصفحة <b>${clampedPage+1}</b> من <b>${totalPages}</b> — إجمالي النتائج: <b>${rows.length}</b>`:`إجمالي النتائج: <b>${rows.length}</b>`;
+  cacheLastReport(chatId,title,rows);
   return{text:`<b>${title}</b>\n${pageLine}${extraHeaderLine?`\n${extraHeaderLine}`:''}\n\n${slice.map((row,i)=>formatRow(row,startIndex+i)).join('\n\n')}`.slice(0,3900),page:clampedPage,totalPages,slice};
 }
 
@@ -266,6 +298,7 @@ export async function handleCustomerReportCallback(message,from,identity,value){
   if(value.startsWith('customer_gt|')){const[,minRaw]=value.split('|');return sendBalanceFilter(message.chat.id,identity,'gt',Number(minRaw));}
   if(value.startsWith('customer_small|')){const[,countRaw]=value.split('|');return sendSmallestOrLargest(message.chat.id,identity,Number(countRaw)||10,null,null);}
   if(value.startsWith('customer_top|')){const[,countRaw]=value.split('|');return sendTopDebt(message.chat.id,identity,Number(countRaw)||15);}
+  if(value==='customer_xlsx|export')return sendLastReportAsXlsx(message.chat.id);
   if(value.startsWith('customer_page|')){
     const[,kind,pageRaw,extra='']=value.split('|'),page=Math.max(0,Number(pageRaw)||0),expired=()=>(console.warn('[customer pagination expired]',{kind,page,extra:String(extra).slice(0,80)}),sendMessage(message.chat.id,'انتهت صلاحية هذه الصفحة (ربما بسبب تحديث النظام). أعد كتابة نفس الطلب من جديد.'));
     if(kind==='topdebt')return sendTopDebt(message.chat.id,identity,extra?Number(extra):null,page);
