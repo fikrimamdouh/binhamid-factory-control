@@ -13,12 +13,12 @@ test('browser creates an automatic signed transport cookie before cloud control'
   assert.doesNotMatch(client,/BINHAMID_ADMIN_TOKEN/);
 });
 
-test('device cookie is HttpOnly same-site and grants no business-data capability',()=>{
+test('device cookie is HttpOnly same-site, long-lived and grants no business-data capability',()=>{
   const source=read('api/_lib/device-session.js');
   assert.match(source,/HttpOnly/);
-  assert.match(source,/SameSite=Strict/);
+  assert.match(source,/SameSite=Lax/);
   assert.match(source,/SESSION_VERSION=4/);
-  assert.match(source,/30\*24\*60\*60/);
+  assert.match(source,/365\*24\*60\*60/);
   assert.match(source,/DEVICE_CAPABILITIES=Object\.freeze\(\[\]\)/);
   assert.match(source,/transport-only/);
   for(const capability of ['state.read','state.write','dashboard.manager','imports.manage','daily_report.approve','accounting.view'])assert.doesNotMatch(source,new RegExp(capability.replace('.','\\.')));
@@ -43,6 +43,7 @@ test('router and Vercel expose transport session without adding a serverless fun
 test('verified owner sessions survive reload and communication center navigation never hides every pane',()=>{
   const login=read('assets/owner-web-login.js'),navigation=read('assets/cloud-control-navigation-fix.js'),index=read('index.html');
   assert.match(login,/restoreCloudMarker/);
+  assert.match(login,/refreshExistingSession/);
   assert.match(login,/localStorage\.setItem\(TOKEN_KEY,'device-session'\)/);
   assert.match(index,/owner-web-login\.js\?v=20260721-gate-fix/);
   assert.match(navigation,/This extension owns the communication-center tab/);
