@@ -58,10 +58,13 @@ test('Telegram sending has an independent capability',()=>{
   assert.doesNotMatch(reportRoute,/requireCapability\(req,'daily_report\.view'\)/);
 });
 
-test('login synchronization is single-flight and retry waits for completion',()=>{
+test('login synchronization is single-flight and never starts an automatic retry download',()=>{
   assert.match(loginSync,/syncPromise=null/);
   assert.match(loginSync,/if\(syncPromise\)return syncPromise/);
-  assert.match(loginSync,/!syncPromise/);
+  assert.match(loginSync,/pullMeta\(\)/);
+  assert.match(loginSync,/revisionBefore===remoteRevision/);
+  assert.doesNotMatch(loginSync,/retryTimer/);
+  assert.doesNotMatch(loginSync,/setTimeout\(function\(\)\{if\(userId\(\)&&!localClientCount/);
   assert.match(loginSync,/binhamid-cloud-state-pulled/);
 });
 
