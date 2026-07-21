@@ -12,6 +12,7 @@ import { sendGpsFleetStatus } from './bot-gps.js';
 import { continueRegistrationSession, handleRegistrationCallback, handleRegistrationTextCommand, isRegistrationCommand } from './bot-registration.js';
 import { handleDriverRegistrationMedia } from './bot-driver-registration.js';
 import enterpriseHandler from './telegram-webhook-handler.js';
+import { handleDailyReportCallback } from './bot-daily-report-review.js';
 
 const GPS_ROLES=new Set(['admin','manager','mechanic','driver','fuel_operator']);
 const PROCUREMENT_USE=new Set(['admin','manager','accountant','mechanic','procurement','warehouse']);
@@ -53,17 +54,18 @@ async function logIntercepted(update,message,identity){const group=await ensureT
 
 async function interceptCallback(update){
   const query=update.callback_query,message=query?.message;if(!query||!message)return false;
-  const [action,value]=String(query.data||'').split(':'),home=action==='home';
+  const [action,value,...parts]=String(query.data||'').split(':'),home=action==='home';
   if(action==='reg'){
     const identity=await ensureTelegramIdentity(query.from);await answerCallback(query.id);
     if(message.chat.type!=='private'){await sendMessage(message.chat.id,'تسجيل الموظف يتم من المحادثة الخاصة مع البوت.');return true;}
     await handleRegistrationCallback(message,query.from,identity,value);return true;
   }
   const handledHome=home&&['suppliers','sales','workshop','attendance'].includes(value);
-  const handled=handledHome||procurementActions.has(action)||action==='gps'||action==='sales'||guidedSalesActions.has(action)||['sales_confirm','sales_cancel','mech','parts_confirm','att','fuelconfirm','fuelcancel'].includes(action);
+  const handled=handledHome||action==='dr'||procurementActions.has(action)||action==='gps'||action==='sales'||guidedSalesActions.has(action)||['sales_confirm','sales_cancel','mech','parts_confirm','att','fuelconfirm','fuelcancel'].includes(action);
   if(!handled)return false;
   const identity=await ensureTelegramIdentity(query.from),role=identity.role||'pending';await answerCallback(query.id);
   if(!identity.active){await sendMessage(message.chat.id,'حسابك غير معتمد لتنفيذ هذا الإجراء.');return true;}
+  if(action==='dr'){await handleDailyReportCallback(message,query.from,identity,value,parts.join(':'));return true;}
   const callbackMessage={...message,from:query.from};
   if(home&&value==='suppliers'){await showProcurementMenu(callbackMessage,identity);return true;}
   if(home&&value==='sales'){await showSalesMenu(callbackMessage,identity);return true;}

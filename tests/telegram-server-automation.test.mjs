@@ -3,9 +3,16 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 const read=path=>readFile(new URL(`../${path}`,import.meta.url),'utf8');
 
-test('Telegram Excel posting runs in the server webhook path and keeps validation atomic',async()=>{
-  const files=await read('api/_lib/bot-files.js'),daily=await read('api/_lib/routes/daily-report.js'),cloud=await read('assets/cloud-control.js');
-  assert.match(files,/commitDailyReportFromTelegram/);assert.match(files,/autoPostingText/);assert.match(files,/affectedBalances/);assert.match(daily,/daily_report_auto_rejected/);assert.match(daily,/commit_daily_report_acceptance/);assert.match(cloud,/Daily financial Excel is posted by the webhook/);
+test('Telegram Excel approval runs from an explicit callback and keeps posting atomic',async()=>{
+  const files=await read('api/_lib/bot-files.js'),review=await read('api/_lib/bot-daily-report-review.js'),gateway=await read('api/_lib/telegram-webhook-gateway.js'),daily=await read('api/_lib/routes/daily-report.js');
+  assert.match(files,/shouldPost:false/);
+  assert.match(files,/dailyReportReviewKeyboard/);
+  assert.doesNotMatch(files,/if\(approval\.shouldPost\)\{try\{posting=await commitDailyReportFromTelegram/);
+  assert.match(review,/commitDailyReportFromTelegram/);
+  assert.match(review,/handleDailyReportCallback/);
+  assert.match(gateway,/action==='dr'/);
+  assert.match(daily,/daily_report_auto_rejected/);
+  assert.match(daily,/commit_daily_report_acceptance/);
 });
 
 test('browser assistance remains enabled without replaying webhook-posted daily accounting',async()=>{
@@ -31,19 +38,21 @@ test('proactive brief and weekly export are not reachable from the disabled cron
   for(const workflow of [operational,telegram]){assert.doesNotMatch(workflow,/\bschedule:/);assert.doesNotMatch(workflow,/\bcron:/);assert.doesNotMatch(workflow,/curl --fail/);}
 });
 
-
-test('authorized Telegram daily sender reaches posting only with daily_report.approve',async()=>{
+test('authorized Telegram daily sender receives approval controls but never auto-posts',async()=>{
   const [{ capabilityAllowed },{ dailyReportApprovalDecision }]=await Promise.all([import('../api/_lib/permissions.js'),import('../api/_lib/bot-files.js')]);
   const canApprove=capabilityAllowed('accountant','daily_report.approve',[],[]);
   assert.equal(canApprove,true);
-  assert.deepEqual(dailyReportApprovalDecision(true,'ready',canApprove),{shouldPost:true,waitingApproval:false});
+  assert.deepEqual(dailyReportApprovalDecision(true,'ready',canApprove),{shouldPost:false,waitingApproval:true,canApprove:true});
+  const review=await read('api/_lib/bot-daily-report-review.js');
+  assert.match(review,/daily_report\.approve/);
+  assert.match(review,/dr:\$\{allowGap\?'force':'approve'\}/);
 });
 
 test('unauthorized Telegram daily sender stays pending and approvers are notified',async()=>{
   const [{ capabilityAllowed },{ dailyReportApprovalDecision }]=await Promise.all([import('../api/_lib/permissions.js'),import('../api/_lib/bot-files.js')]);
   assert.equal(capabilityAllowed('block_sales','daily_report.approve',[],[]),false);
   assert.equal(capabilityAllowed('manager','daily_report.approve',[],[{capability:'daily_report.approve',allowed:false}]),false);
-  assert.deepEqual(dailyReportApprovalDecision(true,'ready',false),{shouldPost:false,waitingApproval:true});
+  assert.deepEqual(dailyReportApprovalDecision(true,'ready',false),{shouldPost:false,waitingApproval:true,canApprove:false});
   const files=await read('api/_lib/bot-files.js');
   assert.match(files,/notifyDailyReportApprovers/);
   assert.match(files,/daily_report_pending_approval/);
