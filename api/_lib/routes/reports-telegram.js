@@ -22,7 +22,18 @@ export async function sendPrintedReport(req,res){
     const input=await body(req,2_000_000),html=String(input.html||'');
     if(!html||html.length<20)throw Object.assign(new Error('محتوى النموذج فارغ.'),{status:400});
     const title=clean(input.title,150)||'نموذج من نظام بن حامد',caption=clean(input.caption,900)||title;
-    const pdf=await htmlToPdf(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><style>body{font-family:Arial,Tahoma,sans-serif;color:#173746}</style></head><body>${html}</body></html>`,{filename:title,landscape:false});
+    // النموذج يصل ومعه أنماط الصفحة الأصلية، فلا نفرض عليه خطًا أو لونًا يغيّر
+    // شكله. نضيف فقط إعداد صفحة A4 وقواعد طباعة تمنع تقطيع الجداول، وتفعيل
+    // ألوان الخلفية حتى تظهر الترويسة والهوية كما تُطبع من المتصفح تمامًا.
+    const printSetup=`<style>
+      @page{size:A4;margin:10mm}
+      html,body{margin:0;padding:0;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      *{-webkit-print-color-adjust:exact;print-color-adjust:exact;box-sizing:border-box}
+      tr,img,.sheet,.doc,.card{page-break-inside:avoid}
+      thead{display:table-header-group}
+      .no-print,.noprint,button,.ops-btn{display:none!important}
+    </style>`;
+    const pdf=await htmlToPdf(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8">${printSetup}</head><body>${html}</body></html>`,{filename:title,landscape:false});
     const filename=`${safeFile(title)}.pdf`;
     await sendDocumentBuffer(config.telegramOwnerId,pdf,filename,'application/pdf',`📄 ${caption}`);
     json(res,200,{ok:true,sentTo:'owner',filename});

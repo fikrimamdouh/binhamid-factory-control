@@ -1,10 +1,10 @@
-// [BinHamid] 2026.07.21-telegram-pdf-declarations-v2-all-documents
+// [BinHamid] 2026.07.21-telegram-pdf-declarations-v3-print-fidelity
 // إرسال أي مستند مطبوع من البرنامج (إقرار الخرسانة اليومي، إقرار البلوك اليومي،
 // حركة المخازن، تقرير المدير...) كملف PDF إلى تليجرام المصنع بضغطة واحدة،
 // عبر المسار الموجود reports/send-telegram — دون أي تغيير على منطق الطباعة نفسه.
 (function(){
   'use strict';
-  var VERSION='2026.07.21-telegram-pdf-declarations-v2-all-documents';
+  var VERSION='2026.07.21-telegram-pdf-declarations-v3-print-fidelity';
 
   function el(id){return document.getElementById(id);}
   function toast(message,kind){if(typeof window.opsToast==='function')window.opsToast(message,kind);else if(typeof window.toast==='function')window.toast(message,kind);else alert(message);}
@@ -13,7 +13,26 @@
   function collectCss(){
     var out='';
     document.querySelectorAll('style').forEach(function(style){out+=style.textContent+'\n';});
-    return out;
+    // محرّك التحويل يعامل الصفحة كشاشة لا كطابعة، فقواعد @media print التي
+    // تضبط شكل النموذج المطبوع لا تُطبَّق ويخرج الملف مختلفًا عما تراه. لذلك
+    // نستخرج محتوى قواعد الطباعة ونضيفه كقواعد عامة تسري على الـ PDF.
+    var printBlocks='';
+    var text=out,index=0;
+    while(true){
+      var start=text.indexOf('@media print',index);
+      if(start<0)break;
+      var brace=text.indexOf('{',start);
+      if(brace<0)break;
+      var depth=1,i=brace+1;
+      while(i<text.length&&depth>0){
+        if(text[i]==='{')depth++;
+        else if(text[i]==='}')depth--;
+        i++;
+      }
+      printBlocks+=text.slice(brace+1,i-1)+'\n';
+      index=i;
+    }
+    return out+'\n/* قواعد الطباعة مطبَّقة على الـPDF */\n'+printBlocks;
   }
 
   function sheetHtml(){
