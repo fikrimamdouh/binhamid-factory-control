@@ -5902,7 +5902,7 @@ function opsSalesResponsible(kind){
   const key=opsSalesResponsibleKey(kind),role=opsSalesResponsibleRole(kind),byId=opsEmp(OPS.settings[key]);
   return (byId?.act!==false?byId:null)||(D.emp||[]).find(x=>x.role===role&&x.act!==false)||null;
 }
-const SALES_EMPLOYEE_DEFAULTS_VERSION='2026-07-21-sales-responsibles-v1';
+const SALES_EMPLOYEE_DEFAULTS_VERSION='2026-07-21-sales-responsibles-v2-real-names';
 const SALES_EMPLOYEE_DEFAULTS={
   concrete:{id:'ops-sales-concrete-khaled-abdullah',name:'خالد عبد الله',nid:'2414111530',salary:5000,commissionPerUnit:1,commissionUnit:'م³ خرسانة'},
   block:{id:'ops-sales-block-khaled-mohamed',name:'خالد محمد',nid:'2370328136',salary:3500,commissionPerUnit:0,commissionUnit:''}
