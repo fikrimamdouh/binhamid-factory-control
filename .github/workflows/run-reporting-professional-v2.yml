@@ -72,7 +72,7 @@ jobs:
       - name: Verify no unrelated files changed
         run: |
           git status --porcelain
-          unexpected="$(git status --porcelain | sed -E 's/^.. //' | grep -Ev '^(api/_lib/routes/daily-report\.js|api/_lib/daily-cumulative-pdf\.js|api/_lib/daily-cumulative-report-data\.js|api/_lib/bot-files\.js|api/_lib/telegram-webhook-gateway\.js|assets/login-sync\.js|tests/reporting-professional\.test\.mjs|debug/reporting-patch-error\.txt|debug/reporting-test-error\.txt)$' || true)"
+          unexpected="$(git status --porcelain | sed -E 's/^.. //' | grep -Ev '^(api/_lib/routes/daily-report\.js|api/_lib/daily-cumulative-pdf\.js|api/_lib/daily-cumulative-report-data\.js|api/_lib/bot-files\.js|api/_lib/telegram-webhook-gateway\.js|assets/login-sync\.js|tests/reporting-professional\.test\.mjs|debug/reporting-patch-error\.txt|debug/reporting-test-error\.txt|debug/failing-test-locations\.txt)$' || true)"
           test -z "$unexpected" || { echo 'Unexpected changed files:'; echo "$unexpected"; exit 1; }
       - name: Install dependencies
         run: npm install --ignore-scripts --no-audit --no-fund
@@ -84,14 +84,16 @@ jobs:
           code=$?
           cat debug/reporting-test-error.txt
           if [ "$code" -ne 0 ]; then
+            grep -RInE "Excel remains registered when automatic posting fails|Excel processing success is not converted into a processing failure when result or PDF delivery fails|Telegram Excel posting runs in the server webhook path and keeps validation atomic|authorized Telegram daily sender reaches posting only with daily_report.approve|unauthorized Telegram daily sender stays pending and approvers are notified" tests > debug/failing-test-locations.txt || true
+            cat debug/failing-test-locations.txt
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git add debug/reporting-test-error.txt
-            git commit -m 'chore: capture reporting test failure' || true
+            git add debug/reporting-test-error.txt debug/failing-test-locations.txt
+            git commit -m 'chore: locate obsolete auto-posting tests' || true
             git push origin HEAD:feat/telegram-reporting-professional-v2 || true
             exit "$code"
           fi
-          rm -f debug/reporting-test-error.txt
+          rm -f debug/reporting-test-error.txt debug/failing-test-locations.txt
           rmdir debug 2>/dev/null || true
       - name: Remove temporary workflow files
         if: success()
