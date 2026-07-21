@@ -19,16 +19,18 @@ test('block sales natural and structured messages enter a sales workflow',()=>{
   assert.match(gateway,/handleNaturalSalesMessage/);
 });
 
-test('sales-role voice is routed only after its transcription is understood',()=>{
+test('sales-role voice is routed only after its transcription and creation intent are understood',()=>{
   const gateway=read('api/_lib/telegram-webhook-gateway.js');
   const routing=read('api/_lib/bot-routing.js');
   assert.doesNotMatch(gateway,/prepareSalesVoiceSession|role_voice_default/);
   assert.match(gateway,/if\(message\.voice\|\|message\.document/);
   assert.match(routing,/route\.intent==='sales'/);
+  assert.match(routing,/wantsSalesEntry\(text\)/);
   assert.match(routing,/salesTypeForRole/);
   assert.match(routing,/state:'guided_sales_customer'/);
   assert.match(routing,/voice_or_natural_sales_intent/);
   assert.match(routing,/اكتب اسم العميل فقط/);
+  assert.match(routing,/\^\(سعر\|اسعار\|أسعار/);
 });
 
 test('attendance checks employee and effective site binding before opening GPS',()=>{
