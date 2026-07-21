@@ -13,7 +13,7 @@ import { handleBuiltInCommand } from './bot-commands.js';
 import { transcribeTelegramVoice, voiceFailureMessage } from './bot-voice.js';
 import { handleMechanicTextCommand, continueMechanicSession, startMechanicAction, confirmSparePartsRequest, showMechanicMenu } from './bot-mechanic.js';
 import { sendExecutiveWorkshopStatus } from './bot-workshop-dashboard.js';
-import { handleSalesTextCommand, continueSalesSession, startSalesAction, confirmSalesOrder, cancelSalesDraft, showSalesMenu } from './bot-sales.js';
+import { handleSalesTextCommand, continueSalesSession, startSalesAction, confirmSalesOrder, cancelSalesDraft, showSalesMenu } from './bot-sales-accounting-guard.js';
 import { startGuidedSales, continueGuidedSales, handleGuidedSalesCallback } from './bot-sales-guided.js';
 import { handleProcurementTextCommand, continueProcurementSession, handleProcurementCallback, showProcurementMenu } from './bot-procurement.js';
 import { handleEnterpriseTextCommand, continueEnterpriseSession, handleEnterpriseCallback, showRoleHome } from './bot-enterprise.js';
