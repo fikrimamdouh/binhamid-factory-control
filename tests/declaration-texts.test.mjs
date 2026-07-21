@@ -9,7 +9,7 @@ import {
 
 const NEW_CLAUSE='ألتزم بمتابعة المبالغ غير المسددة خلال مهلة {الأيام} أيام من تاريخ التوريد، ورفع حالة المتأخرات للإدارة. ألتزم بأن مهلة السداد المحددة أعلاه ({الأيام} أيام) نافذة فقط في حال توفر السيولة الكافية لدى المنشأة لشراء المواد الخام التشغيلية؛ وفي حال عدم توفر هذه السيولة، ألتزم أنا (المحصل أو مسؤول مبيعات الخرسانة) بتحصيل دفعة مقدمة من العميل قبل التوريد، أو بتحصيل كامل قيمة الحساب فورًا، ولا يجوز الاعتداد بمهلة السداد المذكورة في هذه الحالة إلا بموافقة كتابية مسبقة من الإدارة.';
 
-test('customer portfolio contains the eight original clauses plus the approved clause',()=>{
+test('customer portfolio contains the eight original clauses plus one approved clause',()=>{
   assert.equal(DECLARATION_TEXT_VERSION,'2026-07-21-original-plus-liquidity-v1');
   assert.equal(CUSTOMER_PORTFOLIO_CLAUSES.length,9);
   assert.equal(CUSTOMER_PORTFOLIO_CLAUSES[0],'أُقر بأن العملاء المدرجين في هذا النموذج مُسندون إليّ، وأنني المسؤول المباشر عن متابعة تعاملاتهم وتحصيل مستحقات المنشأة لديهم.');
@@ -24,9 +24,14 @@ test('Telegram portfolio PDF uses the central legal text',()=>{
   assert.ok(!source.includes("declarationText:legacy?.txt?.cli||''"));
 });
 
-test('legacy application uses the restored text and contains the new clause once',()=>{
-  const source=readFileSync(new URL('../legacy.html',import.meta.url),'utf8');
-  assert.ok(!source.includes('ألتزم بإثبات كل توريد باسم العميل الصحيح'));
+test('legacy runtime restores every original declaration group without saving customer data',()=>{
+  const source=readFileSync(new URL('../assets/original-declaration-texts.js',import.meta.url),'utf8');
+  const loader=readFileSync(new URL('../assets/governance-entry.js',import.meta.url),'utf8');
+  for(const key of ['veh','cli','cliX','acct','plant','plantX','mech','ack'])assert.match(source,new RegExp(`\\b${key}:`));
   assert.equal(source.split(NEW_CLAUSE).length-1,1);
-  for(const clause of CUSTOMER_PORTFOLIO_CLAUSES)assert.ok(source.includes(clause));
+  assert.ok(!source.includes('ألتزم بإثبات كل توريد باسم العميل الصحيح'));
+  assert.match(source,/state\.txt=\{\.\.\.current,\.\.\.TEXTS\}/);
+  assert.match(source,/state\.txtCustom=false/);
+  assert.ok(!source.includes('save();'));
+  assert.match(loader,/original-declaration-texts\.js\?v=20260721-1/);
 });
