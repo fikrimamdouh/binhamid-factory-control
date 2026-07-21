@@ -1,0 +1,34 @@
+name: GPS UI Session Audit
+
+on:
+  pull_request:
+    paths:
+      - 'api/**'
+      - 'assets/**'
+      - '*.html'
+      - 'scripts/audit-gps-ui-session.mjs'
+      - '.github/workflows/gps-ui-session-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Build GPS, UI and session map
+        run: node scripts/audit-gps-ui-session.mjs
+      - name: Publish audit summary
+        run: cat artifacts/gps-ui-session-audit/report.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload audit evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: gps-ui-session-audit-${{ github.sha }}
+          path: artifacts/gps-ui-session-audit/
+          if-no-files-found: error
+          retention-days: 14
