@@ -74,7 +74,17 @@ async function push(reason='حفظ تلقائي',force=false){
     const b=$('tbSave');if(b)b.textContent='محفوظ محليًا وسحابيًا';
   }catch(e){
     S.error=e.message;queue();
-    if(e.status===409)toast('توجد نسخة سحابية أحدث. لم تُستبدل بياناتك.',true);
+    if(e.status===409){
+      // تعارض رقم النسخة: بدل إيقاف الحفظ نهائيًا، نجلب رقم النسخة الحالي
+      // من السيرفر ونعيد المحاولة مرة واحدة، فالحفظ لا يتعطل بسبب فارق ترقيم.
+      try{
+        const current=await api('/api/state');
+        setRev(current.revision);
+        const retry=await api('/api/state',{method:'PUT',body:JSON.stringify({baseRevision:current.revision,reason,deviceId:device(),payload:shot()})});
+        setRev(retry.revision);S.lastSync=retry.updatedAt||new Date().toISOString();clearQueue();S.error='';
+        toast('تمت المزامنة بعد تحديث رقم النسخة.');
+      }catch(retryError){toast('توجد نسخة سحابية أحدث. لم تُستبدل بياناتك.',true);}
+    }
     else if(e.status===401){if(!askedLogin){askedLogin=true;login()}}
     else toast('الحفظ المحلي تم، وتعذرت المزامنة: '+e.message,true);
   }finally{busy=false;badge();render()}

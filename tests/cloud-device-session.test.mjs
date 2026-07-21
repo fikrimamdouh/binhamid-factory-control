@@ -44,7 +44,7 @@ test('verified owner sessions survive reload and communication center navigation
   const login=read('assets/owner-web-login.js'),navigation=read('assets/cloud-control-navigation-fix.js'),index=read('index.html');
   assert.match(login,/restoreCloudMarker/);
   assert.match(login,/localStorage\.setItem\(TOKEN_KEY,'device-session'\)/);
-  assert.match(index,/owner-web-login\.js\?v=20260719-4/);
+  assert.match(index,/owner-web-login\.js\?v=20260721-hard-gate/);
   assert.match(navigation,/This extension owns the communication-center tab/);
   assert.match(navigation,/window\.bhCloudView\?\.\('overview'\)/);
   assert.doesNotMatch(navigation,/runWithoutLegacyCommsNavigation/);
