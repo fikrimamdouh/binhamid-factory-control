@@ -105,8 +105,8 @@ function inventorySection(type,finishedGoods=[],rawMaterials=[]){
   return `<h2>📦 حركة المنتج التام (${type==='block'?'البلوك':'الخرسانة'})</h2>${finishedHtml}<h2>🧱 حركة الخامات المشتركة</h2>${materialsHtml}`;
 }
 
-export async function generateCumulativeDailyPdfs(analysis={},sourceFile='daily-report.xlsx'){
-  const reportDate=riyadhDate(),projection=await loadProjectedCumulativeDailyReport(analysis,reportDate);
+export async function generateCumulativeDailyPdfs(analysis={},sourceFile='daily-report.xlsx',requestedReportDate=''){
+  const reportDate=requestedReportDate||analysis?.reportDate||riyadhDate(),projection=await loadProjectedCumulativeDailyReport(analysis,reportDate);
   return Promise.all(['block','concrete'].map(async type=>{
     const html=cumulativeDepartmentHtml({type,data:projection.departments[type],sourceFile,reportDate,latestApprovedDate:projection.latestApprovedDate,finishedGoods:analysis?.finishedGoods,rawMaterials:analysis?.rawMaterials});
     const pdf=await htmlToPdf(html,{filename:`${slug(type)}-cumulative-${reportDate}`,landscape:true});

@@ -4,6 +4,7 @@ import { config } from '../config.js';
 import { requireCapability } from '../permissions.js';
 import { downloadObject, insert, rpc, select, uploadObject } from '../supabase.js';
 import { buildDailyReportCustomerContext } from '../daily-report-customers.js';
+import { loadDailyReportTimeline, timelineBlocksApproval } from '../daily-report-timeline.js';
 
 const clean=(value,max=1000)=>String(value??'').trim().slice(0,max);
 const num=value=>{const parsed=Number(value);return Number.isFinite(parsed)?parsed:null;};
@@ -128,12 +129,16 @@ export async function commitDailyReportFromTelegram(input={},actor='telegram-bot
     return{ok:duplicate,duplicate,reason:duplicate?'نفس التقرير مرحّل سابقًا':'يوجد تقرير مختلف معتمد لنفس التاريخ',existingImportId:existing.id,status:existing.status,committedAt:existing.committed_at,accounting:duplicate?await accountingEvidence(existing.id):null,affectedBalances:duplicate?await affectedCustomerBalances(payload):[]};
   }
   await transitionImport(importId,'validating',actor,'تحقق خادمي تلقائي من ملف Telegram').catch(error=>{if(!/TRANSITION_INVALID/i.test(String(error?.message||'')))throw error;});
-  const validation=await validatePayload(reportDate,payload);
+  const timeline=await loadDailyReportTimeline(reportDate),validation=await validatePayload(reportDate,payload);
+  validation.timeline=timeline;validation.errors.push(...timeline.errors);validation.warnings.push(...timeline.warnings);
+  const timelineErrors=timelineBlocksApproval(timeline,Boolean(input.allowDateGap));
+  validation.errors.push(...timelineErrors.filter(error=>!validation.errors.some(existing=>existing.code===error.code)));
+  validation.preview.warningCount=validation.warnings.length;validation.preview.errorCount=validation.errors.length;
   if(validation.errors.length){
     await registerAttempt({p_report_date:reportDate,p_original_name:originalName,p_file_hash:fileHash,p_content_hash:contentHash,p_idempotency_key:idempotencyKey,p_status:'rejected',p_existing_batch_id:null,p_summary:validation.preview,p_errors:validation.errors,p_warnings:validation.warnings,p_actor:actor});
     await transitionImport(importId,'validation_failed',actor,'لم يرحّل تلقائيًا: توجد أخطاء تحقق',null,{preview:validation.preview,errors:validation.errors.slice(0,100),warnings:validation.warnings.slice(0,100)}).catch(()=>{});
     await insert('audit_log',[{actor_type:'telegram',actor_id:actor,action:'daily_report_auto_rejected',entity_type:'daily_report',entity_id:idempotencyKey,details:{report_date:reportDate,file_hash:fileHash,import_id:importId,error_count:validation.errors.length,errors:validation.errors.slice(0,50)}}],{prefer:'return=minimal'}).catch(()=>{});
-    return{ok:false,duplicate:false,valid:false,importId,contentHash,fileHash,idempotencyKey,...validation,affectedBalances:[]};
+    return{ok:false,duplicate:false,valid:false,importId,contentHash,fileHash,idempotencyKey,...validation,timeline,affectedBalances:[]};
   }
   const original=await resolveStoredOriginal({importId,originalName,fileHash},reportDate,fileHash);
   try{
@@ -150,7 +155,7 @@ async function previewOrCommit(req,res,input){
   const existing=(await select('daily_report_batches',`report_date=eq.${reportDate}&select=id,report_date,file_hash,content_hash,status,summary,committed_at&limit=1`))?.[0]||null;
   if(existing){const duplicate=existing.content_hash===contentHash||existing.file_hash===fileHash;await registerAttempt({p_report_date:reportDate,p_original_name:originalName,p_file_hash:fileHash,p_content_hash:contentHash,p_idempotency_key:idempotencyKey,p_status:duplicate?'duplicate':'rejected',p_existing_batch_id:existing.id,p_summary:existing.summary||{},p_errors:duplicate?[]:[{code:'DATE_ALREADY_COMMITTED'}],p_warnings:[],p_actor:actor});if(importId&&duplicate)await transitionImport(importId,'posted',actor,'نفس التقرير مرحّل سابقًا',existing.id,{duplicate:true}).catch(()=>{});return json(res,duplicate?200:409,{ok:duplicate,duplicate,reason:duplicate?'نفس التقرير معتمد سابقًا':'يوجد تقرير مختلف معتمد لنفس التاريخ',existingImportId:existing.id,status:existing.status,committedAt:existing.committed_at,accounting:duplicate?await accountingEvidence(existing.id):null});}
   if(importId)await transitionImport(importId,'validating',actor,'بدء التحقق من التقرير').catch(error=>{if(!/TRANSITION_INVALID/i.test(String(error?.message||'')))throw error;});
-  const validation=await validatePayload(reportDate,payload),attemptStatus=validation.errors.length?'rejected':'previewed';
+  const timeline=await loadDailyReportTimeline(reportDate),validation=await validatePayload(reportDate,payload);validation.timeline=timeline;validation.errors.push(...timeline.errors);validation.warnings.push(...timeline.warnings);if(action==='commit'){const allowDateGap=Boolean(input.allowDateGap)&&['admin','manager'].includes(String(identity.role||''));validation.errors.push(...timelineBlocksApproval(timeline,allowDateGap).filter(error=>!validation.errors.some(existing=>existing.code===error.code)));}validation.preview.warningCount=validation.warnings.length;validation.preview.errorCount=validation.errors.length;const attemptStatus=validation.errors.length?'rejected':'previewed';
   if(action==='preview'||validation.errors.length){
     await registerAttempt({p_report_date:reportDate,p_original_name:originalName,p_file_hash:fileHash,p_content_hash:contentHash,p_idempotency_key:idempotencyKey,p_status:attemptStatus,p_existing_batch_id:null,p_summary:validation.preview,p_errors:validation.errors,p_warnings:validation.warnings,p_actor:actor});
     if(importId)await transitionImport(importId,validation.errors.length?'validation_failed':'ready_for_review',actor,validation.errors.length?'فشل تحقق الملف':'اكتمل التحقق والملف جاهز للمراجعة',null,{preview:validation.preview,errors:validation.errors.slice(0,100),warnings:validation.warnings.slice(0,100)}).catch(()=>{});
