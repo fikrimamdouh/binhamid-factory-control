@@ -97,7 +97,7 @@
   install();
   new MutationObserver(function(mutations){
     var needsBalances=false;
-    mutations.forEach(function(mutation){Array.prototype.forEach.call(mutation.addedNodes||[],function(node){if(!node||node.nodeType!==1)return;if(node.id==='tCli'||node.querySelector&&node.querySelector('#tCli'))needsBalances=true;if(node.matches&&node.matches('button')||node.querySelector&&node.querySelector('button'))injectDirectTelegramButtons(node);});});
+    mutations.forEach(function(mutation){Array.prototype.forEach.call(mutation.addedNodes||[],function(node){if(!node||node.nodeType!==1)return;if(node.id==='tCli'||node.querySelector&&node.querySelector('#tCli'))needsBalances=true;var text=clean(node.textContent);if(text.includes('طباعة')&&(node.matches&&node.matches('button')||node.querySelector&&node.querySelector('button')))injectDirectTelegramButtons(node);});});
     if(needsBalances)scheduleInstall();
   }).observe(document.documentElement,{childList:true,subtree:true});
   window.addEventListener('storage',function(event){if(event.key===OPS_KEY){balanceCache.key='';scheduleInstall();}});
