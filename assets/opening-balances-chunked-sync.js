@@ -1,11 +1,11 @@
-// [BinHamid] 2026.07.21-opening-balances-chunked-sync-v2-load-order-safe
+// [BinHamid] 2026.07.21-opening-balances-chunked-sync-v3-quota-safe
 // رفع الأرصدة الافتتاحية إلى جدولها المستقل على دفعات صغيرة (250 صفًا)،
 // بدل تضمينها في سجل الحالة الموحد الذي تجاوز حجمه مهلة قاعدة البيانات.
 // بعد نجاح الرفع الكامل تُستثنى الأرصدة من حمولة المزامنة فيعود الحفظ خفيفًا،
 // وتبقى نسخة الجهاز محفوظة محليًا كما هي.
 (function(){
   'use strict';
-  var VERSION='2026.07.21-opening-balances-chunked-sync-v2-load-order-safe';
+  var VERSION='2026.07.21-opening-balances-chunked-sync-v3-quota-safe';
   var FLAG='bh_opening_externalized_v1';
   var CHUNK=250;
 
@@ -110,6 +110,12 @@
 
   // 3) حماية السحب: نسخة سحابية بلا أرصدة (لأنها في الجدول المستقل) لا تمسح
   //    النسخة المحلية عند التحميل.
+  function freeSpace(){
+    // طابور المزامنات الفاشلة يخزن نسخًا كاملة (3MB لكل محاولة) من كل فشل
+    // سابق حتى امتلأت مساحة المتصفح. بعد نجاح نقل الأرصدة للجدول المستقل،
+    // هذه النسخ القديمة بلا قيمة: المزامنة التالية تبني حمولة حديثة أخف.
+    try{localStorage.removeItem('binhamid_cloud_pending');}catch(_){/**/}
+  }
   function guardPull(){
     var K='binhamid_factory_control_v3';
     var originalSet=Storage.prototype.setItem;
@@ -129,9 +135,16 @@
           }
         }
       }catch(_){/* الحماية تحسين ولا تعطل التخزين */}
-      return originalSet.call(this,key,value);
+      try{
+        return originalSet.call(this,key,value);
+      }catch(quotaError){
+        // المساحة ممتلئة: ننظف الطابور القديم ونعيد المحاولة مرة واحدة.
+        freeSpace();
+        return originalSet.call(this,key,value);
+      }
     };
   }
+  if(localStorage.getItem(FLAG)==='1')freeSpace();
 
   guardPull();
   var attempts=0;
