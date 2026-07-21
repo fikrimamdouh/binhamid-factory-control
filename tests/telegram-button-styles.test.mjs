@@ -6,7 +6,7 @@ test('Telegram buttons receive semantic colors',()=>{
   assert.equal(inferTelegramButtonStyle({text:'تأكيد وحفظ',callback_data:'confirm:1'}),'success');
   assert.equal(inferTelegramButtonStyle({text:'رفض الطلب',callback_data:'reject:1'}),'danger');
   assert.equal(inferTelegramButtonStyle({text:'فتح التفاصيل',callback_data:'open:1'}),'primary');
-  assert.equal(inferTelegramButtonStyle({text:'المخزون',callback_data:'ent:inventory_menu'}),'');
+  assert.equal(inferTelegramButtonStyle({text:'المخزون',callback_data:'ent:inventory_menu'}),'primary');
 });
 
 test('explicit styles are preserved and mixed colors are applied centrally',()=>{
