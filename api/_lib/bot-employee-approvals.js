@@ -1,4 +1,4 @@
-import { insert, patch, rpc, select } from './supabase.js';
+import { insert, patch, rpc, select, upsert } from './supabase.js';
 import { keyboard, sendMessage } from './telegram.js';
 import { ROLE_LABELS } from './domain.js';
 import { registrationRoleLabel } from './bot-registration.js';
@@ -64,6 +64,13 @@ export async function handleEmployeeRegistrationAction(message,from,identity,val
     if(step==='a'){
       const context=row.registration?.context||{},fullName=String(context.fullName||row.full_name||'').slice(0,500),employeeExternalId=String(context.employeeExternalId||row.employee_external_id||'').slice(0,200)||null,assignment=await prepareDriverAssignment(row,role);
       const result=await rpc('approve_telegram_user',{p_external_id:String(row.external_id),p_full_name:fullName,p_role:role,p_active:true,p_employee_external_id:employeeExternalId});
+      // اعتماد الموظف عبر البوت كان ينشئ حساب دخول فقط دون سجل موظف، فلا
+      // يظهر الاسم في سجل الموظفين ولا في نماذج الإقرار الخاصة بوظيفته.
+      // ننشئ السجل هنا (أو نحدّثه إن وُجد) دون المساس بأي موظف آخر.
+      try{
+        const externalId=employeeExternalId||`tg-${String(row.external_id)}`;
+        await upsert('employees',[{external_id:externalId,full_name:fullName||'موظف',role,employee_no:employeeExternalId||null,phone:String(context.phone||'')||null,active:true,updated_at:new Date().toISOString()}],'external_id');
+      }catch(employeeError){console.warn('[approve employee record]',String(employeeError?.message||employeeError).slice(0,200));}
       await insert('audit_log',[{actor_type:'telegram',actor_id:String(identity.external_id||from?.id||''),action:'approve_telegram_employee_registration',entity_type:'app_user',entity_id:String(row.id),details:{external_id:row.external_id,full_name:fullName,requested_role:requestedRole(row)||null,approved_role:role,employee_external_id:employeeExternalId,preferred_language:context.preferredLanguage||null,driver_vehicle:assignment?.vehicleExternalId||null,driver_documents:context.driverDocuments||null}}],{prefer:'return=minimal'}).catch(()=>{});
       if(row.registration)await patch('bot_sessions',`channel=eq.telegram&external_user_id=eq.${encodeURIComponent(String(row.external_id))}`,{state:'registration_approved',context:{...context,approvedRole:role,approvedAt:new Date().toISOString(),approvedBy:String(identity.external_id||from?.id||'')},updated_at:new Date().toISOString()}).catch(()=>{});
       await sendMessage(message.chat.id,`تم اعتماد الحساب بنجاح.\nالاسم: <b>${esc(fullName||'غير مسجل')}</b>\nالدور: <b>${esc(roleLabel(role))}</b>${assignment?`\nالمركبة: <b>${esc(assignment.vehicleLabel)}</b>`:''}\nرقم Telegram: <code>${esc(row.external_id)}</code>`);

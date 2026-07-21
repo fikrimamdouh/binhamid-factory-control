@@ -59,7 +59,9 @@ function mergeLocalCustomers(customers=[],payload={}){
 async function openingRows(payload={}){
   // المصدر الأول: جدول الأرصدة المستقل (يُرفع على دفعات ولا يمسحه أي جهاز).
   // الاحتياط: النسخة المضمّنة القديمة داخل الحالة إن كان الجدول فارغًا.
-  const tableRows=await select('customer_opening_balances','select=customer_code,customer_name,client_id,balance,previous,debit,credit,cheques,difference,balance_date&limit=10000').catch(()=>null);
+  // القراءة على دفعات: السقف الافتراضي للقاعدة كان يقتصر على 1000 رصيد،
+  // فتظهر مديونيات ناقصة في تقارير البوت.
+  const tableRows=await pagedSelect('customer_opening_balances','select=customer_code,customer_name,client_id,balance,previous,debit,credit,cheques,difference,balance_date').catch(()=>null);
   if(Array.isArray(tableRows)&&tableRows.length)return tableRows.map(row=>({customerCode:row.customer_code,customerName:row.customer_name,clientId:row.client_id,amount:Number(row.balance)||0,previous:Number(row.previous)||0,debit:Number(row.debit)||0,credit:Number(row.credit)||0,cheques:Number(row.cheques)||0,difference:Number(row.difference)||0,date:row.balance_date||''}));
   return Array.isArray(payload?.ops?.customerOpeningBalances)?payload.ops.customerOpeningBalances:[];
 }

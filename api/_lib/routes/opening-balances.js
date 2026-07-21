@@ -38,8 +38,17 @@ export async function openingBalances(req,res){
         if(rows===null)return json(res,200,{ok:true,tableReady:false,count:0});
         return json(res,200,{ok:true,tableReady:true,count:rows.length});
       }
-      const rows=await select('customer_opening_balances','select=*&order=balance.desc&limit=10000');
-      return json(res,200,{ok:true,rows:rows||[],count:(rows||[]).length});
+      // القاعدة تفرض سقفًا افتراضيًا لعدد الصفوف يتجاهل limit الكبير، فكانت
+      // النتيجة 1000 رصيد فقط من الإجمالي. القراءة تتم الآن على دفعات متتابعة.
+      const rows=[];
+      const pageSize=1000;
+      for(let offset=0;offset<20000;offset+=pageSize){
+        const page=await select('customer_opening_balances',`select=*&order=customer_code.asc&offset=${offset}&limit=${pageSize}`);
+        if(!Array.isArray(page)||!page.length)break;
+        rows.push(...page);
+        if(page.length<pageSize)break;
+      }
+      return json(res,200,{ok:true,rows,count:rows.length});
     }
     requireAdminOrDevice(req,'state.write');
     const input=await body(req,2_000_000);
