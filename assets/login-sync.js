@@ -1,11 +1,11 @@
-// [BinHamid] 2026.07.21-login-sync-v2-empty-device-recovery
+// [BinHamid] 2026.07.21-login-sync-v3-reload-after-pull
 // المزامنة عند الدخول: السيرفر هو المرجع لحظة تسجيل الدخول.
 // عند نجاح الدخول برمز تليجرام، يُسحب المحتوى السحابي ويُعتمد رقم نسخته،
 // فتنتهي أخطاء «توجد نسخة سحابية أحدث» (409) التي كانت توقف الحفظ، ويبدأ
 // العمل من نسخة مطابقة للسيرفر. بعدها يعمل الحفظ التلقائي المعتاد.
 (function(){
   'use strict';
-  var VERSION='2026.07.21-login-sync-v2-empty-device-recovery';
+  var VERSION='2026.07.21-login-sync-v3-reload-after-pull';
   var USER_KEY='binhamid_cloud_app_user_id';
   var REV_KEY='binhamid_cloud_revision';
   var LEGACY_KEY='binhamid_v1';
@@ -91,9 +91,15 @@
       if(outcome.empty){banner('');notify('لا توجد نسخة سحابية بعد — سيُرفع محتوى هذا الجهاز عند أول حفظ.');return;}
       banner('');
       notify('تمت المزامنة مع السيرفر: '+outcome.counts.clients+' عميل (نسخة رقم '+outcome.revision+')');
-      // إعادة رسم الواجهة على البيانات الجديدة دون إعادة تحميل مزعجة.
+      // إعادة الرسم وحدها لا تكفي: الذاكرة داخل الصفحة ما زالت تحمل النسخة
+      // القديمة، وrAll ترسم منها لا من التخزين. لذلك نعيد تحميل الإطار ليقرأ
+      // البرنامج التخزين المحدَّث من بدايته — مرة واحدة فقط بعد سحب ناجح.
+      if(outcome.counts.clients>0){
+        notify('جارٍ عرض البيانات المحدَّثة...');
+        setTimeout(function(){location.reload();},600);
+        return;
+      }
       if(typeof window.rAll==='function'){try{window.rAll();}catch(_){location.reload();}}
-      else location.reload();
     }catch(error){
       banner('');
       sessionStorage.removeItem(DONE_KEY);
