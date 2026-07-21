@@ -8,8 +8,16 @@ test('boot reveals the app after critical modules without waiting for every exte
   assert.match(index,/const criticalExtensions=\[/);
   assert.match(index,/const optionalExtensions=\[/);
   assert.match(index,/await Promise\.all\(criticalExtensions/);
-  assert.match(index,/void Promise\.all\(optionalExtensions/);
+  assert.match(index,/void loadOptionalExtensions\(win,optionalExtensions,load,sequence\)/);
   assert.match(index,/revealFrame\(\)/);
+});
+
+test('optional modules load sequentially in idle slices instead of one blocking burst',()=>{
+  assert.match(index,/function browserIdle\(win\)/);
+  assert.match(index,/requestIdleCallback/);
+  assert.match(index,/for\(const \[id,src\] of extensions\)/);
+  assert.match(index,/await browserIdle\(win\)/);
+  assert.doesNotMatch(index,/Promise\.all\(optionalExtensions/);
 });
 
 test('slow optional modules do not trigger the old false timeout error',()=>{
@@ -19,7 +27,8 @@ test('slow optional modules do not trigger the old false timeout error',()=>{
   assert.doesNotMatch(index,/if\(!completed\)fail\(new Error\('استغرق التحميل وقتًا أطول من المتوقع/);
 });
 
-test('the iframe cache key changes for the revision-first boot contract',()=>{
-  assert.match(index,/legacy\.html\?v=20260721-state-revision-1/);
+test('the iframe cache key changes for the post reload freeze contract',()=>{
+  assert.match(index,/legacy\.html\?v=20260721-post-reload-freeze-1/);
+  assert.match(index,/owner-web-login\.js\?v=20260721-7/);
   assert.match(index,/state-load-performance\.js\?v=20260721-1/);
 });
