@@ -15,7 +15,7 @@ async function syncMasters(payload){
   const jobs=[];
   for(const[table,rows]of[['employees',employees],['vehicles',vehicles],['customers',customers]])
     for(let i=0;i<rows.length;i+=200){const slice=rows.slice(i,i+200);jobs.push(()=>upsert(table,slice,'external_id'));}
-  const deadline=Date.now()+15_000;let skipped=0;
+  const deadline=Date.now()+8_000;let skipped=0;
   async function worker(){
     while(jobs.length){
       if(Date.now()>deadline){skipped+=jobs.length;jobs.length=0;return;}
@@ -42,7 +42,11 @@ export default async function handler(req,res){
     // يكتب حالة خالية فوق حالة سحابية مليانة فتختفي بيانات العملاء والأرصدة.
     // الحفظ يُرفض إذا كانت الحالة الجديدة فارغة والمحفوظة غير فارغة، إلا
     // بتأكيد صريح (force) — مثل حالة التصفير المتعمد.
-    if(input.force!==true){
+    // الفحص لا يلزم إلا إذا كانت الحالة الواردة نفسها فارغة في إحدى المجموعات.
+    // تحميل الحالة السحابية كاملة في كل حفظة كان يضيف آلاف السجلات إلى زمن
+    // الطلب ويتسبب في انتهاء المهلة، والحفظ الطبيعي لا يحتاجه إطلاقًا.
+    const incomingEmptyGroup=!(input.payload?.legacy?.cli||[]).length||!(input.payload?.ops?.customerOpeningBalances||[]).length;
+    if(input.force!==true&&incomingEmptyGroup){
       const currentRows=await select('app_state','key=eq.primary&select=payload&limit=1').catch(()=>[]);
       const current=currentRows?.[0]?.payload||null;
       // كل مجموعة تُحمى على حدة: فقدان الأرصدة الافتتاحية وحده كان يمر دون
