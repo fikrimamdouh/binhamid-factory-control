@@ -6,9 +6,10 @@ import { employeeRoleToAppRole,normalizeNationalId } from '../api/_lib/employee-
 import { parseUnifiedMasterWorkbook,normalizePlate } from '../api/_lib/master-data-workbook.js';
 
 const sheet=rows=>XLSX.utils.aoa_to_sheet(rows);
+const TEST_ID='12345678',TEST_ASSET='TEST-ASSET-01',TEST_PLATE='TST-0001';
 
 test('employee role and identity normalization covers factory roles',()=>{
-  assert.equal(normalizeNationalId('٢٤١-411 1530'),'2414111530');
+  assert.equal(normalizeNationalId('١٢٣-٤٥٦ ٧٨'),'12345678');
   assert.equal(employeeRoleToAppRole('سائق خلاطة'),'driver');
   assert.equal(employeeRoleToAppRole('مسؤول الديزل والأسطول'),'fuel_operator');
   assert.equal(employeeRoleToAppRole('مبيعات الخرسانة'),'concrete_sales');
@@ -20,27 +21,27 @@ test('unified workbook creates persistent employee, asset and assignment records
   const workbook=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook,sheet([
     ['المصدر','رقم الهوية / الإقامة','اسم الموظف','الراتب الأساسي','بدل السكن','بدل النقل','إجمالي راتب مدد','تابع للمصنع؟','الموقع','الوظيفة','الراتب الفعلي','الرقم الوظيفي','الجوال','الحالة','ملاحظات'],
-    ['اختبار','2414111530','خالد عبد الله',400,600,500,1500,'نعم','المصنع','سائق',1700,'E-10','+966500000000','نشط','']
+    ['بيانات صناعية',TEST_ID,'موظف اختبار',400,600,500,1500,'نعم','موقع اختبار','سائق',1700,'EMP-TEST','','نشط','']
   ]),'الموظفون');
   XLSX.utils.book_append_sheet(workbook,sheet([
     ['اللوحة الموحدة','اللوحة كما وردت','اسم السائق/البطاقة','وصف المركبة','Column1','نوع الوقود','عدد التعبئات','إجمالي اللترات','إجمالي المبلغ','أول تعبئة','آخر تعبئة','ملاحظات'],
-    ['ARA-9869','ارا - ARA - 9869','خالد','قلاب','','Diesel',2,200,400,'','','']
+    [TEST_PLATE,TEST_PLATE,'موظف اختبار','مركبة اختبار','','Diesel',2,200,400,'','','']
   ]),'لوحات الديزل');
   XLSX.utils.book_append_sheet(workbook,sheet([
     ['رقم الأصل ERP','رقم اللوحة / التشغيل','Column1','نوع الأصل','المجموعة','الماركة والموديل','سنة الصنع','رقم الهيكل VIN','تكلفة الشراء','الحالة التشغيلية','الموقع','ملاحظات'],
-    ['110300006','9869','','قلاب','السيارات ووسائل النقل','فولفو',2020,'VIN1',350000,'Working','المصنع','']
+    [TEST_ASSET,'0001','','قلاب اختبار','السيارات ووسائل النقل','طراز اختباري',2020,'VIN-TEST',350000,'Working','موقع اختبار','']
   ]),'الأصول الثابتة');
   XLSX.utils.book_append_sheet(workbook,sheet([
     ['قالب الربط الموحد'],['تعليمات'],[],[],
     ['إجراء الاستيراد','تابع للمصنع؟','رقم الهوية / الإقامة','اسم الموظف','الراتب الأساسي','بدل السكن','بدل النقل','إجمالي راتب مدد','الراتب الفعلي','الموقع','الوظيفة','لوحة الديزل','اسم بطاقة الوقود','وصف المركبة بالديزل','نوع الوقود','رقم الأصل ERP','لوحة الأصل / التشغيل','نوع الأصل','المجموعة','الماركة والموديل','تكلفة الشراء','حالة المطابقة','تاريخ بداية الربط','نسبة تحميل الراتب %','ملاحظات'],
-    ['تحديث/إنشاء','نعم','2414111530','خالد عبد الله',400,600,500,1500,1700,'المصنع','سائق','ARA-9869','','','Diesel','110300006','','قلاب','','',350000,'مطابق','2026-07-21',100,'']
+    ['تحديث/إنشاء','نعم',TEST_ID,'موظف اختبار',400,600,500,1500,1700,'موقع اختبار','سائق',TEST_PLATE,'','','Diesel',TEST_ASSET,'','قلاب اختبار','','',350000,'مطابق','2026-01-01',100,'']
   ]),'الربط الموحد');
   const parsed=parseUnifiedMasterWorkbook(workbook,XLSX);
   assert.equal(parsed.stats.employees,1);
   assert.equal(parsed.stats.linkedAssets,1);
-  assert.equal(parsed.assets[0].assetNo,'110300006');
-  assert.equal(parsed.assets[0].assignedNationalId,'2414111530');
-  assert.equal(normalizePlate(parsed.assets[0].plateNo),'ARA9869');
+  assert.equal(parsed.assets[0].assetNo,TEST_ASSET);
+  assert.equal(parsed.assets[0].assignedNationalId,TEST_ID);
+  assert.equal(normalizePlate(parsed.assets[0].plateNo),'TST0001');
   assert.equal(parsed.employees[0].role,'سائق');
 });
 
