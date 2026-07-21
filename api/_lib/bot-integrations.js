@@ -7,7 +7,6 @@ const line=(name,ready,vars,note='')=>`${mark(ready)} <b>${name}</b>: ${yes(read
 
 export function integrationCatalog(){
   const state=readiness();
-  const gpsAuth=Boolean(config.gpsApiToken||(config.gpsApiUser&&config.gpsApiPassword));
   return[
     {group:'التشغيل الأساسي',items:[
       {name:'Supabase وقاعدة البيانات',ready:state.supabaseConfigured,vars:['SUPABASE_URL','SUPABASE_SERVICE_ROLE_KEY']},
@@ -16,14 +15,12 @@ export function integrationCatalog(){
     ]},
     {group:'Telegram والحضور',items:[
       {name:'بوت Telegram',ready:state.telegramConfigured,vars:['TELEGRAM_BOT_TOKEN','TELEGRAM_WEBHOOK_SECRET','TELEGRAM_OWNER_ID']},
-      {name:'الحضور والانصراف',ready:state.telegramConfigured&&state.supabaseConfigured,vars:[],note:'لا يحتاج API Key إضافيًا؛ يستخدم Telegram وSupabase وموقع الهاتف بعد موافقة المستخدم.'}
+      {name:'الحضور والانصراف',ready:state.telegramConfigured&&state.supabaseConfigured,vars:[],note:'لا يحتاج API Key إضافيًا؛ يستخدم Telegram وSupabase وموقع الهاتف بعد موافقة المستخدم.'},
+      {name:'حالة الأسطول من حضور السائقين',ready:state.telegramConfigured&&state.supabaseConfigured,vars:[],note:'حالة تشغيلية مبنية على الحضور وربط السائق بالمركبة، وليست تتبع GPS أو Traccar.'}
     ]},
     {group:'الذكاء والبحث',items:[
       {name:'OpenAI للصوت والمساعد وبحث الأسعار',ready:state.openaiConfigured,vars:['OPENAI_API_KEY'],note:'الموديلات اختيارية عبر OPENAI_TEXT_MODEL وOPENAI_TRANSCRIBE_MODEL.'},
       {name:'Google Places لبحث الموردين',ready:state.placesConfigured,vars:['GOOGLE_PLACES_API_KEY']}
-    ]},
-    {group:'الأسطول والموقع',items:[
-      {name:`GPS — ${config.gpsProvider||'traccar'}`,ready:state.gpsConfigured,vars:['GPS_PROVIDER','GPS_API_BASE_URL',gpsAuth&&config.gpsApiToken?'GPS_API_TOKEN':'GPS_API_USER + GPS_API_PASSWORD'],note:'Traccar مفتوح المصدر ولا يحتاج مفتاحًا من GitHub؛ يحتاج رابط خادم وحساب أو Token.'}
     ]},
     {group:'التقارير والاستمرارية',items:[
       {name:`PDF — ${config.pdfProvider||'auto'}`,ready:state.pdfConfigured,vars:['PDF_PROVIDER','PDF_API_URL','PDF_API_KEY (اختياري)'],note:'Gotenberg لا يحتاج مفتاحًا إذا كان على خادم خاص.'},

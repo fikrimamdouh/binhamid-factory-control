@@ -66,10 +66,13 @@ test('Telegram Excel flow generates both cumulative PDF files without approving 
 
 test('integration catalog lists key names but never prints configured secret values',async()=>{
   const text=integrationCatalogText();
-  for(const name of ['SUPABASE_URL','TELEGRAM_BOT_TOKEN','OPENAI_API_KEY','GOOGLE_PLACES_API_KEY','GPS_API_BASE_URL','PDF_API_URL','BACKUP_ENCRYPTION_KEY'])assert.ok(text.includes(name),`missing ${name}`);
+  for(const name of ['SUPABASE_URL','TELEGRAM_BOT_TOKEN','OPENAI_API_KEY','GOOGLE_PLACES_API_KEY','PDF_API_URL','BACKUP_ENCRYPTION_KEY'])assert.ok(text.includes(name),`missing ${name}`);
   assert.match(text,/الحضور والانصراف/);
+  assert.match(text,/حالة الأسطول من حضور السائقين/);
+  assert.match(text,/ليست تتبع GPS أو Traccar/);
   assert.match(text,/لا يحتاج API Key إضافيًا/);
   const source=await read('api/_lib/bot-integrations.js');
+  assert.doesNotMatch(source,/GPS_API_BASE_URL|GPS_PROVIDER|Traccar مفتوح المصدر/);
   assert.doesNotMatch(source,/config\.openaiKey\}/);
   assert.doesNotMatch(source,/config\.telegramToken\}/);
   assert.doesNotMatch(source,/config\.supabaseKey\}/);

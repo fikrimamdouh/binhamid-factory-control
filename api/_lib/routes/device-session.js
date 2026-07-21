@@ -1,6 +1,6 @@
 import { requireAdmin } from '../auth.js';
 import { body, errorResponse, json, method } from '../http.js';
-import { assertSameOrigin, issueDeviceSession, readDeviceSession } from '../device-session.js';
+import { assertSameOrigin, clearDeviceSession, issueDeviceSession, readDeviceSession } from '../device-session.js';
 import { insert, patch, rpc, select } from '../supabase.js';
 
 const validDevice=value=>/^dev-[A-Za-z0-9-]{8,150}$/.test(String(value||''));
@@ -19,6 +19,12 @@ export async function deviceSession(req,res){
   if(!method(req,res,['POST']))return;
   try{
     assertSameOrigin(req);const input=await body(req,4096),deviceId=String(input.deviceId||'');if(!validDevice(deviceId))throw Object.assign(new Error('معرف الجهاز غير صالح'),{status:400,code:'DEVICE_ID_INVALID'});
+    if(input.action==='logout'){
+      const current=readDeviceSession(req);
+      if(current?.deviceId&&current.deviceId!==deviceId)throw Object.assign(new Error('جلسة الجهاز لا تطابق الجهاز المطلوب تسجيل خروجه'),{status:409,code:'DEVICE_SESSION_MISMATCH'});
+      clearDeviceSession(req,res);
+      return json(res,200,{ok:true,mode:'logged-out',bound:false,needsApproval:true});
+    }
     if(input.action==='bind'){
       const admin=requireAdmin(req),appUserId=String(input.appUserId||'');if(!validUser(appUserId))throw Object.assign(new Error('معرف المستخدم المطلوب ربطه غير صالح'),{status:400,code:'DEVICE_APP_USER_INVALID'});
       await rpc('approve_device_enrollment',{p_device_id:deviceId,p_app_user_id:appUserId,p_actor:admin.actor});const session=issueDeviceSession(req,res,deviceId,appUserId);return json(res,200,{ok:true,mode:'approved-device-session',deviceId:session.deviceId,bound:true,expiresAt:new Date(session.exp*1000).toISOString()});

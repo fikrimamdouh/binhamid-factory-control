@@ -17,9 +17,6 @@ export async function databaseReadiness(req,res){
 
 export async function status(req,res){
   if(!method(req,res,['GET']))return;
-  // تشخيص إعداد PDF بدون كشف أي سر: المزوّد المكتشف، اسم النطاق فقط، وهل
-  // ما زال الرابط يحتوي العنصر النائب ACCOUNT_ID بدل معرّف الحساب الحقيقي،
-  // وهل المفتاح بالطول المتوقع لتوكن Cloudflare. لا تُطبع القيم إطلاقًا.
   const pdfUrl=String(process.env.PDF_API_URL||''),pdfKey=String(process.env.PDF_API_KEY||'');
   let pdfHost='';try{pdfHost=pdfUrl?new URL(pdfUrl).host:'';}catch(_){pdfHost='رابط غير صالح';}
   const pdfDiagnostics={
@@ -29,5 +26,5 @@ export async function status(req,res){
     accountIdLooksValid:/\/accounts\/[0-9a-f]{32}\//i.test(pdfUrl),
     keyLooksLikeGlobalApiKey:pdfKey.length>0&&pdfKey.length<=37&&/^[0-9a-f]+$/i.test(pdfKey)
   };
-  json(res,200,{ok:true,version:'2026.07.16-enterprise-phase-one',...readiness(),placesConfigured:Boolean(process.env.GOOGLE_PLACES_API_KEY||process.env.PLACES_DIRECTORY_KEY),gpsConfigured:Boolean(process.env.GPS_API_BASE_URL&&(process.env.GPS_API_TOKEN||process.env.GPS_API_USER)),cronConfigured:Boolean(process.env.CRON_SECRET),pdfConfigured:Boolean(process.env.PDF_API_URL&&process.env.PDF_API_KEY),pdfDiagnostics,webhookVersion:3,conversationHistory:true,directOperationsSchema:4});
+  json(res,200,{ok:true,version:'2026.07.21-fleet-attendance-status',...readiness(),placesConfigured:Boolean(process.env.GOOGLE_PLACES_API_KEY||process.env.PLACES_DIRECTORY_KEY),fleetAttendanceStatus:true,cronConfigured:Boolean(process.env.CRON_SECRET),pdfConfigured:Boolean(process.env.PDF_API_URL&&process.env.PDF_API_KEY),pdfDiagnostics,webhookVersion:3,conversationHistory:true,directOperationsSchema:4});
 }
