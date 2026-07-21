@@ -10,23 +10,36 @@ const ARABIC_SALES_ROLES=new Set(['block_sales','concrete_sales']);
 const active=identity=>Boolean(identity?.active);
 const canAttend=identity=>active(identity)&&ATTENDANCE_ROLES.has(identity.role);
 const canDrive=identity=>active(identity)&&DRIVER_ROLES.has(identity.role);
+const clean=value=>String(value??'').trim();
 const localizedMessage=(message,identity)=>ARABIC_SALES_ROLES.has(identity?.role)?{...message,from:{...(message.from||{}),language_code:'ar'}}:message;
 async function deny(message,identity,text='لا تملك صلاحية تنفيذ هذه الحركة.'){
   await clearMaintenanceSession(message.chat.id,identity?.external_id||message.from?.id).catch(()=>{});
   return sendMessage(message.chat.id,text,{reply_markup:{remove_keyboard:true}});
 }
 function requiresDriverAction(action){return['shift_start','shift_end','trip_start','trip_end','fuel','location_update','live_help','my_movement'].includes(action);}
+async function storedSiteForEmployee(employeeExternalId){
+  const rows=await select('app_state','key=eq.primary&select=employees:payload->legacy->emp&limit=1').catch(()=>[]),employees=rows?.[0]?.employees;
+  if(!Array.isArray(employees))return null;
+  const employee=employees.find(row=>clean(row?.id||row?.external_id)===clean(employeeExternalId));
+  const siteId=clean(employee?.attendanceSiteId||employee?.workSiteId||employee?.siteId);
+  if(!siteId)return null;
+  const site=(await select('work_sites',`id=eq.${encodeURIComponent(siteId)}&active=eq.true&select=id,name,latitude,longitude,radius_m,active&limit=1`).catch(()=>[]))?.[0];
+  return site&&site.active!==false&&site.latitude!=null&&site.longitude!=null?site:null;
+}
 async function attendanceReadiness(identity){
-  const userId=String(identity?.user_id||'').trim();
+  const userId=clean(identity?.user_id);
   if(!userId)return{ready:false,reason:'حساب Telegram غير مربوط بمستخدم داخل النظام.'};
   const [assignmentRows,userRows]=await Promise.all([
     select('employee_assignments',`app_user_id=eq.${encodeURIComponent(userId)}&active=eq.true&select=employee_external_id,site_id,active,work_sites(id,name,latitude,longitude,radius_m,active)&limit=1`).catch(()=>[]),
     select('app_users',`id=eq.${encodeURIComponent(userId)}&active=eq.true&select=id,employee_external_id&limit=1`).catch(()=>[])
   ]);
-  const assignment=assignmentRows?.[0]||null,employeeExternalId=String(assignment?.employee_external_id||identity?.employee_external_id||userRows?.[0]?.employee_external_id||'').trim();
+  const assignment=assignmentRows?.[0]||null,employeeExternalId=clean(assignment?.employee_external_id||identity?.employee_external_id||userRows?.[0]?.employee_external_id);
   if(!employeeExternalId)return{ready:false,reason:'الحساب معتمد، لكنه غير مربوط بسجل موظف. اربطه من شاشة الحضور والسائقين.'};
-  if(!assignment)return{ready:true,fallback:true,employeeExternalId};
-  if(!assignment.site_id)return{ready:false,reason:'الموظف مربوط بالحساب، لكن موقع الحضور غير محدد.'};
+  if(!assignment?.site_id){
+    const fallbackSite=await storedSiteForEmployee(employeeExternalId);
+    if(!fallbackSite)return{ready:false,reason:'الموظف مربوط بالحساب، لكن موقع الحضور غير محدد.'};
+    return{ready:true,fallback:true,site:fallbackSite,employeeExternalId};
+  }
   const site=assignment.work_sites;
   if(!site||site.active===false||site.latitude==null||site.longitude==null)return{ready:false,reason:'موقع الحضور المرتبط غير فعال أو إحداثياته غير مكتملة.'};
   return{ready:true,assignment,site,employeeExternalId};
