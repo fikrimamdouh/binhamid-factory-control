@@ -74,7 +74,21 @@ export default async function handler(req,res){
       }
     }
     const saveStartedAt=Date.now();
-    const result=await rpc('save_app_state',{p_payload:input.payload,p_base_revision:input.baseRevision===null||input.baseRevision===undefined?null:Number(input.baseRevision),p_updated_by:actor.actor,p_device_id:deviceId,p_reason:clean(input.reason||'مزامنة',300)}),saved=Array.isArray(result)?result[0]:result;
+    const saveArgs=base=>({p_payload:input.payload,p_base_revision:base,p_updated_by:actor.actor,p_device_id:deviceId,p_reason:clean(input.reason||'مزامنة',300)});
+    const requestedRevision=input.baseRevision===null||input.baseRevision===undefined?null:Number(input.baseRevision);
+    let result;
+    try{
+      result=await rpc('save_app_state',saveArgs(requestedRevision));
+    }catch(error){
+      // تعارض رقم النسخة كان يوقف الحفظ نهائيًا ويترك المستخدم بلا مزامنة، رغم
+      // أن حماية المحو أعلاه تمنع أصلًا الكتابة بحالة ناقصة. لذلك نعيد المحاولة
+      // مرة واحدة بأحدث رقم نسخة بدل رفض بيانات المستخدم.
+      const conflict=String(error?.data?.code||'')==='40001'||/revision conflict/i.test(String(error?.message||error?.data?.message||''));
+      if(!conflict)throw error;
+      console.warn('[state save] revision conflict resolved by retry',{requestedRevision});
+      result=await rpc('save_app_state',saveArgs(null));
+    }
+    const saved=Array.isArray(result)?result[0]:result;
     console.log('[state save] rpc ms',Date.now()-saveStartedAt);
     await syncMasters(input.payload).catch(error=>console.error('master sync failed',error));
     await insert('audit_log',[{actor_type:actor.kind==='device'?'device':'web',actor_id:actor.actor,action:'state_sync',entity_type:'app_state',entity_id:'primary',details:{reason:clean(input.reason,300),deviceId,revision:saved?.revision}}],{prefer:'return=minimal'}).catch(()=>{});
