@@ -29,6 +29,17 @@ jobs:
         run: node --check api/_lib/customer-portfolio-pdf.js
       - name: Verify restored declarations and sales settings
         run: node scripts/verify-declaration-sales.mjs
+      - name: Capture validation failure
+        if: failure()
+        run: |
+          mkdir -p debug
+          node scripts/verify-declaration-sales.mjs > debug/declaration-validation-error.txt 2>&1 || true
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add debug/declaration-validation-error.txt
+          git diff --cached --quiet && exit 0
+          git commit -m 'chore: capture declaration validation failure'
+          git push origin HEAD:fix/restore-declarations-sales-v3
       - name: Verify no unrelated files changed
         run: |
           git status --porcelain
@@ -42,8 +53,8 @@ jobs:
         if: success()
         run: |
           rm -f scripts/apply-declaration-sales-restore.py scripts/run-scoped-declaration-restore.txt scripts/verify-declaration-sales.mjs
-          rm -f .github/workflows/run-scoped-declaration-restore.yml notes/.keep-review
-          rmdir notes 2>/dev/null || true
+          rm -f .github/workflows/run-scoped-declaration-restore.yml notes/.keep-review debug/declaration-validation-error.txt
+          rmdir notes debug 2>/dev/null || true
       - name: Commit validated change
         if: success()
         run: |
