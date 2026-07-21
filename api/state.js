@@ -15,6 +15,8 @@ async function syncMasters(payload){
   const jobs=[];
   for(const[table,rows]of[['employees',employees],['vehicles',vehicles],['customers',customers]])
     for(let i=0;i<rows.length;i+=200){const slice=rows.slice(i,i+200);jobs.push(()=>upsert(table,slice,'external_id'));}
+  // الحالات الكبيرة تستهلك زمن الطلب كله في الحفظ نفسه، فتُؤجَّل مزامنة
+  // الجداول الفرعية إلى الحفظة التالية بدلًا من إسقاط العملية كلها بمهلة.
   const deadline=Date.now()+8_000;let skipped=0;
   async function worker(){
     while(jobs.length){
@@ -34,7 +36,9 @@ export default async function handler(req,res){
       const rows=await select('app_state','key=eq.primary&select=key,revision,updated_at,updated_by,device_id,payload&limit=1'),row=rows?.[0];
       return json(res,200,row?{revision:row.revision,updatedAt:row.updated_at,updatedBy:row.updated_by,deviceId:row.device_id,payload:row.payload}:{revision:0,payload:null});
     }
-    const input=await body(req),deviceId=clean(input.deviceId,160);
+    const startedAt=Date.now(),input=await body(req),deviceId=clean(input.deviceId,160);
+    const payloadBytes=JSON.stringify(input.payload||{}).length;
+    console.log('[state save] payload bytes',payloadBytes,'| parse ms',Date.now()-startedAt);
     if(!input.payload||typeof input.payload!=='object')throw Object.assign(new Error('حالة البرنامج غير موجودة'),{status:400});
     if(!input.payload.legacy||!input.payload.ops)throw Object.assign(new Error('الحالة المرسلة ناقصة'),{status:400});
     if(actor.kind==='device'&&deviceId!==actor.deviceId)throw Object.assign(new Error('معرف الجهاز لا يطابق جلسة الربط'),{status:403,code:'DEVICE_ID_MISMATCH'});
@@ -66,7 +70,9 @@ export default async function handler(req,res){
         if(storedCount>0&&incomingCount===0)throw Object.assign(new Error(`الحفظ متوقف لحمايتك: الجهاز الحالي لا يحتوي ${label} بينما النسخة السحابية تحتوي ${storedCount} سجلًا. افتح البرنامج على الجهاز الذي فيه بياناتك وزامن منه.`),{status:409,code:'EMPTY_STATE_BLOCKED'});
       }
     }
+    const saveStartedAt=Date.now();
     const result=await rpc('save_app_state',{p_payload:input.payload,p_base_revision:input.baseRevision===null||input.baseRevision===undefined?null:Number(input.baseRevision),p_updated_by:actor.actor,p_device_id:deviceId,p_reason:clean(input.reason||'مزامنة',300)}),saved=Array.isArray(result)?result[0]:result;
+    console.log('[state save] rpc ms',Date.now()-saveStartedAt);
     await syncMasters(input.payload).catch(error=>console.error('master sync failed',error));
     await insert('audit_log',[{actor_type:actor.kind==='device'?'device':'web',actor_id:actor.actor,action:'state_sync',entity_type:'app_state',entity_id:'primary',details:{reason:clean(input.reason,300),deviceId,revision:saved?.revision}}],{prefer:'return=minimal'}).catch(()=>{});
     json(res,200,{ok:true,revision:Number(saved?.revision||0),updatedAt:saved?.updated_at||new Date().toISOString()});
