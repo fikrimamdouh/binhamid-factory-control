@@ -66,14 +66,17 @@ export function customerPortfolioHtml({type,rows,totals,rep,state,reportDate}){
     @page{size:A4;margin:12mm}
     *{box-sizing:border-box}
     body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;color:#173746;font-size:10.5px;line-height:1.65}
-    .band{display:flex;align-items:center;gap:12px;border-bottom:4px solid ${accent(type)};padding-bottom:10px;margin-bottom:10px}
-    .band .badge{width:46px;height:46px;border-radius:12px;background:${accent(type)};color:#fff;display:flex;align-items:center;justify-content:center;font-size:24px;flex:none}
+    .band{border-bottom:4px solid ${accent(type)};padding-bottom:10px;margin-bottom:10px;width:100%}
+    .band td{border:0;padding:0;vertical-align:middle}
+    .band .badge{width:46px;height:46px;border-radius:12px;background:${accent(type)};color:#fff;font-size:24px;text-align:center;line-height:46px}
     .band h1{font-size:19px;margin:0}
     .band .sub{color:#5c6d74;font-size:10px;margin-top:2px}
-    .meta{background:#f7f9fa;border:1px solid #e1e7e9;border-radius:8px;padding:8px 10px;margin-bottom:10px;display:grid;grid-template-columns:1fr 1fr;gap:4px 14px}
+    .meta{background:#f7f9fa;border:1px solid #e1e7e9;border-radius:8px;margin-bottom:10px;width:100%}
+    .meta td{border:0;padding:5px 10px;width:50%;vertical-align:top}
     .meta div b{color:${accent(type)}}
     h2{font-size:13px;margin:14px 0 6px}
-    .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin:10px 0}
+    .cards{width:100%;margin:10px 0;border-collapse:separate;border-spacing:7px 0}
+    .cards td{border:0;padding:0;width:25%;vertical-align:top}
     .card{border:1px solid #c5d0d5;border-radius:9px;background:#f7f9fa;padding:8px 9px}
     .card span.lb{color:#5c6d74;display:block;font-size:9px}
     .card strong{display:block;font-size:14px;color:${accent(type)};margin-top:2px}
@@ -85,26 +88,29 @@ export function customerPortfolioHtml({type,rows,totals,rep,state,reportDate}){
     .empty{border:1px dashed #aebbc0;padding:10px;color:#60737c;border-radius:8px;text-align:center}
     ol.clauses{margin:6px 0 0;padding-inline-start:18px}
     ol.clauses li{margin-bottom:7px}
-    .sign{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:22px}
+    .sign{width:100%;margin-top:22px;border-collapse:separate;border-spacing:14px 0}
+    .sign td{border:0;vertical-align:top}
     .sign div{border-top:1px solid #8a97a0;padding-top:6px;font-size:9.5px;color:#5c6d74}
+    table{page-break-inside:auto}
+    tr{page-break-inside:avoid}
+    thead{display:table-header-group}
+    ol.clauses li{page-break-inside:avoid}
     .footer{margin-top:16px;color:#60737c;font-size:8.5px;border-top:1px solid #e1e7e9;padding-top:7px}
   </style></head><body>
-    <div class="band"><div class="badge">${icon(type)}</div><div><h1>${esc(title(type))}</h1><div class="sub">${esc(state.companyName)}</div></div></div>
-    <div class="meta">
-      <div>المسؤول: <b>${esc(rep?.name||'غير مسند')}</b></div>
-      <div>المسمى الوظيفي: <b>${esc(rep?.role||ROLE_BY_TYPE[type])}</b></div>
-      <div>الرقم الوظيفي: <b>${esc(rep?.no||'—')}</b></div>
-      <div>تاريخ الإصدار: <b>${esc(reportDate)}</b></div>
-    </div>
-    <div class="cards">
-      <div class="card"><span class="lb">عدد العملاء</span><strong>${totals.customers||0}</strong></div>
-      <div class="card"><span class="lb">إجمالي التوريدات</span><strong>${money(totals.cumulativeSales)} ر.س</strong></div>
-      <div class="card"><span class="lb">إجمالي المسدد</span><strong>${money(totals.cumulativePaid)} ر.س</strong></div>
-      <div class="card"><span class="lb">عملاء عليهم رصيد</span><strong>${stillDue.length}</strong></div>
-    </div>
+    <table class="band"><tr><td style="width:46px"><div class="badge">${icon(type)}</div></td><td style="padding-inline-start:12px"><h1>${esc(title(type))}</h1><div class="sub">${esc(state.companyName)}</div></td></tr></table>
+    <table class="meta">
+      <tr><td>المسؤول: <b>${esc(rep?.name||'غير مسند')}</b></td><td>المسمى الوظيفي: <b>${esc(rep?.role||ROLE_BY_TYPE[type])}</b></td></tr>
+      <tr><td>الرقم الوظيفي: <b>${esc(rep?.no||'—')}</b></td><td>تاريخ الإصدار: <b>${esc(reportDate)}</b></td></tr>
+    </table>
+    <table class="cards"><tr>
+      <td><div class="card"><span class="lb">عدد العملاء</span><strong>${totals.customers||0}</strong></div></td>
+      <td><div class="card"><span class="lb">إجمالي التوريدات</span><strong>${money(totals.cumulativeSales)} ر.س</strong></div></td>
+      <td><div class="card"><span class="lb">إجمالي المسدد</span><strong>${money(totals.cumulativePaid)} ر.س</strong></div></td>
+      <td><div class="card"><span class="lb">عملاء عليهم رصيد</span><strong>${stillDue.length}</strong></div></td>
+    </tr></table>
     <h2>📋 بنود الإقرار</h2>${clauseList(state.declarationText,ctx)}
     <h2>🧾 كشف العملاء المُسندين</h2>${customersTable(rows)}
-    <div class="sign"><div>اسم وتوقيع المسؤول: ${esc(rep?.name||'')}</div><div>اعتماد الإدارة والختم</div></div>
+    <table class="sign"><tr><td>اسم وتوقيع المسؤول: ${esc(rep?.name||'')}</td><td>اعتماد الإدارة والختم</td></tr></table>
     <div class="footer">تقرير مولّد تلقائيًا من حركة الملف اليومي وأرصدة قاعدة البيانات. القيم قابلة للتغيّر مع كل ملف يومي جديد حتى الاعتماد النهائي.</div>
   </body></html>`;
 }
