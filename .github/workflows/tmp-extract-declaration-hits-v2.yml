@@ -1,0 +1,44 @@
+name: Focused Declaration Extractor V2
+on:
+  push:
+    branches:
+      - fix/restore-original-declaration-texts
+    paths:
+      - '.github/workflows/tmp-extract-declaration-hits-v2.yml'
+permissions:
+  contents: write
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/restore-original-declaration-texts
+      - name: Extract focused declaration lines
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          src=Path('legacy.html').read_text(encoding='utf-8').splitlines()
+          tokens=['أقر بأن العملاء المدرجين','مسؤولية التحصيل والائتمان','إقرار استلام عهدة','إقرار وتعهد','إخلاء الطرف','أقر أنا الموق','txt:{','txt: {','cli:','veh:','cash:','plant:','mech:']
+          hits=[]
+          for i,line in enumerate(src):
+              if len(line)<12000 and (any(t in line for t in tokens) or re.search(r'\b(?:const|let|var)\s+(?:DEF|DEFAULTS|D)\b',line)):
+                  hits.append(i)
+          out=[]
+          for hit in sorted(set(hits)):
+              start=max(0,hit-8); end=min(len(src),hit+16)
+              out.append(f'===== legacy.html:{hit+1} =====')
+              out.extend(f'{j+1:05d}: {src[j]}' for j in range(start,end))
+          Path('debug').mkdir(exist_ok=True)
+          Path('debug/declaration-hits-v2.txt').write_text('\n'.join(out),encoding='utf-8')
+          print('hits',len(hits),'lines',len(out))
+          PY
+      - name: Commit result
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add debug/declaration-hits-v2.txt
+          git diff --cached --quiet && exit 0
+          git commit -m 'chore: extract focused declaration hits v2'
+          git push origin HEAD:fix/restore-original-declaration-texts
