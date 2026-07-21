@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 const asset=fs.readFileSync(new URL('../assets/final-ui-consistency.js',import.meta.url),'utf8');
-const route=fs.readFileSync(new URL('../api/_lib/routes/attendance-safe.js',import.meta.url),'utf8');
-const router=fs.readFileSync(new URL('../api/router.js',import.meta.url),'utf8');
+const apiPath=parts=>new URL('../'+['api',...parts].join('/'),import.meta.url);
+const route=fs.readFileSync(apiPath(['_lib','routes','attendance-safe.js']),'utf8');
+const router=fs.readFileSync(apiPath(['router.js']),'utf8');
 const index=fs.readFileSync(new URL('../index.html',import.meta.url),'utf8');
 
 test('exact Telegram button reuses the print button result',()=>{
