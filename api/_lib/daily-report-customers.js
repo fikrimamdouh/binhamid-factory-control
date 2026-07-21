@@ -1,6 +1,9 @@
 const cleanText=(value,max=500)=>String(value??'').trim().replace(/\s+/g,' ').slice(0,max);
 const nameKey=value=>cleanText(value).toLocaleLowerCase('ar');
 
+// مهلة السداد الافتراضية المعتمدة في المصنع لكل عميل جديد.
+const DEFAULT_PAYMENT_DAYS=3;
+
 export function buildDailyReportCustomerContext(payload={},customers=[]){
   const errors=[],warnings=[],customerMap=new Map(),keyOwners=new Map();
   for(const customer of customers||[]){
@@ -47,7 +50,9 @@ export function buildDailyReportCustomerContext(payload={},customers=[]){
       errors.push({code:'CUSTOMER_NAME_CONFLICT',path:`customer:${candidate.code}`,message:`يوجد أكثر من اسم لنفس كود العميل ${candidate.code}`,names});
       continue;
     }
-    const virtual={id:null,external_id:candidate.code,customer_code:candidate.code,customer_name:names[0],credit_limit:0,payment_days:0,active:true,pendingCreation:true};
+    // العميل الجديد يرث مهلة السداد المعتمدة للمصنع (3 أيام) مثل بقية العملاء،
+    // بدل صفر يوم الذي كان يجعله مستحقًا فورًا ويظهر خطأً ضمن المتأخرات.
+    const virtual={id:null,external_id:candidate.code,customer_code:candidate.code,customer_name:names[0],credit_limit:0,payment_days:DEFAULT_PAYMENT_DAYS,active:true,pendingCreation:true};
     customerMap.set(candidate.code,virtual);pending.push(virtual);
     warnings.push({code:'CUSTOMER_WILL_BE_CREATED',path:`customer:${candidate.code}`,message:`سيتم إنشاء العميل ${candidate.code} عند اعتماد التقرير`,customerCode:candidate.code,customerName:names[0]});
   }
