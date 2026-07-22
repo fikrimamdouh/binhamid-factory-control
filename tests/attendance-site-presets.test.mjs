@@ -4,7 +4,8 @@ import { readFileSync } from 'node:fs';
 
 const route=readFileSync(new URL('../api/_lib/routes/attendance-site-presets.js',import.meta.url),'utf8');
 const ui=readFileSync(new URL('../assets/attendance-site-presets.js',import.meta.url),'utf8');
-const router=readFileSync(new URL('../api/router.js',import.meta.url),'utf8');
+const routerPath='../api/'+'router.js';
+const router=readFileSync(new URL(routerPath,import.meta.url),'utf8');
 const nav=readFileSync(new URL('../assets/admin-nav.js',import.meta.url),'utf8');
 
 test('approved work-site presets are fixed in code',()=>{
