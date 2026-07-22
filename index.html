@@ -18,7 +18,7 @@
 </head>
 <body>
   <main class="boot" id="bootScreen"><section class="boot-card"><img class="boot-mark" src="/assets/branding/binhamid-factory-logo.png" alt="مصنع بن حامد للبلوك والخرسانة الجاهزة"><h1>نظام رقابة مصنع بن حامد</h1><p>تحميل النسخة التشغيلية وربط طبقة الحفظ السحابي ومركز الاتصال.</p><div class="boot-line"></div><div id="bootError" class="boot-error"></div></section></main>
-  <iframe id="appFrame" title="نظام رقابة مصنع بن حامد" allow="unload; geolocation" src="/legacy.html?v=20260722-canonical-declarations-2"></iframe>
+  <iframe id="appFrame" title="نظام رقابة مصنع بن حامد" allow="unload; geolocation" src="/legacy.html?v=20260722-print-layout-restored-1"></iframe>
   <script>
   (function boot(){
     const frame=document.getElementById('appFrame'),screen=document.getElementById('bootScreen'),errorBox=document.getElementById('bootError');let completed=false,frameLoaded=false,loadSequence=0;
@@ -37,22 +37,20 @@
       const load=(id,src,error)=>injectScript(doc,id,src,error).catch(reason=>{console.error('[BinHamid]',reason);return null;});
       await load('binhamid-cloud-device-autolink','/assets/cloud-device-autolink.js?v=20260718-stable-shell-1','تعذر تحميل الربط التلقائي للجهاز.');
       await Promise.race([Promise.resolve(win.bhCloudDeviceReady).catch(error=>console.error('[BinHamid] تعذر إنشاء جلسة الجهاز التلقائية.',error)),new Promise(resolve=>setTimeout(resolve,1200))]);
-      await injectScript(doc,'binhamid-state-load-performance','/assets/state-load-performance.js?v=20260721-1','تعذر تحميل تحسين مزامنة الحالة.');
+      await injectScript(doc,'binhamid-state-load-performance','/assets/state-load-performance.js?v=20260722-2','تعذر تحميل تحسين مزامنة الحالة.');
       await injectScript(doc,'binhamid-cloud-script','/assets/cloud-control.js?v=20260721-empty-guard','تعذر تحميل مركز الاتصال، بينما النسخة الأساسية ما زالت متاحة.');
       await injectScript(doc,'binhamid-final-ui-consistency','/assets/final-ui-consistency.js?v=20260721-4','تعذر تحميل تثبيت الأرصدة والحضور.');
-      await injectScript(doc,'binhamid-sync-integrity-guard','/assets/sync-integrity-guard.js?v=20260722-2','تعذر تحميل حماية تعارض المزامنة.');
+      await injectScript(doc,'binhamid-sync-integrity-guard','/assets/sync-integrity-guard.js?v=20260722-3','تعذر تحميل حماية تعارض المزامنة.');
       const criticalExtensions=[
         ['binhamid-owner-web-login','/assets/owner-web-login.js?v=20260722-1'],
         ['binhamid-login-sync','/assets/login-sync.js?v=20260721-7'],
         ['binhamid-session-controls','/assets/session-controls.js?v=20260721-1'],
-        ['binhamid-canonical-declaration-texts','/assets/canonical-declaration-texts.js?v=20260722-2'],
-        ['binhamid-customer-portfolio-canonical-bridge','/assets/customer-portfolio-canonical-bridge.js?v=20260722-1']
+        ['binhamid-canonical-declaration-texts','/assets/canonical-declaration-texts.js?v=20260722-2']
       ];
       const optionalExtensions=[
         ['binhamid-attendance-control','/assets/attendance-control.js?v=20260722-1'],['binhamid-customer-opening-balances','/assets/customer-opening-balances.js?v=20260719-2'],['binhamid-customer-encrypted-bootstrap','/assets/customer-opening-balances-bootstrap.js?v=20260719-2'],['binhamid-opening-balances-chunked-sync','/assets/opening-balances-chunked-sync.js?v=20260721-3'],['binhamid-telegram-pdf-declarations','/assets/telegram-pdf-declarations.js?v=20260722-7'],['binhamid-cloud-navigation-fix','/assets/cloud-control-navigation-fix.js?v=20260716-4'],['binhamid-conversation-control','/assets/cloud-conversations.js?v=20260716-2'],['binhamid-bot-activity-dashboard','/assets/bot-activity-dashboard.js?v=20260718-1'],['binhamid-operations-control','/assets/cloud-operations.js?v=20260716-2'],['binhamid-operations-actions','/assets/cloud-operations-actions.js?v=20260716-1'],['binhamid-reports-control','/assets/cloud-reports.js?v=20260716-1'],['binhamid-user-roles','/assets/cloud-user-roles.js?v=20260721-bot-icons-1'],['binhamid-daily-summary-parser','/assets/daily-summary-parser.js?v=20260717-3'],['binhamid-existing-daily-import-fix','/assets/existing-daily-import-fix.js?v=20260717-2'],['binhamid-import-file-validation','/assets/import-file-validation.js?v=20260722-1'],['binhamid-declarations-customer-ledger-fix','/assets/declarations-customer-ledger-fix.js?v=20260717-1'],['binhamid-import-review-guard','/assets/import-review-guard.js?v=20260717-1'],['binhamid-daily-report-source','/assets/daily-report-source-of-truth.js?v=20260717-final-acceptance-19'],['binhamid-telegram-site-two-way','/assets/telegram-site-two-way.js?v=20260718-2'],['binhamid-factory-reset-cloud','/assets/factory-reset-cloud.js?v=20260718-1'],['binhamid-fleet-attendance-status','/assets/fleet-attendance-status.js?v=20260718-1'],['binhamid-internal-fuel-control','/assets/internal-fuel-control.js?v=20260718-1'],['binhamid-governance-entry','/assets/governance-entry.js?v=20260717-final-acceptance-19'],['binhamid-default-sales-reps','/assets/default-sales-reps.js?v=20260719-1'],['binhamid-admin-nav-tabs','/assets/admin-nav-tabs.js?v=20260721-2'],['binhamid-bot-interactions-log','/assets/bot-interactions-log.js?v=20260720-1']
       ];
       await Promise.all(criticalExtensions.map(([id,src])=>load(id,src,`تعذر تحميل ${id}`)));
-      await Promise.race([Promise.resolve(win.bhCanonicalPortfolioReady).catch(error=>console.error('[BinHamid] تعذر تجهيز قالب الإقرار المركزي.',error)),new Promise(resolve=>setTimeout(resolve,1600))]);
       if(sequence!==loadSequence)return;openRequestedWorkspace(win,sequence);void loadOptionalExtensions(win,optionalExtensions,load,sequence);
     }
     frame.addEventListener('load',async function(){frameLoaded=true;const sequence=++loadSequence;frame.style.visibility='hidden';frame.style.opacity='0';try{const doc=frame.contentDocument,win=frame.contentWindow;if(!doc||!doc.head||!doc.body||!win)throw new Error('تعذر الوصول إلى النسخة التشغيلية.');await prepareFrame(doc,win,sequence);if(sequence!==loadSequence)return;revealFrame();}catch(error){if(sequence===loadSequence){frame.style.visibility='visible';frame.style.opacity='1';fail(error);}}});

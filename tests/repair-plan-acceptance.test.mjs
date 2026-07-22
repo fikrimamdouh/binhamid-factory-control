@@ -11,19 +11,23 @@ test('boot remains interactive and optional modules load sequentially in idle sl
   assert.match(index,/optional modules loading in idle slices/);
   assert.match(index,/optional modules loaded/);
   assert.match(index,/revealFrame\(\);\}\},6000/);
-  assert.match(state,/automatic full state request replaced with revision metadata/);
+  assert.match(state,/automatic full state request replaced with authenticated revision metadata/);
   assert.match(state,/\/api\/state\?meta=1/);
+  assert.match(state,/X-App-User-Id/);
+  assert.match(state,/bhRefreshOwnerSession/);
 });
 
-test('revision conflicts stop writes until a safe cloud pull clears the lock',async()=>{
+test('revision conflicts stop writes until a clean cloud pull replaces local state',async()=>{
   const guard=await read('assets/sync-integrity-guard.js'),index=await read('index.html');
   assert.match(guard,/REVISION_CONFLICT_LOCKED/);
   assert.match(guard,/syntheticConflict/);
   assert.match(guard,/if\(existing\)return syntheticConflict\(existing\)/);
   assert.match(guard,/response\.status===409/);
   assert.match(guard,/binhamid-cloud-state-pulled/);
-  assert.match(guard,/سحب النسخة الحديثة بأمان/);
-  assert.match(guard,/binhamid_conflict_backup_/);
+  assert.match(guard,/سحب وتنظيف النسخة المحلية/);
+  assert.match(guard,/function cleanProgramLocalState\(\)/);
+  assert.match(guard,/function writePulledState\(data\)/);
+  assert.doesNotMatch(guard,/binhamid_conflict_backup_/);
   assert.ok(index.indexOf('cloud-control.js')<index.indexOf('sync-integrity-guard.js'),'conflict guard must wrap cloud state requests after cloud-control loads');
 });
 

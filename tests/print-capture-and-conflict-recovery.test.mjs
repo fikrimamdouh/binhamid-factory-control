@@ -14,19 +14,24 @@ test('Telegram exact-print capture cancels stale work instead of blocking the ne
   assert.match(source,/sending\.has\(key\)/);
 });
 
-test('revision conflict message provides a safe pull button and local backup',()=>{
+test('revision conflict recovery downloads backup then replaces local program state cleanly',()=>{
   const source=read('assets/sync-integrity-guard.js');
-  assert.match(source,/سحب النسخة الحديثة بأمان/);
-  assert.match(source,/binhamid_conflict_backup_/);
-  assert.match(source,/reason:'revision-conflict-before-cloud-pull'/);
-  assert.match(source,/previousFetch\('\/api\/state'/);
-  assert.match(source,/remove\(CONFLICT_KEY\)/);
+  assert.match(source,/v3-clean-local-pull/);
+  assert.match(source,/سحب وتنظيف النسخة المحلية/);
+  assert.match(source,/function downloadBackup\(\)/);
+  assert.match(source,/function cleanProgramLocalState\(\)/);
+  assert.match(source,/binhamid_cloud_access_token/);
+  assert.match(source,/binhamid_cloud_device_id/);
+  assert.match(source,/binhamid_cloud_app_user_id/);
+  assert.match(source,/function writePulledState\(data\)/);
+  assert.match(source,/remove\('binhamid_cloud_pending'\)/);
   assert.match(source,/binhamid-cloud-state-pulled/);
-  assert.match(source,/لا تضغط «مزامنة الآن»/);
+  assert.doesNotMatch(source,/binhamid_conflict_backup_/);
 });
 
 test('boot cache keys point to repaired synchronization and PDF modules',()=>{
   const index=read('index.html');
-  assert.match(index,/sync-integrity-guard\.js\?v=20260722-2/);
+  assert.match(index,/state-load-performance\.js\?v=20260722-2/);
+  assert.match(index,/sync-integrity-guard\.js\?v=20260722-3/);
   assert.match(index,/telegram-pdf-declarations\.js\?v=20260722-7/);
 });
