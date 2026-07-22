@@ -43,7 +43,7 @@ async function deleteVehicleByPlate(input,identity){
 export async function permanentCleanup(req,res){
   if(!method(req,res,['POST']))return;
   try{
-    const identity=await requireCapability(req,'attendance.manage'),input=await body(req),action=clean(input.action,80);
+    const identity=await requireCapability(req,'assets.manage'),input=await body(req),action=clean(input.action,80);
     if(action!=='delete_vehicle_by_plate')throw Object.assign(new Error('إجراء التنظيف غير معروف.'),{status:400,code:'CLEANUP_ACTION_UNKNOWN'});
     return json(res,200,{ok:true,result:await deleteVehicleByPlate(input,identity)});
   }catch(error){errorResponse(res,error);}
