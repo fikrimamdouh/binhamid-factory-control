@@ -23,13 +23,15 @@ export async function attendanceSafe(req,res){
     await requireCapability(req,'attendance.view');
     const warnings=[],scope=clean(req.query?.scope);
     if(scope==='employee-sites'){
-      const [sites,assignments,employeeRows]=await Promise.all([
+      const [sites,assignments,employeeRows,appUsers,channels]=await Promise.all([
         safeSelect('work_sites','work_sites','active=eq.true&select=id,code,name,address,latitude,longitude,radius_m,active&order=name.asc&limit=50',warnings),
         safeSelect('employee_assignments','employee_assignments','active=eq.true&select=app_user_id,employee_external_id,site_id,vehicle_external_id,job_title,shift_name,active,updated_at&order=updated_at.desc&limit=3000',warnings),
-        safeSelect('employees','employees','select=external_id,employee_no,national_id,full_name,phone,role,active,metadata&order=full_name.asc&limit=5000',warnings)
+        safeSelect('employees','employees','select=external_id,employee_no,national_id,full_name,phone,role,active,metadata&order=full_name.asc&limit=5000',warnings),
+        safeSelect('app_users','app_users','active=eq.true&select=id,full_name,role,active,employee_external_id&limit=5000',warnings),
+        safeSelect('telegram_users','user_channels','channel=eq.telegram&select=external_id,external_username,active,user_id,last_seen_at&order=last_seen_at.desc&limit=5000',warnings)
       ]);
-      const sitesById=mapBy(sites,'id'),employees=activeRows(employeeRows),deletedEmployees=deletedRows(employeeRows),enrichedAssignments=(assignments||[]).map(row=>({...row,work_sites:sitesById.get(clean(row.site_id))||null})),normalizedEmployees=employees.map(row=>({...row,work_status:clean(object(row.metadata).manualWorkStatus||object(row.metadata).workStatus||'working')}));
-      return json(res,200,{ok:true,degraded:warnings.length>0,warnings,sites:sites||[],assignments:enrichedAssignments,employees:normalizedEmployees,deletedEmployees});
+      const sitesById=mapBy(sites,'id'),channelByUser=mapBy(channels,'user_id'),employees=activeRows(employeeRows),deletedEmployees=deletedRows(employeeRows),enrichedAssignments=(assignments||[]).map(row=>({...row,work_sites:sitesById.get(clean(row.site_id))||null})),normalizedEmployees=employees.map(row=>({...row,work_status:clean(object(row.metadata).manualWorkStatus||object(row.metadata).workStatus||'working')})),users=(appUsers||[]).map(user=>{const channel=channelByUser.get(clean(user.id))||{};return{id:user.id,full_name:user.full_name||'',role:user.role||'employee',active:user.active!==false,employee_external_id:user.employee_external_id||'',telegram_external_id:channel.external_id||'',telegram_username:channel.external_username||''};});
+      return json(res,200,{ok:true,degraded:warnings.length>0,warnings,sites:sites||[],assignments:enrichedAssignments,employees:normalizedEmployees,users,deletedEmployees});
     }
 
     const range=riyadhDayRange();
