@@ -1,6 +1,6 @@
-import { select } from './supabase.js';
 import { sendMessage } from './telegram.js';
 import { clearMaintenanceSession } from './bot-maintenance.js';
+import { requiredSelect } from './required-data.js';
 import * as sales from './bot-sales.js';
 import * as guided from './bot-sales-guided.js';
 
@@ -14,11 +14,11 @@ const canCreate=identity=>active(identity)&&CREATE_ROLES.has(identity.role);
 const canUpdate=identity=>active(identity)&&UPDATE_ROLES.has(identity.role);
 const norm=value=>String(value||'').toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ًٌٍَُِّْـ]/g,'').replace(/[؟?!.,،؛:]+/g,'').replace(/\s+/g,' ').trim();
 async function deny(message,identity,text='ليست لديك صلاحية تنفيذ عملية المبيعات هذه.'){
-  await clearMaintenanceSession(message.chat.id,identity?.external_id||message.from?.id).catch(()=>{});
+  try{await clearMaintenanceSession(message.chat.id,identity?.external_id||message.from?.id);}catch(error){console.warn('[sales permission session cleanup]',String(error?.message||error).slice(0,180));}
   return sendMessage(message.chat.id,text);
 }
 function typeAllowed(identity,type){const own=roleType(identity?.role);return canCreate(identity)&&(!own||own===type);}
-async function sessionFor(message,identity){return(await select('bot_sessions',`channel=eq.telegram&chat_id=eq.${encodeURIComponent(String(message.chat.id))}&external_user_id=eq.${encodeURIComponent(String(identity.external_id||message.from?.id))}&select=*&limit=1`))?.[0]||null;}
+async function sessionFor(message,identity){return(await requiredSelect('bot_sessions',`channel=eq.telegram&chat_id=eq.${encodeURIComponent(String(message.chat.id))}&external_user_id=eq.${encodeURIComponent(String(identity.external_id||message.from?.id))}&select=*&limit=1`,'جلسة المبيعات الحالية','SALES_SESSION_READ_FAILED'))[0]||null;}
 function sessionType(session){return session?.context?.salesType||session?.context?.draft?.sales_type||'';}
 
 export function isStructuredSalesOrder(identity,text){
