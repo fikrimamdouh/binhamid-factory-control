@@ -13,14 +13,37 @@ const workStatuses=new Set(['working','holiday','leave','suspended','unknown']);
 const assetStatuses=new Set(['in_service','maintenance','spare','out_of_service','stopped','parked','sold']);
 const now=()=>new Date().toISOString();
 
+function erpSnapshot(asset){const metadata=object(asset?.metadata);return asset?{externalId:asset.external_id,assetNo:asset.asset_no||null,oldPlate:metadata.erpOldPlate||asset.plate_no||null,newPlate:metadata.erpNewPlate||null,assetName:asset.asset_name||null,assetType:asset.asset_type||null,make:asset.make||null,model:asset.model||null,purchaseCost:Number(metadata.purchaseCost||0),operationalStatus:asset.operational_status||null}:null;}
+function plateKeys(asset){const metadata=object(asset?.metadata),values=[asset?.plate_no,metadata.erpOldPlate,metadata.erpNewPlate,metadata.sourcePlate,metadata.oldPlate,metadata.newPlate],keys=[];for(const value of values){const key=normalizePlate(value);if(key&&!keys.includes(key))keys.push(key);}return keys;}
+function linkedErpIds(assets){const ids=new Set();for(const asset of assets||[]){if(asset.diesel_expected!==true)continue;const reference=object(asset.metadata).erpReference,id=clean(reference?.externalId||reference?.externalKey,200);if(id)ids.add(id);}return ids;}
+
+async function loadAssetsForLinking(){return select('unified_assets','active=eq.true&select=external_id,asset_type,asset_name,plate_no,asset_no,assigned_employee_external_id,operational_status,diesel_expected,make,model,metadata&limit=10000');}
+async function autoLinkExactPlatePairs(identity){
+  const actor=actorOf(identity),assets=await loadAssetsForLinking(),diesel=assets.filter(row=>row.diesel_expected===true),erp=assets.filter(row=>row.diesel_expected!==true),erpByPlate=new Map();
+  for(const asset of erp){for(const key of plateKeys(asset)){const list=erpByPlate.get(key)||[];list.push(asset);erpByPlate.set(key,list);}}
+  let linked=0,alreadyLinked=0;const ambiguous=[],unmatched=[];
+  for(const asset of diesel){
+    const metadata=object(asset.metadata),existing=object(metadata.erpReference);
+    if(existing.externalId||existing.externalKey){alreadyLinked++;continue;}
+    const candidates=new Map();for(const key of plateKeys(asset)){for(const candidate of erpByPlate.get(key)||[])candidates.set(candidate.external_id,candidate);}
+    const matches=[...candidates.values()];
+    if(matches.length===0){unmatched.push({externalId:asset.external_id,plateNo:asset.plate_no||null});continue;}
+    if(matches.length>1){ambiguous.push({externalId:asset.external_id,plateNo:asset.plate_no||null,candidates:matches.map(row=>({externalId:row.external_id,assetNo:row.asset_no||null,plateNo:row.plate_no||null}))});continue;}
+    const reference=erpSnapshot(matches[0]),nextMetadata={...metadata,erpReference:reference,sourceErpReference:reference,erpReferenceMode:'auto_exact_plate',erpReferenceUpdatedAt:now()};
+    await patch('unified_assets',`external_id=eq.${encodeURIComponent(asset.external_id)}`,{metadata:nextMetadata,updated_at:now()});linked++;
+  }
+  await insert('audit_log',[{actor_type:'web',actor_id:actor,action:'master_vehicle_exact_plate_links_applied',entity_type:'master_data',entity_id:'vehicle-links',details:{linked,alreadyLinked,ambiguousCount:ambiguous.length,unmatchedCount:unmatched.length,ambiguous:ambiguous.slice(0,100),unmatched:unmatched.slice(0,100)}}],{prefer:'return=minimal'}).catch(error=>console.error('[master vehicle linking audit]',error));
+  return{action:'auto_link_erp_references',linked,alreadyLinked,ambiguous,ambiguousCount:ambiguous.length,unmatched,unmatchedCount:unmatched.length};
+}
+
 async function overview(){
   const[employees,assets,vehicles]=await Promise.all([
     select('employees','active=eq.true&select=external_id,national_id,full_name,role,employee_no,site,salary,metadata&order=full_name.asc&limit=10000').catch(()=>[]),
     select('unified_assets','active=eq.true&select=external_id,asset_type,asset_name,plate_no,asset_no,assigned_employee_external_id,operational_status,diesel_expected,make,model,metadata&order=diesel_expected.desc,asset_type.asc,asset_no.asc.nullslast&limit=10000').catch(()=>[]),
     select('vehicles','active=eq.true&select=external_id,plate_no,asset_no,vehicle_type,driver_external_id,status&order=plate_no.asc.nullslast&limit=10000').catch(()=>[])
   ]);
-  const dieselAssets=assets.filter(row=>row.diesel_expected===true),working=employees.filter(row=>object(row.metadata).workStatus==='working').length,holiday=employees.filter(row=>object(row.metadata).workStatus==='holiday').length;
-  return{employees,assets,vehicles,stats:{employees:employees.length,employeesWithIdentity:employees.filter(row=>row.national_id).length,employeesWithRole:employees.filter(row=>row.role).length,employeesWorking:working,employeesHoliday:holiday,assets:assets.length,linkedAssets:dieselAssets.filter(row=>row.assigned_employee_external_id).length,dieselAssets:dieselAssets.length,unlinkedDieselAssets:dieselAssets.filter(row=>!row.assigned_employee_external_id).length,erpReferencedDieselAssets:dieselAssets.filter(row=>object(row.metadata).erpReference).length,assetsInMaintenance:assets.filter(row=>row.operational_status==='maintenance').length,vehicles:vehicles.length}};
+  const dieselAssets=assets.filter(row=>row.diesel_expected===true),working=employees.filter(row=>object(row.metadata).workStatus==='working').length,holiday=employees.filter(row=>object(row.metadata).workStatus==='holiday').length,referencedIds=linkedErpIds(assets),unifiedAssets=dieselAssets.length+assets.filter(row=>row.diesel_expected!==true&&!referencedIds.has(row.external_id)).length;
+  return{employees,assets,vehicles,stats:{employees:employees.length,employeesWithIdentity:employees.filter(row=>row.national_id).length,employeesWithRole:employees.filter(row=>row.role).length,employeesWorking:working,employeesHoliday:holiday,assets:assets.length,unifiedAssets,linkedAssets:dieselAssets.filter(row=>row.assigned_employee_external_id).length,dieselAssets:dieselAssets.length,unlinkedDieselAssets:dieselAssets.filter(row=>!row.assigned_employee_external_id).length,erpReferencedDieselAssets:dieselAssets.filter(row=>object(row.metadata).erpReference).length,assetsInMaintenance:assets.filter(row=>row.operational_status==='maintenance').length,vehicles:vehicles.length}};
 }
 
 async function assignAssetEmployee(req,input){
@@ -38,8 +61,6 @@ async function assignAssetEmployee(req,input){
   await insert('audit_log',[{actor_type:'web',actor_id:actor,action:nextEmployeeExternalId?'master_diesel_employee_linked':'master_diesel_employee_unlinked',entity_type:'unified_asset',entity_id:assetExternalId,details:{assetExternalId,plateNo:asset.plate_no||null,previousEmployeeExternalId,nextEmployeeExternalId,employeeName:employee?.full_name||null}}],{prefer:'return=minimal'}).catch(()=>{});
   return{action:'assign_asset_employee',assetExternalId,plateNo:asset.plate_no||null,employeeExternalId:nextEmployeeExternalId,employeeName:employee?.full_name||null};
 }
-
-function erpSnapshot(asset){const metadata=object(asset?.metadata);return asset?{externalId:asset.external_id,assetNo:asset.asset_no||null,oldPlate:metadata.erpOldPlate||asset.plate_no||null,newPlate:metadata.erpNewPlate||null,assetName:asset.asset_name||null,assetType:asset.asset_type||null,make:asset.make||null,model:asset.model||null,purchaseCost:Number(metadata.purchaseCost||0),operationalStatus:asset.operational_status||null}:null;}
 
 async function assignErpReference(req,input){
   const identity=await requireCapability(req,'assets.manage'),actor=actorOf(identity),dieselAssetExternalId=clean(input.dieselAssetExternalId,200),erpAssetExternalId=clean(input.erpAssetExternalId,200);
@@ -80,14 +101,11 @@ async function updateAssetStatus(req,input){
 async function importWorkbook(req,input){
   const identity=await requireCapability(req,'assets.manage'),actor=actorOf(identity),buffer=decodeFile(input.fileBase64),workbook=XLSX.read(buffer,{type:'buffer',cellDates:true}),parsed=parseUnifiedMasterWorkbook(workbook,XLSX);
   if(!parsed.employees.length&&!parsed.assets.length)throw Object.assign(new Error('لم يتم العثور على موظفين أو أصول صالحة داخل القالب.'),{status:400,code:'MASTER_FILE_EMPTY'});
-
   const existingEmployees=await select('employees','select=external_id,national_id,role,site,active,metadata&limit=10000').catch(()=>[]),employeeByNational=new Map();
   for(const row of existingEmployees||[]){const id=String(row.national_id||'').replace(/[^0-9]/g,'');if(id)employeeByNational.set(id,row);}
-  const employeeIdByNational=new Map();
-  for(const row of parsed.employees){const existing=employeeByNational.get(row.nationalId);employeeIdByNational.set(row.nationalId,existing?.external_id||`nid-${row.nationalId}`);}
+  const employeeIdByNational=new Map();for(const row of parsed.employees){const existing=employeeByNational.get(row.nationalId);employeeIdByNational.set(row.nationalId,existing?.external_id||`nid-${row.nationalId}`);}
   const employeeValues=parsed.employees.map(row=>{const existing=employeeByNational.get(row.nationalId)||{},existingMetadata=object(existing.metadata),manualStatus=existingMetadata.manualWorkStatus,workStatus=manualStatus||row.workStatus||existingMetadata.workStatus||'unknown';return{external_id:employeeIdByNational.get(row.nationalId),national_id:row.nationalId,employee_no:row.employeeNo,full_name:row.fullName,phone:row.phone,role:row.role||existing.role||null,salary:row.salary||0,site:row.site||existing.site||null,basic_salary:row.basicSalary||0,housing_allowance:row.housingAllowance||0,transport_allowance:row.transportAllowance||0,total_package:row.totalPackage||0,factory_status:row.factoryStatus,active:row.active!==false&&existing.active!==false,metadata:{...existingMetadata,source:'unified_master_workbook',notes:row.notes||existingMetadata.notes||null,sourceRow:row.sourceRow,sourceWorkStatus:row.workStatus||null,workStatus},source_updated_at:now(),updated_at:now()};});
   for(const batch of chunks(employeeValues))await upsert('employees',batch,'external_id');
-
   const existingAssets=await select('unified_assets','select=external_id,asset_no,plate_no,assigned_employee_external_id,operational_status,diesel_expected,metadata&limit=10000').catch(()=>[]),assetByNo=new Map(),assetByPlate=new Map();
   for(const row of existingAssets||[]){if(row.asset_no)assetByNo.set(String(row.asset_no),row);const plate=normalizePlate(row.plate_no);if(plate)assetByPlate.set(plate,row);}
   const assetValues=[],vehicleValues=[];
@@ -100,10 +118,9 @@ async function importWorkbook(req,input){
   }
   for(const batch of chunks(assetValues))await upsert('unified_assets',batch,'external_id');
   for(const batch of chunks(vehicleValues))await upsert('vehicles',batch,'external_id');
-
-  const dieselValues=assetValues.filter(row=>row.diesel_expected===true),result={fileName:clean(input.fileName,240)||'unified-master.xlsx',employees:employeeValues.length,assets:assetValues.length,vehicles:vehicleValues.length,linkedAssets:dieselValues.filter(row=>row.assigned_employee_external_id).length,erpReferences:dieselValues.filter(row=>object(row.metadata).erpReference).length,warnings:parsed.warnings.slice(0,200),warningCount:parsed.warnings.length};
+  const autoLinks=await autoLinkExactPlatePairs(identity),dieselValues=assetValues.filter(row=>row.diesel_expected===true),result={fileName:clean(input.fileName,240)||'unified-master.xlsx',employees:employeeValues.length,assets:assetValues.length,vehicles:vehicleValues.length,linkedAssets:dieselValues.filter(row=>row.assigned_employee_external_id).length,erpReferences:dieselValues.filter(row=>object(row.metadata).erpReference).length+autoLinks.linked,autoLinkedVehicles:autoLinks.linked,ambiguousVehicleLinks:autoLinks.ambiguousCount,unmatchedVehicleLinks:autoLinks.unmatchedCount,warnings:parsed.warnings.slice(0,200),warningCount:parsed.warnings.length};
   await insert('master_data_import_runs',[{file_name:result.fileName,actor,employee_count:result.employees,asset_count:result.assets,vehicle_count:result.vehicles,linked_asset_count:result.linkedAssets,warning_count:result.warningCount,summary:result}],{prefer:'return=minimal'}).catch(()=>{});
-  await insert('audit_log',[{actor_type:'web',actor_id:actor,action:'persistent_master_data_imported',entity_type:'master_data',entity_id:result.fileName,details:{employees:result.employees,assets:result.assets,vehicles:result.vehicles,linkedAssets:result.linkedAssets,erpReferences:result.erpReferences,warningCount:result.warningCount}}],{prefer:'return=minimal'}).catch(()=>{});
+  await insert('audit_log',[{actor_type:'web',actor_id:actor,action:'persistent_master_data_imported',entity_type:'master_data',entity_id:result.fileName,details:{employees:result.employees,assets:result.assets,vehicles:result.vehicles,linkedAssets:result.linkedAssets,erpReferences:result.erpReferences,autoLinkedVehicles:result.autoLinkedVehicles,ambiguousVehicleLinks:result.ambiguousVehicleLinks,warningCount:result.warningCount}}],{prefer:'return=minimal'}).catch(()=>{});
   return result;
 }
 
@@ -114,6 +131,7 @@ export async function masterData(req,res){
     const input=await body(req,5_000_000);let result;
     if(input.action==='assign_asset_employee')result=await assignAssetEmployee(req,input);
     else if(input.action==='assign_erp_reference')result=await assignErpReference(req,input);
+    else if(input.action==='auto_link_erp_references'){const identity=await requireCapability(req,'assets.manage');result=await autoLinkExactPlatePairs(identity);}
     else if(input.action==='update_employee_status')result=await updateEmployeeStatus(req,input);
     else if(input.action==='update_asset_status')result=await updateAssetStatus(req,input);
     else result=await importWorkbook(req,input);
