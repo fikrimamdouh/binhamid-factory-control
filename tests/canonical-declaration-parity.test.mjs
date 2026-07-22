@@ -13,15 +13,25 @@ test('website and Telegram import one shared customer declaration renderer',()=>
   assert.match(server,/renderCustomerPortfolioDeclaration\(/);
   assert.match(bridge,/import\('\/shared\/customer-portfolio-declaration\.js\?v=20260722-1'\)/);
   assert.match(bridge,/window\.docCli=function/);
-  assert.doesNotMatch(server,/const CUSTOMER_PORTFOLIO_DECLARATION\s*=/);
   assert.doesNotMatch(server,/function customerPortfolioHtml/);
 });
 
-test('canonical declaration contains the approved collection and liquidity clauses',()=>{
-  const shared=read('shared/customer-portfolio-declaration.js');
-  assert.match(shared,/ألتزم بمتابعة المبالغ غير المسددة خلال مهلة \{الأيام\} أيام/);
-  assert.match(shared,/مهلة السداد المحددة أعلاه \(\{الأيام\} أيام\) نافذة فقط في حال توفر السيولة الكافية/);
-  assert.match(shared,/CUSTOMER_PORTFOLIO_TEXT_VERSION/);
+test('website and Telegram use the exact original text source',()=>{
+  const texts=read('shared/canonical-declaration-texts.js');
+  const server=read('api/_lib/customer-portfolio-pdf.js');
+  const bridge=read('assets/customer-portfolio-canonical-bridge.js');
+  assert.match(texts,/ألتزم بمتابعة المبالغ غير المسددة خلال مهلة \{الأيام\} أيام/);
+  assert.match(texts,/مهلة السداد المحددة أعلاه \(\{الأيام\} أيام\) نافذة فقط في حال توفر السيولة الكافية/);
+  assert.match(texts,/يقر المندوب بمسؤوليته الكاملة عن العملاء المُسندين إليه/);
+  assert.match(texts,/وبناءً عليه، أُقر أنا الموقّع أدناه بأنني قرأت هذا النموذج/);
+  assert.match(server,/shared\/canonical-declaration-texts\.js/);
+  assert.match(server,/declarationText:CUSTOMER_PORTFOLIO_DECLARATION/);
+  assert.match(server,/extraText:CUSTOMER_PORTFOLIO_EXTRA/);
+  assert.match(server,/ackText:DECLARATION_ACK/);
+  assert.match(bridge,/canonical-declaration-texts\.js\?v=20260722-1/);
+  assert.match(bridge,/declarationText:texts\.CUSTOMER_PORTFOLIO_DECLARATION/);
+  assert.match(bridge,/extraText:texts\.CUSTOMER_PORTFOLIO_EXTRA/);
+  assert.match(bridge,/ackText:texts\.DECLARATION_ACK/);
 });
 
 test('website declaration text editor is disabled and DEF remains the only local source',()=>{
