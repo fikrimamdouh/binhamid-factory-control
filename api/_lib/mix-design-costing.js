@@ -1,4 +1,5 @@
 import { insert, patch, select } from './supabase.js';
+import { requiredSelect } from './required-data.js';
 
 const n=value=>{const parsed=Number(value);return Number.isFinite(parsed)?parsed:0;};
 const clean=value=>String(value||'').trim();
@@ -79,15 +80,15 @@ export function calculateMixCost({design={},items=[],overheads=[],targetMarginPe
 function idsFilter(values){return [...new Set(values.map(value=>String(value||'')).filter(value=>/^[0-9a-f-]{36}$/i.test(value)))].join(',');}
 export async function loadMixCostInput(designId,priceDate){
   const id=String(designId||'');if(!/^[0-9a-f-]{36}$/i.test(id))throw mixError('MIX_DESIGN_ID_INVALID','معرف الخلطة غير صحيح');
-  const design=(await select('mix_designs',`id=eq.${encodeURIComponent(id)}&select=*&limit=1`))?.[0];if(!design)throw mixError('MIX_DESIGN_NOT_FOUND','الخلطة غير موجودة');
+  const design=(await requiredSelect('mix_designs',`id=eq.${encodeURIComponent(id)}&select=*&limit=1`,'تعريف الخلطة','MIX_DESIGN_READ_FAILED'))[0];if(!design)throw mixError('MIX_DESIGN_NOT_FOUND','الخلطة غير موجودة');
   const [items,overheads]=await Promise.all([
-    select('mix_design_items',`mix_design_id=eq.${encodeURIComponent(id)}&select=id,mix_design_id,material_id,quantity,unit,wastage_percent_override,sequence_no,notes,mix_materials(id,code,name_ar,name_en,category,base_unit,density,bag_weight_kg,active)&order=sequence_no.asc`),
-    select('mix_design_overheads',`mix_design_id=eq.${encodeURIComponent(id)}&select=*&order=cost_type.asc`)
+    requiredSelect('mix_design_items',`mix_design_id=eq.${encodeURIComponent(id)}&select=id,mix_design_id,material_id,quantity,unit,wastage_percent_override,sequence_no,notes,mix_materials(id,code,name_ar,name_en,category,base_unit,density,bag_weight_kg,active)&order=sequence_no.asc`,'مكونات الخلطة','MIX_ITEMS_READ_FAILED'),
+    requiredSelect('mix_design_overheads',`mix_design_id=eq.${encodeURIComponent(id)}&select=*&order=cost_type.asc`,'التكاليف الإضافية للخلطة','MIX_OVERHEADS_READ_FAILED')
   ]);
-  if(!items?.length)throw mixError('MIX_ITEMS_REQUIRED','الخلطة لا تحتوي مكونات');
-  const materialIds=idsFilter(items.map(row=>row.material_id)),prices=materialIds?await select('mix_material_prices',`material_id=in.(${materialIds})&approved=eq.true&select=*&order=effective_from.desc&limit=1000`):[];
-  const joined=items.map(item=>{const candidates=(prices||[]).filter(row=>String(row.material_id)===String(item.material_id));return{...item,material:item.mix_materials,price:chooseEffectiveMixPrice(candidates,priceDate)};});
-  return{design,items:joined,overheads:overheads||[],priceDate};
+  if(!items.length)throw mixError('MIX_ITEMS_REQUIRED','الخلطة لا تحتوي مكونات');
+  const materialIds=idsFilter(items.map(row=>row.material_id)),prices=materialIds?await requiredSelect('mix_material_prices',`material_id=in.(${materialIds})&approved=eq.true&select=*&order=effective_from.desc&limit=1000`,'أسعار مواد الخلطات','MIX_PRICES_READ_FAILED'):[];
+  const joined=items.map(item=>{const candidates=prices.filter(row=>String(row.material_id)===String(item.material_id));return{...item,material:item.mix_materials,price:chooseEffectiveMixPrice(candidates,priceDate)};});
+  return{design,items:joined,overheads,priceDate};
 }
 
 export async function calculateAndStoreMixCost(designId,actor,{priceDate,targetMarginPercent=0,vatRate=15}={}){
@@ -98,11 +99,11 @@ export async function calculateAndStoreMixCost(designId,actor,{priceDate,targetM
 
 export async function approveMixCostRun(runId,actor){
   const id=String(runId||'');if(!/^[0-9a-f-]{36}$/i.test(id))throw mixError('MIX_RUN_ID_INVALID','معرف حساب الخلطة غير صحيح');
-  const run=(await select('mix_cost_calculation_runs',`id=eq.${encodeURIComponent(id)}&status=eq.calculated&select=*&limit=1`))?.[0];if(!run)throw mixError('MIX_RUN_NOT_APPROVABLE','تشغيل التكلفة غير موجود أو معتمد سابقًا');
+  const run=(await requiredSelect('mix_cost_calculation_runs',`id=eq.${encodeURIComponent(id)}&status=eq.calculated&select=*&limit=1`,'تشغيل تكلفة الخلطة','MIX_RUN_READ_FAILED'))[0];if(!run)throw mixError('MIX_RUN_NOT_APPROVABLE','تشغيل التكلفة غير موجود أو معتمد سابقًا');
   await patch('mix_cost_calculation_runs',`mix_design_id=eq.${encodeURIComponent(run.mix_design_id)}&status=eq.approved`,{status:'superseded'});
   const approved=(await patch('mix_cost_calculation_runs',`id=eq.${encodeURIComponent(id)}`,{status:'approved'}))?.[0];
   await patch('mix_designs',`id=eq.${encodeURIComponent(run.mix_design_id)}&status=in.(draft,pending_approval)`,{status:'approved',approved_by:String(actor||'system'),approved_at:new Date().toISOString(),updated_at:new Date().toISOString()});
   return approved;
 }
 
-export async function listLatestMixCosts(){return select('mix_design_latest_cost','select=*&order=code.asc,version_no.desc&limit=500').catch(()=>[]);}
+export async function listLatestMixCosts(){return requiredSelect('mix_design_latest_cost','select=*&order=code.asc,version_no.desc&limit=500','أحدث تكاليف الخلطات','MIX_LATEST_COSTS_READ_FAILED');}
