@@ -15,10 +15,17 @@ const index=read('index.html');
 test('Telegram receives the snapshot captured at the exact native print call',()=>{
   assert.match(telegram,/window\.print=function\(\)/);
   assert.match(telegram,/snapshot=clonePrintSheet/);
-  assert.match(telegram,/captureRequest\?'telegram':'print'/);
-  assert.match(telegram,/captureRequest\.resolve|active\.resolve\(snapshot\)/);
-  assert.match(telegram,/دالة الطباعة لم تستدعِ window\.print/);
+  assert.match(telegram,/request\?'telegram':'print'/);
+  assert.match(telegram,/settle\(request,'resolve',snapshot\)/);
+  assert.match(telegram,/لم تستدعِ دالة الطباعة الأصلية window\.print/);
   assert.doesNotMatch(telegram,/setTimeout\([^\n]*(?:350|450)/);
+});
+
+test('stale print captures are rejected before the next document starts',()=>{
+  assert.match(telegram,/if\(captureRequest\)settle\(captureRequest,'reject'/);
+  assert.match(telegram,/requestAnimationFrame\(function\(\)\{requestAnimationFrame/);
+  assert.match(telegram,/زر الطباعة لم يُنشئ ورقة جديدة/);
+  assert.doesNotMatch(telegram,/يوجد مستند آخر قيد التجهيز/);
 });
 
 test('print documents use a central registry and document-ready events',()=>{
@@ -68,13 +75,15 @@ test('login synchronization is single-flight and never starts an automatic retry
   assert.match(loginSync,/binhamid-cloud-state-pulled/);
 });
 
-test('revision conflicts never force-save without a merge',()=>{
+test('revision conflicts never force-save without a merge and expose safe recovery',()=>{
   assert.doesNotMatch(stateApi,/saveArgs\(null\)/);
   assert.doesNotMatch(stateApi,/resolved by retry/);
   assert.match(stateApi,/REVISION_REQUIRED/);
   assert.match(stateApi,/REVISION_CONFLICT/);
   assert.match(syncGuard,/REVISION_CONFLICT_LOCKED/);
   assert.match(syncGuard,/if\(existing\)return syntheticConflict/);
+  assert.match(syncGuard,/سحب النسخة الحديثة بأمان/);
+  assert.match(syncGuard,/binhamid_conflict_backup_/);
 });
 
 test('delayed customer and employee table synchronization is visible',()=>{
@@ -83,5 +92,5 @@ test('delayed customer and employee table synchronization is visible',()=>{
   assert.match(stateApi,/status:deferredChunks\|\|failedChunks\?'delayed':'complete'/);
   assert.match(syncGuard,/binhamid-master-sync-status/);
   assert.match(syncGuard,/مزامنة جداول العملاء والموظفين متأخرة/);
-  assert.match(index,/sync-integrity-guard\.js\?v=20260721-1/);
+  assert.match(index,/sync-integrity-guard\.js\?v=20260722-2/);
 });

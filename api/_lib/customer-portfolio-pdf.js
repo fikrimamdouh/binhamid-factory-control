@@ -1,127 +1,85 @@
 import { select } from './supabase.js';
 import { htmlToPdf } from './pdf-service.js';
 import { loadProjectedCumulativeDailyReport } from './daily-cumulative-report-data.js';
+import { renderCustomerPortfolioDeclaration } from '../../shared/customer-portfolio-declaration.js';
+import {
+  CUSTOMER_PORTFOLIO_DECLARATION,
+  CUSTOMER_PORTFOLIO_EXTRA,
+  DECLARATION_ACK,
+  CUSTOMER_PORTFOLIO_TEXT_VERSION
+} from '../../shared/canonical-declaration-texts.js';
 
-const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
-const money=value=>Number(value||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-const qty=value=>Number(value||0).toLocaleString('en-US',{maximumFractionDigits:3});
 const norm=value=>String(value??'').trim().toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/\s+/g,' ');
+const clean=value=>String(value??'').trim();
 const riyadhDate=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Riyadh',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
-const title=type=>type==='block'?'إقرار مسؤولية محفظة عملاء — البلوك':'إقرار مسؤولية محفظة عملاء — الخرسانة';
 const icon=type=>type==='block'?'🧱':'🏗️';
-const accent=type=>type==='block'?'#8a5a2c':'#0d6a4a';
 const ROLE_BY_TYPE={block:'مسؤول مبيعات البلوك',concrete:'مسؤول مبيعات الخرسانة'};
-const CUSTOMER_PORTFOLIO_DECLARATION = `أُقر بأن العملاء المدرجين في هذا النموذج مُسندون إليّ، وأنني المسؤول المباشر عن متابعة تعاملاتهم وتحصيل مستحقات المنشأة لديهم.
-ألتزم بعدم البيع الآجل لأي عميل خارج سقف الائتمان المعتمد له، وبعدم منح أي مهلة سداد تتجاوز المدة المقررة أعلاه.
-ألتزم بالحصول على موافقة كتابية مسبقة من الإدارة قبل أي تجاوز لسقف الائتمان أو مهلة السداد أو قبل التعامل مع عميل غير مُسجّل في هذا النموذج.
-ألتزم بتوريد كامل المبالغ المحصّلة إلى خزينة المنشأة خلال يوم عمل واحد من تاريخ التحصيل، وبعدم الاحتفاظ بأي مبلغ لدي تحت أي مبرر.
-ألتزم بتسليم إيصال قبض رسمي مسلسل ومختوم لكل عميل عند كل تحصيل، وأُقر بأن التحصيل بدون إيصال رسمي مخالفة جسيمة.
-ألتزم برفع تقرير أسبوعي عن حالة الذمم المدينة لعملائي، وبإبلاغ الإدارة فورًا عن أي عميل يتأخر عن السداد أو تظهر عليه بوادر تعثر.
-أُقر بأن للمنشأة الحق المطلق في إضافة أو حذف أو نقل أي عميل من محفظتي في أي وقت ودون إبداء أسباب، وأن كشف العملاء المرفق يُحدَّث تلقائيًا بموجب ذلك.
-أُقر بعلمي التام بأن جميع العملاء والبيانات التجارية ملك خالص للمنشأة، وألتزم بعدم إفشائها أو استغلالها لمصلحتي أو لمصلحة الغير أثناء الخدمة أو بعدها.
-ألتزم بمتابعة المبالغ غير المسددة خلال مهلة {الأيام} أيام من تاريخ التوريد، ورفع حالة المتأخرات للإدارة.\u2028ألتزم بأن مهلة السداد المحددة أعلاه ({الأيام} أيام) نافذة فقط في حال توفر السيولة الكافية لدى المنشأة لشراء المواد الخام التشغيلية؛ وفي حال عدم توفر هذه السيولة، ألتزم أنا (المحصل أو مسؤول مبيعات الخرسانة) بتحصيل دفعة مقدمة من العميل قبل التوريد، أو بتحصيل كامل قيمة الحساب فورًا، ولا يجوز الاعتداد بمهلة السداد المذكورة في هذه الحالة إلا بموافقة كتابية مسبقة من الإدارة.`;
+function publicBase(){let value=String(process.env.PUBLIC_APP_URL||process.env.VERCEL_PROJECT_PRODUCTION_URL||'').trim().replace(/\/$/,'');if(value&&!/^https?:\/\//i.test(value))value=`https://${value}`;return value||'https://binhamid-factory-control.vercel.app';}
 
-// نفس دالة استبدال المتغيرات {الموظف}/{المنشأة}/{الأيام} المستخدمة في نموذج
-// الموقع (tpl في legacy.html) حتى يطابق النص المطبوع من تليجرام النص المطبوع
-// من الموقع تمامًا.
-function applyTemplate(line,ctx){
-  return esc(line)
-    .replace(/\{الموظف\}/g,`<b>${esc(ctx.emp||'……………')}</b>`)
-    .replace(/\{المنشأة\}/g,`<b>${esc(ctx.companyName)}</b>`)
-    .replace(/\{الأيام\}/g,`<b>${esc(ctx.days)}</b>`);
-}
-function clauseList(text,ctx){
-  const lines=String(text||'').split('\n').map(s=>s.trim()).filter(Boolean);
-  if(!lines.length)return '<p class="empty">لا توجد بنود إقرار محفوظة.</p>';
-  return `<ol class="clauses">${lines.map(line=>`<li>${applyTemplate(line,ctx)}</li>`).join('')}</ol>`;
-}
-
-// يجلب نص الإقرار الحالي (D.txt.cli) واسم المنشأة ومهلة السداد وقائمة
-// الموظفين من نفس نسخة الحالة السحابية (app_state) التي يحفظها الموقع —
-// أي تعديل تعمليه على نصوص البنود من الموقع ينعكس تلقائيًا هنا.
 async function loadAppState(){
-  const rows=await select('app_state','key=eq.primary&select=payload&limit=1').catch(()=>[]);
-  const legacy=rows?.[0]?.payload?.legacy||{};
+  const rows=await select('app_state','key=eq.primary&select=payload&limit=1').catch(()=>[]),legacy=rows?.[0]?.payload?.legacy||{};
   return{
-    declarationText:CUSTOMER_PORTFOLIO_DECLARATION,
     companyName:legacy?.cfg?.name||'مصنع بن حامد للبلوك والخرسانة الجاهزة',
     days:Number(legacy?.cfg?.days||3)||3,
-    employees:Array.isArray(legacy?.emp)?legacy.emp:[]
+    cap:Number(legacy?.cfg?.cap||0)||0,
+    authorizedName:[legacy?.cfg?.auth,legacy?.cfg?.authT].filter(Boolean).join(' — '),
+    employees:Array.isArray(legacy?.emp)?legacy.emp:[],
+    clients:Array.isArray(legacy?.cli)?legacy.cli:[]
   };
 }
 function findRep(employees,type){
   const wanted=norm(ROLE_BY_TYPE[type]);
-  return employees.find(e=>norm(e?.role||'').includes(wanted))||employees.find(e=>norm(e?.role||'').includes('مسؤول مبيعات')||norm(e?.role||'').includes('مندوب'))||null;
+  return employees.find(employee=>norm(employee?.role||'').includes(wanted))||employees.find(employee=>norm(employee?.role||'').includes(type==='block'?'بلوك':'خرسان'))||null;
 }
-
-function customersTable(rows){
-  if(!rows.length)return'<p class="empty">📭 لا يوجد عملاء نشطون لهذا القسم حتى الآن.</p>';
-  return `<table><thead><tr><th>#</th><th>كود العميل</th><th>اسم العميل</th><th>قيمة التوريدات</th><th>المدفوع</th><th>المتبقي</th></tr></thead><tbody>${rows.map((row,index)=>`<tr class="${row.closingBalance>0?'due':'clear'}"><td>${index+1}</td><td>${esc(row.code||'—')}</td><td>${esc(row.name)}</td><td>${money(row.cumulativeSales)}</td><td>${money(row.cumulativePaid)}</td><td><strong>${money(row.closingBalance)}</strong></td></tr>`).join('')}</tbody></table>`;
-}
-
-export function customerPortfolioHtml({type,rows,totals,rep,state,reportDate}){
-  const ctx={emp:rep?.name||'',companyName:state.companyName,days:state.days};
-  const stillDue=rows.filter(r=>Number(r.closingBalance||0)>0);
-  return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><style>
-    @page{size:A4;margin:12mm}
-    *{box-sizing:border-box}
-    body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;color:#173746;font-size:10.5px;line-height:1.65}
-    .band{border-bottom:4px solid ${accent(type)};padding-bottom:10px;margin-bottom:10px;width:100%}
-    .band td{border:0;padding:0;vertical-align:middle}
-    .band .badge{width:46px;height:46px;border-radius:12px;background:${accent(type)};color:#fff;font-size:24px;text-align:center;line-height:46px}
-    .band h1{font-size:19px;margin:0}
-    .band .sub{color:#5c6d74;font-size:10px;margin-top:2px}
-    .meta{background:#f7f9fa;border:1px solid #e1e7e9;border-radius:8px;margin-bottom:10px;width:100%}
-    .meta td{border:0;padding:5px 10px;width:50%;vertical-align:top}
-    .meta div b{color:${accent(type)}}
-    h2{font-size:13px;margin:14px 0 6px}
-    .cards{width:100%;margin:10px 0;border-collapse:separate;border-spacing:7px 0}
-    .cards td{border:0;padding:0;width:25%;vertical-align:top}
-    .card{border:1px solid #c5d0d5;border-radius:9px;background:#f7f9fa;padding:8px 9px}
-    .card span.lb{color:#5c6d74;display:block;font-size:9px}
-    .card strong{display:block;font-size:14px;color:${accent(type)};margin-top:2px}
-    table{width:100%;border-collapse:collapse;margin:6px 0}
-    th,td{border:1px solid #bbc7cc;padding:5px;text-align:right}
-    th{background:${accent(type)};color:#fff;font-size:9.5px}
-    .due td:nth-child(6){background:#fff3ef}
-    .clear td:nth-child(6){background:#eef9f1}
-    .empty{border:1px dashed #aebbc0;padding:10px;color:#60737c;border-radius:8px;text-align:center}
-    ol.clauses{margin:6px 0 0;padding-inline-start:18px}
-    ol.clauses li{margin-bottom:7px}
-    .sign{width:100%;margin-top:22px;border-collapse:separate;border-spacing:14px 0}
-    .sign td{border:0;vertical-align:top}
-    .sign div{border-top:1px solid #8a97a0;padding-top:6px;font-size:9.5px;color:#5c6d74}
-    table{page-break-inside:auto}
-    tr{page-break-inside:avoid}
-    thead{display:table-header-group}
-    ol.clauses li{page-break-inside:avoid}
-    .footer{margin-top:16px;color:#60737c;font-size:8.5px;border-top:1px solid #e1e7e9;padding-top:7px}
-  </style></head><body>
-    <table class="band"><tr><td style="width:46px"><div class="badge">${icon(type)}</div></td><td style="padding-inline-start:12px"><h1>${esc(title(type))}</h1><div class="sub">${esc(state.companyName)}</div></td></tr></table>
-    <table class="meta">
-      <tr><td>المسؤول: <b>${esc(rep?.name||'غير مسند')}</b></td><td>المسمى الوظيفي: <b>${esc(rep?.role||ROLE_BY_TYPE[type])}</b></td></tr>
-      <tr><td>الرقم الوظيفي: <b>${esc(rep?.no||'—')}</b></td><td>تاريخ الإصدار: <b>${esc(reportDate)}</b></td></tr>
-    </table>
-    <table class="cards"><tr>
-      <td><div class="card"><span class="lb">عدد العملاء</span><strong>${totals.customers||0}</strong></div></td>
-      <td><div class="card"><span class="lb">إجمالي التوريدات</span><strong>${money(totals.cumulativeSales)} ر.س</strong></div></td>
-      <td><div class="card"><span class="lb">إجمالي المسدد</span><strong>${money(totals.cumulativePaid)} ر.س</strong></div></td>
-      <td><div class="card"><span class="lb">عملاء عليهم رصيد</span><strong>${stillDue.length}</strong></div></td>
-    </tr></table>
-    <h2>📋 بنود الإقرار</h2>${clauseList(state.declarationText,ctx)}
-    <h2>🧾 كشف العملاء المُسندين</h2>${customersTable(rows)}
-    <table class="sign"><tr><td>اسم وتوقيع المسؤول: ${esc(rep?.name||'')}</td><td>اعتماد الإدارة والختم</td></tr></table>
-    <div class="footer">تقرير مولّد تلقائيًا من حركة الملف اليومي وأرصدة قاعدة البيانات. القيم قابلة للتغيّر مع كل ملف يومي جديد حتى الاعتماد النهائي.</div>
-  </body></html>`;
+function customerKey(value){return clean(value).toLowerCase();}
+function canonicalCustomers(type,projection,state,rep){
+  const masterByCode=new Map(),masterByName=new Map();
+  for(const client of state.clients){if(client?.code||client?.cr||client?.id)masterByCode.set(customerKey(client.code||client.cr||client.id),client);if(client?.name)masterByName.set(customerKey(client.name),client);}
+  const selected=new Map();
+  const add=(client,source={})=>{
+    const name=clean(client?.name||source?.name||source?.customerName),code=clean(client?.code||client?.cr||source?.code||source?.customerCode),key=customerKey(client?.id||code||name);
+    if(!key||selected.has(key))return;
+    selected.set(key,{
+      name:name||code||'عميل غير مسمى',
+      segment:type==='block'?'بلوك':'خرسانة',
+      registry:clean(client?.cr||client?.nationalId||client?.registry||code),
+      code,
+      phone:clean(client?.tel||client?.phone),
+      creditLimit:Number(client?.cap??state.cap??0)||0,
+      paymentDays:Number(client?.days??state.days??3)||state.days
+    });
+  };
+  for(const client of state.clients){
+    const assigned=rep&&(clean(client?.rep)===clean(rep.id)||(Array.isArray(client?.repIds)&&client.repIds.map(clean).includes(clean(rep.id))));
+    const segment=norm(client?.seg||'');
+    if(assigned&&(!segment||segment.includes(type==='block'?'بلوك':'خرسان')||segment.includes('الاثنين')))add(client);
+  }
+  const projected=projection?.departments?.[type]?.rows||[];
+  for(const row of projected){const master=masterByCode.get(customerKey(row.code||row.customerCode))||masterByName.get(customerKey(row.name||row.customerName));add(master||{},row);}
+  return[...selected.values()].sort((a,b)=>a.name.localeCompare(b.name,'ar'));
 }
 
 export async function generateCustomerPortfolioPdfs(analysis={},sourceFile='daily-report.xlsx'){
-  const reportDate=riyadhDate();
-  const[state,projection]=await Promise.all([loadAppState(),loadProjectedCumulativeDailyReport(analysis,reportDate)]);
+  const reportDate=riyadhDate(),[state,projection]=await Promise.all([loadAppState(),loadProjectedCumulativeDailyReport(analysis,reportDate)]),baseUrl=`${publicBase()}/`;
   return Promise.all(['block','concrete'].map(async type=>{
-    const data=projection.departments[type],rep=findRep(state.employees,type);
-    const html=customerPortfolioHtml({type,rows:data.rows,totals:data.totals,rep,state,reportDate});
-    const pdf=await htmlToPdf(html,{filename:`portfolio-${type}-${reportDate}`,landscape:false});
-    return{type,pdf,filename:`portfolio-${type}-${reportDate}.pdf`,caption:`${icon(type)} إقرار محفظة عملاء — ${rep?.name||ROLE_BY_TYPE[type]} — ${reportDate}`};
+    const rep=findRep(state.employees,type),customers=canonicalCustomers(type,projection,state,rep),documentRef=`BHF-${type.toUpperCase()}-${reportDate.replace(/-/g,'')}`;
+    const rendered=renderCustomerPortfolioDeclaration({
+      type,
+      companyName:state.companyName,
+      employee:{name:rep?.name||'',nationalId:rep?.nid||'',role:rep?.role||ROLE_BY_TYPE[type],number:rep?.no||'',phone:rep?.tel||''},
+      customers,
+      days:state.days,
+      defaultCreditLimit:state.cap,
+      declarationText:CUSTOMER_PORTFOLIO_DECLARATION,
+      extraText:CUSTOMER_PORTFOLIO_EXTRA,
+      ackText:DECLARATION_ACK,
+      authorizedName:state.authorizedName,
+      documentRef,
+      dateGregorian:reportDate,
+      logoUrl:`${baseUrl}assets/branding/binhamid-factory-logo.png`,
+      baseUrl
+    });
+    const pdf=await htmlToPdf(rendered.document,{filename:`portfolio-${type}-${reportDate}`,landscape:false});
+    return{type,pdf,filename:`portfolio-${type}-${reportDate}.pdf`,caption:`${icon(type)} إقرار محفظة عملاء — ${rep?.name||ROLE_BY_TYPE[type]} — ${reportDate}`,templateVersion:CUSTOMER_PORTFOLIO_TEXT_VERSION,sourceFile};
   }));
 }
