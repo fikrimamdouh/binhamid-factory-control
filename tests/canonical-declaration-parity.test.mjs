@@ -16,7 +16,7 @@ test('website and Telegram import one shared customer declaration renderer',()=>
   assert.doesNotMatch(server,/function customerPortfolioHtml/);
 });
 
-test('website and Telegram use the exact original text source',()=>{
+test('website and Telegram use the approved base text including the agreed clause',()=>{
   const texts=read('shared/canonical-declaration-texts.js');
   const server=read('api/_lib/customer-portfolio-pdf.js');
   const bridge=read('assets/customer-portfolio-canonical-bridge.js');
@@ -29,26 +29,37 @@ test('website and Telegram use the exact original text source',()=>{
   assert.match(server,/extraText:CUSTOMER_PORTFOLIO_EXTRA/);
   assert.match(server,/ackText:DECLARATION_ACK/);
   assert.match(bridge,/canonical-declaration-texts\.js\?v=20260722-1/);
-  assert.match(bridge,/declarationText:texts\.CUSTOMER_PORTFOLIO_DECLARATION/);
-  assert.match(bridge,/extraText:texts\.CUSTOMER_PORTFOLIO_EXTRA/);
-  assert.match(bridge,/ackText:texts\.DECLARATION_ACK/);
 });
 
-test('website declaration text editor is disabled and DEF remains the only local source',()=>{
+test('base text is active unless the user explicitly saves a manual edit',()=>{
   const guard=read('assets/canonical-declaration-texts.js');
+  assert.match(guard,/MANUAL_SOURCE='manual-v2'/);
+  assert.match(guard,/BASE_SOURCE='base-v2'/);
   assert.match(guard,/D\.txt=\{\.\.\.DEF\}/);
   assert.match(guard,/D\.txtCustom=false/);
-  assert.match(guard,/p-txt/);
+  assert.match(guard,/D\.txtCustomSource=BASE_SOURCE/);
+  assert.match(guard,/D\.txtCustomSource=MANUAL_SOURCE/);
   assert.match(guard,/window\.saveTxt=function/);
   assert.match(guard,/window\.resetTxt=function/);
-  assert.match(guard,/النصوص الأصلية هي النسخة الوحيدة المعتمدة/);
+  assert.match(guard,/تم حفظ تعديلك اليدوي/);
+  assert.match(guard,/تم الرجوع إلى النسخة الأساسية المعتمدة/);
+  assert.doesNotMatch(guard,/hideEditor/);
 });
 
-test('boot loads canonical declarations before Telegram print integration',()=>{
+test('old accidental custom state is reset but explicit manual v2 survives reloads',()=>{
+  const guard=read('assets/canonical-declaration-texts.js');
+  assert.match(guard,/function isManualCustom\(\)/);
+  assert.match(guard,/D\?\.txtCustom===true&&D\?\.txtCustomSource===MANUAL_SOURCE/);
+  assert.match(guard,/if\(!isManualCustom\(\)\)activateBase\(\)/);
+  assert.match(guard,/if\(!explicitTextSave&&!isManualCustom\(\)\)activateBase\(\)/);
+});
+
+test('boot loads the new text behavior before Telegram print integration',()=>{
   const index=read('index.html');
-  const canonical=index.indexOf('canonical-declaration-texts.js?v=20260722-1');
+  const canonical=index.indexOf('canonical-declaration-texts.js?v=20260722-2');
   const bridge=index.indexOf('customer-portfolio-canonical-bridge.js?v=20260722-1');
   const telegram=index.indexOf('telegram-pdf-declarations.js?v=20260722-7');
   assert.ok(canonical>=0&&bridge>canonical&&telegram>bridge);
+  assert.match(index,/legacy\.html\?v=20260722-canonical-declarations-2/);
   assert.match(index,/bhCanonicalPortfolioReady/);
 });
