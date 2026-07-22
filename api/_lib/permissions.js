@@ -3,11 +3,11 @@ import { select } from './supabase.js';
 
 export const ROLE_CAPABILITIES=Object.freeze({
   admin:['*'],
-  manager:['dashboard.manager','daily_report.view','daily_report.approve','reports.send_telegram','imports.read','imports.manage','costs.view','audit.view','governance.view','credit_override.approve','assets.view','maintenance.manage','compliance.view','handover.view','accounting.view','mix_design.view','mix_design.manage','mix_design.calculate','mix_design.approve','mix_material_prices.manage','attendance.view','attendance.manage'],
-  accountant:['daily_report.view','daily_report.import','daily_report.approve','reports.send_telegram','imports.read','imports.manage','costs.view','costs.calculate','governance.view','financial_period.manage','credit_override.request','custody.manage','custody.approve','accounting.view','accounting.post','mix_design.view','mix_design.manage','mix_design.calculate','mix_design.approve','mix_material_prices.manage'],
+  manager:['dashboard.manager','daily_report.view','daily_report.approve','reports.send_telegram','imports.read','imports.manage','costs.view','audit.view','governance.view','credit_override.approve','assets.view','assets.manage','maintenance.manage','compliance.view','handover.view','accounting.view','mix_design.view','mix_design.manage','mix_design.calculate','mix_design.approve','mix_material_prices.manage','attendance.view','attendance.manage'],
+  accountant:['daily_report.view','daily_report.import','daily_report.approve','reports.send_telegram','imports.read','imports.manage','costs.view','costs.calculate','governance.view','financial_period.manage','credit_override.request','custody.manage','custody.approve','accounting.view','accounting.post','assets.view','assets.manage','mix_design.view','mix_design.manage','mix_design.calculate','mix_design.approve','mix_material_prices.manage'],
   block_sales:['daily_report.view','reports.send_telegram'],
   concrete_sales:['daily_report.view','reports.send_telegram','mix_design.price.view'],
-  mechanic:['maintenance.manage','assets.view'],
+  mechanic:['maintenance.manage','assets.view','assets.manage'],
   fuel_operator:['fuel.import','assets.view'],
   hr:['costs.view','governance.view','compliance.manage','assets.view','attendance.view','attendance.manage','reports.send_telegram'],
   procurement:['maintenance.manage','assets.view'],
