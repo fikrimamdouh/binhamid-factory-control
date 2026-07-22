@@ -14,17 +14,28 @@ test('employee page merges the permanent employees table into the legacy list',(
   assert.match(source,/window\.rEmp\(\)/);
 });
 
-test('employee status and deletion are safe server actions',()=>{
+test('permanent tombstones remove deleted employees and block roster resurrection',()=>{
+  const client=read('assets/attendance-control.js');
+  const safe=read('api/_lib/routes/attendance-safe.js');
+  const management=read('api/_lib/routes/employee-management.js');
+  assert.match(client,/purgeDeletedEmployees/);
+  assert.match(client,/state\.deletedEmployees/);
+  assert.match(client,/action:'permanent_delete_employee'/);
+  assert.match(safe,/deletedEmployees/);
+  assert.match(safe,/permanentlyDeleted/);
+  assert.match(management,/permanentlyDeleted:true/);
+  assert.match(management,/employee_permanently_hidden/);
+  assert.doesNotMatch(management,/delete\s*\(/i);
+});
+
+test('employee status remains a non-destructive server action',()=>{
   const client=read('assets/attendance-control.js');
   const api=read('api/admin/attendance.js');
   assert.match(client,/action:'update_employee_status'/);
-  assert.match(client,/action:'deactivate_employee'/);
   assert.match(api,/EMPLOYEE_STATUSES/);
   assert.match(api,/employee_work_status_updated/);
-  assert.match(api,/employee_deactivated/);
   assert.match(api,/active:false/);
   assert.match(api,/EMPLOYEE_OWNER_PROTECTED/);
-  assert.doesNotMatch(api,/delete\s*\(/i);
 });
 
 test('employee site linking saves the database before the local cloud snapshot',()=>{
@@ -35,6 +46,31 @@ test('employee site linking saves the database before the local cloud snapshot',
   assert.ok(assignBody.indexOf("action:'assign_employee_site'")>=0);
   assert.ok(assignBody.indexOf("action:'assign_employee_site'")<assignBody.indexOf('pushLocalSnapshot()'));
   assert.match(assignBody,/تم حفظ الربط في قاعدة البيانات/);
+});
+
+test('existing Telegram users transfer to uploaded employees without recreation',()=>{
+  const api=read('api/_lib/routes/employee-management.js');
+  const ui=read('assets/employee-link-transfer.js');
+  assert.match(api,/transferTelegramEmployee/);
+  assert.match(api,/action==='transfer_telegram_employee'/);
+  assert.match(api,/approve_telegram_user/);
+  assert.match(api,/conversationHistory:true/);
+  assert.match(api,/preservedRole:user\.role/);
+  assert.doesNotMatch(api,/delete.*user_channels/is);
+  assert.match(ui,/نقل \/ تحديث الربط/);
+  assert.match(ui,/action:'transfer_telegram_employee'/);
+  assert.match(ui,/هوية Telegram والدور والمحادثات لن تتغير/);
+});
+
+test('vehicle unlink and task edits do not recreate or delete Telegram accounts',()=>{
+  const api=read('api/_lib/routes/employee-management.js');
+  const ui=read('assets/employee-link-transfer.js');
+  assert.match(api,/unlinkEmployeeVehicle/);
+  assert.match(api,/updateAssignmentTask/);
+  assert.match(api,/vehicle_external_id:null/);
+  assert.match(api,/employee_assignment_task_updated/);
+  assert.match(ui,/فك ربط المركبة/);
+  assert.match(ui,/تغيير المهمة فقط/);
 });
 
 test('attendance loading isolates optional table failures and avoids embedded relations',()=>{
@@ -66,10 +102,11 @@ test('session timeout remains non-blocking and professionally reported',()=>{
   assert.doesNotMatch(login,/session check timed out; keeping existing local session/);
 });
 
-test('cache keys load the repaired employee and session modules',()=>{
+test('cache keys load the repaired employee, transfer, and session modules',()=>{
   const index=read('index.html');
   const nav=read('assets/admin-nav.js');
   assert.match(index,/owner-web-login\.js\?v=20260722-1/);
   assert.match(index,/attendance-control\.js\?v=20260722-1/);
   assert.match(nav,/owner-web-login\.js\?v=20260722-1/);
+  assert.match(nav,/employee-link-transfer\.js\?v=20260722-1/);
 });
