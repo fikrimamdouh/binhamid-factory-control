@@ -52,11 +52,14 @@ test('Excel imports reject unsafe files and show quality counts before approval'
   assert.match(existing,/duplicateBatch\(hash,reportDate\)/);
 });
 
-test('default sales representative initialization reports failures to the UI',async()=>{
+test('placeholder sales representatives are permanently deleted and never initialized again',async()=>{
   const source=await read('assets/default-sales-reps.js');
-  assert.match(source,/binhamid-module-error/);
-  assert.match(source,/تعذر تجهيز مسؤولي المبيعات الافتراضيين/);
-  assert.doesNotMatch(source,/catch\(error\)\{console\.error\([^}]+return false/);
+  assert.match(source,/permanent_delete_employee/);
+  assert.match(source,/حذف نهائي لسجل موظف افتراضي/);
+  assert.match(source,/مسؤول مبيعات البلوك/);
+  assert.match(source,/مسؤول مبيعات الخرسانة/);
+  assert.doesNotMatch(source,/D\.emp\.push/);
+  assert.doesNotMatch(source,/PLACEHOLDERS/);
 });
 
 test('critical HTML tables escape database supplied text',async()=>{
