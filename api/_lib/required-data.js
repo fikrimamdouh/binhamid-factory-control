@@ -1,11 +1,15 @@
 import { select } from './supabase.js';
 
+function errorReference(){return `BH-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2,7).toUpperCase()}`;}
 function dataReadError(table,label,code,error){
-  const message=`تعذر قراءة ${label}. لم يتم إصدار نتيجة ناقصة أو افتراض أرقام صفرية.`;
+  const reference=errorReference(),message=`تعذر قراءة ${label}. لم يتم إصدار نتيجة ناقصة أو افتراض أرقام صفرية. المرجع: ${reference}`;
   return Object.assign(new Error(message),{
     status:503,
     code:code||'REQUIRED_DATA_READ_FAILED',
+    operation:`read:${table}`,
+    saved:false,
     retryable:true,
+    reference,
     sourceTable:table,
     cause:error
   });
