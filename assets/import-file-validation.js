@@ -1,6 +1,6 @@
 (function(){
 'use strict';
-const VERSION='2026.07.22-import-file-validation-v1';
+const VERSION='2026.07.22-import-file-validation-v2-safe-wrapper';
 const ALLOWED_EXT=/\.(xlsx|xls)$/i;
 const MAX_BYTES=25*1024*1024;
 let installed=false,pending=null;
@@ -31,7 +31,7 @@ function buildQuality(plan,file,hash){
   const sales=uniqueQuality(plan.sales||[],row=>[row.invoice,row.customerCode,row.customer,row.item,num(row.quantity),num(row.amount)].join('|'),row=>!clean(row.customerCode||row.customer)||!clean(row.item)||num(row.quantity)<=0);
   const collections=uniqueQuality(plan.collections||[],row=>[row.date,row.customerCode,row.customer,row.receipt,num(row.amount),row.method].join('|'),row=>!clean(row.customerCode||row.customer)||num(row.amount)<=0);
   const stock=uniqueQuality(plan.stock||[],row=>[row.code,row.item,row.direction,num(row.quantity),num(row.opening),num(row.closing)].join('|'),row=>!clean(row.code||row.item)||(!num(row.quantity)&&!num(row.opening)&&!num(row.closing)));
-  const accepted=sales.accepted+collections.accepted+stock.accepted,duplicate=sales.duplicate+collections.duplicate+stock.duplicate,missing=sales.missing+collections.missing+stock.missing,rejected=0,warnings=Array.isArray(plan.warnings)?plan.warnings:[];
+  const warnings=Array.isArray(plan.warnings)?plan.warnings:[],accepted=sales.accepted+collections.accepted+stock.accepted,duplicate=sales.duplicate+collections.duplicate+stock.duplicate,missing=sales.missing+collections.missing+stock.missing,rejected=warnings.filter(value=>/مرفوض|غير صالح|تعذر|خطأ/.test(String(value))).length;
   return{fileName:file.name,hash,accepted,duplicate,missing,rejected,warnings,total:sales.total+collections.total+stock.total};
 }
 function qualityHtml(q){
@@ -51,12 +51,16 @@ async function inspect(file,mode){
   return quality;
 }
 function wrap(name,mode){
-  const original=window[name];if(typeof original!=='function'||original.__fileValidation)return false;
+  const original=window[name];if(typeof original!=='function')return false;if(original.__fileValidation)return true;
   const wrapped=async function(file){
     pending=await inspect(file,mode);
     const open=window.opsOpenModal;
-    if(typeof open==='function')window.opsOpenModal=function(title,html,onSave,label){window.opsOpenModal=open;return open.call(this,title,qualityHtml(pending)+String(html||''),onSave,label);};
-    try{return await original.apply(this,arguments);}finally{pending=null;if(window.opsOpenModal!==open&&window.opsOpenModal?.__qualityTemporary)window.opsOpenModal=open;}
+    let temporary=null;
+    if(typeof open==='function'){
+      temporary=function(title,html,onSave,label){if(window.opsOpenModal===temporary)window.opsOpenModal=open;return open.call(this,title,qualityHtml(pending)+String(html||''),onSave,label);};
+      temporary.__qualityTemporary=true;window.opsOpenModal=temporary;
+    }
+    try{return await original.apply(this,arguments);}finally{pending=null;if(temporary&&window.opsOpenModal===temporary)window.opsOpenModal=open;}
   };
   wrapped.__fileValidation=true;window[name]=wrapped;return true;
 }
