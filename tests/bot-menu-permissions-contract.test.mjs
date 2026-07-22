@@ -15,10 +15,12 @@ const router=read('api','router.js');
 const index=read('index.html');
 const review=read('docs','PRODUCTION-STABILITY-REVIEW-2026-07-21.md');
 
-test('bot modules use one catalog and existing per-user capabilities',()=>{
+test('bot modules use one catalog and fail-closed per-user capabilities',()=>{
   assert.match(policy,/BOT_MENU_CATALOG=Object\.freeze/);
   assert.match(policy,/BOT_MENU_PREFIX='bot\.menu\.'/);
-  assert.match(policy,/select\('user_capabilities'/);
+  assert.match(policy,/requiredSelect\('user_capabilities'/);
+  assert.match(policy,/BOT_CAPABILITIES_READ_FAILED/);
+  assert.doesNotMatch(policy,/user_capabilities[\s\S]{0,180}\.catch\(\(\)=>\[\]\)/);
   assert.match(policy,/defaultBotModulesForRole/);
   assert.match(policy,/ownerOnly:true/);
   assert.match(policy,/filterBotKeyboard/);
