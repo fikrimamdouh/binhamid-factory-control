@@ -51,12 +51,15 @@ test('asset form supports create edit delete type conversion and cloud status',(
   assert.match(route,/async function deleteAsset/);
   assert.match(route,/assetType==='fixed_asset'/);
   assert.match(route,/active:false,driver_external_id:null/);
+  assert.match(route,/cloudVerified:true/);
 });
 
 test('diesel and ERP remain one canonical row and edits mirror both source records',()=>{
-  assert.match(route,/source_type:linked\?'diesel_erp'/);
+  assert.match(route,/source_type:linked\?/);
+  assert.match(route,/diesel_erp/);
+  assert.match(route,/erp_linked/);
   assert.match(route,/referenced\.has/);
-  assert.match(route,/linkedErp/);
+  assert.match(route,/selectedErp/);
   assert.match(route,/erpReference/);
   assert.match(page,/sourceLabel\(row\)/);
   assert.match(page,/دمج اللوحات المتطابقة/);
@@ -83,6 +86,8 @@ test('save buttons use stable ids and verify the cloud read-back before closing'
   assert.match(guards,/stopImmediatePropagation/);
   assert.match(guards,/attempt<=3/);
   assert.match(guards,/تم حفظ \$\{label\} في السحابة والتأكد من جميع البيانات/);
+  assert.match(route,/CANONICAL_EMPLOYEE_SAVE_NOT_CONFIRMED/);
+  assert.match(route,/CANONICAL_ASSET_SAVE_NOT_CONFIRMED/);
   assert.doesNotMatch(guards,/localStorage\.setItem/);
 });
 
