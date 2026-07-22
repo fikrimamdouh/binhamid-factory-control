@@ -26,6 +26,7 @@ import * as botPermissions from './_lib/routes/bot-permissions.js';
 import * as employeeManagement from './_lib/routes/employee-management.js';
 import * as attendanceSitePresets from './_lib/routes/attendance-site-presets.js';
 import * as permanentCleanup from './_lib/routes/permanent-cleanup.js';
+import * as costCenterAssignments from './_lib/routes/cost-center-assignments.js';
 import { openingBalances } from './_lib/routes/opening-balances.js';
 
 const routes={
@@ -38,6 +39,7 @@ const routes={
   'employee-management':employeeManagement.employeeManagement,
   'attendance-site-presets':attendanceSitePresets.attendanceSitePresets,
   'permanent-cleanup':permanentCleanup.permanentCleanup,
+  'cost-center-assignments':costCenterAssignments.costCenterAssignments,
   'device/session':deviceSession.deviceSession,
   'conversations':management.conversations,
   'operations':management.operations,
