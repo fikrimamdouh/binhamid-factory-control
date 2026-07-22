@@ -2,7 +2,7 @@
 'use strict';
 if(window.__BH_MASTER_WORKSPACE_GUARDS__)return;
 window.__BH_MASTER_WORKSPACE_GUARDS__=true;
-const VERSION='2026.07.22-master-workspace-guards-v2-cloud-save-verification';
+const VERSION='2026.07.22-master-workspace-guards-v3-confirmed-cloud-save';
 const TOKEN_KEY='binhamid_cloud_access_token',USER_KEY='binhamid_cloud_app_user_id';
 let assets=new Map(),editingAssetId='',editingEmployeeId='',saving=false;
 const clean=value=>String(value??'').trim();
@@ -22,10 +22,13 @@ async function cloudRequest(payload,attempts=3){
       const response=await fetch('/api/router?route=canonical-master-data',{method:'POST',credentials:'same-origin',cache:'no-store',headers:headers(),body:JSON.stringify(payload),signal:controller.signal}),data=await json(response);
       if(response.ok)return data;
       const error=Object.assign(new Error(data.error||data.message||`تعذر الحفظ السحابي HTTP ${response.status}`),{status:response.status,code:data.code||''});
-      if(![408,409,425,429,500,502,503,504].includes(response.status)||attempt===attempts)throw error;
+      if(![408,425,429,500,502,503,504].includes(response.status))throw error;
       lastError=error;
-    }catch(error){lastError=error;if(attempt===attempts||(!/AbortError|network|fetch|failed|timeout/i.test(`${error.name} ${error.message}`)&&!error.status))throw error;}
-    finally{clearTimeout(timer);}
+    }catch(error){
+      lastError=error;
+      const transient=[408,425,429,500,502,503,504].includes(Number(error.status||0))||/AbortError|network|fetch|failed|timeout/i.test(`${error.name||''} ${error.message||''}`);
+      if(attempt===attempts||!transient)throw error;
+    }finally{clearTimeout(timer);}
     await sleep(450*attempt);
   }
   throw lastError||new Error('تعذر الحفظ السحابي.');
