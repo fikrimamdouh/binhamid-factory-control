@@ -8,7 +8,8 @@ test('existing device session check cannot keep the page locked indefinitely',()
   assert.match(source,/SESSION_TIMEOUT=2500/);
   assert.match(source,/new AbortController\(\)/);
   assert.match(source,/setTimeout\(\(\)=>controller\.abort\(\),timeout\)/);
-  assert.match(source,/session check timed out/);
+  assert.match(source,/binhamid-session-degraded/);
+  assert.match(source,/استمر النظام بالجلسة المحلية دون تعطيل الصفحة/);
   assert.match(source,/if\(ok\)\{unlock\(\);return true;\}/);
 });
 
