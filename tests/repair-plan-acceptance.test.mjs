@@ -6,7 +6,7 @@ const read=path=>readFile(new URL(`../${path}`,import.meta.url),'utf8');
 test('boot remains interactive and optional modules load sequentially in idle slices',async()=>{
   const index=await read('index.html'),state=await read('assets/state-load-performance.js');
   assert.match(index,/requestIdleCallback/);
-  assert.match(index,/for\(const \[id,src\] of extensions\)/);
+  assert.match(index,/for\s*\(\s*const\s*\[\s*id\s*,\s*src\s*\]\s*of\s*extensions\s*\)/);
   assert.doesNotMatch(index,/Promise\.all\(optionalExtensions/);
   assert.match(index,/optional modules loading in idle slices/);
   assert.match(index,/optional modules loaded/);
@@ -15,13 +15,15 @@ test('boot remains interactive and optional modules load sequentially in idle sl
   assert.match(state,/\/api\/state\?meta=1/);
 });
 
-test('revision conflicts stop writes until a cloud pull clears the lock',async()=>{
+test('revision conflicts stop writes until a safe cloud pull clears the lock',async()=>{
   const guard=await read('assets/sync-integrity-guard.js'),index=await read('index.html');
   assert.match(guard,/REVISION_CONFLICT_LOCKED/);
   assert.match(guard,/syntheticConflict/);
   assert.match(guard,/if\(existing\)return syntheticConflict\(existing\)/);
   assert.match(guard,/response\.status===409/);
   assert.match(guard,/binhamid-cloud-state-pulled/);
+  assert.match(guard,/سحب النسخة الحديثة بأمان/);
+  assert.match(guard,/binhamid_conflict_backup_/);
   assert.ok(index.indexOf('cloud-control.js')<index.indexOf('sync-integrity-guard.js'),'conflict guard must wrap cloud state requests after cloud-control loads');
 });
 
@@ -32,12 +34,14 @@ test('employee site selection and geofenced attendance preserve auditable GPS ev
   assert.match(api,/distance<=Number\(site\.radius_m\|\|250\)/);
 });
 
-test('print-to-Telegram uses the original print path and dedicated permission',async()=>{
+test('print-to-Telegram uses the original print path and releases stale captures',async()=>{
   const print=await read('assets/telegram-pdf-declarations.js'),route=await read('api/_lib/routes/reports-telegram.js');
   assert.match(print,/printButton\.click\(\)/);
   assert.match(print,/clonePrintSheet/);
   assert.match(print,/document-ready/);
-  assert.match(print,/يوجد مستند آخر قيد التجهيز/);
+  assert.match(print,/if\(captureRequest\)settle\(captureRequest,'reject'/);
+  assert.match(print,/زر الطباعة لم يُنشئ ورقة جديدة/);
+  assert.doesNotMatch(print,/يوجد مستند آخر قيد التجهيز/);
   assert.match(print,/ورقة الطباعة فارغة/);
   assert.doesNotMatch(print.match(/function captureByClick[\s\S]*?window\.addEventListener\('pagehide'/)?.[0]||'',/setTimeout/);
   assert.match(route,/reports\.send_telegram/);
