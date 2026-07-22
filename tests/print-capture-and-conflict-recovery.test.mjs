@@ -31,7 +31,7 @@ test('revision conflict recovery downloads backup then replaces local program st
 
 test('boot cache keys point to repaired synchronization and PDF modules',()=>{
   const index=read('index.html');
-  assert.match(index,/state-load-performance\.js\?v=20260722-2/);
+  assert.match(index,/state-load-performance\.js\?v=20260722-3/);
   assert.match(index,/sync-integrity-guard\.js\?v=20260722-3/);
   assert.match(index,/telegram-pdf-declarations\.js\?v=20260722-7/);
 });
