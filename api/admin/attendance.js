@@ -3,6 +3,7 @@ import { json, method, body, errorResponse } from '../_lib/http.js';
 import { select, insert, upsert, patch, rpc } from '../_lib/supabase.js';
 import { validateTelegramWebApp } from '../_lib/telegram-webapp.js';
 import { ROLES } from '../_lib/domain.js';
+import { syncEmployeeDeclarationRole } from '../_lib/employee-declaration-role.js';
 
 const clean=value=>String(value??'').trim();
 const num=(value,fallback=null)=>{const parsed=Number(value);return Number.isFinite(parsed)?parsed:fallback;};
@@ -83,20 +84,23 @@ async function setEmployeeSite(input){
   return{employee,site,linkedUsers:ids.length,assignments:assignments.filter(Boolean)};
 }
 async function saveAssignment(input){
-  const appUserId=clean(input.appUserId),externalId=clean(input.externalId),employeeExternalId=clean(input.employeeExternalId),vehicleExternalId=clean(input.vehicleExternalId),role=clean(input.role),active=input.active!==false;let siteId=clean(input.siteId);
+  const appUserId=clean(input.appUserId),externalId=clean(input.externalId),employeeExternalId=clean(input.employeeExternalId),vehicleExternalId=clean(input.vehicleExternalId),role=clean(input.role),jobTitle=clean(input.jobTitle),active=input.active!==false;let siteId=clean(input.siteId);
   if(!siteId&&employeeExternalId)siteId=(await defaultSiteForEmployee(employeeExternalId))?.site?.id||'';
   if(!appUserId||!externalId)throw Object.assign(new Error('مستخدم Telegram مطلوب'),{status:400,code:'ATTENDANCE_USER_REQUIRED'});if(!ROLES.includes(role)||role==='pending')throw Object.assign(new Error('الدور غير صحيح'),{status:400,code:'ATTENDANCE_ROLE_INVALID'});if(!employeeExternalId)throw Object.assign(new Error('اختر سجل الموظف'),{status:400,code:'ATTENDANCE_EMPLOYEE_REQUIRED'});if(!siteId)throw Object.assign(new Error('اختر موقع العمل من صفحة الموظفين أو شاشة الحضور'),{status:400,code:'ATTENDANCE_SITE_REQUIRED'});
   const [channelRows,employeeRows,siteRows,vehicleRows,previousRows]=await Promise.all([
     select('user_channels',`channel=eq.telegram&external_id=eq.${encodeURIComponent(externalId)}&user_id=eq.${encodeURIComponent(appUserId)}&select=user_id,external_id,active&limit=1`),
-    select('employees',`external_id=eq.${encodeURIComponent(employeeExternalId)}&active=eq.true&select=external_id,full_name,active&limit=1`),
+    select('employees',`external_id=eq.${encodeURIComponent(employeeExternalId)}&active=eq.true&select=external_id,full_name,role,active,metadata&limit=1`),
     select('work_sites',`id=eq.${encodeURIComponent(siteId)}&active=eq.true&select=id,name,latitude,longitude,active&limit=1`),
     vehicleExternalId?select('vehicles',`external_id=eq.${encodeURIComponent(vehicleExternalId)}&active=eq.true&select=external_id,active&limit=1`):Promise.resolve([]),
     select('employee_assignments',`app_user_id=eq.${encodeURIComponent(appUserId)}&select=app_user_id,employee_external_id,site_id,vehicle_external_id,job_title,shift_name,active,updated_at&limit=1`).catch(()=>[])
   ]);
   const channel=channelRows?.[0],employee=employeeRows?.[0],site=siteRows?.[0],previous=previousRows?.[0]||null;if(!channel)throw Object.assign(new Error('ربط Telegram غير موجود لهذا المستخدم'),{status:409,code:'ATTENDANCE_TELEGRAM_LINK_MISSING'});if(!employee)throw Object.assign(new Error('سجل الموظف غير موجود أو موقوف'),{status:409,code:'ATTENDANCE_EMPLOYEE_INVALID'});if(!site||site.latitude==null||site.longitude==null)throw Object.assign(new Error('موقع العمل غير فعال أو إحداثياته غير مكتملة'),{status:409,code:'ATTENDANCE_SITE_INVALID'});if(vehicleExternalId&&!vehicleRows?.[0])throw Object.assign(new Error('المركبة غير موجودة أو موقوفة'),{status:409,code:'ATTENDANCE_VEHICLE_INVALID'});
-  const values={app_user_id:appUserId,employee_external_id:employeeExternalId,site_id:siteId,vehicle_external_id:vehicleExternalId||null,job_title:clean(input.jobTitle)||null,shift_name:clean(input.shiftName)||null,active,updated_at:new Date().toISOString()},assignment=(await upsert('employee_assignments',[values],'app_user_id'))?.[0]||values;
-  try{const approved=await rpc('approve_telegram_user',{p_external_id:externalId,p_full_name:employee.full_name||externalId,p_role:role,p_active:active,p_employee_external_id:employeeExternalId});return{assignment,approved};}
-  catch(error){if(previous)await upsert('employee_assignments',[previous],'app_user_id').catch(()=>{});else await patch('employee_assignments',`app_user_id=eq.${encodeURIComponent(appUserId)}`,{active:false,updated_at:new Date().toISOString()}).catch(()=>{});throw error;}
+  const values={app_user_id:appUserId,employee_external_id:employeeExternalId,site_id:siteId,vehicle_external_id:vehicleExternalId||null,job_title:jobTitle||null,shift_name:clean(input.shiftName)||null,active,updated_at:new Date().toISOString()},assignment=(await upsert('employee_assignments',[values],'app_user_id'))?.[0]||values;
+  try{
+    const approved=await rpc('approve_telegram_user',{p_external_id:externalId,p_full_name:employee.full_name||externalId,p_role:role,p_active:active,p_employee_external_id:employeeExternalId});
+    const declarationRole=await syncEmployeeDeclarationRole(employeeExternalId,{jobTitle,telegramRole:role,source:'attendance_assignment'});
+    return{assignment,approved,declarationRole};
+  }catch(error){if(previous)await upsert('employee_assignments',[previous],'app_user_id').catch(()=>{});else await patch('employee_assignments',`app_user_id=eq.${encodeURIComponent(appUserId)}`,{active:false,updated_at:new Date().toISOString()}).catch(()=>{});throw error;}
 }
 
 function coordinatesFromText(value){
