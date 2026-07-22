@@ -1,6 +1,6 @@
 (function(){
 'use strict';
-const VERSION='2026.07.22-admin-nav-v8-master-cost-centers';
+const VERSION='2026.07.22-admin-nav-v9-linked-declarations';
 const LINKS=[
   ['🏠','البرنامج','/','التشغيل'],
   ['⚙️','مركز الإدارة','/control-center.html','الإدارة'],
@@ -14,7 +14,7 @@ function currentPath(){let p=location.pathname||'/';if(p.length>1&&p.endsWith('/
 function ensureScript(id,src,datasetName){if(document.getElementById(id)||document.querySelector(`script[data-${datasetName}]`))return;const script=document.createElement('script');script.id=id;script.src=src;script.async=false;script.dataset[datasetName.replace(/-([a-z])/g,(_,c)=>c.toUpperCase())]='1';document.head.appendChild(script);}
 function ensureOwnerLogin(){if(window.__BH_OWNER_WEB_LOGIN_INSTALLED__)return;ensureScript('bh-owner-login-loader','/assets/owner-web-login.js?v=20260722-1','bh-owner-login');}
 function ensureSessionControls(){if(window.__BH_SESSION_CONTROLS_INSTALLED__)return;ensureScript('bh-session-controls-loader','/assets/session-controls.js?v=20260721-1','bh-session-controls');}
-function ensureEmployeeTransfer(){if(currentPath()!=='/attendance-admin.html'||window.__BH_EMPLOYEE_LINK_TRANSFER_INSTALLED__)return;ensureScript('bh-employee-link-transfer-loader','/assets/employee-link-transfer.js?v=20260722-1','bh-employee-link-transfer');}
+function ensureEmployeeTransfer(){if(currentPath()!=='/attendance-admin.html'||window.__BH_EMPLOYEE_LINK_TRANSFER_INSTALLED__)return;ensureScript('bh-employee-link-transfer-loader','/assets/employee-link-transfer.js?v=20260722-2','bh-employee-link-transfer');}
 function ensureAttendanceSitePresets(){if(currentPath()!=='/attendance-admin.html'||window.__BH_ATTENDANCE_SITE_PRESETS_INSTALLED__)return;ensureScript('bh-attendance-site-presets-loader','/assets/attendance-site-presets.js?v=20260722-1','bh-attendance-site-presets');}
 function ensureMasterCostCenters(){if(currentPath()!=='/master-data.html'||window.__BH_MASTER_COST_CENTERS__)return;ensureScript('bh-master-cost-centers-loader','/assets/master-data-cost-centers.js?v=20260722-1','bh-master-cost-centers');}
 function style(){if(document.getElementById('bh-admin-nav-style'))return;const el=document.createElement('style');el.id='bh-admin-nav-style';el.textContent=`
