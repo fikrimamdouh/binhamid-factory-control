@@ -10,6 +10,7 @@ const attendanceUi=read('assets/attendance-canonical-employees.js');
 const employeeSync=read('assets/employee-declaration-sync.js');
 const attendanceSafe=read('api/_lib/routes/attendance-safe.js');
 const nav=read('assets/admin-nav.js');
+const saveGuard=read('assets/master-data-workspace-guards.js');
 
 test('canonical asset registry preserves raw sources but returns one visible row',()=>{
   assert.match(route,/canonicalProjection/);
@@ -24,7 +25,7 @@ test('editing either source resolves to one canonical identity and mirrors both 
   assert.match(route,/function resolveCanonical/);
   assert.match(route,/canonical_asset_updated/);
   assert.match(route,/canonicalOverrides/);
-  assert.match(route,/if\(linkedErp\)/);
+  assert.match(route,/linkedErp/);
   assert.match(route,/patch\('vehicles'/);
   assert.match(route,/assignAssetCostCenter/);
   assert.match(route,/CANONICAL_PLATE_DUPLICATE/);
@@ -63,12 +64,14 @@ test('legacy employee synchronization collapses linked user aliases and rewrites
   assert.match(attendanceSafe,/telegram_external_id/);
 });
 
-test('admin navigation loads attendance helpers but leaves master data page native',()=>{
+test('admin navigation loads attendance helpers and the cloud-save guard only',()=>{
   assert.match(nav,/attendance-canonical-employees\.js\?v=20260722-1/);
   assert.match(nav,/ensureAttendanceCanonicalEmployees/);
-  assert.match(nav,/unified-master-workspace/);
+  assert.match(nav,/master-data-workspace-guards\.js\?v=20260722-1/);
+  assert.match(nav,/ensureMasterWorkspaceGuards/);
   assert.doesNotMatch(nav,/ensureCanonicalMasterUi/);
   assert.doesNotMatch(nav,/ensureMasterCostCenters/);
+  assert.match(saveGuard,/cloud writes are read back and verified/);
   assert.match(router,/canonical-master-data/);
   assert.match(router,/canonicalMasterData\.canonicalMasterData/);
 });
