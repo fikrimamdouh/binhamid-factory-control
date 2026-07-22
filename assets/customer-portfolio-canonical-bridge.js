@@ -52,5 +52,5 @@
     console.info('[BinHamid]',VERSION,'ready — website and Telegram share one declaration renderer');
     return true;
   }
-  install();
+  window.bhCanonicalPortfolioReady=install();
 })();
