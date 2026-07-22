@@ -1,4 +1,5 @@
 import { select, rpc } from './supabase.js';
+import { requiredSelect } from './required-data.js';
 
 const money=value=>{const parsed=Number(value||0);return Number.isFinite(parsed)?parsed:0;};
 export function normalizePeriod(value){
@@ -30,14 +31,14 @@ export function calculateUnitEconomics(rows=[]){
 export async function getCostReport(periodValue){
   const periodStart=normalizePeriod(periodValue||new Date().toISOString().slice(0,7));
   const [rows,periods,unclassified]=await Promise.all([
-    select('cost_unit_monthly_report',`period_start=eq.${periodStart}&select=*&order=cost_center.asc`),
-    select('cost_periods',`period_start=eq.${periodStart}&select=*&limit=1`),
-    select('cost_ledger',`period_start=eq.${periodStart}&metadata->>unclassified=eq.true&select=id,entry_type,cost_center,source_type,source_reference,amount,quantity,unit,metadata,occurred_at&order=occurred_at.desc&limit=1000`).catch(()=>[])
+    requiredSelect('cost_unit_monthly_report',`period_start=eq.${periodStart}&select=*&order=cost_center.asc`,'تقرير تكلفة الوحدة','COST_UNIT_REPORT_READ_FAILED'),
+    requiredSelect('cost_periods',`period_start=eq.${periodStart}&select=*&limit=1`,'فترة التكلفة','COST_PERIOD_READ_FAILED'),
+    requiredSelect('cost_ledger',`period_start=eq.${periodStart}&metadata->>unclassified=eq.true&select=id,entry_type,cost_center,source_type,source_reference,amount,quantity,unit,metadata,occurred_at&order=occurred_at.desc&limit=1000`,'التكاليف غير المصنفة','COST_UNCLASSIFIED_READ_FAILED')
   ]);
-  const period=periods?.[0]||null;
-  const runs=period?await select('cost_calculation_runs',`period_id=eq.${encodeURIComponent(period.id)}&select=*&order=run_no.desc&limit=20`).catch(()=>[]):[];
-  const economics=calculateUnitEconomics(rows||[]);
-  return{periodStart,period,runs:runs||[],rows:rows||[],economics,unclassified:unclassified||[],complete:Object.values(economics).length>0&&Object.values(economics).every(item=>item.reliable)};
+  const period=periods[0]||null;
+  const runs=period?await requiredSelect('cost_calculation_runs',`period_id=eq.${encodeURIComponent(period.id)}&select=*&order=run_no.desc&limit=20`,'تشغيلات حساب التكلفة','COST_RUNS_READ_FAILED'):[];
+  const economics=calculateUnitEconomics(rows);
+  return{periodStart,period,runs,rows,economics,unclassified,complete:Object.values(economics).length>0&&Object.values(economics).every(item=>item.reliable)};
 }
 
 export async function runCostCalculation(periodValue,actor,dryRun=false){
@@ -56,11 +57,11 @@ export async function reopenCostCalculation(periodValue,actor,reason){
 
 export async function getCostSetup(){
   const [centers,rules,assets,employees,periods]=await Promise.all([
-    select('cost_centers','select=*&order=code.asc&limit=100'),
-    select('cost_allocation_rules','select=*,source:cost_centers!cost_allocation_rules_source_center_id_fkey(code,name_ar),target:cost_centers!cost_allocation_rules_target_center_id_fkey(code,name_ar)&order=code.asc&limit=500').catch(()=>select('cost_allocation_rules','select=*&order=code.asc&limit=500')),
-    select('asset_cost_center_assignments','select=*,cost_centers(code,name_ar)&active=eq.true&order=updated_at.desc&limit=2000'),
-    select('employee_cost_assignments','select=*,cost_centers(code,name_ar)&active=eq.true&order=updated_at.desc&limit=3000'),
-    select('cost_periods','select=*&order=period_start.desc&limit=36')
+    requiredSelect('cost_centers','select=*&order=code.asc&limit=100','مراكز التكلفة','COST_CENTERS_READ_FAILED'),
+    select('cost_allocation_rules','select=*,source:cost_centers!cost_allocation_rules_source_center_id_fkey(code,name_ar),target:cost_centers!cost_allocation_rules_target_center_id_fkey(code,name_ar)&order=code.asc&limit=500').catch(()=>requiredSelect('cost_allocation_rules','select=*&order=code.asc&limit=500','قواعد توزيع التكلفة','COST_RULES_READ_FAILED')),
+    requiredSelect('asset_cost_center_assignments','select=*,cost_centers(code,name_ar)&active=eq.true&order=updated_at.desc&limit=2000','توزيع الأصول على مراكز التكلفة','COST_ASSET_ASSIGNMENTS_READ_FAILED'),
+    requiredSelect('employee_cost_assignments','select=*,cost_centers(code,name_ar)&active=eq.true&order=updated_at.desc&limit=3000','توزيع الموظفين على مراكز التكلفة','COST_EMPLOYEE_ASSIGNMENTS_READ_FAILED'),
+    requiredSelect('cost_periods','select=*&order=period_start.desc&limit=36','فترات التكلفة','COST_PERIODS_READ_FAILED')
   ]);
-  return{centers:centers||[],rules:rules||[],assetAssignments:assets||[],employeeAssignments:employees||[],periods:periods||[]};
+  return{centers,rules,assetAssignments:assets,employeeAssignments:employees,periods};
 }
