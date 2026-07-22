@@ -1,0 +1,25 @@
+(function employeeDeclarationSync(){
+'use strict';
+if(window.__BH_EMPLOYEE_DECLARATION_SYNC__)return;
+window.__BH_EMPLOYEE_DECLARATION_SYNC__=true;
+const VERSION='2026.07.22-employee-declaration-sync-v1';
+const TOKEN_KEY='binhamid_cloud_access_token',USER_KEY='binhamid_cloud_app_user_id',SIGNAL_KEY='binhamid_employee_declaration_refresh_v1';
+let running=false,retries=0,timer=null;
+const clean=value=>String(value??'').trim();
+function headers(){const token=clean(localStorage.getItem(TOKEN_KEY)),userId=clean(localStorage.getItem(USER_KEY));return{'Content-Type':'application/json',...(token&&token!=='device-session'?{Authorization:`Bearer ${token}`} :{}),...(userId?{'X-App-User-Id':userId}:{})};}
+async function request(path,options={}){const response=await fetch(path,{credentials:'same-origin',cache:'no-store',...options,headers:{...headers(),...(options.headers||{})}}),data=await response.json().catch(()=>({}));if(!response.ok)throw Object.assign(new Error(data.error||data.message||`HTTP ${response.status}`),{status:response.status,code:data.code||''});return data;}
+function rows(){try{return typeof D!=='undefined'&&D&&Array.isArray(D.emp)?D.emp:[]}catch(error){console.error('[BinHamid declaration employees] local roster unavailable',error);return[];}}
+function persist(){try{if(typeof window.save==='function')window.save();else if(typeof save==='function')save();}catch(error){console.error('[BinHamid declaration employees] local save failed',error);}}
+function redrawEmployees(){try{if(typeof window.rEmp==='function')window.rEmp();}catch(error){console.error('[BinHamid declaration employees] employee redraw failed',error);}}
+function declarationVisible(){const pane=document.querySelector('.pane.on');if(!pane)return false;const text=clean(pane.textContent),id=clean(pane.id).toLowerCase();return/(اصدار النماذج|إصدار النماذج|الخطابات|الاقرارات|الإقرارات)/.test(text)||/(print|document|declaration|letter)/.test(id);}
+function refreshDeclarations(force=false){if(!force&&!declarationVisible())return;try{if(typeof window.rAll==='function')window.rAll();}catch(error){console.error('[BinHamid declaration employees] declaration refresh failed',error);}}
+function mergeCloudEmployees(cloudRows){const local=rows(),byId=new Map(local.map(row=>[clean(row.id||row.external_id),row]).filter(([id])=>id)),byName=new Map(local.map(row=>[clean(row.name||row.full_name).toLowerCase(),row]).filter(([name])=>name));let changed=false,added=0,updated=0;for(const cloud of cloudRows||[]){if(!cloud||cloud.active===false)continue;const id=clean(cloud.external_id),name=clean(cloud.full_name),existing=byId.get(id)||byName.get(name.toLowerCase()),incoming={id,no:clean(cloud.employee_no),nid:clean(cloud.national_id),name:name||id,tel:clean(cloud.phone),role:clean(cloud.role)||'employee',act:true,_cloudSource:true};if(existing){for(const[key,value]of Object.entries(incoming)){if(value!==''&&value!==undefined&&existing[key]!==value){existing[key]=value;changed=true;}}updated++;byId.set(id,existing);if(name)byName.set(name.toLowerCase(),existing);}else{local.push(incoming);byId.set(id,incoming);if(name)byName.set(name.toLowerCase(),incoming);changed=true;added++;}}return{changed,added,updated,total:local.length};}
+async function reconcile(){if(running)return;running=true;try{const reconciliation=await request('/api/router?route=employee-management',{method:'POST',body:JSON.stringify({action:'reconcile_employee_declaration_roles'})}),roster=await request('/api/router?route=attendance-safe&scope=employee-sites'),merged=mergeCloudEmployees(roster.employees||[]);if(merged.changed){persist();redrawEmployees();window.dispatchEvent(new CustomEvent('binhamid-employee-roster-updated',{detail:{source:'declaration-sync',...merged,reconciliation:reconciliation.result||{}}}));refreshDeclarations();}try{localStorage.setItem(SIGNAL_KEY,JSON.stringify({at:new Date().toISOString(),changed:Number(reconciliation.result?.changed||0),total:merged.total}));}catch(_){}console.info('[BinHamid declaration employees]',{reconciled:reconciliation.result||{},merged});retries=0;}catch(error){console.error('[BinHamid declaration employees]',error);if([401,403].includes(error?.status)&&retries<12){retries++;clearTimeout(timer);timer=setTimeout(reconcile,1500);}}finally{running=false;}}
+function schedule(delay=120){clearTimeout(timer);timer=setTimeout(reconcile,delay);}
+document.addEventListener('click',event=>{const target=event.target?.closest?.('button,a,[onclick]');if(!target)return;const text=clean(target.textContent);if(/اصدار النماذج|إصدار النماذج|الخطابات|الاقرارات|الإقرارات/.test(text))setTimeout(()=>refreshDeclarations(true),80);},true);
+window.addEventListener('storage',event=>{if(event.key===SIGNAL_KEY)schedule(100);});
+window.addEventListener('binhamid-owner-authenticated',()=>schedule(250));
+window.addEventListener('binhamid-cloud-state-pulled',()=>schedule(350));
+schedule(700);
+console.info('[BinHamid]',VERSION,'ready — linked employees feed declaration forms');
+})();
