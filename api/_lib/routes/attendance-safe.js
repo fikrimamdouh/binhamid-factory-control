@@ -14,6 +14,8 @@ async function safeSelect(label,table,query,warnings){
 }
 const object=value=>value&&typeof value==='object'&&!Array.isArray(value)?value:{};
 const mapBy=(rows,key)=>new Map((rows||[]).map(row=>[clean(row?.[key]),row]).filter(([value])=>value));
+const deletedRows=rows=>(rows||[]).filter(row=>row.active===false&&object(row.metadata).permanentlyDeleted===true).map(row=>({external_id:row.external_id,national_id:row.national_id||null,employee_no:row.employee_no||null,full_name:row.full_name||null,deleted_at:object(row.metadata).permanentlyDeletedAt||null}));
+const activeRows=rows=>(rows||[]).filter(row=>row.active!==false&&object(row.metadata).permanentlyDeleted!==true);
 
 export async function attendanceSafe(req,res){
   if(!method(req,res,['GET']))return;
@@ -21,39 +23,30 @@ export async function attendanceSafe(req,res){
     await requireCapability(req,'attendance.view');
     const warnings=[],scope=clean(req.query?.scope);
     if(scope==='employee-sites'){
-      const [sites,assignments,employees]=await Promise.all([
+      const [sites,assignments,employeeRows]=await Promise.all([
         safeSelect('work_sites','work_sites','active=eq.true&select=id,code,name,address,latitude,longitude,radius_m,active&order=name.asc&limit=50',warnings),
         safeSelect('employee_assignments','employee_assignments','active=eq.true&select=app_user_id,employee_external_id,site_id,vehicle_external_id,job_title,shift_name,active,updated_at&order=updated_at.desc&limit=3000',warnings),
-        safeSelect('employees','employees','active=eq.true&select=external_id,employee_no,national_id,full_name,phone,role,active,metadata&order=full_name.asc&limit=3000',warnings)
+        safeSelect('employees','employees','select=external_id,employee_no,national_id,full_name,phone,role,active,metadata&order=full_name.asc&limit=5000',warnings)
       ]);
-      const siteById=mapBy(sites,'id');
-      const enrichedAssignments=(assignments||[]).map(row=>({...row,work_sites:siteById.get(clean(row.site_id))||null}));
-      const normalizedEmployees=(employees||[]).map(row=>({...row,work_status:clean(object(row.metadata).manualWorkStatus||object(row.metadata).workStatus||'working')}));
-      return json(res,200,{ok:true,degraded:warnings.length>0,warnings,sites:sites||[],assignments:enrichedAssignments,employees:normalizedEmployees});
+      const sitesById=mapBy(sites,'id'),employees=activeRows(employeeRows),deletedEmployees=deletedRows(employeeRows),enrichedAssignments=(assignments||[]).map(row=>({...row,work_sites:sitesById.get(clean(row.site_id))||null})),normalizedEmployees=employees.map(row=>({...row,work_status:clean(object(row.metadata).manualWorkStatus||object(row.metadata).workStatus||'working')}));
+      return json(res,200,{ok:true,degraded:warnings.length>0,warnings,sites:sites||[],assignments:enrichedAssignments,employees:normalizedEmployees,deletedEmployees});
     }
 
     const range=riyadhDayRange();
-    const [sites,assignments,channels,appUsers,vehicles,employees,attendance,driverEvents,stateRows]=await Promise.all([
+    const [sites,assignments,channels,appUsers,vehicles,employeeRows,attendance,driverEvents,stateRows]=await Promise.all([
       safeSelect('work_sites','work_sites','select=*&order=name.asc&limit=500',warnings),
       safeSelect('employee_assignments','employee_assignments','select=app_user_id,employee_external_id,site_id,vehicle_external_id,job_title,shift_name,active,updated_at&order=updated_at.desc&limit=1000',warnings),
       safeSelect('telegram_users','user_channels','channel=eq.telegram&select=external_id,external_username,active,user_id,last_seen_at&order=last_seen_at.desc&limit=1000',warnings),
       safeSelect('app_users','app_users','select=id,full_name,role,active,employee_external_id&limit=2000',warnings),
       safeSelect('vehicles','vehicles','active=eq.true&select=external_id,plate_no,asset_no,vehicle_type,make,model,driver_external_id,status&order=plate_no.asc&limit=2000',warnings),
-      safeSelect('employees','employees','active=eq.true&select=external_id,employee_no,national_id,full_name,phone,role,active,metadata&order=full_name.asc&limit=3000',warnings),
+      safeSelect('employees','employees','select=external_id,employee_no,national_id,full_name,phone,role,active,metadata&order=full_name.asc&limit=5000',warnings),
       safeSelect('attendance_events','attendance_events',`occurred_at=gte.${encodeURIComponent(range.start)}&occurred_at=lt.${encodeURIComponent(range.end)}&select=id,reference_no,app_user_id,site_id,employee_external_id,event_type,occurred_at,within_geofence,distance_from_site_m,horizontal_accuracy_m,latitude,longitude,note&order=occurred_at.desc&limit=1000`,warnings),
       safeSelect('driver_events','driver_events',`occurred_at=gte.${encodeURIComponent(range.start)}&occurred_at=lt.${encodeURIComponent(range.end)}&select=id,reference_no,app_user_id,event_type,occurred_at,vehicle_external_id,latitude,longitude,odometer,fuel_liters,fuel_amount&order=occurred_at.desc&limit=1000`,warnings),
       safeSelect('app_state_employees','app_state','key=eq.primary&select=payload&limit=1',warnings)
     ]);
 
-    const siteById=mapBy(sites,'id'),userById=mapBy(appUsers,'id');
-    const enrichedAssignments=(assignments||[]).map(row=>({...row,work_sites:siteById.get(clean(row.site_id))||null,app_users:userById.get(clean(row.app_user_id))||null}));
-    const normalizedUsers=(channels||[]).map(row=>{const user=userById.get(clean(row.user_id))||{};return{external_id:row.external_id,external_username:row.external_username,user_id:row.user_id,channel_active:row.active,id:user.id||row.user_id,full_name:user.full_name||'',role:user.role||'pending',active:Boolean(user.active&&row.active),employee_external_id:user.employee_external_id||''};});
-    const storedEmployees=stateRows?.[0]?.payload?.legacy?.emp;
-    const stored=Array.isArray(storedEmployees)?storedEmployees:[],storedById=new Map(stored.map(row=>[clean(row?.id||row?.external_id),row]));
-    const normalizedEmployees=(employees||[]).map(row=>{const source=storedById.get(clean(row.external_id)),metadata=object(row.metadata);return{...row,attendance_site_id:clean(source?.attendanceSiteId||source?.workSiteId||source?.siteId)||null,work_status:clean(metadata.manualWorkStatus||metadata.workStatus||'working')};});
-    const enrichedAttendance=(attendance||[]).map(row=>({...row,app_users:userById.get(clean(row.app_user_id))||null,work_sites:siteById.get(clean(row.site_id))||null}));
-    const enrichedDriverEvents=(driverEvents||[]).map(row=>({...row,app_users:userById.get(clean(row.app_user_id))||null}));
+    const sitesById=mapBy(sites,'id'),usersById=mapBy(appUsers,'id'),employees=activeRows(employeeRows),deletedEmployees=deletedRows(employeeRows),enrichedAssignments=(assignments||[]).map(row=>({...row,work_sites:sitesById.get(clean(row.site_id))||null,app_users:usersById.get(clean(row.app_user_id))||null})),normalizedUsers=(channels||[]).map(row=>{const user=usersById.get(clean(row.user_id))||{};return{external_id:row.external_id,external_username:row.external_username,user_id:row.user_id,channel_active:row.active,id:user.id||row.user_id,full_name:user.full_name||'',role:user.role||'pending',active:Boolean(user.active&&row.active),employee_external_id:user.employee_external_id||''};}),storedEmployees=stateRows?.[0]?.payload?.legacy?.emp,stored=Array.isArray(storedEmployees)?storedEmployees:[],storedById=new Map(stored.map(row=>[clean(row?.id||row?.external_id),row])),normalizedEmployees=employees.map(row=>{const source=storedById.get(clean(row.external_id)),metadata=object(row.metadata);return{...row,attendance_site_id:clean(source?.attendanceSiteId||source?.workSiteId||source?.siteId)||null,work_status:clean(metadata.manualWorkStatus||metadata.workStatus||'working')};}),enrichedAttendance=(attendance||[]).map(row=>({...row,app_users:usersById.get(clean(row.app_user_id))||null,work_sites:sitesById.get(clean(row.site_id))||null})),enrichedDriverEvents=(driverEvents||[]).map(row=>({...row,app_users:usersById.get(clean(row.app_user_id))||null}));
 
-    return json(res,200,{ok:true,degraded:warnings.length>0,warnings,sites:sites||[],assignments:enrichedAssignments,users:normalizedUsers,vehicles:vehicles||[],employees:normalizedEmployees,attendance:enrichedAttendance,driverEvents:enrichedDriverEvents,dayRange:range});
+    return json(res,200,{ok:true,degraded:warnings.length>0,warnings,sites:sites||[],assignments:enrichedAssignments,users:normalizedUsers,vehicles:vehicles||[],employees:normalizedEmployees,deletedEmployees,attendance:enrichedAttendance,driverEvents:enrichedDriverEvents,dayRange:range});
   }catch(error){errorResponse(res,error);}
 }
