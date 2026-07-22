@@ -14,6 +14,7 @@ const clean=value=>String(value??'').trim();
 const riyadhDate=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Riyadh',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
 const icon=type=>type==='block'?'🧱':'🏗️';
 const ROLE_BY_TYPE={block:'مسؤول مبيعات البلوك',concrete:'مسؤول مبيعات الخرسانة'};
+const VALID_TYPES=new Set(['block','concrete']);
 function publicBase(){let value=String(process.env.PUBLIC_APP_URL||process.env.VERCEL_PROJECT_PRODUCTION_URL||'').trim().replace(/\/$/,'');if(value&&!/^https?:\/\//i.test(value))value=`https://${value}`;return value||'https://binhamid-factory-control.vercel.app';}
 
 function mergeEmployeeSources(legacyRows,cloudRows){
@@ -74,9 +75,11 @@ function canonicalCustomers(type,projection,state,rep){
   return[...selected.values()].sort((a,b)=>a.name.localeCompare(b.name,'ar'));
 }
 
-export async function generateCustomerPortfolioPdfs(analysis={},sourceFile='daily-report.xlsx'){
-  const reportDate=riyadhDate(),[state,projection]=await Promise.all([loadAppState(),loadProjectedCumulativeDailyReport(analysis,reportDate)]),baseUrl=`${publicBase()}/`;
-  return Promise.all(['block','concrete'].map(async type=>{
+export async function generateCustomerPortfolioPdfs(analysis={},sourceFile='daily-report.xlsx',requestedTypes=['block','concrete']){
+  const types=[...new Set((Array.isArray(requestedTypes)?requestedTypes:[requestedTypes]).map(clean).filter(type=>VALID_TYPES.has(type)))];
+  if(!types.length)throw Object.assign(new Error('حدد إقرار البلوك أو إقرار الخرسانة.'),{status:400,code:'PORTFOLIO_TYPE_REQUIRED'});
+  const reportDate=riyadhDate(),[state,projection]=await Promise.all([loadAppState(),loadProjectedCumulativeDailyReport(analysis,reportDate)]),baseUrl=`${publicBase()}/`,reports=[];
+  for(const type of types){
     const rep=findRep(state.employees,type),customers=canonicalCustomers(type,projection,state,rep),documentRef=`BHF-${type.toUpperCase()}-${reportDate.replace(/-/g,'')}`;
     const rendered=renderCustomerPortfolioDeclaration({
       type,
@@ -95,6 +98,7 @@ export async function generateCustomerPortfolioPdfs(analysis={},sourceFile='dail
       baseUrl
     });
     const pdf=await htmlToPdf(rendered.document,{filename:`portfolio-${type}-${reportDate}`,landscape:false});
-    return{type,pdf,filename:`portfolio-${type}-${reportDate}.pdf`,caption:`${icon(type)} إقرار محفظة عملاء — ${rep?.name||ROLE_BY_TYPE[type]} — ${reportDate}`,templateVersion:CUSTOMER_PORTFOLIO_TEXT_VERSION,sourceFile};
-  }));
+    reports.push({type,pdf,filename:`portfolio-${type}-${reportDate}.pdf`,caption:`${icon(type)} إقرار محفظة عملاء — ${rep?.name||ROLE_BY_TYPE[type]} — ${reportDate}`,templateVersion:CUSTOMER_PORTFOLIO_TEXT_VERSION,sourceFile});
+  }
+  return reports;
 }
