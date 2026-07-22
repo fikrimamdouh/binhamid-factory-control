@@ -13,7 +13,14 @@ test('placeholder sales employees are permanently removed and never recreated',(
   assert.match(cleanup,/list\.splice\(index,1\)/);
   assert.doesNotMatch(cleanup,/D\.emp\.push/);
   assert.doesNotMatch(cleanup,/PLACEHOLDERS/);
-  assert.match(index,/default-sales-reps\.js\?v=20260722-3/);
+  assert.match(index,/default-sales-reps\.js\?v=20260722-4/);
+});
+
+test('DGD-7293 is removed from equipment without changing its diesel exclusion rule',()=>{
+  assert.match(cleanup,/DGD7293/);
+  assert.match(cleanup,/delete_vehicle_by_plate/);
+  assert.match(cleanup,/diesel exclusions are untouched/);
+  assert.match(cleanup,/vehicleRows\(\)/);
 });
 
 test('boot metadata request is deferred until an approved session exists',()=>{
