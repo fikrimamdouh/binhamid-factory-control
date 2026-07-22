@@ -1,13 +1,13 @@
 import { select } from './supabase.js';
 import { htmlToPdf } from './pdf-service.js';
 import { loadProjectedCumulativeDailyReport } from './daily-cumulative-report-data.js';
+import { renderCustomerPortfolioDeclaration } from '../../shared/customer-portfolio-declaration.js';
 import {
-  renderCustomerPortfolioDeclaration,
-  CANONICAL_CUSTOMER_PORTFOLIO_DECLARATION,
-  CANONICAL_CUSTOMER_PORTFOLIO_EXTRA,
-  CANONICAL_DECLARATION_ACK,
+  CUSTOMER_PORTFOLIO_DECLARATION,
+  CUSTOMER_PORTFOLIO_EXTRA,
+  DECLARATION_ACK,
   CUSTOMER_PORTFOLIO_TEXT_VERSION
-} from '../../shared/customer-portfolio-declaration.js';
+} from '../../shared/canonical-declaration-texts.js';
 
 const norm=value=>String(value??'').trim().toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/\s+/g,' ');
 const clean=value=>String(value??'').trim();
@@ -70,9 +70,9 @@ export async function generateCustomerPortfolioPdfs(analysis={},sourceFile='dail
       customers,
       days:state.days,
       defaultCreditLimit:state.cap,
-      declarationText:CANONICAL_CUSTOMER_PORTFOLIO_DECLARATION,
-      extraText:CANONICAL_CUSTOMER_PORTFOLIO_EXTRA,
-      ackText:CANONICAL_DECLARATION_ACK,
+      declarationText:CUSTOMER_PORTFOLIO_DECLARATION,
+      extraText:CUSTOMER_PORTFOLIO_EXTRA,
+      ackText:DECLARATION_ACK,
       authorizedName:state.authorizedName,
       documentRef,
       dateGregorian:reportDate,
