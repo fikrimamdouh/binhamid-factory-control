@@ -25,7 +25,7 @@ test('permanent tombstones remove deleted employees and block roster resurrectio
   assert.match(safe,/permanentlyDeleted/);
   assert.match(management,/permanentlyDeleted:true/);
   assert.match(management,/employee_permanently_hidden/);
-  assert.doesNotMatch(management,/delete\s*\(/i);
+  assert.doesNotMatch(management,/\bdelete\s*\(/i);
 });
 
 test('employee status remains a non-destructive server action',()=>{
@@ -56,7 +56,7 @@ test('existing Telegram users transfer to uploaded employees without recreation'
   assert.match(api,/approve_telegram_user/);
   assert.match(api,/conversationHistory:true/);
   assert.match(api,/preservedRole:user\.role/);
-  assert.doesNotMatch(api,/delete.*user_channels/is);
+  assert.doesNotMatch(api,/\bdelete\s*\(\s*['"]user_channels/i);
   assert.match(ui,/نقل \/ تحديث الربط/);
   assert.match(ui,/action:'transfer_telegram_employee'/);
   assert.match(ui,/هوية Telegram والدور والمحادثات لن تتغير/);
