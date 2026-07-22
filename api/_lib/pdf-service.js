@@ -2,12 +2,11 @@ import { config } from './config.js';
 
 const cleanUrl=value=>String(value||'').trim().replace(/\/$/,'');
 const providerName=()=>String(config.pdfProvider||process.env.PDF_PROVIDER||'auto').trim().toLowerCase();
+const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+let cloudflareQueue=Promise.resolve();
 
 function resolvedProvider(){
   const url=String(config.pdfApiUrl||'');
-  // رابط Cloudflare له صيغة طلب خاصة (pdfOptions)، وإرسال صيغة مزوّد آخر إليه
-  // يفشل دائمًا بـ 400. لذلك شكل الرابط يحسم المزوّد حتى لو كان PDF_PROVIDER
-  // مضبوطًا على قيمة قديمة أو خاطئة.
   if(/api\.cloudflare\.com\/client\/v4\/accounts\/[^/]+\/browser-rendering\/pdf/i.test(url))return 'cloudflare';
   const explicit=providerName();
   if(explicit&&explicit!=='auto')return explicit;
@@ -40,9 +39,13 @@ async function gotenbergPdf(html,{filename='report',landscape=false}={}){
   return assertPdf(Buffer.from(await response.arrayBuffer()));
 }
 
-async function cloudflarePdf(html,{landscape=false}={}){
-  // Cloudflare Browser Rendering: الرابط لازم يحتوي معرّف الحساب الحقيقي وليس ACCOUNT_ID،
-  // وخيارات الطباعة تُرسل داخل pdfOptions وليس في المستوى الأعلى.
+function retryDelay(response,attempt){
+  const header=Number(response.headers.get('retry-after')||0);
+  if(Number.isFinite(header)&&header>0)return Math.min(header*1000,12_000);
+  return[2500,5000,9000][attempt]||9000;
+}
+
+async function runCloudflarePdf(html,{landscape=false}={}){
   if(/\/accounts\/ACCOUNT_ID\//i.test(String(config.pdfApiUrl||''))){
     throw Object.assign(new Error('PDF_API_URL يحتوي ACCOUNT_ID الحرفية — استبدلها بمعرّف حساب Cloudflare الفعلي (32 خانة) من لوحة التحكم.'),{status:503,code:'PDF_SERVICE_NOT_CONFIGURED'});
   }
@@ -53,16 +56,25 @@ async function cloudflarePdf(html,{landscape=false}={}){
     body:JSON.stringify({html:String(html||''),pdfOptions:{format:'a4',landscape:Boolean(landscape),printBackground:true}}),
     signal:AbortSignal.timeout(45_000)
   });
-  let response=await send();
-  // الخطة المجانية تسمح بمتصفحين متزامنين فقط، فتزاحم طلبين معًا يعطي 429.
-  // محاولة واحدة بعد مهلة قصيرة تكفي عادةً بدل إزعاج المستخدم برسالة فشل.
-  if(response.status===429){await new Promise(done=>setTimeout(done,3000));response=await send();}
-  if(response.status===429)throw Object.assign(new Error('خدمة PDF مشغولة الآن (تجاوز حد الطلبات المتزامنة). انتظر دقيقة ثم أعد المحاولة.'),{status:503,code:'PDF_RATE_LIMITED',upstreamStatus:429});
+  let response;
+  for(let attempt=0;attempt<4;attempt++){
+    response=await send();
+    if(response.status!==429)break;
+    if(attempt<3)await sleep(retryDelay(response,attempt));
+  }
+  if(response.status===429)throw Object.assign(new Error('خدمة PDF ما زالت مشغولة بعد الانتظار وإعادة المحاولة تلقائيًا.'),{status:503,code:'PDF_RATE_LIMITED',upstreamStatus:429,retryable:true});
   if(!response.ok){
     const detail=(await response.text().catch(()=>'' )).replace(/\s+/g,' ').slice(0,300);
     throw Object.assign(new Error(`تعذر إنشاء PDF عبر Cloudflare: ${response.status}${detail?` — ${detail}`:''}`),{status:502,code:'PDF_SERVICE_FAILED',upstreamStatus:response.status});
   }
   return assertPdf(Buffer.from(await response.arrayBuffer()));
+}
+
+async function cloudflarePdf(html,options={}){
+  const execute=()=>runCloudflarePdf(html,options);
+  const queued=cloudflareQueue.then(execute,execute);
+  cloudflareQueue=queued.catch(()=>{});
+  return queued;
 }
 
 async function jsonPdf(html,{filename='report',landscape=false}={}){
