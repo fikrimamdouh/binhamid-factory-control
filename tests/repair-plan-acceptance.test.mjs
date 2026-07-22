@@ -56,7 +56,7 @@ test('bot modules apply the same deny policy to buttons text callbacks voice and
 
 test('Excel import is previewed, fingerprinted, deduplicated and cannot erase data with an empty file',async()=>{
   const guard=await read('assets/import-file-validation.js'),existing=await read('assets/existing-daily-import-fix.js');
-  assert.match(guard,/\.(xlsx\|xls)/);
+  assert.ok(guard.includes("const ALLOWED_EXT=/\\.(xlsx|xls)$/i;"));
   assert.match(guard,/SHA-256/);
   assert.match(guard,/المقبول/);assert.match(guard,/المرفوض/);assert.match(guard,/المكرر/);assert.match(guard,/الناقص/);
   assert.match(guard,/لا توجد صفوف صالحة للاستيراد/);
