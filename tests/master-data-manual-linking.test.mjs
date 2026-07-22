@@ -55,15 +55,18 @@ test('workbook parser supports new ERP plate and source statuses',()=>{
   assert.match(parser,/dieselExpected:true/);
 });
 
-test('master data page presents diesel and ERP as one asset without losing manual controls',()=>{
-  const page=read('master-data.html');
-  assert.match(page,/كل سيارة تظهر كأصل واحد/);
-  assert.match(page,/data-diesel-employee/);
-  assert.match(page,/data-diesel-erp/);
-  assert.match(page,/action:'assign_asset_employee'/);
-  assert.match(page,/action:'assign_erp_reference'/);
-  assert.match(page,/action:'auto_link_erp_references'/);
-  assert.match(page,/action:'update_employee_status'/);
-  assert.match(page,/action:'update_asset_status'/);
-  assert.match(page,/تم توحيد لوحة الديزل وأصل ERP في سجل واحد/);
+test('unified page keeps manual employee ERP status and type controls in one editor',()=>{
+  const page=read('master-data.html'),canonical=read('api/_lib/routes/canonical-master-data.js'),guard=read('assets/master-data-workspace-guards.js');
+  assert.match(page,/السيارة وERP والديزل يظهرون كأصل واحد/);
+  assert.match(page,/id="assetEmployee"/);
+  assert.match(page,/id="assetErp"/);
+  assert.match(page,/id="assetStatus"/);
+  assert.match(page,/id="assetType"/);
+  assert.match(page,/action:'save_asset'/);
+  assert.match(page,/action:'auto_link_exact_plate'/);
+  assert.match(canonical,/assignVehicle/);
+  assert.match(canonical,/erpReference/);
+  assert.match(canonical,/operationalStatus/);
+  assert.match(guard,/ensureCurrentErp/);
+  assert.match(guard,/assetMismatches/);
 });
