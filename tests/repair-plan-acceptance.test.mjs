@@ -11,10 +11,13 @@ test('boot remains interactive and optional modules load sequentially in idle sl
   assert.match(index,/optional modules loading in idle slices/);
   assert.match(index,/optional modules loaded/);
   assert.match(index,/revealFrame\(\);\}\},6000/);
-  assert.match(state,/automatic full state request replaced with authenticated revision metadata/);
+  assert.match(index,/vehiclePreflight/);
+  assert.match(index,/installVehicleGlobals/);
+  assert.match(state,/automatic full state request replaced with session-gated revision metadata/);
   assert.match(state,/\/api\/state\?meta=1/);
   assert.match(state,/X-App-User-Id/);
-  assert.match(state,/bhRefreshOwnerSession/);
+  assert.match(state,/deferredAuth:true/);
+  assert.doesNotMatch(state,/bhRefreshOwnerSession/);
 });
 
 test('revision conflicts stop writes until a clean cloud pull replaces local state',async()=>{
