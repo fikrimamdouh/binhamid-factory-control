@@ -25,6 +25,15 @@ test('ERP reference is financial metadata and does not replace diesel assignment
   assert.doesNotMatch(route,/assignErpReference[\s\S]{0,1800}assigned_employee_external_id:/);
 });
 
+test('exact plate matches can be unified while ambiguous matches remain manual',()=>{
+  const route=read('api/_lib/routes/master-data.js');
+  assert.match(route,/autoLinkExactPlatePairs/);
+  assert.match(route,/auto_link_erp_references/);
+  assert.match(route,/matches\.length>1/);
+  assert.match(route,/auto_exact_plate/);
+  assert.match(route,/ambiguousCount/);
+});
+
 test('employee and asset statuses can be managed and survive imports',()=>{
   const route=read('api/_lib/routes/master-data.js');
   assert.match(route,/updateEmployeeStatus/);
@@ -46,14 +55,15 @@ test('workbook parser supports new ERP plate and source statuses',()=>{
   assert.match(parser,/dieselExpected:true/);
 });
 
-test('master data page separates employee diesel link from ERP reference',()=>{
+test('master data page presents diesel and ERP as one asset without losing manual controls',()=>{
   const page=read('master-data.html');
-  assert.match(page,/لوحة الديزل هي الربط التشغيلي الأساسي/);
+  assert.match(page,/كل سيارة تظهر كأصل واحد/);
   assert.match(page,/data-diesel-employee/);
   assert.match(page,/data-diesel-erp/);
   assert.match(page,/action:'assign_asset_employee'/);
   assert.match(page,/action:'assign_erp_reference'/);
+  assert.match(page,/action:'auto_link_erp_references'/);
   assert.match(page,/action:'update_employee_status'/);
   assert.match(page,/action:'update_asset_status'/);
-  assert.match(page,/تم تحديث مرجع ERP المالي دون تغيير ربط الديزل/);
+  assert.match(page,/تم توحيد لوحة الديزل وأصل ERP في سجل واحد/);
 });
