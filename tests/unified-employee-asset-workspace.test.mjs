@@ -6,6 +6,7 @@ const read=path=>readFileSync(new URL(`../${path}`,import.meta.url),'utf8');
 const page=read('master-data.html');
 const route=read('api/_lib/routes/canonical-master-data.js');
 const nav=read('assets/admin-nav.js');
+const guards=read('assets/master-data-workspace-guards.js');
 
 test('master data is one native workspace without injected legacy overlays',()=>{
   assert.match(page,/الموظفون والمركبات — مكان واحد/);
@@ -14,7 +15,8 @@ test('master data is one native workspace without injected legacy overlays',()=>
   assert.match(page,/data-tab="assets"/);
   assert.doesNotMatch(nav,/master-data-cost-centers\.js/);
   assert.doesNotMatch(nav,/master-data-canonical-ui\.js/);
-  assert.match(nav,/unified-master-workspace/);
+  assert.match(nav,/unified-workspace-guards/);
+  assert.match(nav,/master-data-workspace-guards\.js/);
 });
 
 test('employee form can add edit link vehicle link Telegram and delete in the same page',()=>{
@@ -54,10 +56,11 @@ test('asset form supports create edit delete type conversion and cloud status',(
 test('diesel and ERP remain one canonical row and edits mirror both source records',()=>{
   assert.match(route,/source_type:linked\?'diesel_erp'/);
   assert.match(route,/referenced\.has/);
-  assert.match(route,/if\(linkedErp\)/);
+  assert.match(route,/linkedErp/);
   assert.match(route,/erpReference/);
   assert.match(page,/sourceLabel\(row\)/);
   assert.match(page,/دمج اللوحات المتطابقة/);
+  assert.match(guards,/ensureCurrentErp/);
 });
 
 test('cost centers write actual employee and asset assignments',()=>{
@@ -70,9 +73,24 @@ test('cost centers write actual employee and asset assignments',()=>{
   assert.match(page,/خرسانة/);
 });
 
+test('save buttons use stable ids and verify the cloud read-back before closing',()=>{
+  assert.match(guards,/stableId/);
+  assert.match(guards,/cloudRequest/);
+  assert.match(guards,/cloudRead/);
+  assert.match(guards,/employeeMismatches/);
+  assert.match(guards,/assetMismatches/);
+  assert.match(guards,/CLOUD_SAVE_NOT_CONFIRMED/);
+  assert.match(guards,/stopImmediatePropagation/);
+  assert.match(guards,/attempt<=3/);
+  assert.match(guards,/تم حفظ \$\{label\} في السحابة والتأكد من جميع البيانات/);
+  assert.doesNotMatch(guards,/localStorage\.setItem/);
+});
+
 test('all edits call the cloud API and no local program state is written',()=>{
   assert.match(page,/fetch\('\/api\/router\?route=canonical-master-data'/);
+  assert.match(guards,/fetch\('\/api\/router\?route=canonical-master-data'/);
   assert.match(page,/credentials:'same-origin'/);
+  assert.match(guards,/cache:'no-store'/);
   assert.doesNotMatch(page,/localStorage\.setItem/);
   assert.doesNotMatch(page,/window\.save\(/);
   assert.doesNotMatch(page,/\bsave\(\)/);
