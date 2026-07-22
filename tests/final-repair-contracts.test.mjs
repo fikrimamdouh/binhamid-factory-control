@@ -1,0 +1,60 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+
+const read=path=>readFile(new URL(`../${path}`,import.meta.url),'utf8');
+
+test('critical financial and sales sources cannot fall back to empty data',async()=>{
+  const files=['api/_lib/bot-costs-data.js','api/_lib/cost-engine.js','api/_lib/mix-design-costing.js','api/_lib/bot-sales.js'];
+  for(const path of files){
+    const source=await read(path);
+    assert.doesNotMatch(source,/\.catch\(\(\)=>\[\]\)/,`${path} still returns an empty list after a read failure`);
+    assert.match(source,/requiredSelect/,`${path} must use mandatory reads`);
+  }
+});
+
+test('mandatory read errors include operation, save state, retry and reference metadata',async()=>{
+  const source=await read('api/_lib/required-data.js');
+  for(const marker of ['status:503','operation:','saved:false','retryable:true','reference','لم يتم إصدار نتيجة ناقصة'])assert.match(source,new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
+});
+
+test('sales legacy migration cannot silently omit failed orders',async()=>{
+  const source=await read('api/_lib/bot-sales.js');
+  assert.match(source,/SALES_LEGACY_SYNC_FAILED/);
+  assert.match(source,/لم يصدر التقرير لتجنب عرض قائمة ناقصة/);
+  assert.doesNotMatch(source,/loadOrderEvents\(reference\)\.catch\(\(\)=>\[\]\)/);
+  assert.doesNotMatch(source,/persistSalesOrder[\s\S]{0,260}\.catch\(error=>console\.warn/);
+});
+
+test('bot permissions fail closed and fleet menu makes no GPS tracking claim',async()=>{
+  const source=await read('api/_lib/bot-menu-permissions.js');
+  assert.match(source,/BOT_CAPABILITIES_READ_FAILED/);
+  assert.match(source,/حالة الأسطول من الحضور/);
+  assert.doesNotMatch(source,/label:'حالة الأسطول وGPS'/);
+  assert.doesNotMatch(source,/user_capabilities[\s\S]{0,180}\.catch\(\(\)=>\[\]\)/);
+});
+
+test('Telegram print capture is event driven and never waits on a fixed document timer',async()=>{
+  const source=await read('assets/telegram-pdf-declarations.js');
+  const capture=source.match(/function captureByClick[\s\S]*?window\.addEventListener\('pagehide'/)?.[0]||'';
+  assert.match(capture,/captureRequest=/);
+  assert.doesNotMatch(capture,/setTimeout|7000/);
+  assert.match(source,/bhCancelPrintedButtonCapture/);
+  assert.match(source,/document-ready/);
+});
+
+test('default sales representative initialization reports failures to the UI',async()=>{
+  const source=await read('assets/default-sales-reps.js');
+  assert.match(source,/binhamid-module-error/);
+  assert.match(source,/تعذر تجهيز مسؤولي المبيعات الافتراضيين/);
+  assert.doesNotMatch(source,/catch\(error\)\{console\.error\([^}]+return false/);
+});
+
+test('critical HTML tables escape database supplied text',async()=>{
+  const attendance=await read('attendance-admin.html');
+  for(const value of ['x.code','x.name','x.address','x.app_users?.full_name','x.work_sites?.name','x.event_type','x.odometer','x.fuel_liters','x.fuel_amount'])assert.ok(attendance.includes(`esc(${value}`),`attendance-admin must escape ${value}`);
+  const accounting=await read('accounting.html');
+  for(const value of ['r.account_code','r.account_name','r.customer_name','r.source_type'])assert.ok(accounting.includes(`esc(${value}`),`accounting must escape ${value}`);
+  const roles=await read('assets/cloud-user-roles.js');
+  for(const value of ['item.icon','item.label','group','error.message'])assert.ok(roles.includes(`esc(${value}`),`role UI must escape ${value}`);
+});
