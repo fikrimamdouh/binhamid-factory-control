@@ -16,14 +16,29 @@ const icon=type=>type==='block'?'🧱':'🏗️';
 const ROLE_BY_TYPE={block:'مسؤول مبيعات البلوك',concrete:'مسؤول مبيعات الخرسانة'};
 function publicBase(){let value=String(process.env.PUBLIC_APP_URL||process.env.VERCEL_PROJECT_PRODUCTION_URL||'').trim().replace(/\/$/,'');if(value&&!/^https?:\/\//i.test(value))value=`https://${value}`;return value||'https://binhamid-factory-control.vercel.app';}
 
+function mergeEmployeeSources(legacyRows,cloudRows){
+  const merged=(Array.isArray(legacyRows)?legacyRows:[]).map(row=>({...row})),byId=new Map(),byName=new Map(),byNationalId=new Map();
+  const indexRow=(row,index)=>{const id=clean(row?.id||row?.external_id),name=norm(row?.name||row?.full_name),nationalId=clean(row?.nid||row?.national_id).replace(/\D/g,'');if(id)byId.set(id,index);if(name)byName.set(name,index);if(nationalId)byNationalId.set(nationalId,index);};
+  merged.forEach(indexRow);
+  for(const row of cloudRows||[]){
+    const id=clean(row.external_id),name=clean(row.full_name),nationalId=clean(row.national_id).replace(/\D/g,''),candidate=byId.get(id)??byNationalId.get(nationalId)??byName.get(norm(name)),values={id:id||undefined,name:name||undefined,nid:nationalId||undefined,no:clean(row.employee_no)||undefined,tel:clean(row.phone)||undefined,role:clean(row.role)||undefined};
+    if(candidate!==undefined){merged[candidate]={...merged[candidate],...Object.fromEntries(Object.entries(values).filter(([,value])=>value!==undefined))};indexRow(merged[candidate],candidate);}
+    else{const next=Object.fromEntries(Object.entries(values).filter(([,value])=>value!==undefined));merged.push(next);indexRow(next,merged.length-1);}
+  }
+  return merged;
+}
+
 async function loadAppState(){
-  const rows=await select('app_state','key=eq.primary&select=payload&limit=1').catch(()=>[]),legacy=rows?.[0]?.payload?.legacy||{};
+  const[stateRows,cloudEmployees]=await Promise.all([
+    select('app_state','key=eq.primary&select=payload&limit=1').catch(()=>[]),
+    select('employees','active=eq.true&select=external_id,national_id,employee_no,full_name,phone,role&order=full_name.asc&limit=5000').catch(()=>[])
+  ]),legacy=stateRows?.[0]?.payload?.legacy||{};
   return{
     companyName:legacy?.cfg?.name||'مصنع بن حامد للبلوك والخرسانة الجاهزة',
     days:Number(legacy?.cfg?.days||3)||3,
     cap:Number(legacy?.cfg?.cap||0)||0,
     authorizedName:[legacy?.cfg?.auth,legacy?.cfg?.authT].filter(Boolean).join(' — '),
-    employees:Array.isArray(legacy?.emp)?legacy.emp:[],
+    employees:mergeEmployeeSources(legacy?.emp,cloudEmployees),
     clients:Array.isArray(legacy?.cli)?legacy.cli:[]
   };
 }
