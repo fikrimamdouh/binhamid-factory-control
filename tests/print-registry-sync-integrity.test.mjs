@@ -76,13 +76,15 @@ test('login synchronization is single-flight and never starts an automatic retry
   assert.match(loginSync,/binhamid-cloud-state-pulled/);
 });
 
-test('revision metadata keeps the authenticated user session',()=>{
-  assert.match(stateLoad,/v2-authenticated-meta/);
+test('revision metadata waits for an approved device session and never emits an unauthenticated retry',()=>{
+  assert.match(stateLoad,/v3-session-gated-meta/);
   assert.match(stateLoad,/X-App-User-Id/);
   assert.match(stateLoad,/Authorization/);
   assert.match(stateLoad,/credentials='same-origin'/);
-  assert.match(stateLoad,/bhRefreshOwnerSession/);
-  assert.match(stateLoad,/automatic full state request replaced with authenticated revision metadata/);
+  assert.match(stateLoad,/session&&session\.bound===true/);
+  assert.match(stateLoad,/deferredAuth:true/);
+  assert.match(stateLoad,/automatic full state request replaced with session-gated revision metadata/);
+  assert.doesNotMatch(stateLoad,/bhRefreshOwnerSession/);
 });
 
 test('revision conflicts never force-save and safe pull replaces local state cleanly',()=>{
