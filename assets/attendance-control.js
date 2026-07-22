@@ -1,101 +1,42 @@
 (function(){
   'use strict';
-  const VERSION='2026.07.21-employee-attendance-sites-v2-runtime-performance';
+  const VERSION='2026.07.22-employee-management-v3-cloud-roster-status-delete';
   const TOKEN_KEY='binhamid_cloud_access_token',USER_KEY='binhamid_cloud_app_user_id';
   const PREFERRED_CODES=new Set(['FACTORY_MAIN','FACTORY-MAIN','STATION_MAIN','STATION-MAIN']);
-  const state={sites:[],assignments:[],ready:false,loading:false,attempted:false,error:'',rendering:false,wrapped:false};
-
+  const STATUS_OPTIONS=[['working','على رأس العمل'],['holiday','إجازة دورية'],['leave','غياب / إجازة'],['suspended','موقوف مؤقتًا']];
+  const state={sites:[],assignments:[],cloudEmployees:[],statusById:new Map(),ready:false,loading:false,error:'',rendering:false,wrapped:false,merging:false};
   const clean=value=>String(value??'').trim();
   function employeeRows(){try{return typeof D!=='undefined'&&Array.isArray(D.emp)?D.emp:[]}catch{return[]}}
   function employeePaneActive(){const pane=document.getElementById('p-emp');if(!pane)return false;const style=getComputedStyle(pane);return style.display!=='none'&&style.visibility!=='hidden'&&pane.getClientRects().length>0;}
-  function headers(){
-    const token=clean(localStorage.getItem(TOKEN_KEY)),userId=clean(localStorage.getItem(USER_KEY));
-    return{'Content-Type':'application/json',...(token&&token!=='device-session'?{Authorization:`Bearer ${token}`} :{}),...(userId?{'x-app-user-id':userId}:{})};
-  }
-  async function api(path,options={}){
-    const response=await fetch(path,{...options,headers:{...headers(),...(options.headers||{})}}),data=await response.json().catch(()=>({}));
-    if(!response.ok)throw Object.assign(new Error(data.error||data.message||`HTTP ${response.status}`),{status:response.status,code:data.code||''});
-    return data;
-  }
-  function toastMessage(message,bad=false){
-    if(typeof window.toast==='function')return window.toast(message,bad?'err':undefined);
-    if(typeof window.opsToast==='function')return window.opsToast(message,bad?'err':undefined);
-    console[bad?'error':'info']('[Employee attendance site]',message);
-  }
-  function availableSites(){
-    const active=(state.sites||[]).filter(site=>site&&site.active!==false&&site.id),preferred=active.filter(site=>PREFERRED_CODES.has(clean(site.code).toUpperCase()));
-    return preferred.length>=2?preferred:active;
-  }
-  function siteLabel(site){
-    const code=clean(site?.code).toUpperCase(),name=clean(site?.name);
-    if(code.includes('FACTORY'))return name||'المصنع';
-    if(code.includes('STATION'))return name||'المحطة';
-    return name||code||'موقع عمل';
-  }
+  function headers(){const token=clean(localStorage.getItem(TOKEN_KEY)),userId=clean(localStorage.getItem(USER_KEY));return{'Content-Type':'application/json',...(token&&token!=='device-session'?{Authorization:`Bearer ${token}`} :{}),...(userId?{'X-App-User-Id':userId}:{})};}
+  async function api(path,options={}){const response=await fetch(path,{credentials:'same-origin',cache:'no-store',...options,headers:{...headers(),...(options.headers||{})}}),data=await response.json().catch(()=>({}));if(!response.ok)throw Object.assign(new Error(data.error||data.message||`HTTP ${response.status}`),{status:response.status,code:data.code||''});return data;}
+  function toastMessage(message,bad=false){if(typeof window.toast==='function')return window.toast(message,bad?'err':undefined);if(typeof window.opsToast==='function')return window.opsToast(message,bad?'err':undefined);console[bad?'error':'info']('[Employee management]',message);}
+  function availableSites(){const active=(state.sites||[]).filter(site=>site&&site.active!==false&&site.id),preferred=active.filter(site=>PREFERRED_CODES.has(clean(site.code).toUpperCase()));return preferred.length>=2?preferred:active;}
+  function siteLabel(site){const code=clean(site?.code).toUpperCase(),name=clean(site?.name);if(code.includes('FACTORY'))return name||'المصنع';if(code.includes('STATION'))return name||'المحطة';return name||code||'موقع عمل';}
   function currentSiteId(employee){return clean(employee?.attendanceSiteId||employee?.workSiteId||employee?.siteId)}
-  function persistLocal(){try{if(typeof window.save==='function')window.save();else if(typeof save==='function')save();}catch(error){console.error('[Employee attendance site] local save failed',error);}}
-  function migrateExistingAssignments(data){
-    const employees=employeeRows(),byExternal=new Map(employees.map(employee=>[clean(employee.id||employee.external_id),employee])),siteById=new Map((data.sites||[]).map(site=>[clean(site.id),site]));let changed=false;
-    for(const assignment of data.assignments||[]){const employee=byExternal.get(clean(assignment.employee_external_id)),site=siteById.get(clean(assignment.site_id));if(!employee||!site||currentSiteId(employee))continue;employee.attendanceSiteId=site.id;employee.attendanceSiteCode=site.code||'';employee.attendanceSiteName=site.name||'';changed=true;}
-    if(changed)persistLocal();
-  }
-  async function load(){
-    if(state.loading||state.ready)return;
-    state.loading=true;state.attempted=true;state.error='';
-    try{
-      const data=await api('/api/router?route=attendance-safe&scope=employee-sites',{cache:'no-store'});
-      state.sites=Array.isArray(data.sites)?data.sites:[];state.assignments=Array.isArray(data.assignments)?data.assignments:[];state.ready=true;migrateExistingAssignments(data);
-    }catch(error){state.error=error.message||'تعذر تحميل مواقع الحضور';console.warn('[Employee attendance site]',error);}
-    finally{state.loading=false;renderEmployeeSites();}
-  }
-  function ensureLoaded(){if(!state.ready&&!state.loading)load();else if(state.ready)renderEmployeeSites();}
-  async function assign(employee,siteId,select){
-    const previous={id:currentSiteId(employee),code:clean(employee.attendanceSiteCode),name:clean(employee.attendanceSiteName)},site=state.sites.find(row=>clean(row.id)===clean(siteId));
-    employee.attendanceSiteId=clean(siteId);employee.attendanceSiteCode=site?.code||'';employee.attendanceSiteName=site?.name||'';persistLocal();if(select)select.disabled=true;
-    try{
-      if(typeof window.bhCloudPush==='function')await window.bhCloudPush();
-      const result=await api('/api/admin/attendance',{method:'POST',body:JSON.stringify({action:'assign_employee_site',employeeExternalId:employee.id||employee.external_id,siteId:clean(siteId)})});
-      const suffix=result.linkedUsers?` وتم تحديث ${result.linkedUsers} حساب Telegram مرتبط`:' وسيُستخدم تلقائيًا عند ربط حساب Telegram';toastMessage(site?`تم تحديد ${siteLabel(site)} للموظف ${employee.name||''}${suffix}`:`تم إلغاء موقع الحضور للموظف ${employee.name||''}`);
-    }catch(error){employee.attendanceSiteId=previous.id;employee.attendanceSiteCode=previous.code;employee.attendanceSiteName=previous.name;persistLocal();if(select)select.value=previous.id;toastMessage(`لم يُحفظ موقع الحضور: ${error.message}`,true);}
-    finally{if(select)select.disabled=false;}
-  }
-  function employeeIdFromRow(row,index,visible,byName){
-    const button=row.querySelector('[onclick*="empForm"]'),onclick=button?.getAttribute('onclick')||'',match=onclick.match(/empForm\(\s*['"]([^'"]+)['"]/);if(match)return match[1];
-    const name=clean(row.cells?.[0]?.textContent);return clean(byName.get(name)?.id||visible[index]?.id);
-  }
-  function ensureHeader(){const header=document.querySelector('#p-emp table thead tr');if(!header||header.querySelector('#bhEmployeeAttendanceSiteHeader'))return;const th=document.createElement('th');th.id='bhEmployeeAttendanceSiteHeader';th.textContent='موقع الحضور';header.insertBefore(th,header.lastElementChild);}
-  function ensureNote(){
-    const pane=document.getElementById('p-emp'),card=pane?.querySelector('.card');if(!card||document.getElementById('bhEmployeeAttendanceSiteNote'))return;
-    const note=document.createElement('div');note.id='bhEmployeeAttendanceSiteNote';note.className='note';note.style.marginBottom='13px';note.innerHTML='<b>موقع الحضور:</b> اختر المصنع أو المحطة بجانب الموظف. الاختيار محفوظ مع سجل الموظف ويُستخدم تلقائيًا للتحقق من الحضور والانصراف عبر Telegram.';const table=card.querySelector('.tw');card.insertBefore(note,table);
-  }
-  function renderEmployeeSites(){
-    if(state.rendering||!state.ready||!employeePaneActive())return;
-    const body=document.getElementById('tEmp');if(!body)return;state.rendering=true;
-    try{
-      ensureHeader();ensureNote();
-      const all=employeeRows(),filter=clean(document.getElementById('fEmp')?.value),visible=filter?all.filter(employee=>clean(employee.role)===filter):all,sites=availableSites(),rows=[...body.querySelectorAll(':scope > tr')],byId=new Map(all.map(employee=>[clean(employee.id||employee.external_id),employee])),byName=new Map(visible.map(employee=>[clean(employee.name),employee]));
-      if(rows.length===1&&!rows[0].querySelector('[onclick*="empForm"]')){const cell=rows[0].cells?.[0];if(cell)cell.colSpan=Math.max(cell.colSpan||0,9);return;}
-      rows.forEach((row,index)=>{
-        if(row.querySelector('.bh-employee-site-cell'))return;
-        const employeeId=employeeIdFromRow(row,index,visible,byName),employee=byId.get(clean(employeeId));if(!employee)return;
-        const cell=document.createElement('td');cell.className='bh-employee-site-cell';cell.style.minWidth='165px';const select=document.createElement('select');select.className='bh-employee-site-select';select.setAttribute('aria-label',`موقع حضور ${employee.name||''}`);select.style.cssText='min-width:150px;padding:6px 8px;font-size:12px;border-color:#d8ccb3;background:#fff;';
-        const empty=document.createElement('option');empty.value='';empty.textContent=state.error?'تعذر تحميل المواقع':'— غير محدد —';select.appendChild(empty);for(const site of sites){const option=document.createElement('option');option.value=site.id;option.textContent=siteLabel(site);select.appendChild(option);}select.value=currentSiteId(employee);select.disabled=Boolean(state.error);select.addEventListener('change',()=>assign(employee,select.value,select));cell.appendChild(select);const actionCell=row.lastElementChild;row.insertBefore(cell,actionCell);
-      });
-    }finally{state.rendering=false;}
-  }
-  function wrapEmployeeRenderer(){
-    if(state.wrapped||typeof window.rEmp!=='function')return false;state.wrapped=true;const original=window.rEmp;
-    window.rEmp=function(){const result=original.apply(this,arguments);if(employeePaneActive())setTimeout(ensureLoaded,0);return result;};return true;
-  }
-  function installAdminLink(){
-    const pane=document.getElementById('p-comms');if(!pane||document.getElementById('bhAttendanceAdminLink'))return false;
-    const host=document.getElementById('bhCommsRoot')||pane,bar=document.createElement('div');bar.id='bhAttendanceAdminLink';bar.style.cssText='display:flex;gap:8px;align-items:center;justify-content:space-between;margin:0 0 12px;padding:12px 14px;border:1px solid #d6dedf;border-radius:13px;background:#f5f8f7;color:#173746;';bar.innerHTML='<div><b>إدارة الحضور والسائقين</b><small style="display:block;color:#637980;margin-top:3px">ربط الموظف بموقع العمل والمركبة ومراجعة الحضور والحركة والديزل</small></div><button type="button" style="border:0;border-radius:10px;padding:10px 13px;background:#173746;color:white;font-weight:800;white-space:nowrap">فتح الإدارة</button>';bar.querySelector('button').onclick=function(){window.open('/attendance-admin.html','_blank','noopener');};host.prepend(bar);return true;
-  }
+  function persistLocal(){try{if(typeof window.save==='function')window.save();else if(typeof save==='function')save();return true;}catch(error){console.error('[Employee management] local save failed',error);return false;}}
+  async function pushLocalSnapshot(){persistLocal();if(typeof window.bhCloudPush!=='function')return{ok:false,reason:'cloud-push-unavailable'};try{await window.bhCloudPush();return{ok:true};}catch(error){console.error('[Employee management] cloud push failed',error);return{ok:false,reason:error?.message||'cloud-push-failed'};}}
+  function toLegacyEmployee(row){const metadata=row&&typeof row.metadata==='object'&&row.metadata?row.metadata:{};return{id:clean(row.external_id),no:clean(row.employee_no),nid:clean(row.national_id),name:clean(row.full_name)||clean(row.external_id),tel:clean(row.phone),role:clean(row.role)||'employee',hire:clean(metadata.hireDate||metadata.hire_date),act:row.active!==false,workStatus:clean(row.work_status||metadata.manualWorkStatus||metadata.workStatus||'working'),_cloudSource:true};}
+  function mergeCloudEmployees(rows){if(state.merging)return false;state.merging=true;try{const local=employeeRows(),byId=new Map(local.map(row=>[clean(row.id||row.external_id),row]).filter(([id])=>id)),byName=new Map(local.map(row=>[clean(row.name||row.full_name).toLowerCase(),row]).filter(([name])=>name));let changed=false;for(const cloud of rows||[]){if(!cloud||cloud.active===false)continue;const incoming=toLegacyEmployee(cloud),id=clean(incoming.id),name=clean(incoming.name).toLowerCase(),existing=byId.get(id)||byName.get(name);if(existing){for(const[key,value]of Object.entries(incoming)){if(value!==''&&value!==undefined&&value!==null&&existing[key]!==value){existing[key]=value;changed=true;}}byId.set(id,existing);byName.set(name,existing);continue;}local.push(incoming);byId.set(id,incoming);byName.set(name,incoming);changed=true;}if(changed){persistLocal();console.info('[BinHamid employees] cloud roster merged',{cloud:(rows||[]).length,total:local.length});}return changed;}finally{state.merging=false;}}
+  function migrateExistingAssignments(data){const employees=employeeRows(),byExternal=new Map(employees.map(employee=>[clean(employee.id||employee.external_id),employee])),siteById=new Map((data.sites||[]).map(site=>[clean(site.id),site]));let changed=false;for(const assignment of data.assignments||[]){const employee=byExternal.get(clean(assignment.employee_external_id)),site=siteById.get(clean(assignment.site_id));if(!employee||!site||currentSiteId(employee))continue;employee.attendanceSiteId=site.id;employee.attendanceSiteCode=site.code||'';employee.attendanceSiteName=site.name||'';changed=true;}if(changed)persistLocal();}
+  async function load(){if(state.loading)return;state.loading=true;state.error='';try{const data=await api('/api/router?route=attendance-safe&scope=employee-sites');state.sites=Array.isArray(data.sites)?data.sites:[];state.assignments=Array.isArray(data.assignments)?data.assignments:[];state.cloudEmployees=Array.isArray(data.employees)?data.employees:[];state.statusById=new Map(state.cloudEmployees.map(row=>[clean(row.external_id),clean(row.work_status||'working')]));const changed=mergeCloudEmployees(state.cloudEmployees);state.ready=true;migrateExistingAssignments(data);if(changed&&typeof window.rEmp==='function')window.rEmp();if(data.degraded)toastMessage('تم تحميل الموظفين مع ملاحظات جزئية. راجع صفحة الحضور للتفاصيل.',true);}catch(error){state.error=error.message||'تعذر تحميل بيانات الموظفين';console.warn('[Employee management]',error);}finally{state.loading=false;renderEmployeeControls();}}
+  function ensureLoaded(){if(!state.ready&&!state.loading)load();else if(state.ready)renderEmployeeControls();}
+  async function assign(employee,siteId,select){const previous={id:currentSiteId(employee),code:clean(employee.attendanceSiteCode),name:clean(employee.attendanceSiteName)},site=state.sites.find(row=>clean(row.id)===clean(siteId));if(select)select.disabled=true;try{const result=await api('/api/admin/attendance',{method:'POST',body:JSON.stringify({action:'assign_employee_site',employeeExternalId:employee.id||employee.external_id,siteId:clean(siteId)})});employee.attendanceSiteId=clean(siteId);employee.attendanceSiteCode=site?.code||'';employee.attendanceSiteName=site?.name||'';const sync=await pushLocalSnapshot(),suffix=result.linkedUsers?` وتم تحديث ${result.linkedUsers} حساب Telegram مرتبط`:' وسيُستخدم تلقائيًا عند ربط حساب Telegram';toastMessage(sync.ok?`${site?`تم حفظ ${siteLabel(site)}`:'تم إلغاء موقع الحضور'} للموظف ${employee.name||''}${suffix} ورفع التعديل للسحابة.`:`تم حفظ الربط في قاعدة البيانات، وتعذر تحديث نسخة الواجهة مؤقتًا. سيظهر الربط صحيحًا بعد التحديث.`,!sync.ok);}catch(error){employee.attendanceSiteId=previous.id;employee.attendanceSiteCode=previous.code;employee.attendanceSiteName=previous.name;if(select)select.value=previous.id;toastMessage(`لم يُحفظ موقع الحضور: ${error.message}`,true);}finally{if(select)select.disabled=false;}}
+  async function updateStatus(employee,status,select){const previous=clean(employee.workStatus||state.statusById.get(clean(employee.id||employee.external_id))||'working');if(select)select.disabled=true;try{await api('/api/admin/attendance',{method:'POST',body:JSON.stringify({action:'update_employee_status',employeeExternalId:employee.id||employee.external_id,workStatus:status})});employee.workStatus=status;state.statusById.set(clean(employee.id||employee.external_id),status);const sync=await pushLocalSnapshot();toastMessage(sync.ok?`تم حفظ حالة ${employee.name||'الموظف'} ورفعها للسحابة.`:'تم حفظ الحالة في قاعدة البيانات، وتعذر تحديث نسخة الواجهة مؤقتًا.',!sync.ok);}catch(error){if(select)select.value=previous;toastMessage(`لم تُحفظ حالة الموظف: ${error.message}`,true);}finally{if(select)select.disabled=false;}}
+  async function deactivateEmployee(employee,button){const name=clean(employee.name||employee.full_name||'الموظف');if(!window.confirm(`سيتم حذف ${name} من قائمة الموظفين وتعطيل روابط الحضور وTelegram والمركبات، مع الاحتفاظ بالسجل التاريخي. هل تريد المتابعة؟`))return;if(button)button.disabled=true;try{const result=await api('/api/admin/attendance',{method:'POST',body:JSON.stringify({action:'deactivate_employee',employeeExternalId:employee.id||employee.external_id,reason:'حذف آمن من شاشة الموظفين'})});const rows=employeeRows(),index=rows.indexOf(employee);if(index>=0)rows.splice(index,1);employee.act=false;persistLocal();if(typeof window.rEmp==='function')window.rEmp();const sync=await pushLocalSnapshot();toastMessage(sync.ok?`تم حذف ${name} بأمان وتعطيل ${result.disabledUsers||0} حساب مرتبط.`:`تم حذف ${name} من قاعدة البيانات، وتعذر تحديث نسخة الواجهة مؤقتًا.`,!sync.ok);}catch(error){toastMessage(`تعذر حذف الموظف: ${error.message}`,true);}finally{if(button&&document.contains(button))button.disabled=false;}}
+  function employeeIdFromRow(row,index,visible,byName){const button=row.querySelector('[onclick*="empForm"]'),onclick=button?.getAttribute('onclick')||'',match=onclick.match(/empForm\(\s*['"]([^'"]+)['"]/);if(match)return match[1];const name=clean(row.cells?.[0]?.textContent);return clean(byName.get(name)?.id||visible[index]?.id);}
+  function ensureHeaders(){const header=document.querySelector('#p-emp table thead tr');if(!header)return;const action=header.lastElementChild;if(!header.querySelector('#bhEmployeeAttendanceSiteHeader')){const th=document.createElement('th');th.id='bhEmployeeAttendanceSiteHeader';th.textContent='موقع الحضور';header.insertBefore(th,action);}if(!header.querySelector('#bhEmployeeStatusHeader')){const th=document.createElement('th');th.id='bhEmployeeStatusHeader';th.textContent='حالة الموظف';header.insertBefore(th,action);}if(!header.querySelector('#bhEmployeeDeleteHeader')){const th=document.createElement('th');th.id='bhEmployeeDeleteHeader';th.textContent='حذف';header.insertBefore(th,action);}}
+  function ensureNote(){const pane=document.getElementById('p-emp'),card=pane?.querySelector('.card');if(!card||document.getElementById('bhEmployeeAttendanceSiteNote'))return;const note=document.createElement('div');note.id='bhEmployeeAttendanceSiteNote';note.className='note';note.style.marginBottom='13px';note.innerHTML='<b>إدارة الموظفين:</b> القائمة تجمع الموظفين المحليين والسحابيّين. اختيار الموقع والحالة يُحفظ في قاعدة البيانات ثم يُرفع إلى النسخة السحابية. الحذف آمن ويحافظ على السجل التاريخي.';const table=card.querySelector('.tw');card.insertBefore(note,table);}
+  function renderEmployeeControls(){if(state.rendering||!state.ready||!employeePaneActive())return;const body=document.getElementById('tEmp');if(!body)return;state.rendering=true;try{ensureHeaders();ensureNote();const all=employeeRows(),filter=clean(document.getElementById('fEmp')?.value),visible=filter?all.filter(employee=>clean(employee.role)===filter):all,sites=availableSites(),rows=[...body.querySelectorAll(':scope > tr')],byId=new Map(all.map(employee=>[clean(employee.id||employee.external_id),employee])),byName=new Map(visible.map(employee=>[clean(employee.name||employee.full_name),employee]));if(rows.length===1&&!rows[0].querySelector('[onclick*="empForm"]')){const cell=rows[0].cells?.[0];if(cell)cell.colSpan=Math.max(cell.colSpan||0,11);return;}rows.forEach((row,index)=>{if(row.querySelector('.bh-employee-site-cell'))return;const employeeId=employeeIdFromRow(row,index,visible,byName),employee=byId.get(clean(employeeId));if(!employee)return;const actionCell=row.lastElementChild;
+    const siteCell=document.createElement('td');siteCell.className='bh-employee-site-cell';siteCell.style.minWidth='155px';const siteSelect=document.createElement('select');siteSelect.style.cssText='min-width:145px;padding:6px 8px;font-size:12px;border-color:#d8ccb3;background:#fff;';siteSelect.setAttribute('aria-label',`موقع حضور ${employee.name||''}`);const empty=document.createElement('option');empty.value='';empty.textContent=state.error?'تعذر تحميل المواقع':'— غير محدد —';siteSelect.appendChild(empty);for(const site of sites){const option=document.createElement('option');option.value=site.id;option.textContent=siteLabel(site);siteSelect.appendChild(option);}siteSelect.value=currentSiteId(employee);siteSelect.disabled=Boolean(state.error);siteSelect.addEventListener('change',()=>assign(employee,siteSelect.value,siteSelect));siteCell.appendChild(siteSelect);row.insertBefore(siteCell,actionCell);
+    const statusCell=document.createElement('td');statusCell.className='bh-employee-status-cell';statusCell.style.minWidth='140px';const statusSelect=document.createElement('select');statusSelect.style.cssText='min-width:130px;padding:6px 8px;font-size:12px;border-color:#d8ccb3;background:#fff;';for(const[value,label]of STATUS_OPTIONS){const option=document.createElement('option');option.value=value;option.textContent=label;statusSelect.appendChild(option);}statusSelect.value=clean(employee.workStatus||state.statusById.get(clean(employee.id||employee.external_id))||'working');statusSelect.addEventListener('change',()=>updateStatus(employee,statusSelect.value,statusSelect));statusCell.appendChild(statusSelect);row.insertBefore(statusCell,actionCell);
+    const deleteCell=document.createElement('td');deleteCell.className='bh-employee-delete-cell';const button=document.createElement('button');button.type='button';button.textContent='حذف';button.className='btn btn-d btn-sm';button.title='حذف آمن مع الاحتفاظ بالسجل التاريخي';button.addEventListener('click',()=>deactivateEmployee(employee,button));deleteCell.appendChild(button);row.insertBefore(deleteCell,actionCell);
+  });}finally{state.rendering=false;}}
+  function wrapEmployeeRenderer(){if(state.wrapped||typeof window.rEmp!=='function')return false;state.wrapped=true;const original=window.rEmp;window.rEmp=function(){const result=original.apply(this,arguments);if(employeePaneActive())setTimeout(ensureLoaded,0);return result;};return true;}
+  function installAdminLink(){const pane=document.getElementById('p-comms');if(!pane||document.getElementById('bhAttendanceAdminLink'))return false;const host=document.getElementById('bhCommsRoot')||pane,bar=document.createElement('div');bar.id='bhAttendanceAdminLink';bar.style.cssText='display:flex;gap:8px;align-items:center;justify-content:space-between;margin:0 0 12px;padding:12px 14px;border:1px solid #d6dedf;border-radius:13px;background:#f5f8f7;color:#173746;';bar.innerHTML='<div><b>إدارة الحضور والسائقين</b><small style="display:block;color:#637980;margin-top:3px">ربط الموظف بموقع العمل والمركبة ومراجعة الحضور والحركة والديزل</small></div><button type="button" style="border:0;border-radius:10px;padding:10px 13px;background:#173746;color:white;font-weight:800;white-space:nowrap">فتح الإدارة</button>';bar.querySelector('button').onclick=function(){window.open('/attendance-admin.html','_blank','noopener');};host.prepend(bar);return true;}
   function install(){wrapEmployeeRenderer();installAdminLink();if(employeePaneActive())ensureLoaded();}
-
-  install();
-  let attempts=0,retry=setInterval(()=>{install();if(++attempts>=10||(state.wrapped&&document.getElementById('bhAttendanceAdminLink')))clearInterval(retry);},500);
-  document.addEventListener('click',event=>{const target=event.target?.closest?.('button,a,[onclick]');if(!target)return;const text=clean(target.textContent),onclick=clean(target.getAttribute('onclick'));if(text.includes('الموظفين')||/\bemp\b/i.test(onclick))setTimeout(()=>{if(employeePaneActive())ensureLoaded();},80);},true);
-  window.addEventListener('binhamid-owner-authenticated',()=>{state.attempted=false;state.error='';if(employeePaneActive())setTimeout(ensureLoaded,300);});
+  install();let attempts=0,retry=setInterval(()=>{install();if(++attempts>=20||(state.wrapped&&document.getElementById('bhAttendanceAdminLink')))clearInterval(retry);},500);
+  document.addEventListener('click',event=>{const target=event.target?.closest?.('button,a,[onclick]');if(!target)return;const text=clean(target.textContent),onclick=clean(target.getAttribute('onclick'));if(text.includes('الموظفين')||/\bemp\b/i.test(onclick))setTimeout(()=>{if(employeePaneActive())load();},100);},true);
+  window.addEventListener('binhamid-owner-authenticated',()=>{state.ready=false;state.error='';if(employeePaneActive())setTimeout(load,300);});
   console.info('[BinHamid]',VERSION,'loaded');
 })();
