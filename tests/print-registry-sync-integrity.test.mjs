@@ -6,6 +6,7 @@ const read=path=>fs.readFileSync(new URL('../'+path,import.meta.url),'utf8');
 const telegram=read('assets/telegram-pdf-declarations.js');
 const loginSync=read('assets/login-sync.js');
 const syncGuard=read('assets/sync-integrity-guard.js');
+const stateLoad=read('assets/state-load-performance.js');
 const stateApi=read('api/state.js');
 const permissions=read('api/_lib/permissions.js');
 const reportRoute=read('api/_lib/routes/reports-telegram.js');
@@ -75,15 +76,26 @@ test('login synchronization is single-flight and never starts an automatic retry
   assert.match(loginSync,/binhamid-cloud-state-pulled/);
 });
 
-test('revision conflicts never force-save without a merge and expose safe recovery',()=>{
+test('revision metadata keeps the authenticated user session',()=>{
+  assert.match(stateLoad,/v2-authenticated-meta/);
+  assert.match(stateLoad,/X-App-User-Id/);
+  assert.match(stateLoad,/Authorization/);
+  assert.match(stateLoad,/credentials='same-origin'/);
+  assert.match(stateLoad,/bhRefreshOwnerSession/);
+  assert.match(stateLoad,/automatic full state request replaced with authenticated revision metadata/);
+});
+
+test('revision conflicts never force-save and safe pull replaces local state cleanly',()=>{
   assert.doesNotMatch(stateApi,/saveArgs\(null\)/);
   assert.doesNotMatch(stateApi,/resolved by retry/);
   assert.match(stateApi,/REVISION_REQUIRED/);
   assert.match(stateApi,/REVISION_CONFLICT/);
   assert.match(syncGuard,/REVISION_CONFLICT_LOCKED/);
   assert.match(syncGuard,/if\(existing\)return syntheticConflict/);
-  assert.match(syncGuard,/سحب النسخة الحديثة بأمان/);
-  assert.match(syncGuard,/binhamid_conflict_backup_/);
+  assert.match(syncGuard,/سحب وتنظيف النسخة المحلية/);
+  assert.match(syncGuard,/function cleanProgramLocalState\(\)/);
+  assert.match(syncGuard,/function writePulledState\(data\)/);
+  assert.doesNotMatch(syncGuard,/binhamid_conflict_backup_/);
 });
 
 test('delayed customer and employee table synchronization is visible',()=>{
@@ -92,5 +104,5 @@ test('delayed customer and employee table synchronization is visible',()=>{
   assert.match(stateApi,/status:deferredChunks\|\|failedChunks\?'delayed':'complete'/);
   assert.match(syncGuard,/binhamid-master-sync-status/);
   assert.match(syncGuard,/مزامنة جداول العملاء والموظفين متأخرة/);
-  assert.match(index,/sync-integrity-guard\.js\?v=20260722-2/);
+  assert.match(index,/sync-integrity-guard\.js\?v=20260722-3/);
 });
