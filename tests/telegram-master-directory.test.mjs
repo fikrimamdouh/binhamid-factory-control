@@ -6,6 +6,7 @@ const read=path=>readFileSync(new URL(`../${path}`,import.meta.url),'utf8');
 const directory=read('api/_lib/bot-master-directory.js');
 const enterprise=read('api/_lib/bot-enterprise.js');
 const portfolio=read('api/_lib/customer-portfolio-pdf.js');
+const pdfService=read('api/_lib/pdf-service.js');
 
 test('Telegram exposes searchable employee and vehicle directories',()=>{
   assert.match(directory,/employeeDirectoryRows/);
@@ -18,28 +19,51 @@ test('Telegram exposes searchable employee and vehicle directories',()=>{
   assert.match(directory,/بحث مركبه|بحث مركبة/);
 });
 
-test('employee details hide full identity and show operational links',()=>{
+test('employee details hide full identity and use one car-or-no-car state',()=>{
   assert.match(directory,/••••\$\{digits\.slice\(-4\)\}/);
-  assert.match(directory,/مركز التكلفة/);
-  assert.match(directory,/المركبات:/);
+  assert.match(directory,/السيارة:/);
+  assert.match(directory,/غير مرتبط بسيارة/);
   assert.match(directory,/employee_assignments/);
   assert.match(directory,/work_sites/);
+  assert.doesNotMatch(directory,/المركبات:/);
 });
 
-test('vehicle directory collapses linked ERP duplicates into one asset',()=>{
+test('vehicle directory collapses linked ERP duplicates and shows working-or-stopped only',()=>{
   assert.match(directory,/linkedErpIds/);
   assert.match(directory,/metadata\)\.erpReference/);
   assert.match(directory,/diesel_expected===true\|\|!linkedErpIds\.has/);
   assert.match(directory,/ديزل \+ ERP/);
-  assert.match(directory,/assigned_employee_external_id/);
+  assert.match(directory,/simpleVehicleState/);
+  assert.match(directory,/موجودة \/ تعمل/);
+  assert.match(directory,/واقفة/);
+  assert.match(directory,/أصل واحد موحد/);
 });
 
-test('current customer portfolio declarations can be requested without uploading Excel',()=>{
-  assert.match(directory,/sendCurrentPortfolioPdfs/);
-  assert.match(directory,/generateCustomerPortfolioPdfs\(\{\},'telegram-current-portfolio'\)/);
-  assert.match(directory,/دون الحاجة إلى رفع ملف Excel جديد/);
-  assert.match(directory,/portfolio_current/);
+test('portfolio command opens separate block and concrete choices',()=>{
+  assert.match(directory,/showPortfolioMenu/);
+  assert.match(directory,/portfolio_block/);
+  assert.match(directory,/portfolio_concrete/);
+  assert.match(directory,/🧱 إقرار البلوك/);
+  assert.match(directory,/🏗️ إقرار الخرسانة/);
+  assert.match(directory,/كل إقرار يُنشأ ويرسل منفصلًا/);
   assert.match(enterprise,/📑 إقرار محفظة العملاء/);
+});
+
+test('each Telegram request generates only the selected portfolio PDF',()=>{
+  assert.match(directory,/generateCustomerPortfolioPdfs\(\{\},'telegram-current-portfolio',\[requestedType\]\)/);
+  assert.match(directory,/يوجد إقرار قيد الإنشاء لحسابك/);
+  assert.match(directory,/portfolioJobs/);
+  assert.match(portfolio,/requestedTypes=\['block','concrete'\]/);
+  assert.match(portfolio,/for\(const type of types\)/);
+  assert.doesNotMatch(portfolio,/Promise\.all\(\['block','concrete'\]/);
+});
+
+test('Cloudflare PDF requests are queued and rate limits retry automatically',()=>{
+  assert.match(pdfService,/let cloudflareQueue=Promise\.resolve\(\)/);
+  assert.match(pdfService,/cloudflareQueue\.then\(execute,execute\)/);
+  assert.match(pdfService,/for\(let attempt=0;attempt<4;attempt\+\+\)/);
+  assert.match(pdfService,/retry-after/);
+  assert.match(pdfService,/retryable:true/);
 });
 
 test('main Telegram router wires text callbacks and lookup sessions',()=>{
