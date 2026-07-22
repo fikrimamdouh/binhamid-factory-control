@@ -27,8 +27,9 @@ test('slow optional modules do not trigger the old false timeout error',()=>{
   assert.doesNotMatch(index,/if\(!completed\)fail\(new Error\('استغرق التحميل وقتًا أطول من المتوقع/);
 });
 
-test('the iframe cache key changes for the post reload freeze contract',()=>{
-  assert.match(index,/legacy\.html\?v=20260721-post-reload-freeze-1/);
-  assert.match(index,/owner-web-login\.js\?v=20260721-7/);
+test('the iframe and repaired modules have explicit cache revisions',()=>{
+  assert.match(index,/legacy\.html\?v=20260722-employee-admin-1/);
+  assert.match(index,/owner-web-login\.js\?v=20260722-1/);
+  assert.match(index,/attendance-control\.js\?v=20260722-1/);
   assert.match(index,/state-load-performance\.js\?v=20260721-1/);
 });
