@@ -82,3 +82,7 @@ const lines=[
 ];
 await writeFile(`${OUT}/report.md`,lines.join('\n'));
 console.log(JSON.stringify({files_scanned:files.length,counts},null,2));
+if((counts.P0||0)>0){
+  console.error(`Critical code-risk gate failed: ${counts.P0} P0 finding(s). Review ${OUT}/report.md.`);
+  process.exitCode=1;
+}

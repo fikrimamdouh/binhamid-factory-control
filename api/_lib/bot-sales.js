@@ -2,6 +2,7 @@ import { select, insert, upsert, patch, remove, rpc } from './supabase.js';
 import { sendMessage, keyboard } from './telegram.js';
 import { displayName } from './bot-profile.js';
 import { clearMaintenanceSession } from './bot-maintenance.js';
+import { requiredSelect } from './required-data.js';
 
 const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const now=()=>new Date().toISOString();
@@ -161,7 +162,7 @@ async function saveDraftOrder(message,identity,session,text){
 
 async function loadOrderEvents(reference=''){
   const refFilter=reference?`&entity_id=eq.${encodeURIComponent(reference)}`:'';
-  return select('audit_log',`action=in.(sales_order_created,sales_order_updated,sales_order_cancelled)&entity_type=in.(block_sales_order,concrete_sales_order)${refFilter}&select=action,entity_id,details,created_at&order=created_at.asc&limit=2000`);
+  return requiredSelect('audit_log',`action=in.(sales_order_created,sales_order_updated,sales_order_cancelled)&entity_type=in.(block_sales_order,concrete_sales_order)${refFilter}&select=action,entity_id,details,created_at&order=created_at.asc&limit=2000`,'سجل تدقيق أوامر البيع','SALES_AUDIT_READ_FAILED');
 }
 function reduceOrders(events=[]){
   const map=new Map();
@@ -174,12 +175,18 @@ function reduceOrders(events=[]){
 }
 async function loadSalesRows(reference=''){
   const filter=reference?`reference_no=eq.${encodeURIComponent(reference)}&`:'';
-  return select('sales_orders',`${filter}select=*&order=created_at.asc&limit=5000`).catch(()=>[]);
+  return requiredSelect('sales_orders',`${filter}select=*&order=created_at.asc&limit=5000`,'جدول أوامر البيع','SALES_ORDERS_READ_FAILED');
 }
 async function syncLegacyOrders(reference=''){
-  const events=reduceOrders(await loadOrderEvents(reference).catch(()=>[]));if(!events.length)return[];
-  const existing=await loadSalesRows(reference),known=new Set(existing.map(row=>String(row.reference_no)));
-  for(const order of events)if(!known.has(String(order.reference_no)))await persistSalesOrder(order,{chat:{id:order.chat_id||order.source_chat_id||''},message_id:order.source_message_id||'',from:{}},{user_id:order.created_by_user_id||null}).catch(error=>console.warn('[sales legacy sync]',{reference:order.reference_no,message:String(error?.message||'').slice(0,180)}));
+  const events=reduceOrders(await loadOrderEvents(reference));if(!events.length)return[];
+  const existing=await loadSalesRows(reference),known=new Set(existing.map(row=>String(row.reference_no))),failures=[];
+  for(const order of events){
+    if(known.has(String(order.reference_no)))continue;
+    try{
+      await persistSalesOrder(order,{chat:{id:order.chat_id||order.source_chat_id||''},message_id:order.source_message_id||'',from:{}},{user_id:order.created_by_user_id||null});
+    }catch(error){failures.push({reference:order.reference_no,message:String(error?.message||'').slice(0,180)});}
+  }
+  if(failures.length)throw Object.assign(new Error(`تعذر ترحيل ${failures.length} أمر بيع قديم إلى الجدول الرئيسي. لم يصدر التقرير لتجنب عرض قائمة ناقصة.`),{status:503,code:'SALES_LEGACY_SYNC_FAILED',retryable:true,failures});
   return loadSalesRows(reference);
 }
 async function getOrder(reference){return(await loadSalesRows(reference))?.[0]||(await syncLegacyOrders(reference))?.[0]||reduceOrders(await loadOrderEvents(reference))[0]||null;}
@@ -230,7 +237,8 @@ async function hardDeleteTestOrder(message,identity,reference){
     remove('audit_log',`entity_id=eq.${encodeURIComponent(reference)}&action=in.(sales_order_created,sales_order_updated,sales_order_cancelled)`),
     order.source_chat_id&&order.source_message_id?remove('telegram_messages',`chat_id=eq.${encodeURIComponent(String(order.source_chat_id))}&message_id=eq.${encodeURIComponent(String(order.source_message_id))}`):Promise.resolve([])
   ]);
-  const failed=results.filter(row=>row.status==='rejected');await clearMaintenanceSession(message.chat.id,identity.external_id||message.from.id).catch(()=>{});
+  const failed=results.filter(row=>row.status==='rejected');
+  try{await clearMaintenanceSession(message.chat.id,identity.external_id||message.from.id);}catch(error){console.warn('[sales delete session cleanup]',String(error?.message||error).slice(0,180));}
   return sendMessage(message.chat.id,failed.length?`حُذف أمر البيع من السجلات الأساسية، لكن تعذر تنظيف ${failed.length} سجل مساعد. المرجع: <b>${esc(reference)}</b>`:`تم حذف أمر البيع التجريبي <b>${esc(reference)}</b> من المبيعات والموقع وسجل Telegram الداخلي. رسائل المحادثة القديمة نفسها قد تبقى داخل تطبيق Telegram.`);
 }
 

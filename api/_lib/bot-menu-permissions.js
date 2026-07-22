@@ -1,4 +1,4 @@
-import { select } from './supabase.js';
+import { requiredSelect } from './required-data.js';
 
 export const BOT_MENU_PREFIX='bot.menu.';
 const allActive=['admin','manager','accountant','mechanic','block_sales','concrete_sales','collector','driver','employee','warehouse','fuel_operator','hr','procurement','quality'];
@@ -21,7 +21,7 @@ export const BOT_MENU_CATALOG=Object.freeze([
   {id:'inventory',icon:'📦',label:'المخزون والصرف',group:'التشغيل',defaultRoles:['admin','manager','accountant','warehouse','procurement','mechanic']},
   {id:'procurement',icon:'🛒',label:'المشتريات والموردون',group:'التشغيل',defaultRoles:['admin','manager','accountant','warehouse','procurement','mechanic']},
   {id:'fuel',icon:'⛽',label:'الديزل والعدادات',group:'الأسطول',defaultRoles:['admin','manager','accountant','mechanic','fuel_operator','driver']},
-  {id:'fleet',icon:'🚚',label:'حالة الأسطول وGPS',group:'الأسطول',defaultRoles:['admin','manager','mechanic','fuel_operator','driver']},
+  {id:'fleet',icon:'🚚',label:'حالة الأسطول من الحضور',group:'الأسطول',defaultRoles:['admin','manager','mechanic','fuel_operator','driver']},
   {id:'trips',icon:'📍',label:'الرحلات والتوريد',group:'الأسطول',defaultRoles:['admin','manager','mechanic','block_sales','concrete_sales','collector','driver']},
   {id:'attendance',icon:'🕒',label:'الحضور والانصراف',group:'الموظفون',defaultRoles:allActive},
   {id:'people',icon:'📋',label:'المهام وتقارير الموظفين',group:'الموظفون',defaultRoles:allActive},
@@ -55,8 +55,8 @@ export async function loadBotMenuPolicy(identity,{owner=false,cacheMs=10000}={})
   if(hit&&now-hit.at<cacheMs)return hit.value;
   const defaults=defaultBotModulesForRole(role),overrides=new Map();
   if(userId){
-    const rows=await select('user_capabilities',`app_user_id=eq.${encodeURIComponent(userId)}&select=capability,allowed&limit=500`).catch(()=>[]);
-    for(const row of rows||[]){const capability=String(row?.capability||'');if(capability.startsWith(BOT_MENU_PREFIX))overrides.set(capability.slice(BOT_MENU_PREFIX.length),Boolean(row.allowed));}
+    const rows=await requiredSelect('user_capabilities',`app_user_id=eq.${encodeURIComponent(userId)}&select=capability,allowed&limit=500`,'صلاحيات وحدات البوت','BOT_CAPABILITIES_READ_FAILED');
+    for(const row of rows){const capability=String(row?.capability||'');if(capability.startsWith(BOT_MENU_PREFIX))overrides.set(capability.slice(BOT_MENU_PREFIX.length),Boolean(row.allowed));}
   }
   const enabled=new Set();
   for(const item of BOT_MENU_CATALOG){

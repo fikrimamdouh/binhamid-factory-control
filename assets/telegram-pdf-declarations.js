@@ -1,4 +1,4 @@
-// [BinHamid] 2026.07.21-telegram-pdf-declarations-v5-exact-print-registry
+// [BinHamid] 2026.07.22-telegram-pdf-declarations-v6-event-driven-capture
 // كل زر «إرسال إلى تليجرام» يشغّل زر الطباعة الأصلي نفسه، ويلتقط #sheet
 // لحظة استدعاء window.print؛ لذلك الملف المرسل هو نفس الملف الذي جُهز للطباعة.
 (function(){
@@ -6,7 +6,7 @@
   if(window.__BH_TELEGRAM_PRINT_DECLARATIONS__)return;
   window.__BH_TELEGRAM_PRINT_DECLARATIONS__=true;
 
-  var VERSION='2026.07.21-telegram-pdf-declarations-v5-exact-print-registry';
+  var VERSION='2026.07.22-telegram-pdf-declarations-v6-event-driven-capture';
   var nativePrint=typeof window.print==='function'?window.print.bind(window):function(){};
   var registry=new Map(),history=[],sequence=0,captureRequest=null,scanTimer=null,scanQueue=[];
   var HISTORY_KEY='binhamid_print_document_history_v1';
@@ -52,9 +52,12 @@
     try{await inlineSnapshotImages(snapshot);var response=await fetch('/api/router?route=reports/send-telegram',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({html:snapshotHtml(snapshot),title:snapshot.title,caption:clean(caption)||snapshot.title,baseUrl:snapshot.baseUrl,documentId:snapshot.id,capturedAt:snapshot.capturedAt})});var data=await response.json().catch(function(){return{};});if(!response.ok||!data.ok)throw new Error(data.error||('HTTP '+response.status));toast('تم إرسال نفس ملف «'+snapshot.title+'» المجهز للطباعة إلى تليجرام','ok');if(button){button.textContent='✅ تم الإرسال';setTimeout(function(){button.disabled=false;button.textContent=button.dataset.bhLabel||'📤 إرسال إلى تليجرام';},2200);}return data;}catch(error){toast('تعذر إرسال الإقرار: '+error.message,'err');if(button){button.disabled=false;button.textContent=button.dataset.bhLabel||'📤 إرسال إلى تليجرام';}throw error;}
   }
 
-  function captureByClick(printButton,title){return new Promise(function(resolve,reject){if(captureRequest)return reject(new Error('يوجد مستند آخر قيد التجهيز.'));var timer=setTimeout(function(){if(captureRequest){captureRequest=null;reject(new Error('دالة الطباعة لم تستدعِ window.print؛ لم يُرسل أي ملف قديم.'));}},7000);captureRequest={title:title,resolve:function(snapshot){clearTimeout(timer);resolve(snapshot);},reject:function(error){clearTimeout(timer);reject(error);}};try{printButton.click();}catch(error){clearTimeout(timer);captureRequest=null;reject(error);}});}
+  function cancelCapture(reason){if(!captureRequest)return false;var active=captureRequest;captureRequest=null;active.reject(reason instanceof Error?reason:new Error(String(reason||'دالة الطباعة لم تستدعِ window.print؛ لم يُرسل أي ملف قديم.')));return true;}
+  function captureByClick(printButton,title){return new Promise(function(resolve,reject){if(captureRequest)return reject(new Error('يوجد مستند آخر قيد التجهيز.'));captureRequest={title:title,resolve:resolve,reject:reject,startedAt:new Date().toISOString()};try{printButton.click();}catch(error){cancelCapture(error);}});}
+  window.addEventListener('pagehide',function(){cancelCapture(new Error('أُغلقت الصفحة قبل تجهيز ورقة الطباعة.'));});
   async function sendExactPrintResult(printButton,sendButton){var title=titleFromButton(printButton);if(sendButton){sendButton.disabled=true;sendButton.dataset.bhLabel=sendButton.dataset.bhLabel||sendButton.textContent;sendButton.textContent='جارٍ تجهيز نفس ملف الطباعة…';}try{var snapshot=await captureByClick(printButton,title);await sendSnapshot(snapshot,title,sendButton);}catch(error){toast('تعذر تجهيز نفس نسخة الطباعة: '+error.message,'err');if(sendButton){sendButton.disabled=false;sendButton.textContent=sendButton.dataset.bhLabel||'📤 إرسال إلى تليجرام';}}}
   window.bhSendPrintedButtonToTelegram=sendExactPrintResult;
+  window.bhCancelPrintedButtonCapture=cancelCapture;
 
   function makeDocumentId(button){var explicit=clean(button.dataset.printDocument);if(explicit)return explicit;var handler=clean(button.getAttribute('onclick')).replace(/\s+/g,' ').slice(0,160),base=handler||clean(button.textContent)||'print';var hash=0;for(var i=0;i<base.length;i++)hash=((hash<<5)-hash+base.charCodeAt(i))|0;return'doc-'+Math.abs(hash).toString(36);}
   function legacyPrintCandidate(button){if(!button||button.dataset.bhTelegramSend||button.hasAttribute('data-bh-no-telegram'))return false;var text=clean(button.textContent||button.value),handler=clean(button.getAttribute('onclick'));return!/إعدادات\s*الطباعة/.test(text)&&(/طباعة|اطبع/.test(text)||(/print/i.test(handler)&&!/إرسال/.test(text)));}
@@ -63,7 +66,7 @@
   function migrateLegacyButtons(root){var buttons=[];if(root&&root.nodeType===1&&root.matches&&root.matches('button,input[type="button"],input[type="submit"]'))buttons.push(root);if(root&&root.querySelectorAll)buttons=buttons.concat(Array.from(root.querySelectorAll('button,input[type="button"],input[type="submit"]')));if(!root)buttons=Array.from(document.querySelectorAll('button,input[type="button"],input[type="submit"]'));buttons.forEach(function(button){if(button.hasAttribute('data-print-document')||legacyPrintCandidate(button))registerPrintDocument(button);});}
   function scheduleScan(root){if(root)scanQueue.push(root);if(scanTimer)return;scanTimer=setTimeout(function(){var roots=scanQueue.splice(0,scanQueue.length);scanTimer=null;roots.forEach(migrateLegacyButtons);},80);}
   window.bhInstallTelegramPrintButtons=function(){migrateLegacyButtons(document);};
-  window.bhPrintDocumentRegistry={documents:registry,history:history,register:registerPrintDocument,captureByClick:captureByClick};
+  window.bhPrintDocumentRegistry={documents:registry,history:history,register:registerPrintDocument,captureByClick:captureByClick,cancelCapture:cancelCapture};
 
   migrateLegacyButtons(document);
   new MutationObserver(function(mutations){mutations.forEach(function(mutation){Array.prototype.forEach.call(mutation.addedNodes||[],function(node){if(node&&node.nodeType===1)scheduleScan(node);});});}).observe(document.documentElement,{childList:true,subtree:true});

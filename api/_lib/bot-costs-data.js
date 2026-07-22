@@ -1,5 +1,5 @@
 import { getCostReport, getCostSetup } from './cost-engine.js';
-import { select } from './supabase.js';
+import { requiredSelect } from './required-data.js';
 
 const n=value=>{const parsed=Number(value||0);return Number.isFinite(parsed)?parsed:0;};
 const meta=row=>row?.metadata&&typeof row.metadata==='object'?row.metadata:{};
@@ -23,15 +23,15 @@ export async function loadCostDecisionData(periodValue){
   const period=normalizeCostPeriod(periodValue),{start,next}=bounds(period),range=`occurred_at=gte.${start}T00:00:00Z&occurred_at=lt.${next}T00:00:00Z`;
   const [report,setup,ledger,driverEvents,attendance,employees,assignments,vehicles]=await Promise.all([
     getCostReport(period),
-    getCostSetup().catch(()=>({assetAssignments:[],employeeAssignments:[]})),
-    select('cost_ledger',`period_start=eq.${start}&posted_status=eq.posted&select=entry_type,cost_center,source_type,source_reference,amount,quantity,metadata,occurred_at&order=occurred_at.asc&limit=5000`).catch(()=>[]),
-    select('driver_events',`${range}&select=app_user_id,employee_external_id,vehicle_external_id,event_type,odometer,fuel_liters,fuel_amount,occurred_at&order=occurred_at.asc&limit=5000`).catch(()=>[]),
-    select('attendance_events',`${range}&select=app_user_id,employee_external_id,event_type,occurred_at&order=occurred_at.asc&limit=5000`).catch(()=>[]),
-    select('employees','active=eq.true&select=external_id,employee_no,full_name,salary,role&order=full_name.asc&limit=5000').catch(()=>[]),
-    select('employee_assignments','active=eq.true&select=app_user_id,employee_external_id,vehicle_external_id,job_title&limit=5000').catch(()=>[]),
-    select('vehicles','active=eq.true&select=external_id,plate_no,asset_no,vehicle_type,make,model,status&limit=5000').catch(()=>[])
+    getCostSetup(),
+    requiredSelect('cost_ledger',`period_start=eq.${start}&posted_status=eq.posted&select=entry_type,cost_center,source_type,source_reference,amount,quantity,metadata,occurred_at&order=occurred_at.asc&limit=5000`,'دفتر التكلفة المرحّل','COST_LEDGER_READ_FAILED'),
+    requiredSelect('driver_events',`${range}&select=app_user_id,employee_external_id,vehicle_external_id,event_type,odometer,fuel_liters,fuel_amount,occurred_at&order=occurred_at.asc&limit=5000`,'حركات السائقين والديزل','COST_DRIVER_EVENTS_READ_FAILED'),
+    requiredSelect('attendance_events',`${range}&select=app_user_id,employee_external_id,event_type,occurred_at&order=occurred_at.asc&limit=5000`,'حضور الموظفين','COST_ATTENDANCE_READ_FAILED'),
+    requiredSelect('employees','active=eq.true&select=external_id,employee_no,full_name,salary,role&order=full_name.asc&limit=5000','سجل الموظفين','COST_EMPLOYEES_READ_FAILED'),
+    requiredSelect('employee_assignments','active=eq.true&select=app_user_id,employee_external_id,vehicle_external_id,job_title&limit=5000','روابط الموظفين بالمركبات','COST_ASSIGNMENTS_READ_FAILED'),
+    requiredSelect('vehicles','active=eq.true&select=external_id,plate_no,asset_no,vehicle_type,make,model,status&limit=5000','سجل المركبات','COST_VEHICLES_READ_FAILED')
   ]);
-  return{period,start,next,report,setup,ledger:ledger||[],driverEvents:driverEvents||[],attendance:attendance||[],employees:employees||[],assignments:assignments||[],vehicles:vehicles||[]};
+  return{period,start,next,report,setup,ledger,driverEvents,attendance,employees,assignments,vehicles};
 }
 
 export function productEconomics(data){
