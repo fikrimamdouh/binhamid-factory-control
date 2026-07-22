@@ -24,7 +24,7 @@ export async function attendanceSafe(req,res){
       const [sites,assignments,employees]=await Promise.all([
         safeSelect('work_sites','work_sites','active=eq.true&select=id,code,name,address,latitude,longitude,radius_m,active&order=name.asc&limit=50',warnings),
         safeSelect('employee_assignments','employee_assignments','active=eq.true&select=app_user_id,employee_external_id,site_id,vehicle_external_id,job_title,shift_name,active,updated_at&order=updated_at.desc&limit=3000',warnings),
-        safeSelect('employees','employees','active=eq.true&select=external_id,employee_no,full_name,phone,role,active,metadata&order=full_name.asc&limit=3000',warnings)
+        safeSelect('employees','employees','active=eq.true&select=external_id,employee_no,national_id,full_name,phone,role,active,metadata&order=full_name.asc&limit=3000',warnings)
       ]);
       const siteById=mapBy(sites,'id');
       const enrichedAssignments=(assignments||[]).map(row=>({...row,work_sites:siteById.get(clean(row.site_id))||null}));
@@ -39,7 +39,7 @@ export async function attendanceSafe(req,res){
       safeSelect('telegram_users','user_channels','channel=eq.telegram&select=external_id,external_username,active,user_id,last_seen_at&order=last_seen_at.desc&limit=1000',warnings),
       safeSelect('app_users','app_users','select=id,full_name,role,active,employee_external_id&limit=2000',warnings),
       safeSelect('vehicles','vehicles','active=eq.true&select=external_id,plate_no,asset_no,vehicle_type,make,model,driver_external_id,status&order=plate_no.asc&limit=2000',warnings),
-      safeSelect('employees','employees','active=eq.true&select=external_id,employee_no,full_name,phone,role,active,metadata&order=full_name.asc&limit=3000',warnings),
+      safeSelect('employees','employees','active=eq.true&select=external_id,employee_no,national_id,full_name,phone,role,active,metadata&order=full_name.asc&limit=3000',warnings),
       safeSelect('attendance_events','attendance_events',`occurred_at=gte.${encodeURIComponent(range.start)}&occurred_at=lt.${encodeURIComponent(range.end)}&select=id,reference_no,app_user_id,site_id,employee_external_id,event_type,occurred_at,within_geofence,distance_from_site_m,horizontal_accuracy_m,latitude,longitude,note&order=occurred_at.desc&limit=1000`,warnings),
       safeSelect('driver_events','driver_events',`occurred_at=gte.${encodeURIComponent(range.start)}&occurred_at=lt.${encodeURIComponent(range.end)}&select=id,reference_no,app_user_id,event_type,occurred_at,vehicle_external_id,latitude,longitude,odometer,fuel_liters,fuel_amount&order=occurred_at.desc&limit=1000`,warnings),
       safeSelect('app_state_employees','app_state','key=eq.primary&select=payload&limit=1',warnings)
