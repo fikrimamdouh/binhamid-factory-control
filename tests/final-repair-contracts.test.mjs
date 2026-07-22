@@ -54,7 +54,7 @@ test('critical HTML tables escape database supplied text',async()=>{
   const attendance=await read('attendance-admin.html');
   for(const value of ['x.code','x.name','x.address','x.app_users?.full_name','x.work_sites?.name','x.event_type','x.odometer','x.fuel_liters','x.fuel_amount'])assert.ok(attendance.includes(`esc(${value}`),`attendance-admin must escape ${value}`);
   const accounting=await read('accounting.html');
-  for(const value of ['r.account_code','r.account_name','r.customer_name','r.source_type'])assert.ok(accounting.includes(`esc(${value}`),`accounting must escape ${value}`);
+  for(const value of ['r.account_code','r.account_name_ar','r.customer_external_id','e.source_type','e.description','l.customer_external_id'])assert.ok(accounting.includes(`esc(${value}`),`accounting must escape ${value}`);
   const roles=await read('assets/cloud-user-roles.js');
   for(const value of ['item.icon','item.label','group','error.message'])assert.ok(roles.includes(`esc(${value}`),`role UI must escape ${value}`);
 });
