@@ -14,7 +14,9 @@ const saveGuard=read('assets/master-data-workspace-guards.js');
 
 test('canonical asset registry preserves raw sources but returns one visible row',()=>{
   assert.match(route,/canonicalProjection/);
-  assert.match(route,/source_type:linked\?'diesel_erp'/);
+  assert.match(route,/source_type:linked\?/);
+  assert.match(route,/diesel_erp/);
+  assert.match(route,/erp_linked/);
   assert.match(route,/source_rows:linked\?2:1/);
   assert.match(route,/referenced\.has/);
   assert.match(route,/canonicalAssets/);
@@ -25,7 +27,7 @@ test('editing either source resolves to one canonical identity and mirrors both 
   assert.match(route,/function resolveCanonical/);
   assert.match(route,/canonical_asset_updated/);
   assert.match(route,/canonicalOverrides/);
-  assert.match(route,/linkedErp/);
+  assert.match(route,/selectedErp/);
   assert.match(route,/patch\('vehicles'/);
   assert.match(route,/assignAssetCostCenter/);
   assert.match(route,/CANONICAL_PLATE_DUPLICATE/);
