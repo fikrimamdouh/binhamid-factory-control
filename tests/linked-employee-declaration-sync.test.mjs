@@ -10,7 +10,7 @@ const bridge=read('assets/employee-declaration-sync.js');
 const transfer=read('assets/employee-link-transfer.js');
 const index=read('index.html');
 
-test('job titles resolve to the declaration roles used by employee forms',()=>{
+ test('job titles resolve to the declaration roles used by employee forms',()=>{
   for(const role of ['block_sales','concrete_sales','driver','accountant','mechanic','collector','warehouse','fuel_operator','hr','procurement','quality','manager'])assert.match(roles,new RegExp(`return'${role}'`));
   assert.match(roles,/roleFromJobTitle/);
   assert.match(roles,/resolveEmployeeDeclarationRole/);
@@ -32,14 +32,18 @@ test('the original attendance assignment path also updates declaration roles',()
   assert.match(attendance,/select=external_id,full_name,role,active,metadata/);
 });
 
-test('existing linked employees are reconciled and merged into the legacy employee roster',()=>{
+test('existing linked employees are reconciled into one canonical legacy employee row',()=>{
   assert.match(roles,/reconcileLinkedEmployeeDeclarationRoles/);
   assert.match(roles,/employee_assignments/);
   assert.match(roles,/app_users/);
   assert.match(bridge,/reconcile_employee_declaration_roles/);
   assert.match(bridge,/attendance-safe&scope=employee-sites/);
   assert.match(bridge,/mergeCloudEmployees/);
-  assert.match(bridge,/existing\[key\]=value/);
+  assert.match(bridge,/linkedIds/);
+  assert.match(bridge,/rewriteAliases/);
+  assert.match(bridge,/local\.splice/);
+  assert.match(bridge,/employeeAliases/);
+  assert.match(bridge,/telegram_external_id/);
 });
 
 test('opening declaration forms refreshes their employee list without a boot-wide redraw',()=>{
