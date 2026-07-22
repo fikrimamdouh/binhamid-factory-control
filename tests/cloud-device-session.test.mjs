@@ -47,7 +47,7 @@ test('verified owner sessions survive reload and cannot lock the page indefinite
   assert.match(login,/localStorage\.setItem\(TOKEN_KEY,'device-session'\)/);
   assert.match(login,/SESSION_TIMEOUT=2500/);
   assert.match(login,/AbortController/);
-  assert.match(index,/owner-web-login\.js\?v=20260721-7/);
+  assert.match(index,/owner-web-login\.js\?v=20260722-1/);
   assert.match(navigation,/This extension owns the communication-center tab/);
   assert.match(navigation,/window\.bhCloudView\?\.\('overview'\)/);
   assert.doesNotMatch(navigation,/runWithoutLegacyCommsNavigation/);
