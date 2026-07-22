@@ -2,12 +2,19 @@
   'use strict';
   if(window.__BH_OWNER_WEB_LOGIN_INSTALLED__)return;
   window.__BH_OWNER_WEB_LOGIN_INSTALLED__=true;
-  const VERSION='2026.07.21-owner-web-login-v7-session-timeout',USER_KEY='binhamid_cloud_app_user_id',TOKEN_KEY='binhamid_cloud_access_token',DEVICE_KEY='binhamid_cloud_device_id',REFRESH_INTERVAL=6*60*60*1000,SESSION_TIMEOUT=2500;
+  const VERSION='2026.07.22-owner-web-login-v8-professional-session-notice',USER_KEY='binhamid_cloud_app_user_id',TOKEN_KEY='binhamid_cloud_access_token',DEVICE_KEY='binhamid_cloud_device_id',REFRESH_INTERVAL=6*60*60*1000,SESSION_TIMEOUT=2500;
   const originalFetch=window.fetch.bind(window);
-  let requestBusy=false,verifyBusy=false,refreshBusy=false,cooldownUntil=0,cooldownTimer=null;
+  let requestBusy=false,verifyBusy=false,refreshBusy=false,cooldownUntil=0,cooldownTimer=null,sessionNoticeShown=false;
   const device=()=>{let id=localStorage.getItem(DEVICE_KEY)||'';if(!/^dev-[A-Za-z0-9-]{8,150}$/.test(id)){id='dev-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10);localStorage.setItem(DEVICE_KEY,id);}return id;};
   const user=()=>String(localStorage.getItem(USER_KEY)||'').trim();
   const clearLocalSession=()=>{try{localStorage.removeItem(USER_KEY);localStorage.removeItem(TOKEN_KEY);sessionStorage.removeItem('binhamid_admin_token');}catch{}};
+  function notifySessionTimeout(){
+    const text='تعذر تأكيد الجلسة السحابية خلال المهلة، لذلك استمر النظام بالجلسة المحلية دون تعطيل الصفحة. ستتم إعادة المحاولة تلقائيًا.';
+    console.info('[BinHamid session]',text);
+    try{window.dispatchEvent(new CustomEvent('binhamid-session-degraded',{detail:{message:text,retryAutomatic:true}}));}catch{}
+    if(sessionNoticeShown)return;sessionNoticeShown=true;
+    setTimeout(()=>{try{if(typeof window.toast==='function')window.toast(text);else if(typeof window.opsToast==='function')window.opsToast(text);}catch{}},0);
+  }
   async function fetchWithTimeout(url,options={},timeout=SESSION_TIMEOUT){
     const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),timeout);
     try{return await originalFetch(url,{...options,signal:controller.signal});}
@@ -45,7 +52,8 @@
       if(response.status===401||response.status===403){clearLocalSession();return false;}
       return true;
     }catch(error){
-      if(error&&error.name==='AbortError')console.warn('[BinHamid owner-login] session check timed out; keeping existing local session');
+      if(error&&error.name==='AbortError')notifySessionTimeout();
+      else console.info('[BinHamid session] تعذر التحقق المؤقت من الجلسة؛ استمر التشغيل المحلي وستتم إعادة المحاولة تلقائيًا.');
       return true;
     }finally{refreshBusy=false;}
   }
