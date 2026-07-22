@@ -37,10 +37,10 @@
       const load=(id,src,error)=>injectScript(doc,id,src,error).catch(reason=>{console.error('[BinHamid]',reason);return null;});
       await load('binhamid-cloud-device-autolink','/assets/cloud-device-autolink.js?v=20260718-stable-shell-1','تعذر تحميل الربط التلقائي للجهاز.');
       await Promise.race([Promise.resolve(win.bhCloudDeviceReady).catch(error=>console.error('[BinHamid] تعذر إنشاء جلسة الجهاز التلقائية.',error)),new Promise(resolve=>setTimeout(resolve,1200))]);
-      await injectScript(doc,'binhamid-state-load-performance','/assets/state-load-performance.js?v=20260721-1','تعذر تحميل تحسين مزامنة الحالة.');
+      await injectScript(doc,'binhamid-state-load-performance','/assets/state-load-performance.js?v=20260722-2','تعذر تحميل تحسين مزامنة الحالة.');
       await injectScript(doc,'binhamid-cloud-script','/assets/cloud-control.js?v=20260721-empty-guard','تعذر تحميل مركز الاتصال، بينما النسخة الأساسية ما زالت متاحة.');
       await injectScript(doc,'binhamid-final-ui-consistency','/assets/final-ui-consistency.js?v=20260721-4','تعذر تحميل تثبيت الأرصدة والحضور.');
-      await injectScript(doc,'binhamid-sync-integrity-guard','/assets/sync-integrity-guard.js?v=20260722-2','تعذر تحميل حماية تعارض المزامنة.');
+      await injectScript(doc,'binhamid-sync-integrity-guard','/assets/sync-integrity-guard.js?v=20260722-3','تعذر تحميل حماية تعارض المزامنة.');
       const criticalExtensions=[
         ['binhamid-owner-web-login','/assets/owner-web-login.js?v=20260722-1'],
         ['binhamid-login-sync','/assets/login-sync.js?v=20260721-7'],
