@@ -43,6 +43,15 @@ test('Telegram print capture is event driven and never waits on a fixed document
   assert.match(source,/document-ready/);
 });
 
+test('Excel imports reject unsafe files and show quality counts before approval',async()=>{
+  const guard=await read('assets/import-file-validation.js'),index=await read('index.html'),existing=await read('assets/existing-daily-import-fix.js');
+  for(const marker of ['ALLOWED_EXT','file.size','MAX_BYTES','الملف فارغ','لم يتم حذف أو استبدال أي بيانات سابقة','SHA-256','المقبول','المرفوض','المكرر','الناقص','لم تُحفظ أي بيانات بعد'])assert.match(guard,new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
+  assert.match(guard,/quality\.accepted<=0/);
+  assert.match(index,/import-file-validation\.js\?v=20260722-1/);
+  assert.match(existing,/sourceFileFingerprint/);
+  assert.match(existing,/duplicateBatch\(hash,reportDate\)/);
+});
+
 test('default sales representative initialization reports failures to the UI',async()=>{
   const source=await read('assets/default-sales-reps.js');
   assert.match(source,/binhamid-module-error/);
