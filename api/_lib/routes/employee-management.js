@@ -1,6 +1,7 @@
 import { body, errorResponse, json, method } from '../http.js';
 import { insert, patch, rpc, select, upsert } from '../supabase.js';
 import { requireCapability } from '../permissions.js';
+import { reconcileLinkedEmployeeDeclarationRoles, syncEmployeeDeclarationRole } from '../employee-declaration-role.js';
 
 const clean=(value,max=500)=>String(value??'').trim().slice(0,max);
 const object=value=>value&&typeof value==='object'&&!Array.isArray(value)?value:{};
@@ -75,11 +76,15 @@ async function unlinkEmployeeVehicle(input,identity){
 async function updateAssignmentTask(input,identity){
   const appUserId=clean(input.appUserId,200),jobTitle=clean(input.jobTitle,240),shiftName=clean(input.shiftName,240);
   if(!appUserId)throw Object.assign(new Error('حدد ربط المستخدم المطلوب تعديل مهمته.'),{status:400,code:'ASSIGNMENT_USER_REQUIRED'});
-  const previous=(await select('employee_assignments',`app_user_id=eq.${encodeURIComponent(appUserId)}&select=app_user_id,employee_external_id,job_title,shift_name,active&limit=1`))?.[0];
+  const [previous,userRows]=await Promise.all([
+    select('employee_assignments',`app_user_id=eq.${encodeURIComponent(appUserId)}&select=app_user_id,employee_external_id,job_title,shift_name,active&limit=1`).then(rows=>rows?.[0]),
+    select('app_users',`id=eq.${encodeURIComponent(appUserId)}&select=id,role,active,employee_external_id&limit=1`).catch(()=>[])
+  ]);
   if(!previous)throw Object.assign(new Error('ربط الموظف غير موجود.'),{status:404,code:'ASSIGNMENT_NOT_FOUND'});
   const updated=(await patch('employee_assignments',`app_user_id=eq.${encodeURIComponent(appUserId)}`,{job_title:jobTitle||null,shift_name:shiftName||null,updated_at:now()}))?.[0]||{...previous,job_title:jobTitle||null,shift_name:shiftName||null};
-  await audit(identity,'employee_assignment_task_updated',previous.employee_external_id||appUserId,{appUserId,previousJobTitle:previous.job_title||null,nextJobTitle:jobTitle||null,previousShiftName:previous.shift_name||null,nextShiftName:shiftName||null});
-  return{assignment:updated};
+  const user=userRows?.[0],declarationRole=await syncEmployeeDeclarationRole(previous.employee_external_id||user?.employee_external_id,{jobTitle,telegramRole:user?.role||'',source:'assignment_task'});
+  await audit(identity,'employee_assignment_task_updated',previous.employee_external_id||appUserId,{appUserId,previousJobTitle:previous.job_title||null,nextJobTitle:jobTitle||null,previousShiftName:previous.shift_name||null,nextShiftName:shiftName||null,declarationRole:declarationRole.role});
+  return{assignment:updated,declarationRole};
 }
 
 async function transferTelegramEmployee(input,identity){
@@ -110,8 +115,15 @@ async function transferTelegramEmployee(input,identity){
     else await patch('employee_assignments',`app_user_id=eq.${encodeURIComponent(appUserId)}`,{active:false,updated_at:now()}).catch(()=>{});
     throw error;
   }
-  await audit(identity,'telegram_user_transferred_to_employee',employeeExternalId,{appUserId,telegramExternalId:channel.external_id,previousEmployeeExternalId:user.employee_external_id||previous?.employee_external_id||null,nextEmployeeExternalId:employeeExternalId,preservedRole:user.role,preservedVehicleExternalId:vehicleExternalId||null,preservedSiteId:siteId});
-  return{user:{id:user.id,externalId:channel.external_id,username:channel.external_username||null,role:user.role,active},employee:{externalId:employee.external_id,fullName:employee.full_name},assignment,preserved:{telegramIdentity:true,role:true,conversationHistory:true,vehicle:Boolean(vehicleExternalId),site:true}};
+  const declarationRole=await syncEmployeeDeclarationRole(employeeExternalId,{jobTitle,telegramRole:user.role,source:'telegram_transfer'});
+  await audit(identity,'telegram_user_transferred_to_employee',employeeExternalId,{appUserId,telegramExternalId:channel.external_id,previousEmployeeExternalId:user.employee_external_id||previous?.employee_external_id||null,nextEmployeeExternalId:employeeExternalId,preservedRole:user.role,preservedVehicleExternalId:vehicleExternalId||null,preservedSiteId:siteId,declarationRole:declarationRole.role});
+  return{user:{id:user.id,externalId:channel.external_id,username:channel.external_username||null,role:user.role,active},employee:{externalId:employee.external_id,fullName:employee.full_name},assignment,declarationRole,preserved:{telegramIdentity:true,role:true,conversationHistory:true,vehicle:Boolean(vehicleExternalId),site:true}};
+}
+
+async function reconcileDeclarationRoles(identity){
+  const result=await reconcileLinkedEmployeeDeclarationRoles();
+  await audit(identity,'linked_employee_declaration_roles_reconciled','linked-employees',{...result,results:undefined});
+  return result;
 }
 
 export async function employeeManagement(req,res){
@@ -123,6 +135,7 @@ export async function employeeManagement(req,res){
     else if(action==='unlink_employee_vehicle')result=await unlinkEmployeeVehicle(input,identity);
     else if(action==='update_assignment_task')result=await updateAssignmentTask(input,identity);
     else if(action==='transfer_telegram_employee')result=await transferTelegramEmployee(input,identity);
+    else if(action==='reconcile_employee_declaration_roles')result=await reconcileDeclarationRoles(identity);
     else throw Object.assign(new Error('إجراء إدارة الموظفين غير معروف.'),{status:400,code:'EMPLOYEE_ACTION_UNKNOWN'});
     return json(res,200,{ok:true,result});
   }catch(error){errorResponse(res,error);}
