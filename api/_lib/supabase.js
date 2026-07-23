@@ -58,6 +58,21 @@ const storageErrorCode=error=>String(error?.data?.code||error?.data?.error||erro
 const storageErrorText=error=>`${storageErrorCode(error)} ${String(error?.message||'')}`.trim();
 const storageBucketMissing=error=>/NoSuchBucket|Bucket not found|specified bucket does not exist|bucket does not exist/i.test(storageErrorText(error));
 const storageBucketExists=error=>Number(error?.upstreamStatus||0)===409||/BucketAlreadyExists|already exists/i.test(storageErrorText(error));
+const storageTransient=error=>Number(error?.upstreamStatus||0)===429||Number(error?.upstreamStatus||0)>=500;
+const wait=milliseconds=>new Promise(resolve=>setTimeout(resolve,milliseconds));
+
+async function uploadWithRetry(upload,tries=3){
+  let lastError;
+  for(let attempt=1;attempt<=tries;attempt++){
+    try{return await upload();}
+    catch(error){
+      lastError=error;
+      if(!storageTransient(error)||attempt===tries)throw error;
+      await wait(300*attempt);
+    }
+  }
+  throw lastError;
+}
 
 async function createPrivateStorageBucket(bucket){
   try{
@@ -72,11 +87,11 @@ export async function uploadObject(path, buffer, contentType = 'application/octe
   ensure();
   const bucket=String(config.storageBucket||'').trim(),encoded=path.split('/').map(encodeURIComponent).join('/');
   const upload=()=>supabase(`/storage/v1/object/${encodeURIComponent(bucket)}/${encoded}`, { method: 'POST', body: buffer, headers: { 'Content-Type': contentType, 'x-upsert': 'true' } });
-  try{return await upload();}
+  try{return await uploadWithRetry(upload);}
   catch(error){
     if(!storageBucketMissing(error))throw Object.assign(error,{storageBucket:bucket,storageOperation:'upload',storageCode:storageErrorCode(error)||null});
     await createPrivateStorageBucket(bucket);
-    try{return await upload();}
+    try{return await uploadWithRetry(upload);}
     catch(retryError){throw Object.assign(retryError,{storageBucket:bucket,storageOperation:'upload_after_bucket_create',storageCode:storageErrorCode(retryError)||null});}
   }
 }
