@@ -34,6 +34,17 @@ function normalizePayload(raw={}){
   return{sales,cashMovements,treasuries,inventory,summary:raw.summary&&typeof raw.summary==='object'?raw.summary:{}};
 }
 
+export function validateInventoryRows(rows=[]){
+  const errors=[],warnings=[];
+  rows.forEach((row,index)=>{
+    const prefix=`inventory[${index}]`;
+    if(!row.itemCode||!row.itemName)errors.push({code:'INVENTORY_ITEM_REQUIRED',path:prefix,message:'كود واسم صنف المخزون مطلوبان'});
+    for(const field of ['received','issued'])if(row[field]<0)errors.push({code:'NEGATIVE_INVENTORY_MOVEMENT',path:`${prefix}.${field}`,message:'حركة المخزون الواردة أو المنصرفة لا يمكن أن تكون سالبة'});
+    for(const field of ['opening','closing'])if(row[field]<0)warnings.push({code:'NEGATIVE_INVENTORY_BALANCE',path:`${prefix}.${field}`,message:'رصيد المخزون سالب ويُحفظ كما ورد من التقرير للمراجعة'});
+  });
+  return{errors,warnings};
+}
+
 async function databaseDuplicates(payload){
   const saleIds=[...new Set(payload.sales.map(saleIdentity))],cashIds=[...new Set(payload.cashMovements.map(cashIdentity))],sales=[],cash=[];
   for(let i=0;i<saleIds.length;i+=100){const part=saleIds.slice(i,i+100);if(part.length)sales.push(...await select('daily_report_sales_lines',`line_identity=in.(${part.join(',')})&select=id,batch_id,invoice_no,customer_code,amount,line_identity&limit=1000`).catch(()=>[]));}
@@ -74,7 +85,7 @@ async function validatePayload(reportDate,payload){
   // نشاط المصنع)، وليس خطأ يوقف الترحيل. تُسجَّل كملاحظة توضيحية فقط، وتظهر
   // القيمة الزائدة في التقارير كـ"تحصيل غير موزع / دفعة مقدمة" لنفس العميل.
   for(const [customerCode,collected] of collectionsByCustomer){const available=(outstanding.get(customerCode)||0)+payload.sales.filter(row=>row.customerCode===customerCode).reduce((sum,row)=>sum+row.amount,0);if(collected>available+0.01)warnings.push({code:'COLLECTION_EXCEEDS_BALANCE',path:`customer:${customerCode}`,message:`تحصيل ${money(collected)} أكبر من المديونية المتاحة ${money(available)} — الزيادة (${money(collected-available)}) تُسجَّل كدفعة مقدمة من العميل.`});}
-  payload.inventory.forEach((row,index)=>{if(!row.itemCode||!row.itemName)errors.push({code:'INVENTORY_ITEM_REQUIRED',path:`inventory[${index}]`,message:'كود واسم صنف المخزون مطلوبان'});for(const field of ['opening','received','issued','closing'])if(row[field]<0)errors.push({code:'NEGATIVE_INVENTORY',path:`inventory[${index}].${field}`,message:'كمية المخزون لا يمكن أن تكون سالبة'});});
+  const inventoryValidation=validateInventoryRows(payload.inventory);errors.push(...inventoryValidation.errors);warnings.push(...inventoryValidation.warnings);
   const database=await databaseDuplicates(payload);for(const row of database.sales)errors.push({code:'DUPLICATE_INVOICE',path:`invoice:${row.invoice_no}`,message:`الفاتورة ${row.invoice_no} مرحّلة سابقًا`,existingBatchId:row.batch_id});for(const row of database.cash)errors.push({code:'DUPLICATE_CASH_MOVEMENT',path:`voucher:${row.voucher_no||row.id}`,message:'حركة الخزينة مرحّلة سابقًا',existingBatchId:row.batch_id});
   const salesTotal=money(payload.sales.reduce((sum,row)=>sum+row.amount,0)),collectionTotal=money(payload.cashMovements.filter(row=>row.isCustomerCollection).reduce((sum,row)=>sum+row.debit,0)),declared=num(payload.summary.totalDebt??payload.summary.totalSales),reconciliationDifference=declared===null?0:money(declared-salesTotal),treasury101=money(payload.cashMovements.filter(row=>row.isCustomerCollection&&row.treasuryCode==='101').reduce((sum,row)=>sum+row.debit,0)),treasury104=money(payload.cashMovements.filter(row=>row.isCustomerCollection&&row.treasuryCode==='104').reduce((sum,row)=>sum+row.debit,0));
   if(declared!==null&&Math.abs(reconciliationDifference)>0.01)errors.push({code:'RECONCILIATION_DIFFERENCE',path:'summary',message:`إجمالي الملف لا يساوي السطور. الفرق ${reconciliationDifference}`});
