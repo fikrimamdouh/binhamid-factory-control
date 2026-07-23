@@ -25,13 +25,64 @@ function optionalBase64(value){
   return encoded;
 }
 function one(value){return Array.isArray(value)?value[0]:value;}
+const pause=milliseconds=>new Promise(resolve=>setTimeout(resolve,milliseconds));
+
+export function mergeInventorySnapshots(rows=[]){
+  const merged=new Map();
+  for(const row of rows){
+    const key=[row.sourceRowNo,row.itemCode,row.itemName].join('|');
+    const current=merged.get(key);
+    if(!current){
+      merged.set(key,{...row});
+      continue;
+    }
+    current.inventoryType=current.inventoryType==='finished_goods'||row.inventoryType==='finished_goods'?'finished_goods':'raw_material';
+    current.unit=current.unit||row.unit||null;
+    current.received=qty(current.received)+qty(row.received);
+    current.issued=qty(current.issued)+qty(row.issued);
+    if(!Number.isFinite(Number(current.opening))&&Number.isFinite(Number(row.opening)))current.opening=qty(row.opening);
+    if(!Number.isFinite(Number(current.closing))&&Number.isFinite(Number(row.closing)))current.closing=qty(row.closing);
+  }
+  return[...merged.values()];
+}
 
 function normalizePayload(raw={}){
   const sales=ensureArray(raw.sales||[],'سطور المبيعات',10000).map((row,index)=>({sourceRowNo:Number.isInteger(Number(row.sourceRowNo))?Number(row.sourceRowNo):index+1,invoiceNo:clean(row.invoiceNo??row.invoice,120),salesType:clean(row.salesType,20),customerCode:clean(row.customerCode,120),customerName:clean(row.customerName??row.customer,500),item:clean(row.item,500),quantity:qty(row.quantity),unit:clean(row.unit,50)||null,amount:money(row.amount),paymentTerms:clean(row.paymentTerms,100)||null,issues:Array.isArray(row.issues)?row.issues.slice(0,20):[]}));
   const cashMovements=ensureArray(raw.cashMovements||raw.collections||[],'حركات الخزينة',10000).map((row,index)=>({sourceRowNo:Number.isInteger(Number(row.sourceRowNo))?Number(row.sourceRowNo):index+1,treasuryCode:clean(row.treasuryCode,20),treasuryName:clean(row.treasuryName,200)||null,debit:money(row.debit??(row.isCustomerCollection?row.amount:0)),credit:money(row.credit),accountName:clean(row.accountName??row.customer,500),accountType:clean(row.accountType,120)||null,accountCode:clean(row.accountCode??row.customerCode,120),description:clean(row.description??row.notes,1000)||null,movementType:clean(row.movementType??row.type,120)||null,voucherNo:clean(row.voucherNo??row.receipt,120)||null,movementDate:clean(row.movementDate??row.date,80)||null,paymentMethod:clean(row.paymentMethod??row.method,100)||null,isCustomerCollection:Boolean(row.isCustomerCollection??row.customerCode)}));
   const treasuries=ensureArray(raw.treasuries||[],'أرصدة الخزائن',100).map(row=>({treasuryCode:clean(row.treasuryCode,20),treasuryName:clean(row.treasuryName,200)||null,opening:money(row.opening),closing:money(row.closing)}));
-  const inventory=ensureArray(raw.inventory||[],'حركات المخزون',20000).map((row,index)=>({sourceRowNo:Number.isInteger(Number(row.sourceRowNo))?Number(row.sourceRowNo):index+1,inventoryType:['finished_goods','raw_material'].includes(clean(row.inventoryType,30))?clean(row.inventoryType,30):'raw_material',itemCode:clean(row.itemCode??row.code,120),itemName:clean(row.itemName??row.item,500),unit:clean(row.unit,50)||null,opening:qty(row.opening),received:qty(row.received),issued:qty(row.issued),closing:qty(row.closing)}));
+  const inventory=mergeInventorySnapshots(ensureArray(raw.inventory||[],'حركات المخزون',20000).map((row,index)=>({sourceRowNo:Number.isInteger(Number(row.sourceRowNo))?Number(row.sourceRowNo):index+1,inventoryType:['finished_goods','raw_material'].includes(clean(row.inventoryType,30))?clean(row.inventoryType,30):'raw_material',itemCode:clean(row.itemCode??row.code,120),itemName:clean(row.itemName??row.item,500),unit:clean(row.unit,50)||null,opening:qty(row.opening),received:qty(row.received),issued:qty(row.issued),closing:qty(row.closing)})));
   return{sales,cashMovements,treasuries,inventory,summary:raw.summary&&typeof raw.summary==='object'?raw.summary:{}};
+}
+
+const upstreamText=error=>[
+  error?.message,error?.data?.message,error?.data?.details,error?.data?.hint,error?.data?.code,error?.code
+].filter(Boolean).join(' ');
+
+export function classifyDailyReportCommitError(error,stage='database'){
+  if(error?.code&&Number(error?.status||0)<500)return error;
+  const text=upstreamText(error);
+  if(stage==='storage')return Object.assign(new Error('تعذر حفظ النسخة الأصلية من ملف Excel في السحابة. لم يعتمد التقرير ولم تُرحّل أي حركة.'),{status:503,code:'DAILY_REPORT_STORAGE_FAILED'});
+  if(/FINANCIAL_PERIOD_CLOSED/i.test(text))return Object.assign(new Error('الفترة المالية لهذا التاريخ مغلقة. لم يعتمد التقرير؛ افتح الفترة أولًا من الرقابة المالية ثم أعد المحاولة.'),{status:409,code:'DAILY_REPORT_FINANCIAL_PERIOD_CLOSED'});
+  if(/DAILY_REPORT_DATE_ALREADY_COMMITTED/i.test(text))return Object.assign(new Error('يوجد تقرير مختلف معتمد بالفعل لنفس التاريخ. لم تُحفظ نسخة ثانية.'),{status:409,code:'DAILY_REPORT_DATE_ALREADY_COMMITTED'});
+  if(/ACCOUNT_RECEIVABLE_MISSING|SALES_ACCOUNT_MISSING|COLLECTION_ACCOUNT_MISSING/i.test(text))return Object.assign(new Error('إعدادات حسابات المبيعات أو التحصيل غير مكتملة في قاعدة البيانات. لم يعتمد التقرير.'),{status:503,code:'DAILY_REPORT_ACCOUNT_CONFIGURATION_MISSING'});
+  if(/ACCOUNTING_POSTING_INVALID|JOURNAL_(?:LINES_REQUIRED|NOT_BALANCED)/i.test(text))return Object.assign(new Error('تعذر إنشاء قيود محاسبية متوازنة للتقرير. أُلغيت المعاملة بالكامل ولم تُرحّل أي حركة.'),{status:422,code:'DAILY_REPORT_ACCOUNTING_NOT_BALANCED'});
+  if(/23505|duplicate key|unique constraint/i.test(text))return Object.assign(new Error('وجد الخادم مرجعًا مكررًا أثناء الترحيل. أُلغيت المعاملة بالكامل ولم تُحفظ نسخة ثانية.'),{status:409,code:'DAILY_REPORT_REFERENCE_CONFLICT'});
+  if(/statement timeout|canceling statement|57014/i.test(text))return Object.assign(new Error('انتهت مهلة الترحيل السحابي قبل اكتماله. أُلغيت المعاملة بالكامل ويمكن إعادة المحاولة بأمان.'),{status:503,code:'DAILY_REPORT_COMMIT_TIMEOUT'});
+  return Object.assign(new Error('تعذر ترحيل التقرير داخل قاعدة البيانات. أُلغيت المعاملة بالكامل ولم تُحفظ أي حركة.'),{status:502,code:'DAILY_REPORT_DATABASE_COMMIT_FAILED'});
+}
+
+async function commitAcceptance(values){
+  let lastError;
+  for(let attempt=1;attempt<=3;attempt++){
+    try{return await rpc('commit_daily_report_acceptance',values);}
+    catch(error){
+      lastError=error;
+      const upstreamStatus=Number(error?.upstreamStatus||0),transient=upstreamStatus===429||upstreamStatus>=500;
+      if(!transient||attempt===3)throw error;
+      await pause(300*attempt);
+    }
+  }
+  throw lastError;
 }
 
 export function validateInventoryRows(rows=[]){
@@ -146,13 +197,15 @@ export async function commitDailyReportFromTelegram(input={},actor='telegram-bot
     await insert('audit_log',[{actor_type:'telegram',actor_id:actor,action:'daily_report_auto_rejected',entity_type:'daily_report',entity_id:idempotencyKey,details:{report_date:reportDate,file_hash:fileHash,import_id:importId,error_count:validation.errors.length,errors:validation.errors.slice(0,50)}}],{prefer:'return=minimal'}).catch(()=>{});
     return{ok:false,duplicate:false,valid:false,importId,contentHash,fileHash,idempotencyKey,...validation,affectedBalances:[]};
   }
-  const original=await resolveStoredOriginal({importId,originalName,fileHash},reportDate,fileHash);
+  let original;
+  try{original=await resolveStoredOriginal({importId,originalName,fileHash},reportDate,fileHash);}
+  catch(error){throw classifyDailyReportCommitError(error,'storage');}
   try{
-    const resultRaw=await rpc('commit_daily_report_acceptance',{p_report_date:reportDate,p_original_name:originalName,p_file_hash:fileHash,p_content_hash:contentHash,p_payload:{...payload,summary:{...payload.summary,...validation.preview}},p_actor:actor,p_file_storage_path:original.path,p_preview_summary:validation.preview,p_validation_warnings:validation.warnings,p_idempotency_key:idempotencyKey,p_import_id:importId}),result=one(resultRaw),accounting=result?.accounting||{entryCount:0,totalDebit:0,totalCredit:0,balanced:false};
+    const resultRaw=await commitAcceptance({p_report_date:reportDate,p_original_name:originalName,p_file_hash:fileHash,p_content_hash:contentHash,p_payload:{...payload,summary:{...payload.summary,...validation.preview}},p_actor:actor,p_file_storage_path:original.path,p_preview_summary:validation.preview,p_validation_warnings:validation.warnings,p_idempotency_key:idempotencyKey,p_import_id:importId}),result=one(resultRaw),accounting=result?.accounting||{entryCount:0,totalDebit:0,totalCredit:0,balanced:false};
     return{ok:true,duplicate:Boolean(result?.duplicate),existingImportId:result?.duplicate?result.id:null,importId:result?.id||importId,status:result?.status||'approved',postedBatchId:result?.id||null,accounting,...validation,result,affectedBalances:await affectedCustomerBalances(payload)};
   }catch(error){
     await transitionImport(importId,'failed',actor,'فشل الترحيل التلقائي ولم يُسجل اعتماد جزئي',null,{errorCode:String(error?.code||'POSTING_FAILED'),errorMessage:String(error?.message||'').slice(0,1000)}).catch(()=>{});
-    throw error;
+    throw classifyDailyReportCommitError(error,'database');
   }
 }
 
@@ -168,13 +221,15 @@ async function previewOrCommit(req,res,input){
     if(validation.errors.length)await insert('audit_log',[{actor_type:'web',actor_id:actor,action:'daily_report_rejected',entity_type:'daily_report',entity_id:idempotencyKey,details:{report_date:reportDate,file_hash:fileHash,error_count:validation.errors.length,warning_count:validation.warnings.length,errors:validation.errors.slice(0,50)}}],{prefer:'return=minimal'}).catch(()=>{});
     return json(res,validation.errors.length?422:200,{ok:validation.errors.length===0,duplicate:false,valid:validation.errors.length===0,contentHash,fileHash,idempotencyKey,importId:importId||null,...validation});
   }
-  const original=await resolveStoredOriginal(input,reportDate,fileHash);
+  let original;
+  try{original=await resolveStoredOriginal(input,reportDate,fileHash);}
+  catch(error){throw classifyDailyReportCommitError(error,'storage');}
   try{
-    const resultRaw=await rpc('commit_daily_report_acceptance',{p_report_date:reportDate,p_original_name:originalName,p_file_hash:fileHash,p_content_hash:contentHash,p_payload:{...payload,summary:{...payload.summary,...validation.preview}},p_actor:actor,p_file_storage_path:original.path,p_preview_summary:validation.preview,p_validation_warnings:validation.warnings,p_idempotency_key:idempotencyKey,p_import_id:importId||null}),result=one(resultRaw),accounting=result?.accounting||{entryCount:0,totalDebit:0,totalCredit:0,balanced:false};
+    const resultRaw=await commitAcceptance({p_report_date:reportDate,p_original_name:originalName,p_file_hash:fileHash,p_content_hash:contentHash,p_payload:{...payload,summary:{...payload.summary,...validation.preview}},p_actor:actor,p_file_storage_path:original.path,p_preview_summary:validation.preview,p_validation_warnings:validation.warnings,p_idempotency_key:idempotencyKey,p_import_id:importId||null}),result=one(resultRaw),accounting=result?.accounting||{entryCount:0,totalDebit:0,totalCredit:0,balanced:false};
     return json(res,200,{ok:true,duplicate:Boolean(result?.duplicate),existingImportId:result?.duplicate?result.id:null,importId:result?.id,status:result?.status||'approved',storagePath:original.path,sourceImportId:importId||null,postedBatchId:result?.id||null,accounting,...validation,result});
   }catch(error){
     if(importId)await transitionImport(importId,'failed',actor,'فشل الترحيل ولم يُسجل اعتماد جزئي',null,{errorCode:String(error?.code||'POSTING_FAILED'),errorMessage:String(error?.message||'').slice(0,1000)}).catch(()=>{});
-    throw error;
+    throw classifyDailyReportCommitError(error,'database');
   }
 }
 
