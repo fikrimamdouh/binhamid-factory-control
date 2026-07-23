@@ -15,8 +15,8 @@ const WORK_STATUSES=new Set(['working','holiday','leave','suspended']);
 const ASSET_TYPES=new Set(['vehicle','equipment','fixed_asset']);
 const CENTERS=new Set(['general','block','concrete']);
 
-function referenceId(asset){
-  const ref=object(object(asset).metadata).erpReference;
+export function canonicalReferenceId(asset){
+  const ref=object(object(object(asset).metadata).erpReference);
   return clean(ref.externalId||ref.externalKey,200);
 }
 
@@ -38,11 +38,11 @@ function canonicalProjection(asset,erp){
   const metadata=object(asset.metadata);
   const overrides=object(metadata.canonicalOverrides);
   const ref=object(metadata.erpReference);
-  const linked=Boolean(erp||referenceId(asset));
+  const linked=Boolean(erp||canonicalReferenceId(asset));
   return{
     canonical_external_id:asset.external_id,
     diesel_external_id:asset.diesel_expected===true?asset.external_id:null,
-    erp_external_id:erp?.external_id||referenceId(asset)||null,
+    erp_external_id:erp?.external_id||canonicalReferenceId(asset)||null,
     source_type:linked?(asset.diesel_expected===true?'diesel_erp':'erp_linked'):(asset.diesel_expected===true?'diesel':'erp'),
     linked,
     diesel_expected:asset.diesel_expected===true,
@@ -84,10 +84,10 @@ async function loadRegistry(){
   const parents=[];
 
   for(const asset of assets||[]){
-    if(asset.diesel_expected===true||referenceId(asset))parents.push(asset);
+    if(asset.diesel_expected===true||canonicalReferenceId(asset))parents.push(asset);
   }
   for(const asset of parents){
-    const erpId=referenceId(asset);
+    const erpId=canonicalReferenceId(asset);
     const erp=erpId?assetById.get(erpId)||null:null;
     if(erpId)referenced.add(erpId);
     canonicalAssets.push(canonicalProjection(asset,erp));
@@ -148,11 +148,11 @@ async function loadRegistry(){
 function resolveCanonical(registry,id){
   const direct=registry.assetById.get(clean(id));
   if(!direct)return null;
-  if(direct.diesel_expected===true||referenceId(direct)){
-    const erpId=referenceId(direct);
+  if(direct.diesel_expected===true||canonicalReferenceId(direct)){
+    const erpId=canonicalReferenceId(direct);
     return{canonical:direct,erp:erpId?registry.assetById.get(erpId)||null:null};
   }
-  const parent=(registry.assets||[]).find(row=>referenceId(row)===clean(direct.external_id));
+  const parent=(registry.assets||[]).find(row=>canonicalReferenceId(row)===clean(direct.external_id));
   return parent?{canonical:parent,erp:direct}:{canonical:direct,erp:null};
 }
 
@@ -381,7 +381,7 @@ async function saveAsset(req,input){
     const candidate=registry.assetById.get(erpExternalId);
     if(!candidate||candidate.diesel_expected===true)throw Object.assign(new Error('أصل ERP المختار غير صالح.'),{status:404,code:'CANONICAL_ERP_NOT_FOUND'});
     if(clean(candidate.external_id)===externalId)throw Object.assign(new Error('لا يمكن ربط الأصل بنفسه كمرجع ERP.'),{status:409,code:'CANONICAL_ERP_SELF_LINK'});
-    const owner=registry.assets.find(row=>referenceId(row)===erpExternalId&&clean(row.external_id)!==externalId);
+    const owner=registry.assets.find(row=>canonicalReferenceId(row)===erpExternalId&&clean(row.external_id)!==externalId);
     if(owner)throw Object.assign(new Error('أصل ERP مرتبط بأصل آخر بالفعل.'),{status:409,code:'CANONICAL_ERP_ALREADY_LINKED'});
     selectedErp=candidate;
   }else if(!erpExternalId){
@@ -409,7 +409,7 @@ async function saveAsset(req,input){
     const ref={externalId:selectedErp.external_id,assetNo:selectedErp.asset_no||assetNo||null,oldPlate:selectedErp.plate_no||plateNo||null,newPlate:plateNo||selectedErp.plate_no||null,assetName:selectedErp.asset_name||assetName||null,assetType:selectedErp.asset_type||assetType,make:selectedErp.make||make||null,model:selectedErp.model||model||null,purchaseCost:Number(object(selectedErp.metadata).purchaseCost||0),operationalStatus:status};
     await patch('unified_assets',`external_id=eq.${encodeURIComponent(externalId)}`,{metadata:{...metadata,erpReference:ref,manualErpReference:ref,erpReferenceMode:'manual',erpReferenceUpdatedAt:stamp},updated_at:stamp});
     await patch('unified_assets',`external_id=eq.${encodeURIComponent(selectedErp.external_id)}`,{asset_type:assetType,asset_name:values.asset_name,plate_no:values.plate_no,asset_no:values.asset_no,make:values.make,model:values.model,operational_status:status,assigned_employee_external_id:assigned||null,cost_center_code:costCenterCode||null,updated_at:stamp});
-  }else if(canonical&&referenceId(canonical)){
+  }else if(canonical&&canonicalReferenceId(canonical)){
     await patch('unified_assets',`external_id=eq.${encodeURIComponent(externalId)}`,{metadata:{...metadata,erpReference:null,manualErpReference:null,erpReferenceMode:'manual',erpReferenceUpdatedAt:stamp},updated_at:stamp});
   }
 
@@ -461,7 +461,7 @@ async function linkErp(req,input){
   if(!parent)throw Object.assign(new Error('اختر الأصل الأساسي الصحيح.'),{status:404,code:'CANONICAL_PARENT_NOT_FOUND'});
   if(!erp||erp.diesel_expected===true)throw Object.assign(new Error('اختر أصل ERP مستقلًا.'),{status:404,code:'CANONICAL_ERP_NOT_FOUND'});
   if(clean(parent.external_id)===clean(erp.external_id))throw Object.assign(new Error('لا يمكن ربط الأصل بنفسه.'),{status:409,code:'CANONICAL_ERP_SELF_LINK'});
-  const owner=registry.assets.find(row=>referenceId(row)===clean(erp.external_id)&&clean(row.external_id)!==clean(parent.external_id));
+  const owner=registry.assets.find(row=>canonicalReferenceId(row)===clean(erp.external_id)&&clean(row.external_id)!==clean(parent.external_id));
   if(owner)throw Object.assign(new Error('أصل ERP مرتبط بأصل آخر بالفعل.'),{status:409,code:'CANONICAL_ERP_ALREADY_LINKED'});
   const metadata=object(parent.metadata),erpMetadata=object(erp.metadata);
   const reference={externalId:erp.external_id,assetNo:erp.asset_no||null,oldPlate:erp.plate_no||null,newPlate:erp.plate_no||null,assetName:erp.asset_name||null,assetType:erp.asset_type||null,make:erp.make||null,model:erp.model||null,purchaseCost:Number(erpMetadata.purchaseCost||0),operationalStatus:erp.operational_status||null};
@@ -475,7 +475,7 @@ async function unlinkErp(req,input){
   const registry=await loadRegistry();
   const parent=registry.assetById.get(clean(input.dieselExternalId));
   if(!parent)throw Object.assign(new Error('الأصل الأساسي غير موجود.'),{status:404,code:'CANONICAL_PARENT_NOT_FOUND'});
-  const metadata=object(parent.metadata),previous=referenceId(parent);
+  const metadata=object(parent.metadata),previous=canonicalReferenceId(parent);
   await patch('unified_assets',`external_id=eq.${encodeURIComponent(parent.external_id)}`,{metadata:{...metadata,erpReference:null,manualErpReference:null,erpReferenceMode:'manual',erpReferenceUpdatedAt:now()},updated_at:now()});
   await audit(identity,'canonical_erp_unlinked','unified_asset',parent.external_id,{previousErpExternalId:previous||null});
   return{dieselExternalId:parent.external_id,previousErpExternalId:previous||null};
@@ -486,7 +486,7 @@ async function autoLink(req){
   const registry=await loadRegistry();
   const erpByPlate=new Map();
   for(const asset of registry.assets){
-    if(asset.diesel_expected===true||referenceId(asset))continue;
+    if(asset.diesel_expected===true||canonicalReferenceId(asset))continue;
     const key=normalizePlate(asset.plate_no);
     if(!key)continue;
     const list=erpByPlate.get(key)||[];
@@ -495,7 +495,7 @@ async function autoLink(req){
   }
   let linked=0,ambiguous=0,unmatched=0;
   for(const parent of registry.assets.filter(row=>row.diesel_expected===true)){
-    if(referenceId(parent))continue;
+    if(canonicalReferenceId(parent))continue;
     const matches=erpByPlate.get(normalizePlate(parent.plate_no))||[];
     if(matches.length===1){await linkErp(req,{dieselExternalId:parent.external_id,erpExternalId:matches[0].external_id});linked++;}
     else if(matches.length>1)ambiguous++;
@@ -513,7 +513,7 @@ async function responsePayload(){
     unlinkedTelegramUsers:registry.unlinkedTelegramUsers,
     telegramUsers:registry.users.map(user=>({id:user.id,full_name:user.full_name,role:user.role,employee_external_id:user.employee_external_id||null,username:registry.channels.find(channel=>clean(channel.user_id)===clean(user.id))?.external_username||null})),
     employees:registry.employees.map(row=>({external_id:row.external_id,full_name:row.full_name,role:row.role||null})),
-    erpCandidates:registry.assets.filter(row=>row.diesel_expected!==true&&!referenceId(row)&&!registry.canonicalAssets.some(item=>item.erp_external_id===row.external_id)).map(row=>({external_id:row.external_id,asset_no:row.asset_no||null,plate_no:row.plate_no||null,asset_name:row.asset_name||null,make:row.make||null,model:row.model||null})),
+    erpCandidates:registry.assets.filter(row=>row.diesel_expected!==true&&!canonicalReferenceId(row)&&!registry.canonicalAssets.some(item=>item.erp_external_id===row.external_id)).map(row=>({external_id:row.external_id,asset_no:row.asset_no||null,plate_no:row.plate_no||null,asset_name:row.asset_name||null,make:row.make||null,model:row.model||null})),
     centers:registry.centers,
     workSites:registry.workSites,
     counts:{

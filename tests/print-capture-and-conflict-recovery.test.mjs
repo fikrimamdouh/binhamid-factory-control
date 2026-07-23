@@ -16,7 +16,8 @@ test('Telegram exact-print capture cancels stale work instead of blocking the ne
 
 test('revision conflict recovery downloads backup then replaces local program state cleanly',()=>{
   const source=read('assets/sync-integrity-guard.js');
-  assert.match(source,/v4-full-pull-no-print/);
+  assert.match(source,/v5-revision-preflight/);
+  assert.match(source,/window\.bhLockCloudConflict=lockConflict/);
   assert.match(source,/سحب وتنظيف النسخة المحلية/);
   assert.match(source,/function downloadBackup\(\)/);
   assert.match(source,/function cleanProgramLocalState\(\)/);
@@ -32,6 +33,6 @@ test('revision conflict recovery downloads backup then replaces local program st
 test('boot cache keys point to repaired synchronization and PDF modules',()=>{
   const index=read('index.html');
   assert.match(index,/state-load-performance\.js\?v=20260722-3/);
-  assert.match(index,/sync-integrity-guard\.js\?v=20260723-4/);
+  assert.match(index,/sync-integrity-guard\.js\?v=20260723-5/);
   assert.match(index,/telegram-pdf-declarations\.js\?v=20260723-8/);
 });

@@ -1,24 +1,22 @@
 (function(){
 'use strict';
-const VERSION='2026.07.23-admin-nav-v13-unified-workspace-guards-single-master-workspace';
+const VERSION='2026.07.23-admin-nav-v14-single-roster-entry';
 const LINKS=[
   ['🏠','البرنامج','/','التشغيل'],
   ['⚙️','مركز الإدارة','/control-center.html','الإدارة'],
   ['👥','الموظفون والمعدات','/master-data.html','الإدارة'],
   ['💰','الحسابات','/accounting.html','المالية'],
   ['🧪','الخلطات والأسعار','/mix-designs.html','المالية'],
-  ['🕐','الحضور والسائقون','/attendance-admin.html','الموظفون'],
+  ['🕐','الحضور والمواقع','/attendance-admin.html','الموظفون'],
   ['⚖️','الحوكمة','/governance.html','الرقابة']
 ];
 function currentPath(){let p=location.pathname||'/';if(p.length>1&&p.endsWith('/'))p=p.slice(0,-1);return p||'/';}
 function ensureScript(id,src,datasetName){if(document.getElementById(id)||document.querySelector(`script[data-${datasetName}]`))return;const script=document.createElement('script');script.id=id;script.src=src;script.async=false;script.dataset[datasetName.replace(/-([a-z])/g,(_,c)=>c.toUpperCase())]='1';document.head.appendChild(script);}
 function ensureOwnerLogin(){if(window.__BH_OWNER_WEB_LOGIN_INSTALLED__)return;ensureScript('bh-owner-login-loader','/assets/owner-web-login.js?v=20260722-1','bh-owner-login');}
 function ensureSessionControls(){if(window.__BH_SESSION_CONTROLS_INSTALLED__)return;ensureScript('bh-session-controls-loader','/assets/session-controls.js?v=20260721-1','bh-session-controls');}
-function ensureEmployeeTransfer(){if(currentPath()!=='/attendance-admin.html'||window.__BH_EMPLOYEE_LINK_TRANSFER_INSTALLED__)return;ensureScript('bh-employee-link-transfer-loader','/assets/employee-link-transfer.js?v=20260722-2','bh-employee-link-transfer');}
 function ensureAttendanceSitePresets(){if(currentPath()!=='/attendance-admin.html'||window.__BH_ATTENDANCE_SITE_PRESETS_INSTALLED__)return;ensureScript('bh-attendance-site-presets-loader','/assets/attendance-site-presets.js?v=20260722-1','bh-attendance-site-presets');}
-function ensureAttendanceCanonicalEmployees(){if(currentPath()!=='/attendance-admin.html'||window.__BH_ATTENDANCE_CANONICAL_EMPLOYEES__)return;ensureScript('bh-attendance-canonical-employees-loader','/assets/attendance-canonical-employees.js?v=20260722-1','bh-attendance-canonical-employees');}
 function ensureMasterWorkspaceGuards(){if(currentPath()!=='/master-data.html')return;if(!window.__BH_MASTER_WORKSPACE_GUARDS__)ensureScript('bh-master-workspace-guards-loader','/assets/master-data-workspace-guards.js?v=20260722-1','bh-master-workspace-guards');if(!window.__BH_MASTER_DATA_UNIFIED_OPERATIONS__)ensureScript('bh-master-data-unified-operations-loader','/assets/master-data-unified-operations.js?v=20260723-2','bh-master-data-unified-operations');}
-function installPageExtensions(){ensureEmployeeTransfer();ensureAttendanceSitePresets();ensureAttendanceCanonicalEmployees();ensureMasterWorkspaceGuards();}
+function installPageExtensions(){ensureAttendanceSitePresets();ensureMasterWorkspaceGuards();}
 function style(){if(document.getElementById('bh-admin-nav-style'))return;const el=document.createElement('style');el.id='bh-admin-nav-style';el.textContent=`
     :root{--bh-gold:#B4893A;--bh-gold-pale:#F5EDDF;--bh-navy:#14425F;--bh-navy-dk:#0C2A3D;--bh-line:#E2DCD1;--bh-muted:#6E6E6E}
     .bh-admin-top{background:linear-gradient(180deg,var(--bh-navy) 0%,var(--bh-navy-dk) 100%);color:#fff;padding:10px 16px;display:flex;align-items:center;gap:14px;position:sticky;top:0;z-index:9001;box-shadow:0 2px 12px rgba(0,0,0,.18);font-family:'IBM Plex Sans Arabic',system-ui,-apple-system,sans-serif}

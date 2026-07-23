@@ -9,13 +9,13 @@ const nav=read('assets/admin-nav.js');
 const guards=read('assets/master-data-workspace-guards.js');
 
 test('master data is one native workspace without injected legacy overlays',()=>{
-  assert.match(page,/الموظفون والمركبات — مكان واحد/);
-  assert.match(page,/كل تعديل يُحفظ مباشرة في السحابة/);
+  assert.match(page,/السجل الموحد للموظفين والمركبات/);
+  assert.match(page,/شاشة الإضافة والتعديل الوحيدة/);
   assert.match(page,/data-tab="employees"/);
   assert.match(page,/data-tab="assets"/);
   assert.doesNotMatch(nav,/master-data-cost-centers\.js/);
   assert.doesNotMatch(nav,/master-data-canonical-ui\.js/);
-  assert.match(nav,/unified-workspace-guards/);
+  assert.match(nav,/single-roster-entry/);
   assert.match(nav,/master-data-workspace-guards\.js/);
 });
 

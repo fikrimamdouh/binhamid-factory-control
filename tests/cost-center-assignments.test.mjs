@@ -37,7 +37,7 @@ test('vehicle equipment and fixed asset save writes the canonical cost assignmen
 });
 
 test('cost center selection is native to the one-page employee and asset editors',()=>{
-  assert.match(page,/الموظفون والمركبات — مكان واحد/);
+  assert.match(page,/السجل الموحد للموظفين والمركبات/);
   assert.match(page,/مركز التكلفة/);
   assert.match(page,/حفظ الموظف وربط السيارة وTelegram ومركز التكلفة/);
   assert.match(page,/حفظ الأصل وتحديث السيارة وERP والموظف ومركز التكلفة/);

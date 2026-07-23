@@ -11,8 +11,8 @@
    fix.js, daily-report-source-of-truth.js and fleet-attendance-
    status.js all keep working without changes.
    ============================================================ */
-const V='2026.07.23-cloud-foundation-3-explicit-state-modes';
-const TK='binhamid_cloud_access_token',DK='binhamid_cloud_device_id',RK='binhamid_cloud_revision',QK='binhamid_cloud_pending';
+const V='2026.07.23-cloud-foundation-4-revision-preflight';
+const TK='binhamid_cloud_access_token',DK='binhamid_cloud_device_id',RK='binhamid_cloud_revision',QK='binhamid_cloud_pending',CK='binhamid_cloud_conflict_lock_v1';
 let askedLogin=false;
 let autoBusy=false;
 let page='overview',dash=null,server=null,timer=null,busy=false,patched=false;
@@ -386,7 +386,13 @@ async function initCloud(){
     }else{
       try{sessionStorage.removeItem('bh_restore_try')}catch{}
     }
-    if(r.payload&&hasData()&&(lr===0||rr>lr))S.error='النسخة السحابية أحدث';
+    if(localStorage.getItem(QK)&&rr>lr){
+      S.error='النسخة السحابية أحدث';
+      const conflict={at:new Date().toISOString(),remoteRevision:rr,code:'REVISION_CONFLICT_PREFLIGHT'};
+      try{localStorage.setItem(CK,JSON.stringify(conflict))}catch{}
+      if(typeof window.bhLockCloudConflict==='function')window.bhLockCloudConflict(conflict);
+      else window.dispatchEvent(new CustomEvent('binhamid-cloud-conflict',{detail:conflict}));
+    }else if(r.payload&&hasData()&&(lr===0||rr>lr))S.error='النسخة السحابية أحدث';
     else if(localStorage.getItem(QK))push('إرسال تغييرات معلقة');
   }catch(e){S.error=e.message}
   badge();

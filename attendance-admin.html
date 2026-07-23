@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>إدارة الحضور والسائقين — مصنع بن حامد</title>
+  <title>الحضور ومواقع العمل — مصنع بن حامد</title>
   <link rel="icon" href="/favicon.svg">
   <style>
     :root{--bg:#f4f1e9;--card:#fff;--ink:#153746;--muted:#667a82;--line:#d9dfdf;--nav:#102f40;--gold:#a87824;--green:#19704b;--red:#a33333;--blue:#246b8a;--amber:#9b6613}
     *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",Tahoma,Arial,sans-serif}.top{background:var(--nav);color:#fff;padding:14px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px}.top h1{font-size:19px;margin:0}.top small{opacity:.78}.top button{border:0;border-radius:10px;padding:10px 13px;font-weight:800;cursor:pointer}.wrap{max-width:1480px;margin:auto;padding:18px}.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px}.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:17px;box-shadow:0 10px 30px rgba(16,47,64,.06)}.c4{grid-column:span 4}.c5{grid-column:span 5}.c6{grid-column:span 6}.c7{grid-column:span 7}.c8{grid-column:span 8}.c12{grid-column:span 12}h2{font-size:17px;margin:0 0 14px}label{display:block;font-size:12px;color:var(--muted);margin:9px 0 5px}input,select,textarea{width:100%;border:1px solid var(--line);border-radius:10px;padding:11px;background:#fff;color:var(--ink);font:inherit}textarea{min-height:70px}.row{display:grid;grid-template-columns:1fr 1fr;gap:9px}.row3{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:13px}.btn{border:0;border-radius:10px;padding:11px 14px;background:var(--nav);color:#fff;font-weight:800;cursor:pointer}.btn:disabled{opacity:.55;cursor:not-allowed}.btn.gold{background:var(--gold)}.btn.blue{background:var(--blue)}.btn.green{background:var(--green)}.btn.light{background:#e9eeed;color:var(--ink)}.btn.red{background:var(--red)}.btn.amber{background:var(--amber)}.note{padding:11px;border-radius:11px;background:#edf4f5;color:#36555f;font-size:13px;line-height:1.7}.status{margin-bottom:14px;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:#fff;display:flex;gap:12px;align-items:center;justify-content:space-between}.status.ok{border-color:#b8dcc9;background:#eff9f4}.status.warn{border-color:#ead29c;background:#fff8e8}.status.bad{border-color:#e5b8b8;background:#fff0f0}.status b{display:block}.status small{display:block;color:var(--muted);margin-top:3px}.kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}.kpi{border:1px solid var(--line);border-radius:13px;padding:13px;background:#fff}.kpi b{font-size:25px;display:block}.kpi span{color:var(--muted);font-size:12px}.table-wrap{overflow:auto;border:1px solid var(--line);border-radius:12px}table{width:100%;border-collapse:collapse;min-width:760px}th,td{padding:10px;border-bottom:1px solid var(--line);text-align:right;font-size:13px}th{background:#eef2f2;position:sticky;top:0}.pill{display:inline-block;padding:4px 8px;border-radius:999px;font-size:11px;font-weight:800}.ok-pill{background:#dff2e8;color:var(--green)}.bad-pill{background:#f8dfdf;color:var(--red)}.info-pill{background:#e1eef5;color:#245d78}.warn-pill{background:#fff0ce;color:#7b5312}.empty{padding:25px;text-align:center;color:var(--muted)}.preset{display:grid;grid-template-columns:1fr 1fr;gap:9px}.preset button{padding:12px}.test-result{margin-top:12px;padding:13px;border-radius:12px;background:#f3f6f6;line-height:1.8}.warnings{display:none;margin-bottom:14px}.warnings.on{display:block}.warnings ul{margin:7px 0 0;padding-right:20px}.toast{position:fixed;bottom:18px;left:18px;z-index:30;background:var(--nav);color:#fff;border-radius:11px;padding:12px 15px;opacity:0;transform:translateY(20px);transition:.2s;max-width:min(520px,90vw)}.toast.on{opacity:1;transform:none}.toast.bad{background:var(--red)}@media(max-width:900px){.c4,.c5,.c6,.c7,.c8{grid-column:span 12}.kpis{grid-template-columns:1fr 1fr}.row,.row3,.preset{grid-template-columns:1fr}.top{align-items:flex-start}}
   </style>
 </head>
-<body><script src="/assets/admin-nav.js?v=20260719-1"></script>
-<header class="top"><div><h1>إدارة الحضور والسائقين</h1><small>ربط الموظف بالموقع والمركبة واختبار النطاق قبل التشغيل الفعلي</small></div><div><button onclick="loadAll(true)">تحديث البيانات</button> <button onclick="location.href='/'">البرنامج</button></div></header>
+<body><script src="/assets/admin-nav.js?v=20260723-single-roster-1"></script>
+<header class="top"><div><h1>الحضور ومواقع العمل</h1><small>تهيئة المواقع ومراجعة الحضور والانصراف والحركة اليومية</small></div><div><button onclick="loadAll(true)">تحديث البيانات</button> <button onclick="location.href='/master-data.html'">السجل الموحد</button> <button onclick="location.href='/'">البرنامج</button></div></header>
 <main class="wrap">
   <section id="pageStatus" class="status warn"><div><b>جارٍ التحقق من الجلسة والبيانات</b><small>لن تتوقف الصفحة إذا تعطل جدول فرعي.</small></div><button class="btn light" onclick="loadAll(true)">إعادة المحاولة</button></section>
   <section id="warnings" class="note warnings"></section>
@@ -35,7 +35,8 @@
       <div style="margin-top:14px"><label>الموقع المراد اختباره</label><select id="testSite"></select><div class="actions"><button class="btn green" onclick="testCurrentLocation(this)">اختبار موقعي الآن</button></div><div id="testResult" class="test-result">اختر موقعًا واضغط الاختبار لمعرفة المسافة وهل الحضور سيُقبل.</div></div>
     </section>
 
-    <section class="card c12">
+    <section class="card c12"><h2>إدارة الموظفين والمركبات من السجل الموحد</h2><p class="note">الإضافة والتعديل وربط Telegram والموقع والمركبة تتم من شاشة واحدة فقط. هذه الصفحة مخصصة لمواقع العمل والحضور والحركة.</p><div class="actions"><button class="btn gold" onclick="location.href='/master-data.html'">فتح السجل الموحد</button></div></section>
+    <section class="card c12" hidden>
       <h2>ربط مستخدم Telegram بالموظف والموقع والمركبة</h2>
       <div class="row3"><div><label>مستخدم Telegram</label><select id="assignUser"></select></div><div><label>سجل الموظف</label><select id="assignEmployee"></select></div><div><label>الدور</label><select id="assignRole"></select></div></div>
       <div class="row3"><div><label>موقع العمل</label><select id="assignSite"></select></div><div><label>المركبة أو الأصل</label><select id="assignVehicle"></select></div><div><label>المسمى الوظيفي</label><input id="assignJob" placeholder="سائق خلاطة / عامل إنتاج / محاسب"></div></div>
@@ -43,8 +44,8 @@
       <div class="actions"><button class="btn gold" onclick="saveAssignment(this)">اعتماد وربط المستخدم</button></div>
     </section>
 
-    <section class="card c12"><h2>الموظفون وحالة التشغيل</h2><div id="employeesTable"></div></section>
-    <section class="card c12"><h2>الروابط الحالية</h2><div id="assignmentsTable"></div></section>
+    <section class="card c12" hidden><h2>الموظفون وحالة التشغيل</h2><div id="employeesTable"></div></section>
+    <section class="card c12" hidden><h2>الروابط الحالية</h2><div id="assignmentsTable"></div></section>
     <section class="card c12"><h2>حضور وانصراف اليوم</h2><div id="attendanceTable"></div></section>
     <section class="card c12"><h2>حركة السائقين والديزل اليوم</h2><div id="movementTable"></div></section>
   </div>

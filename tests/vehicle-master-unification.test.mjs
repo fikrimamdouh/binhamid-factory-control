@@ -18,7 +18,7 @@ test('exact plate matches link diesel identity to one ERP asset without a migrat
   assert.match(legacyRoute,/normalizePlate/);
   assert.match(legacyRoute,/matches\.length>1/);
   assert.match(canonicalRoute,/auto_link_exact_plate/);
-  assert.match(canonicalRoute,/referenceId/);
+  assert.match(canonicalRoute,/canonicalReferenceId/);
 });
 
 test('master data page receives canonical rows and exposes one visible asset editor',()=>{
@@ -38,7 +38,9 @@ test('legacy vehicle state and fuel costs share the canonical vehicle id',()=>{
   assert.match(runtime,/vehicles\.splice/);
   assert.match(runtime,/row\.vehicleId=id/);
   assert.match(runtime,/rewriteObject\(ops,aliases,canonicalId/);
-  assert.match(index,/vehicle-master-link\.js\?v=20260722-1/);
+  assert.match(index,/vehicle-master-link\.js\?v=20260723-2/);
+  assert.match(runtime,/localStorage\.setItem\('binhamid_v1'/);
+  assert.doesNotMatch(runtime,/window\.save/);
 });
 
 test('vehicle renderer globals exist before legacy navigation starts',()=>{
