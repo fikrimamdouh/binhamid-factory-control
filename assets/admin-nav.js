@@ -1,6 +1,6 @@
 (function(){
 'use strict';
-const VERSION='2026.07.23-admin-nav-v15-single-roster-entry-confirmed-write';
+const VERSION='2026.07.23-admin-nav-v16-single-roster-entry-role-aware-confirmed-write';
 const LINKS=[
   ['🏠','البرنامج','/','التشغيل'],
   ['⚙️','مركز الإدارة','/control-center.html','الإدارة'],
@@ -15,7 +15,7 @@ function ensureScript(id,src,datasetName){if(document.getElementById(id)||docume
 function ensureOwnerLogin(){if(window.__BH_OWNER_WEB_LOGIN_INSTALLED__)return;ensureScript('bh-owner-login-loader','/assets/owner-web-login.js?v=20260723-verified-session-1','bh-owner-login');}
 function ensureSessionControls(){if(window.__BH_SESSION_CONTROLS_INSTALLED__)return;ensureScript('bh-session-controls-loader','/assets/session-controls.js?v=20260721-1','bh-session-controls');}
 function ensureAttendanceSitePresets(){if(currentPath()!=='/attendance-admin.html'||window.__BH_ATTENDANCE_SITE_PRESETS_INSTALLED__)return;ensureScript('bh-attendance-site-presets-loader','/assets/attendance-site-presets.js?v=20260722-1','bh-attendance-site-presets');}
-function ensureMasterWorkspaceGuards(){if(currentPath()!=='/master-data.html')return;if(!window.__BH_MASTER_WORKSPACE_GUARDS__)ensureScript('bh-master-workspace-guards-loader','/assets/master-data-workspace-guards.js?v=20260723-2','bh-master-workspace-guards');if(!window.__BH_MASTER_DATA_UNIFIED_OPERATIONS__)ensureScript('bh-master-data-unified-operations-loader','/assets/master-data-unified-operations.js?v=20260723-2','bh-master-data-unified-operations');}
+function ensureMasterWorkspaceGuards(){if(currentPath()!=='/master-data.html')return;if(!window.__BH_MASTER_WORKSPACE_GUARDS__)ensureScript('bh-master-workspace-guards-loader','/assets/master-data-workspace-guards.js?v=20260723-role-save-3','bh-master-workspace-guards');if(!window.__BH_MASTER_DATA_UNIFIED_OPERATIONS__)ensureScript('bh-master-data-unified-operations-loader','/assets/master-data-unified-operations.js?v=20260723-role-save-3','bh-master-data-unified-operations');}
 function installPageExtensions(){ensureAttendanceSitePresets();ensureMasterWorkspaceGuards();}
 function style(){if(document.getElementById('bh-admin-nav-style'))return;const el=document.createElement('style');el.id='bh-admin-nav-style';el.textContent=`
     :root{--bh-gold:#B4893A;--bh-gold-pale:#F5EDDF;--bh-navy:#14425F;--bh-navy-dk:#0C2A3D;--bh-line:#E2DCD1;--bh-muted:#6E6E6E}
