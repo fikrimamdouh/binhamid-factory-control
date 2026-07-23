@@ -73,7 +73,7 @@ export function cumulativeDepartmentHtml({type,data,sourceFile,reportDate,latest
   </style></head><body>
     <header class="header"><div class="badge">${icon(type)}</div><div><h1>${esc(title(type))} التراكمي</h1><div class="sub">مصنع بن حامد للبلوك والخرسانة الجاهزة — تقرير تراكمي</div></div></header>
     <div class="meta">الملف اليومي: <b>${esc(sourceFile)}</b> | تاريخ الحركة: <b>${esc(reportDate)}</b> | آخر تقرير معتمد سابقًا: <b>${esc(latestApprovedDate||'لا يوجد')}</b> | الإنشاء: ${esc(new Date().toLocaleString('ar-SA',{timeZone:'Asia/Riyadh'}))}</div>
-    <div class="notice"><strong>مسودة تراكميّة قبل الاعتماد.</strong> الرصيد المتوقع = الرصيد السابق + مبيعات اليوم − التحصيل الموزع. الحركة الحالية تصبح نهائية بعد اعتماد التقرير من البرنامج.</div>
+    <div class="notice"><strong>مسودة تراكميّة قبل الاعتماد.</strong> الرصيد المتوقع = الرصيد السابق + مبيعات اليوم − التحصيل الموزع. يُوزّع التحصيل وفق FIFO (الأقدم أولًا). الحركة الحالية تصبح نهائية بعد اعتماد التقرير من البرنامج.</div>
     <div class="summary">${summaryLine}</div>
     <div class="cards">${cards.map(([label,value])=>`<div class="card"><span>${label}</span><strong>${value}</strong></div>`).join('')}</div>
     <section><h2>كشف العملاء التراكمي</h2>${customers}</section>
