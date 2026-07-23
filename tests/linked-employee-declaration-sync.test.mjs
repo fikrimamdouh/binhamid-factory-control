@@ -53,7 +53,7 @@ test('opening declaration forms refreshes their employee list without a boot-wid
   assert.match(bridge,/الإقرارات/);
   assert.match(bridge,/refreshDeclarations\(true\)/);
   assert.match(bridge,/typeof window\.rAll==='function'/);
-  assert.match(index,/employee-declaration-sync\.js\?v=20260723-canonical-roster-1/);
+  assert.match(index,/employee-declaration-sync\.js\?v=20260723-canonical-roster-2/);
   assert.doesNotMatch(index,/attendance-control\.js\?v=/);
   assert.ok(index.indexOf('single-master-workspace.js')<index.indexOf('employee-declaration-sync.js'));
 });
