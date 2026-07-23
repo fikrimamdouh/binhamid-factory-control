@@ -3,6 +3,9 @@ on:
   push:
     branches:
       - fix/existing-declaration-editor-language-split
+  pull_request:
+    branches:
+      - main
 permissions:
   contents: write
 jobs:
