@@ -6,7 +6,10 @@ on:
   pull_request:
     paths:
       - 'legacy.html'
-      - 'tests/_inspect-declaration-structure.test.mjs'
+      - 'index.html'
+      - 'assets/**'
+      - 'api/**'
+      - 'tests/**'
       - '.github/workflows/inspect-driver-language.yml'
 permissions:
   contents: read
@@ -15,42 +18,40 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Extract exact declaration context
+      - name: Extract driver language and cloud conflict context
         run: |
           node <<'NODE'
           const fs=require('fs');
-          const source=fs.readFileSync('legacy.html','utf8');
-          const lines=source.split(/\r?\n/);
-          const patterns=[
-            /id=["']pvLang["']/,
-            /pvLang/,
-            /function\s+prVeh\b/,
-            /function\s+docVeh\b/,
-            /function\s+vehForm\b/,
-            /function\s+empForm\b/,
-            /function\s+saveVeh\b/,
-            /function\s+saveEmp\b/,
-            /D\.veh\b/,
-            /D\.emp\b/
-          ];
-          const raw=[];
-          for(let i=0;i<lines.length;i++) if(patterns.some(p=>p.test(lines[i]))) raw.push(i);
-          const indexes=[];
-          for(const index of raw){if(!indexes.some(existing=>Math.abs(existing-index)<80))indexes.push(index);}
-          const blocks=[];
-          for(const index of indexes){
-            const start=Math.max(0,index-90),end=Math.min(lines.length,index+240);
-            blocks.push(`--- CONTEXT ${start+1}-${end} ---\n`+lines.slice(start,end).map((line,j)=>`${start+j+1}: ${line}`).join('\n'));
+          const path=require('path');
+          const roots=['legacy.html','index.html','assets','api'];
+          const files=[];
+          function walk(target){
+            if(!fs.existsSync(target))return;
+            const stat=fs.statSync(target);
+            if(stat.isDirectory())for(const name of fs.readdirSync(target))walk(path.join(target,name));
+            else if(/\.(?:html|js|mjs|json|css)$/i.test(target))files.push(target);
           }
-          fs.writeFileSync('driver-language-context.txt',blocks.join('\n\n')||'NOT FOUND');
+          roots.forEach(walk);
+          const patterns=[/لغة\s*السائق/i,/pvLang/i,/توجد\s+نسخة\s+سحابية\s+أحدث/i,/السحب\s+الآمن/i,/تنظيف\s+النسخة\s+المحلية/i,/cloud.*newer/i,/revision.*conflict/i];
+          const out=[];
+          for(const file of files){
+            const lines=fs.readFileSync(file,'utf8').split(/\r?\n/);
+            for(let i=0;i<lines.length;i++)if(patterns.some(p=>p.test(lines[i]))){
+              const start=Math.max(0,i-35),end=Math.min(lines.length,i+90);
+              out.push(`--- ${file}:${start+1}-${end} ---\n`+lines.slice(start,end).map((line,j)=>`${start+j+1}: ${line}`).join('\n'));
+            }
+          }
+          fs.writeFileSync('audit-context.txt',out.join('\n\n')||'NOT FOUND');
           NODE
       - uses: actions/upload-artifact@v4
         with:
-          name: driver-language-context
-          path: driver-language-context.txt
+          name: audit-context
+          path: audit-context.txt
           retention-days: 1
+      - name: Bundle runtime sources
+        run: tar -czf runtime-sources.tgz legacy.html index.html assets api tests package.json 2>/dev/null || tar -czf runtime-sources.tgz legacy.html index.html assets api tests
       - uses: actions/upload-artifact@v4
         with:
-          name: legacy-source
-          path: legacy.html
+          name: runtime-sources
+          path: runtime-sources.tgz
           retention-days: 1
