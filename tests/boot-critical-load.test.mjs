@@ -28,9 +28,9 @@ test('slow optional modules do not trigger the old false timeout error',()=>{
 });
 
 test('boot reveal is synchronous and idempotent so the app cannot remain transparent',()=>{
-  assert.match(index,/function revealFrame\\(\\)\\{frame\\.style\\.visibility='visible';frame\\.style\\.opacity='1';if\\(completed\\)return;completed=true;screen\\?\\.remove\\(\\);\\}/);
-  assert.match(index,/if\\(!completed\\)\\{frame\\.style\\.visibility='hidden';frame\\.style\\.opacity='0';\\}/);
-  assert.doesNotMatch(index,/requestAnimationFrame\\(\\(\\)=>\\{frame\\.style\\.opacity='1';\\}\\)/);
+  assert.match(index,/function revealFrame\(\)\{frame\.style\.visibility='visible';frame\.style\.opacity='1';if\(completed\)return;completed=true;screen\?\.remove\(\);\}/);
+  assert.match(index,/if\(!completed\)\{frame\.style\.visibility='hidden';frame\.style\.opacity='0';\}/);
+  assert.doesNotMatch(index,/requestAnimationFrame\(\(\)=>\{frame\.style\.opacity='1';\}\)/);
 });
 
 test('the iframe and repaired modules have explicit cache revisions',()=>{
