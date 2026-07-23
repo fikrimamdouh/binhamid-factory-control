@@ -3,6 +3,8 @@ import { patch, select } from './supabase.js';
 const clean=(value,max=500)=>String(value??'').replace(/\s+/g,' ').trim().slice(0,max);
 const object=value=>value&&typeof value==='object'&&!Array.isArray(value)?value:{};
 const now=()=>new Date().toISOString();
+const ROLE_CACHE_TTL_MS=5_000;
+let employeeCache=null,employeeCacheExpiresAt=0,employeeCachePromise=null;
 
 export const DECLARATION_ROLES=new Set([
   'employee','driver','accountant','mechanic','block_sales','concrete_sales',
@@ -42,18 +44,45 @@ export function resolveEmployeeDeclarationRole({jobTitle='',telegramRole='',empl
   return{role:'employee',source:'default'};
 }
 
+function rememberEmployee(employee){
+  const id=clean(employee?.external_id,200);
+  if(!id||!employeeCache)return;
+  employeeCache.set(id,employee);
+}
+
+async function loadEmployeeCache(){
+  if(employeeCache&&Date.now()<employeeCacheExpiresAt)return employeeCache;
+  if(employeeCachePromise)return employeeCachePromise;
+  employeeCachePromise=select('employees','active=eq.true&select=external_id,full_name,role,active,metadata&limit=10000')
+    .then(rows=>{
+      employeeCache=new Map((rows||[]).map(row=>[clean(row.external_id,200),row]));
+      employeeCacheExpiresAt=Date.now()+ROLE_CACHE_TTL_MS;
+      return employeeCache;
+    })
+    .finally(()=>{employeeCachePromise=null;});
+  return employeeCachePromise;
+}
+
 async function applyRole(employee,options={}){
   if(!employee||employee.active===false)throw Object.assign(new Error('سجل الموظف غير موجود أو موقوف.'),{status:404,code:'DECLARATION_EMPLOYEE_NOT_FOUND'});
-  const resolved=resolveEmployeeDeclarationRole({jobTitle:options.jobTitle,telegramRole:options.telegramRole,employeeRole:employee.role}),metadata=object(employee.metadata),stamp=now(),nextMetadata={...metadata,declarationRole:resolved.role,declarationRoleSource:options.source||resolved.source,declarationRoleUpdatedAt:stamp};
+  const resolved=resolveEmployeeDeclarationRole({jobTitle:options.jobTitle,telegramRole:options.telegramRole,employeeRole:employee.role}),metadata=object(employee.metadata),stamp=now(),source=options.source||resolved.source,nextMetadata={...metadata,declarationRole:resolved.role,declarationRoleSource:source,declarationRoleUpdatedAt:stamp};
   if(clean(options.jobTitle,240))nextMetadata.assignmentJobTitle=clean(options.jobTitle,240);
-  const changed=clean(employee.role,80)!==resolved.role||metadata.declarationRole!==resolved.role||metadata.declarationRoleSource!==(options.source||resolved.source);
-  if(changed)await patch('employees',`external_id=eq.${encodeURIComponent(employee.external_id)}`,{role:resolved.role,metadata:nextMetadata,updated_at:stamp});
-  return{employeeExternalId:employee.external_id,employeeName:employee.full_name||null,previousRole:employee.role||null,role:resolved.role,source:options.source||resolved.source,changed};
+  const changed=clean(employee.role,80)!==resolved.role||metadata.declarationRole!==resolved.role;
+  if(changed){
+    await patch('employees',`external_id=eq.${encodeURIComponent(employee.external_id)}`,{role:resolved.role,metadata:nextMetadata,updated_at:stamp});
+    rememberEmployee({...employee,role:resolved.role,metadata:nextMetadata});
+  }else rememberEmployee(employee);
+  return{employeeExternalId:employee.external_id,employeeName:employee.full_name||null,previousRole:employee.role||null,role:resolved.role,source,changed};
 }
 
 export async function syncEmployeeDeclarationRole(employeeExternalId,options={}){
   const id=clean(employeeExternalId,200);if(!id)throw Object.assign(new Error('معرف الموظف مطلوب لتحديث نموذج الخطاب.'),{status:400,code:'DECLARATION_EMPLOYEE_REQUIRED'});
-  const employee=(await select('employees',`external_id=eq.${encodeURIComponent(id)}&active=eq.true&select=external_id,full_name,role,active,metadata&limit=1`))?.[0];
+  const cache=await loadEmployeeCache();
+  let employee=cache.get(id)||null;
+  if(!employee){
+    employee=(await select('employees',`external_id=eq.${encodeURIComponent(id)}&active=eq.true&select=external_id,full_name,role,active,metadata&limit=1`))?.[0]||null;
+    if(employee){cache.set(id,employee);employeeCacheExpiresAt=Date.now()+ROLE_CACHE_TTL_MS;}
+  }
   return applyRole(employee,options);
 }
 
@@ -64,6 +93,7 @@ export async function reconcileLinkedEmployeeDeclarationRoles(){
     select('employees','active=eq.true&select=external_id,full_name,role,active,metadata&limit=5000').catch(()=>[])
   ]);
   const usersById=new Map((users||[]).map(row=>[clean(row.id,200),row])),employeesById=new Map((employees||[]).map(row=>[clean(row.external_id,200),row])),targets=new Map();
+  employeeCache=new Map(employeesById);employeeCacheExpiresAt=Date.now()+ROLE_CACHE_TTL_MS;
   for(const assignment of assignments||[]){const user=usersById.get(clean(assignment.app_user_id,200)),employeeId=clean(assignment.employee_external_id||user?.employee_external_id,200);if(!employeeId)continue;if(!targets.has(employeeId))targets.set(employeeId,{employeeId,jobTitle:assignment.job_title||'',telegramRole:user?.role||'',source:'linked_assignment'});}
   for(const user of users||[]){const employeeId=clean(user.employee_external_id,200);if(employeeId&&!targets.has(employeeId))targets.set(employeeId,{employeeId,jobTitle:'',telegramRole:user.role||'',source:'linked_telegram_user'});}
   let changed=0,unchanged=0,missing=0;const results=[];
