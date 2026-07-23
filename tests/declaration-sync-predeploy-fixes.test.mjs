@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 
+// Final acceptance coverage for declaration, cloud synchronization and Telegram delivery.
 const read=path=>readFileSync(new URL(`../${path}`,import.meta.url),'utf8');
 const sync=read('assets/sync-integrity-guard.js');
 const cloud=read('assets/cloud-control.js');
