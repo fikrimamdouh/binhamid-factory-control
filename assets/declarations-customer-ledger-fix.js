@@ -88,7 +88,8 @@
     const D=state?.D||{},OPS=state?.OPS||{},employees=D.emp||[],key=kind==='concrete'?'concreteSalesEmployeeId':'blockSalesEmployeeId',configured=employees.find(employee=>employee.id===OPS.settings?.[key]&&employee.act!==false);
     if(configured)return configured;
     const target=kind==='concrete'?'مسؤول مبيعات الخرسانة':'مسؤول مبيعات البلوك';
-    return employees.find(employee=>employee.act!==false&&norm(employee.role)===norm(target))||employees.find(employee=>employee.act!==false&&norm(employee.role).includes(kind==='concrete'?'خرسان':'بلوك'))||null;
+    const canonical=kind==='concrete'?'concrete_sales':'block_sales';
+    return employees.find(employee=>employee.act!==false&&[norm(employee.role),norm(employee.declarationRole)].includes(canonical))||employees.find(employee=>employee.act!==false&&norm(employee.role)===norm(target))||employees.find(employee=>employee.act!==false&&norm(employee.role).includes(kind==='concrete'?'خرسان':'بلوك'))||null;
   }
 
   function reconcileSalesEmployees(state,responsible={}){

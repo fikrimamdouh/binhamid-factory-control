@@ -3,7 +3,7 @@ import { body,errorResponse,json,method } from '../http.js';
 import { requireCapability } from '../permissions.js';
 import { insert,patch,rpc,select,upsert } from '../supabase.js';
 import { normalizePlate } from '../master-data-workbook.js';
-import { syncEmployeeDeclarationRole } from '../employee-declaration-role.js';
+import { resolveEmployeeDeclarationRole, syncEmployeeDeclarationRole } from '../employee-declaration-role.js';
 
 const clean=(value,max=500)=>String(value??'').trim().slice(0,max);
 const normalizedName=value=>clean(value,500).toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ًٌٍَُِّْـ]/g,'').replace(/\s+/g,' ');
@@ -15,6 +15,10 @@ const ASSET_STATUSES=new Set(['in_service','stopped']);
 const WORK_STATUSES=new Set(['working','holiday','leave','suspended']);
 const ASSET_TYPES=new Set(['vehicle','equipment','fixed_asset']);
 const CENTERS=new Set(['general','block','concrete']);
+const SALES_RESPONSIBLE_IDENTITIES=[
+  {nationalId:'2414111530',role:'concrete_sales',jobTitle:'مسؤول مبيعات الخرسانة',costCenterCode:'concrete'},
+  {nationalId:'2370328136',role:'block_sales',jobTitle:'مسؤول مبيعات البلوك',costCenterCode:'block'}
+];
 
 export function canonicalReferenceId(asset){
   const ref=object(object(object(asset).metadata).erpReference);
@@ -150,6 +154,7 @@ async function loadRegistry(){
       full_name:employee.full_name,
       phone:employee.phone||null,
       role:employee.role||assignment?.job_title||'employee',
+      job_title:clean(metadata.jobTitle||assignment?.job_title||employee.role)||null,
       site:employee.site||null,
       site_id:assignment?.site_id||null,
       work_status:employeeStatus(employee),
@@ -273,7 +278,8 @@ async function assignTelegram(registry,employee,telegramUserId,siteId,vehicleExt
   }
   if(selected!==current)await patch('employee_assignments',`app_user_id=eq.${encodeURIComponent(selected)}&active=eq.true`,{active:false,updated_at:stamp}).catch(()=>[]);
 
-  const assignment={app_user_id:selected,employee_external_id:employee.external_id,site_id:resolvedSite||null,vehicle_external_id:vehicleExternalId||null,job_title:employee.role||user.role||null,shift_name:employeeRow?.telegram?.shift_name||null,active:true,updated_at:stamp};
+  const jobTitle=clean(object(employee.metadata).jobTitle,160)||employee.role||user.role||null;
+  const assignment={app_user_id:selected,employee_external_id:employee.external_id,site_id:resolvedSite||null,vehicle_external_id:vehicleExternalId||null,job_title:jobTitle,shift_name:employeeRow?.telegram?.shift_name||null,active:true,updated_at:stamp};
   await patch('employee_assignments',`employee_external_id=eq.${encodeURIComponent(employee.external_id)}&app_user_id=neq.${encodeURIComponent(selected)}&active=eq.true`,{active:false,updated_at:stamp}).catch(()=>[]);
   await patch('app_users',`employee_external_id=eq.${encodeURIComponent(employee.external_id)}&id=neq.${encodeURIComponent(selected)}`,{employee_external_id:null,updated_at:stamp}).catch(()=>[]);
   await upsert('employee_assignments',[assignment],'app_user_id');
@@ -281,6 +287,33 @@ async function assignTelegram(registry,employee,telegramUserId,siteId,vehicleExt
   await patch('app_users',`id=eq.${encodeURIComponent(selected)}`,{employee_external_id:employee.external_id,updated_at:stamp}).catch(()=>[]);
   await syncEmployeeDeclarationRole(employee.external_id,{jobTitle:assignment.job_title||employee.role||'',telegramRole:user.role||'',source:'canonical_employee_save'}).catch(error=>console.warn('[canonical employee declaration role]',error?.message||error));
   await audit(identity,selected===current?'canonical_employee_telegram_updated':'canonical_employee_telegram_linked','employee',employee.external_id,{appUserId:selected,siteId:resolvedSite,vehicleExternalId:vehicleExternalId||null});
+}
+
+async function reconcileSalesResponsibleRoles(identity,registry){
+  const updated=[],missing=[];
+  for(const target of SALES_RESPONSIBLE_IDENTITIES){
+    const employee=registry.employees.find(row=>clean(row.national_id).replace(/\D/g,'')===target.nationalId);
+    if(!employee){missing.push(target.nationalId);continue;}
+    const id=clean(employee.external_id),metadata=object(employee.metadata),canonical=registry.canonicalEmployees.find(row=>clean(row.external_id)===id);
+    const assignments=registry.assignments.filter(row=>row.active!==false&&clean(row.employee_external_id)===id);
+    const assignmentUserIds=new Set(assignments.map(row=>clean(row.app_user_id)).filter(Boolean));
+    const linkedUsers=registry.users.filter(row=>row.active!==false&&(clean(row.employee_external_id)===id||assignmentUserIds.has(clean(row.id))));
+    const roleChanged=clean(employee.role)!==target.role||clean(metadata.jobTitle)!==target.jobTitle;
+    const centerChanged=clean(canonical?.cost_center_code)!==target.costCenterCode;
+    const assignmentChanged=assignments.some(row=>clean(row.job_title)!==target.jobTitle);
+    const userRoleChanged=linkedUsers.some(row=>clean(row.role)!==target.role);
+    if(roleChanged){
+      await patch('employees',`external_id=eq.${encodeURIComponent(id)}`,{role:target.role,metadata:{...metadata,jobTitle:target.jobTitle,declarationRole:target.role,declarationRoleSource:'fixed_sales_identity',declarationRoleUpdatedAt:now(),canonicalUpdatedAt:now(),canonicalUpdatedBy:actorOf(identity)},updated_at:now()});
+    }
+    if(assignmentChanged)await patch('employee_assignments',`employee_external_id=eq.${encodeURIComponent(id)}&active=eq.true`,{job_title:target.jobTitle,updated_at:now()}).catch(()=>[]);
+    if(userRoleChanged)await patch('app_users',`employee_external_id=eq.${encodeURIComponent(id)}&active=eq.true`,{role:target.role,updated_at:now()}).catch(()=>[]);
+    if(centerChanged)await assignEmployeeCostCenter(identity,id,target.costCenterCode);
+    if(roleChanged||centerChanged||assignmentChanged||userRoleChanged){
+      updated.push({employeeExternalId:id,nationalId:target.nationalId,role:target.role,jobTitle:target.jobTitle,costCenterCode:target.costCenterCode});
+      await audit(identity,'canonical_sales_responsible_fixed','employee',id,{nationalId:target.nationalId,role:target.role,jobTitle:target.jobTitle,costCenterCode:target.costCenterCode,assignmentChanged,userRoleChanged});
+    }
+  }
+  return{updated,missing,configured:SALES_RESPONSIBLE_IDENTITIES.length};
 }
 
 async function reconcileEmployeeTelegramLinks(req){
@@ -314,9 +347,10 @@ async function reconcileEmployeeTelegramLinks(req){
     }
     await syncEmployeeDeclarationRole(employeeExternalId,{jobTitle:assignment?.job_title||'',telegramRole:link.user.role||'',source:'canonical_telegram_identity_reconciliation'}).catch(error=>console.warn('[canonical telegram role reconciliation]',error?.message||error));
   }
-  const changed=repairedUsers+repairedAssignments+detachedDuplicates;
-  if(changed)await audit(identity,'canonical_employee_telegram_identity_reconciled','employee_registry','telegram-links',{repairedUsers,repairedAssignments,detachedDuplicates,conflicts:registry.telegramIdentities.conflicts.length});
-  return{changed,repairedUsers,repairedAssignments,detachedDuplicates,conflicts:registry.telegramIdentities.conflicts.length};
+  const salesResponsibles=await reconcileSalesResponsibleRoles(identity,registry);
+  const changed=repairedUsers+repairedAssignments+detachedDuplicates+salesResponsibles.updated.length;
+  if(changed)await audit(identity,'canonical_employee_telegram_identity_reconciled','employee_registry','telegram-links',{repairedUsers,repairedAssignments,detachedDuplicates,salesResponsibles:salesResponsibles.updated.length,conflicts:registry.telegramIdentities.conflicts.length});
+  return{changed,repairedUsers,repairedAssignments,detachedDuplicates,salesResponsibles,conflicts:registry.telegramIdentities.conflicts.length};
 }
 
 function verifyEmployee(registry,expected){
@@ -361,9 +395,12 @@ async function saveEmployee(req,input){
   }
 
   const existing=registry.employees.find(row=>clean(row.external_id)===externalId);
-  const role=requestedRole||clean(existing?.role,160)||'employee';
+  const existingMetadata=object(existing?.metadata);
+  const jobTitle=requestedRole||clean(existingMetadata.jobTitle,160)||clean(existing?.role,160)||'عامل / موظف';
+  const selectedTelegramUser=telegramUserId?registry.users.find(row=>clean(row.id)===telegramUserId):null;
+  const role=resolveEmployeeDeclarationRole({jobTitle,telegramRole:selectedTelegramUser?.role||'',employeeRole:existing?.role||''}).role;
   const site=siteInput||clean(selectedSite?.name);
-  const metadata={...object(existing?.metadata),workStatus,manualWorkStatus:workStatus,costCenterCode:costCenterCode||null,canonicalUpdatedAt:now(),canonicalUpdatedBy:actorOf(identity)};
+  const metadata={...existingMetadata,jobTitle,workStatus,manualWorkStatus:workStatus,costCenterCode:costCenterCode||null,canonicalUpdatedAt:now(),canonicalUpdatedBy:actorOf(identity)};
   const values={external_id:externalId,national_id:nationalId||null,employee_no:employeeNo||null,full_name:fullName,phone:phone||null,role,site:site||null,active:true,metadata,updated_at:now()};
 
   await upsert('employees',[values],'external_id');
@@ -377,7 +414,7 @@ async function saveEmployee(req,input){
   const mismatches=verifyEmployee(verified,{externalId,fullName,role,workStatus,costCenterCode,vehicleExternalId,telegramUserId});
   if(mismatches.length)throw Object.assign(new Error(`تم إرسال الحفظ لكن لم تتأكد الحقول التالية من السحابة: ${mismatches.join('، ')}.`),{status:502,code:'CANONICAL_EMPLOYEE_SAVE_NOT_CONFIRMED',mismatches});
 
-  await audit(identity,existing?'canonical_employee_updated':'canonical_employee_created','employee',externalId,{fullName,role,vehicleExternalId:vehicleExternalId||null,telegramUserId:telegramUserId||null,costCenterCode:costCenterCode||null,cloudVerified:true});
+  await audit(identity,existing?'canonical_employee_updated':'canonical_employee_created','employee',externalId,{fullName,role,jobTitle,vehicleExternalId:vehicleExternalId||null,telegramUserId:telegramUserId||null,costCenterCode:costCenterCode||null,cloudVerified:true});
   return{employeeExternalId:externalId,created:!existing,cloudVerified:true};
 }
 
@@ -578,7 +615,7 @@ async function responsePayload(){
     canonicalEmployees:registry.canonicalEmployees,
     unlinkedTelegramUsers:registry.unlinkedTelegramUsers,
     telegramUsers:registry.users.map(user=>({id:user.id,full_name:user.full_name,role:user.role,employee_external_id:registry.telegramIdentities.employeeByUser.get(clean(user.id))||null,username:registry.channels.find(channel=>clean(channel.user_id)===clean(user.id))?.external_username||null})),
-    employees:registry.employees.map(row=>({external_id:row.external_id,full_name:row.full_name,role:row.role||null})),
+    employees:registry.employees.map(row=>({external_id:row.external_id,full_name:row.full_name,role:row.role||null,job_title:object(row.metadata).jobTitle||null})),
     erpCandidates:registry.assets.filter(row=>row.diesel_expected!==true&&!canonicalReferenceId(row)&&!registry.canonicalAssets.some(item=>item.erp_external_id===row.external_id)).map(row=>({external_id:row.external_id,asset_no:row.asset_no||null,plate_no:row.plate_no||null,asset_name:row.asset_name||null,make:row.make||null,model:row.model||null})),
     centers:registry.centers,
     workSites:registry.workSites,

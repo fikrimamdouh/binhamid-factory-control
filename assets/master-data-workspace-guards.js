@@ -2,7 +2,7 @@
 'use strict';
 if(window.__BH_MASTER_WORKSPACE_GUARDS__)return;
 window.__BH_MASTER_WORKSPACE_GUARDS__=true;
-const VERSION='2026.07.22-master-workspace-guards-v3-confirmed-cloud-save';
+const VERSION='2026.07.23-master-workspace-guards-v4-role-aware-confirmed-save';
 const TOKEN_KEY='binhamid_cloud_access_token',USER_KEY='binhamid_cloud_app_user_id';
 let assets=new Map(),editingAssetId='',editingEmployeeId='',saving=false;
 const clean=value=>String(value??'').trim();
@@ -46,7 +46,7 @@ function employeePayload(){return{action:'save_employee',employeeExternalId:stab
 function assetPayload(){ensureCurrentErp();applyNewAssetDefaults();return{action:'save_asset',assetExternalId:stableId('asset',editingAssetId),assetType:value('assetType')||'vehicle',operationalStatus:value('assetStatus')||'in_service',plateNo:value('assetPlate'),assetNo:value('assetNo'),assetName:value('assetName'),make:value('assetMake'),model:value('assetModel'),employeeExternalId:value('assetEmployee'),costCenterCode:value('assetCenter'),erpExternalId:value('assetErp'),dieselExpected:Boolean(document.getElementById('assetDiesel')?.checked)};}
 function employeeMismatches(data,payload){
   const row=(data.canonicalEmployees||[]).find(item=>clean(item.external_id)===payload.employeeExternalId);if(!row)return['السجل غير موجود بعد الحفظ'];const missing=[];
-  if(clean(row.full_name)!==payload.fullName)missing.push('الاسم');if(payload.nationalId&&digits(row.national_id)!==digits(payload.nationalId))missing.push('الهوية');if(clean(row.employee_no)!==payload.employeeNo)missing.push('الرقم الوظيفي');if(clean(row.phone)!==payload.phone)missing.push('الجوال');if(clean(row.role)!==payload.role)missing.push('الوظيفة');if(clean(row.work_status)!==payload.workStatus)missing.push('الحالة');if(clean(row.cost_center_code)!==payload.costCenterCode)missing.push('مركز التكلفة');if(clean(row.vehicle_external_id)!==payload.vehicleExternalId)missing.push('السيارة');if(clean(row.telegram?.id)!==payload.telegramUserId)missing.push('Telegram');return missing;
+  if(clean(row.full_name)!==payload.fullName)missing.push('الاسم');if(payload.nationalId&&digits(row.national_id)!==digits(payload.nationalId))missing.push('الهوية');if(clean(row.employee_no)!==payload.employeeNo)missing.push('الرقم الوظيفي');if(clean(row.phone)!==payload.phone)missing.push('الجوال');if(clean(row.job_title||row.role)!==payload.role)missing.push('الوظيفة');if(clean(row.work_status)!==payload.workStatus)missing.push('الحالة');if(clean(row.cost_center_code)!==payload.costCenterCode)missing.push('مركز التكلفة');if(clean(row.vehicle_external_id)!==payload.vehicleExternalId)missing.push('السيارة');if(clean(row.telegram?.id)!==payload.telegramUserId)missing.push('Telegram');return missing;
 }
 function assetMismatches(data,payload){
   const row=(data.canonicalAssets||[]).find(item=>clean(item.canonical_external_id)===payload.assetExternalId);if(!row)return['السجل غير موجود بعد الحفظ'];const missing=[];

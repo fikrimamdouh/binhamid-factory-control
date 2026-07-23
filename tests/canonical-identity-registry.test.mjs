@@ -71,7 +71,7 @@ test('admin navigation and legacy shortcuts expose only one employee and asset e
   assert.doesNotMatch(nav,/attendance-canonical-employees\.js/);
   assert.doesNotMatch(nav,/employee-link-transfer\.js/);
   assert.match(nav,/الحضور والمواقع/);
-  assert.match(nav,/master-data-workspace-guards\.js\?v=20260723-2/);
+  assert.match(nav,/master-data-workspace-guards\.js\?v=20260723-role-save-3/);
   assert.match(nav,/ensureMasterWorkspaceGuards/);
   assert.match(singleMaster,/master-data\.html\?tab=/);
   assert.match(singleMaster,/window\.empForm/);

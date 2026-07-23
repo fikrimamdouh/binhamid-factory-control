@@ -47,7 +47,7 @@ test('Excel imports reject unsafe files and show quality counts before approval'
   const guard=await read('assets/import-file-validation.js'),index=await read('index.html'),existing=await read('assets/existing-daily-import-fix.js');
   for(const marker of ['ALLOWED_EXT','file.size','MAX_BYTES','الملف فارغ','لم يتم حذف أو استبدال أي بيانات سابقة','SHA-256','المقبول','المرفوض','المكرر','الناقص','لم تُحفظ أي بيانات بعد'])assert.match(guard,new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
   assert.match(guard,/quality\.accepted<=0/);
-  assert.match(index,/import-file-validation\.js\?v=20260722-1/);
+  assert.match(index,/import-file-validation\.js\?v=20260723-parser-overlap-1/);
   assert.match(existing,/sourceFileFingerprint/);
   assert.match(existing,/duplicateBatch\(hash,reportDate\)/);
 });
