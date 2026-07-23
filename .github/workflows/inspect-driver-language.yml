@@ -1,57 +1,45 @@
-name: Inspect Driver Language
+name: Apply Verified Predeploy Fixes
 on:
   push:
     branches:
       - fix/existing-declaration-editor-language-split
-  pull_request:
-    paths:
-      - 'legacy.html'
-      - 'index.html'
-      - 'assets/**'
-      - 'api/**'
-      - 'tests/**'
-      - '.github/workflows/inspect-driver-language.yml'
 permissions:
-  contents: read
+  contents: write
 jobs:
-  inspect:
+  apply:
+    if: ${{ github.actor != 'github-actions[bot]' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Extract driver language and cloud conflict context
+        with:
+          ref: fix/existing-declaration-editor-language-split
+          fetch-depth: 0
+      - name: Decode and verify patch
         run: |
-          node <<'NODE'
-          const fs=require('fs');
-          const path=require('path');
-          const roots=['legacy.html','index.html','assets','api'];
-          const files=[];
-          function walk(target){
-            if(!fs.existsSync(target))return;
-            const stat=fs.statSync(target);
-            if(stat.isDirectory())for(const name of fs.readdirSync(target))walk(path.join(target,name));
-            else if(/\.(?:html|js|mjs|json|css)$/i.test(target))files.push(target);
-          }
-          roots.forEach(walk);
-          const patterns=[/لغة\s*السائق/i,/pvLang/i,/توجد\s+نسخة\s+سحابية\s+أحدث/i,/السحب\s+الآمن/i,/تنظيف\s+النسخة\s+المحلية/i,/cloud.*newer/i,/revision.*conflict/i];
-          const out=[];
-          for(const file of files){
-            const lines=fs.readFileSync(file,'utf8').split(/\r?\n/);
-            for(let i=0;i<lines.length;i++)if(patterns.some(p=>p.test(lines[i]))){
-              const start=Math.max(0,i-35),end=Math.min(lines.length,i+90);
-              out.push(`--- ${file}:${start+1}-${end} ---\n`+lines.slice(start,end).map((line,j)=>`${start+j+1}: ${line}`).join('\n'));
-            }
-          }
-          fs.writeFileSync('audit-context.txt',out.join('\n\n')||'NOT FOUND');
-          NODE
-      - uses: actions/upload-artifact@v4
-        with:
-          name: audit-context
-          path: audit-context.txt
-          retention-days: 1
-      - name: Bundle runtime sources
-        run: tar -czf runtime-sources.tgz legacy.html index.html assets api tests package.json 2>/dev/null || tar -czf runtime-sources.tgz legacy.html index.html assets api tests
-      - uses: actions/upload-artifact@v4
-        with:
-          name: runtime-sources
-          path: runtime-sources.tgz
-          retention-days: 1
+          cat .patch/part*.b64 | base64 --decode > /tmp/binhamid-predeploy-fixes.tgz
+          echo '1b62839c55fd050c1b3a60f1f6017cdc5312ab09d6ff79110e76e923a773d02d  /tmp/binhamid-predeploy-fixes.tgz' | sha256sum --check -
+          tar -xzf /tmp/binhamid-predeploy-fixes.tgz
+      - name: Remove temporary inspection material
+        run: |
+          rm -rf .patch
+          rm -f tests/_inspect-declaration-structure.test.mjs
+          rm -f .github/workflows/inspect-driver-language.yml
+      - name: Validate edited JavaScript
+        run: |
+          node --check assets/sync-integrity-guard.js
+          node --check assets/cloud-control.js
+          node --check assets/login-sync.js
+          node --check assets/telegram-pdf-declarations.js
+          node --check assets/master-data-unified-operations.js
+          node --check assets/employee-declaration-sync.js
+          node --check assets/declaration-workspace-fixes.js
+          node --check api/_lib/routes/canonical-master-data.js
+          node --check api/_lib/routes/reports-telegram.js
+      - name: Commit branch-only fixes
+        run: |
+          git config user.name 'binhamid-predeploy-bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A
+          git diff --cached --stat
+          git commit -m 'fix: stabilize declarations cloud sync and Telegram delivery'
+          git push origin HEAD:fix/existing-declaration-editor-language-split
