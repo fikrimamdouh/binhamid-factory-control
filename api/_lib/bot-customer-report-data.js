@@ -6,8 +6,6 @@ const norm=value=>String(value||'').toLowerCase().replace(/[أإآ]/g,'ا').repl
 const dayMs=86_400_000;
 const closedStatus=new Set(['cancelled','rejected']);
 const PAGE_SIZE=1000;
-// حسابات تحكم/تجميع عامة موجودة في ميزان المراجعة المستورد من البرنامج
-// القديم وليست عملاء حقيقيين — تُستبعد من كل تقارير وبحث العملاء نهائيًا.
 const EXCLUDED_CUSTOMER_CODES=new Set(['13115']);
 const EXCLUDED_CUSTOMER_NAMES=new Set(['ذمم مدينة عملاء'].map(value=>norm(value)));
 const isExcludedCustomer=(code,name)=>EXCLUDED_CUSTOMER_CODES.has(String(code||'').trim())||EXCLUDED_CUSTOMER_NAMES.has(norm(name));
@@ -36,6 +34,38 @@ async function pagedSelect(table,query,maxPages=50){
   }
   return output;
 }
+function dailyReference(reportDate,kind,rowNo){return`DR-${String(reportDate||'').replace(/-/g,'')}-${kind}-${String(Number(rowNo)||0).padStart(4,'0')}`;}
+async function batchRows(table,fields,batchIds=[]){
+  const output=[];
+  for(let index=0;index<batchIds.length;index+=100){const part=batchIds.slice(index,index+100);if(!part.length)continue;const rows=await pagedSelect(table,`batch_id=in.(${part.join(',')})&select=${fields}`,20).catch(()=>[]);output.push(...rows);}
+  return output;
+}
+async function mergeApprovedDailyFallback(sales=[],collections=[]){
+  const batches=await pagedSelect('daily_report_batches','status=eq.approved&select=id,report_date&order=report_date.asc',10).catch(()=>[]);
+  if(!batches.length)return{sales,collections};
+  const batchDates=new Map(batches.map(row=>[String(row.id),String(row.report_date||'').slice(0,10)])),ids=[...batchDates.keys()];
+  const[dailySales,dailyCash]=await Promise.all([
+    batchRows('daily_report_sales_lines','batch_id,source_row_no,invoice_no,sales_type,customer_code,customer_name,item_name,quantity,unit,amount,payment_terms',ids),
+    batchRows('daily_report_cash_movements','batch_id,source_row_no,treasury_code,treasury_name,debit,credit,account_name,account_code,voucher_no,payment_method,is_customer_collection',ids)
+  ]);
+  const mergedSales=(sales||[]).map(row=>({...row})),mergedCollections=(collections||[]).map(row=>({...row})),saleRefs=new Set(mergedSales.map(row=>String(row.reference_no||''))),collectionRefs=new Set(mergedCollections.map(row=>String(row.reference_no||'')));
+  for(const row of dailySales){
+    const reportDate=batchDates.get(String(row.batch_id));if(!reportDate)continue;const reference= dailyReference(reportDate,'S',row.source_row_no);if(saleRefs.has(reference))continue;
+    mergedSales.push({reference_no:reference,sales_type:row.sales_type,customer_external_id:String(row.customer_code||''),customer_name:String(row.customer_name||''),item:String(row.item_name||''),quantity:n(row.quantity),unit:String(row.unit||''),total_amount:money(row.amount),paid_amount:0,payment_method:'credit',status:'registered',delivery_date:reportDate,created_at:`${reportDate}T12:00:00+03:00`,source_invoice_no:String(row.invoice_no||''),_dailyFallback:true});saleRefs.add(reference);
+  }
+  const fallbackCollections=[];
+  for(const row of dailyCash){
+    if(!(row.is_customer_collection===true||String(row.is_customer_collection)==='true'))continue;const reportDate=batchDates.get(String(row.batch_id));if(!reportDate)continue;const reference=dailyReference(reportDate,'C',row.source_row_no);if(collectionRefs.has(reference))continue;
+    const amount=money(Math.max(n(row.debit),n(row.credit)));if(amount<=0)continue;fallbackCollections.push({reference_no:reference,customer_external_id:String(row.account_code||''),customer_name:String(row.account_name||''),amount,payment_method:String(row.payment_method||''),status:'recorded',note:`إذن ${row.voucher_no||''} — خزينة ${row.treasury_code||''}`,occurred_at:`${reportDate}T12:00:00+03:00`,created_at:`${reportDate}T12:00:00+03:00`,_dailyFallback:true});collectionRefs.add(reference);
+  }
+  const orderedSales=mergedSales.filter(row=>!closedStatus.has(String(row.status||''))).sort((a,b)=>String(a.delivery_date||a.created_at||'').localeCompare(String(b.delivery_date||b.created_at||''))||String(a.reference_no||'').localeCompare(String(b.reference_no||'')));
+  for(const collection of fallbackCollections){
+    let remaining=collection.amount,allocated=0;
+    for(const sale of orderedSales){if(remaining<=0)break;if(norm(sale.customer_external_id)!==norm(collection.customer_external_id))continue;const outstanding=Math.max(0,n(sale.total_amount)-n(sale.paid_amount));if(outstanding<=0)continue;const applied=Math.min(remaining,outstanding);sale.paid_amount=money(n(sale.paid_amount)+applied);sale.status=sale.paid_amount>=n(sale.total_amount)?'collected':'partially_collected';remaining=money(remaining-applied);allocated=money(allocated+applied);}
+    mergedCollections.push({...collection,allocated_amount:allocated,unallocated_amount:remaining});
+  }
+  return{sales:mergedSales,collections:mergedCollections};
+}
 function baseAggregate(customer={},key=''){
   return{
     key,externalId:String(customer.external_id||''),code:String(customer.customer_code||customer.external_id||''),name:String(customer.customer_name||'عميل غير مسمى'),phone:String(customer.phone||''),segment:String(customer.segment||''),creditLimit:n(customer.credit_limit),paymentDays:n(customer.payment_days),
@@ -57,10 +87,6 @@ function mergeLocalCustomers(customers=[],payload={}){
   return merged;
 }
 async function openingRows(payload={}){
-  // المصدر الأول: جدول الأرصدة المستقل (يُرفع على دفعات ولا يمسحه أي جهاز).
-  // الاحتياط: النسخة المضمّنة القديمة داخل الحالة إن كان الجدول فارغًا.
-  // القراءة على دفعات: السقف الافتراضي للقاعدة كان يقتصر على 1000 رصيد،
-  // فتظهر مديونيات ناقصة في تقارير البوت.
   const tableRows=await pagedSelect('customer_opening_balances','select=customer_code,customer_name,client_id,balance,previous,debit,credit,cheques,difference,balance_date').catch(()=>null);
   if(Array.isArray(tableRows)&&tableRows.length)return tableRows.map(row=>({customerCode:row.customer_code,customerName:row.customer_name,clientId:row.client_id,amount:Number(row.balance)||0,previous:Number(row.previous)||0,debit:Number(row.debit)||0,credit:Number(row.credit)||0,cheques:Number(row.cheques)||0,difference:Number(row.difference)||0,date:row.balance_date||''}));
   return Array.isArray(payload?.ops?.customerOpeningBalances)?payload.ops.customerOpeningBalances:[];
@@ -125,7 +151,7 @@ export async function loadCustomerAnalytics(identity){
     pagedSelect('sales_orders','select=reference_no,sales_type,customer_external_id,customer_name,item,quantity,unit,total_amount,paid_amount,payment_method,status,delivery_date,created_at&order=created_at.desc').catch(()=>[]),
     pagedSelect('collection_events','select=reference_no,customer_external_id,customer_name,amount,allocated_amount,unallocated_amount,payment_method,status,note,occurred_at,created_at&order=occurred_at.desc').catch(()=>[]),
     select('app_state','key=eq.primary&select=payload&limit=1').catch(()=>[])
-  ]);
+  ]),projected=await mergeApprovedDailyFallback(sales,collections);
   const payload=stateRows?.[0]?.payload||{},customers=mergeLocalCustomers(databaseCustomers,payload);
-  return buildCustomerAnalytics({customers,sales,collections,openingBalances:await openingRows(payload),role:identity?.role||''});
+  return buildCustomerAnalytics({customers,sales:projected.sales,collections:projected.collections,openingBalances:await openingRows(payload),role:identity?.role||''});
 }
