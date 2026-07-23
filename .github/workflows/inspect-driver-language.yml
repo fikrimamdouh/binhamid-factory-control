@@ -3,6 +3,11 @@ on:
   push:
     branches:
       - fix/existing-declaration-editor-language-split
+  pull_request:
+    paths:
+      - 'legacy.html'
+      - 'tests/_inspect-declaration-structure.test.mjs'
+      - '.github/workflows/inspect-driver-language.yml'
 permissions:
   contents: read
 jobs:
