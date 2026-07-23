@@ -15,7 +15,7 @@
 <section class="cards"><div class="kpi">عدد القيود<b id="entries">—</b></div><div class="kpi">إجمالي المدين<b id="debit">—</b></div><div class="kpi">إجمالي الدائن<b id="credit">—</b></div><div class="kpi">حالة التوازن<b id="balanced">—</b></div></section>
 <section class="card"><div id="message" class="muted">جارٍ التحميل...</div><table id="table"></table></section>
 </main>
-<script src="/assets/owner-web-login.js?v=20260718-2"></script>
+<script src="/assets/owner-web-login.js?v=20260723-verified-session-1"></script>
 <script>
 const TK='binhamid_cloud_access_token',money=v=>Number(v||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}),esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function token(){try{const x=localStorage.getItem(TK)||sessionStorage.getItem('binhamid_admin_token')||'';return x==='device-session'?'':x}catch{return''}}

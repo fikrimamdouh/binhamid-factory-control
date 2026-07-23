@@ -33,7 +33,7 @@
 <section class="section"><h2>أحدث أحداث سجل التدقيق</h2><div class="tablewrap"><table><thead><tr><th>الوقت</th><th>المستخدم</th><th>الإجراء</th><th>النوع</th><th>المرجع</th></tr></thead><tbody id="audit"></tbody></table></div></section>
 </div>
 </main>
-<script src="/assets/owner-web-login.js?v=20260718-3"></script>
+<script src="/assets/owner-web-login.js?v=20260723-verified-session-1"></script>
 <script>
 const $=id=>document.getElementById(id),money=value=>Number(value||0).toLocaleString('ar-SA',{minimumFractionDigits:2,maximumFractionDigits:2}),number=value=>Number(value||0).toLocaleString('ar-SA'),esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 $('day').value=new Date().toISOString().slice(0,10);$('token').value=sessionStorage.getItem('binhamid_admin_token')||'';

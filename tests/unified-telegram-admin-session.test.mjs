@@ -20,6 +20,8 @@ test('approved Telegram device session refreshes silently and removes legacy tok
   assert.match(login,/refreshExistingSession/);
   assert.match(login,/\/api\/device\/session/);
   assert.match(login,/data\.bound===true/);
+  assert.match(login,/markVerifiedSession/);
+  assert.match(login,/binhamid-owner-session-verified/);
   assert.match(login,/sessionStorage\.removeItem\('binhamid_admin_token'\)/);
   assert.match(login,/هذا الجهاز أصبح معتمدًا ولن يطلب اعتمادًا آخر/);
   assert.match(login,/REFRESH_INTERVAL=6\*60\*60\*1000/);

@@ -1,14 +1,15 @@
 (function(){
 'use strict';
-const VERSION='2026.07.22-default-sales-reps-v4-permanent-record-cleanup';
+const VERSION='2026.07.23-default-sales-reps-v5-session-gated-single-flight';
 const TARGET_NAMES=new Set(['مسؤول مبيعات البلوك','مسؤول مبيعات الخرسانة'].map(norm));
 const VEHICLE_PLATE='DGD7293',VEHICLE_MAKE='RENAULT';
-const TOKEN_KEY='binhamid_cloud_access_token',USER_KEY='binhamid_cloud_app_user_id';
+const TOKEN_KEY='binhamid_cloud_access_token',USER_KEY='binhamid_cloud_app_user_id',SESSION_VERIFIED_KEY='binhamid_owner_session_verified_v1';
 const PLATE_FIELDS=['plate','plateNo','plate_no','plateNumber','plate_number','licensePlate','license_plate','registrationNo','registration_no','vehicleNo','vehicle_no','number','no','code','name','id','external_id'];
 const MAKE_FIELDS=['make','brand','manufacturer','model','type','description','name'];
-let running=false,tries=0,timer=null,vehicleCloudDone=false;
+let running=false,tries=0,timer=null,vehicleCloudDone=false,cleanupComplete=false;
 function norm(value){return String(value??'').trim().toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ًٌٍَُِّْـ]/g,'').replace(/\s+/g,' ');}
 function compact(value){return String(value??'').trim().toUpperCase().replace(/[^A-Z0-9\u0600-\u06FF]/g,'');}
+function sessionReady(){const userId=String(localStorage.getItem(USER_KEY)||'').trim();if(!userId)return false;try{return sessionStorage.getItem(SESSION_VERIFIED_KEY)===userId;}catch{return false;}}
 function employeeRows(){let result=[];try{if(typeof D!=='undefined'&&D&&Array.isArray(D.emp))result=D.emp;}catch(error){console.error('[BinHamid permanent cleanup] employee roster unavailable',error);}return result;}
 function vehicleRows(){let result=[];try{if(typeof D!=='undefined'&&D&&Array.isArray(D.veh))result=D.veh;}catch(error){console.error('[BinHamid permanent cleanup] vehicle roster unavailable',error);}return result;}
 function headers(){const token=String(localStorage.getItem(TOKEN_KEY)||'').trim(),userId=String(localStorage.getItem(USER_KEY)||'').trim();return{'Content-Type':'application/json',...(token&&token!=='device-session'?{Authorization:'Bearer '+token}:{}),...(userId?{'X-App-User-Id':userId}:{})};}
@@ -22,27 +23,30 @@ function removeRows(list,targets){let removed=0;for(const target of targets){con
 function persistAndRedraw(){try{if(typeof window.save==='function')window.save();else if(typeof save==='function')save();}catch(error){console.error('[BinHamid permanent cleanup] local save failed',error);}try{if(typeof window.rEmp==='function')window.rEmp();if(typeof window.rVeh==='function')window.rVeh();else if(typeof rAll==='function')rAll();}catch(error){console.error('[BinHamid permanent cleanup] roster redraw failed',error);}}
 async function run(){
   if(running)return{done:false,retryable:true};
+  if(cleanupComplete)return{done:true};
+  if(!sessionReady())return{done:false,waitingForSession:true};
   if(typeof D==='undefined'||!D)return{done:false,retryable:true};
   running=true;
-  let removedEmployees=0,removedVehicles=0,retryable=false;
+  let removedEmployees=0,removedVehicles=0,retryable=false,waitingForSession=false;
   try{
     const employees=employeeRows(),employeeTargets=employees.filter(employeeTarget);
     for(const employee of employeeTargets){
       try{await deleteEmployeeCloud(employee);removedEmployees+=removeRows(employees,[employee]);}
-      catch(error){if(error?.status===401||error?.status===403)retryable=true;else console.error('[BinHamid permanent cleanup] employee deletion failed',employee?.name,error);}
+      catch(error){if(error?.status===401||error?.status===403)waitingForSession=true;else{retryable=true;console.warn('[BinHamid permanent cleanup] employee deletion will retry',employee?.name,error?.message||error);}}
     }
     const vehicles=vehicleRows(),vehicleTargets=vehicles.filter(vehicleTarget);
     if(!vehicleCloudDone||vehicleTargets.length){
       try{await deleteVehicleCloud();vehicleCloudDone=true;removedVehicles+=removeRows(vehicles,vehicleTargets);}
-      catch(error){if(error?.status===401||error?.status===403)retryable=true;else console.error('[BinHamid permanent cleanup] vehicle deletion failed',error);}
+      catch(error){if(error?.status===401||error?.status===403)waitingForSession=true;else{retryable=true;console.warn('[BinHamid permanent cleanup] vehicle deletion will retry',error?.message||error);}}
     }
     if(removedEmployees||removedVehicles){persistAndRedraw();notify('تم حذف السجلين الافتراضيين وحذف DGD-7293 Renault من المعدات نهائيًا.');}
-    return{done:!retryable,retryable};
+    if(!retryable&&!waitingForSession)cleanupComplete=true;
+    return{done:!retryable&&!waitingForSession,retryable,waitingForSession};
   }finally{running=false;}
 }
-function schedule(){clearTimeout(timer);timer=setTimeout(async()=>{tries++;let result={done:false,retryable:true};try{result=await run();}catch(error){console.error('[BinHamid permanent cleanup]',error);}if(!result.done&&tries<20)schedule();else if(!result.done)notify('تعذر إكمال التنظيف السحابي. أعد فتح النظام بعد تأكيد الجلسة.',true);},tries?1500:300);}
-window.addEventListener('binhamid-owner-session-verified',schedule);
-window.addEventListener('binhamid-owner-authenticated',schedule);
-schedule();
+function schedule(delay=400){clearTimeout(timer);if(cleanupComplete||!sessionReady())return;timer=setTimeout(async()=>{let result={done:false,retryable:true};try{result=await run();}catch(error){console.warn('[BinHamid permanent cleanup] transient retry',error?.message||error);}if(result.done){tries=0;return;}if(result.waitingForSession)return;if(result.retryable&&tries<3){tries++;schedule(1000*(2**tries));}},delay);}
+window.addEventListener('binhamid-owner-session-verified',()=>schedule());
+window.addEventListener('binhamid-owner-authenticated',()=>schedule());
+if(sessionReady())schedule(700);
 console.info('[BinHamid]',VERSION,'loaded — targeted records are removed and never recreated; diesel exclusions are untouched');
 })();

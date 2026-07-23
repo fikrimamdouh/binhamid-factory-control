@@ -53,7 +53,7 @@ test('opening declaration forms refreshes their employee list without a boot-wid
   assert.match(bridge,/الإقرارات/);
   assert.match(bridge,/refreshDeclarations\(true\)/);
   assert.match(bridge,/typeof window\.rAll==='function'/);
-  assert.match(index,/employee-declaration-sync\.js\?v=20260723-canonical-roster-3/);
+  assert.match(index,/employee-declaration-sync\.js\?v=20260723-canonical-roster-4/);
   assert.doesNotMatch(index,/attendance-control\.js\?v=/);
   assert.ok(index.indexOf('single-master-workspace.js')<index.indexOf('employee-declaration-sync.js'));
 });
@@ -65,11 +65,13 @@ test('link changes notify other open program tabs to refresh declaration employe
   assert.match(bridge,/window\.addEventListener\('storage'/);
 });
 
-test('declaration synchronization waits for an authenticated user and bounds authorization retries',()=>{
-  assert.match(bridge,/const authenticated=/);
-  assert.match(bridge,/if\(running\|\|!authenticated\(\)\)return/);
-  assert.match(bridge,/if\(authenticated\(\)\)schedule\(700\)/);
-  assert.match(bridge,/authenticated\(\)&&retries<4/);
+test('declaration synchronization waits for a server-verified session and bounds transient retries',()=>{
+  assert.match(bridge,/SESSION_VERIFIED_KEY='binhamid_owner_session_verified_v1'/);
+  assert.match(bridge,/const sessionReady=/);
+  assert.match(bridge,/if\(running\|\|!sessionReady\(\)\)return/);
+  assert.match(bridge,/if\(sessionReady\(\)\)schedule\(700\)/);
+  assert.match(bridge,/binhamid-owner-session-verified/);
+  assert.match(bridge,/sessionReady\(\)&&retries<4/);
   assert.doesNotMatch(bridge,/retries<12/);
 });
 
