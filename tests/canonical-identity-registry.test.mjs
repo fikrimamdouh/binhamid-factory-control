@@ -6,11 +6,12 @@ const read=path=>readFileSync(new URL(`../${path}`,import.meta.url),'utf8');
 const route=read('api/_lib/routes/canonical-master-data.js');
 const router=read('api/router.js');
 const page=read('master-data.html');
-const attendanceUi=read('assets/attendance-canonical-employees.js');
 const employeeSync=read('assets/employee-declaration-sync.js');
 const attendanceSafe=read('api/_lib/routes/attendance-safe.js');
 const nav=read('assets/admin-nav.js');
 const saveGuard=read('assets/master-data-workspace-guards.js');
+const singleMaster=read('assets/single-master-workspace.js');
+const attendancePage=read('attendance-admin.html');
 
 test('canonical asset registry preserves raw sources but returns one visible row',()=>{
   assert.match(route,/canonicalProjection/);
@@ -34,8 +35,8 @@ test('editing either source resolves to one canonical identity and mirrors both 
 });
 
 test('master data is a native one-page editor rather than injected split tables',()=>{
-  assert.match(page,/الموظفون والمركبات — مكان واحد/);
-  assert.match(page,/كل تعديل يُحفظ مباشرة في السحابة/);
+  assert.match(page,/السجل الموحد للموظفين والمركبات/);
+  assert.match(page,/شاشة الإضافة والتعديل الوحيدة/);
   assert.match(page,/data-tab="employees"/);
   assert.match(page,/data-tab="assets"/);
   assert.match(page,/action:'save_asset'/);
@@ -49,14 +50,13 @@ test('linked Telegram account is displayed inside the employee row, not as a sec
   assert.match(route,/canonicalEmployees/);
   assert.match(route,/telegram:user/);
   assert.match(page,/row\.telegram\?/);
-  assert.match(attendanceUi,/سجل واحد لكل شخص/);
-  assert.match(attendanceUi,/لا تُعرض كموظف ثانٍ/);
-  assert.match(attendanceUi,/oldEmployee\.style\.display='none'/);
-  assert.match(attendanceUi,/oldAssignments\.style\.display='none'/);
+  assert.match(attendancePage,/إدارة الموظفين والمركبات من السجل الموحد/);
+  assert.match(attendancePage,/<section class="card c12" hidden>/);
 });
 
 test('legacy employee synchronization collapses linked user aliases and rewrites references',()=>{
-  assert.match(employeeSync,/auth-gated/);
+  assert.match(employeeSync,/canonical-roster-sync/);
+  assert.match(employeeSync,/const authenticated=/);
   assert.match(employeeSync,/route=canonical-master-data/);
   assert.match(employeeSync,/linkedIds/);
   assert.match(employeeSync,/telegram_external_id/);
@@ -67,11 +67,15 @@ test('legacy employee synchronization collapses linked user aliases and rewrites
   assert.match(attendanceSafe,/telegram_external_id/);
 });
 
-test('admin navigation loads attendance helpers and the cloud-save guard only',()=>{
-  assert.match(nav,/attendance-canonical-employees\.js\?v=20260722-1/);
-  assert.match(nav,/ensureAttendanceCanonicalEmployees/);
+test('admin navigation and legacy shortcuts expose only one employee and asset editor',()=>{
+  assert.doesNotMatch(nav,/attendance-canonical-employees\.js/);
+  assert.doesNotMatch(nav,/employee-link-transfer\.js/);
+  assert.match(nav,/الحضور والمواقع/);
   assert.match(nav,/master-data-workspace-guards\.js\?v=20260722-1/);
   assert.match(nav,/ensureMasterWorkspaceGuards/);
+  assert.match(singleMaster,/master-data\.html\?tab=/);
+  assert.match(singleMaster,/window\.empForm/);
+  assert.match(singleMaster,/window\.vehForm/);
   assert.doesNotMatch(nav,/ensureCanonicalMasterUi/);
   assert.doesNotMatch(nav,/ensureMasterCostCenters/);
   assert.match(saveGuard,/cloud writes are read back and verified/);

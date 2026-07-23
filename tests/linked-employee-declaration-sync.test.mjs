@@ -53,8 +53,9 @@ test('opening declaration forms refreshes their employee list without a boot-wid
   assert.match(bridge,/الإقرارات/);
   assert.match(bridge,/refreshDeclarations\(true\)/);
   assert.match(bridge,/typeof window\.rAll==='function'/);
-  assert.match(index,/employee-declaration-sync\.js\?v=20260723-final-auth-gate-1/);
-  assert.ok(index.indexOf('attendance-control.js')<index.indexOf('employee-declaration-sync.js'));
+  assert.match(index,/employee-declaration-sync\.js\?v=20260723-canonical-roster-1/);
+  assert.doesNotMatch(index,/attendance-control\.js\?v=/);
+  assert.ok(index.indexOf('single-master-workspace.js')<index.indexOf('employee-declaration-sync.js'));
 });
 
 test('link changes notify other open program tabs to refresh declaration employees',()=>{
@@ -70,4 +71,13 @@ test('declaration synchronization waits for an authenticated user and bounds aut
   assert.match(bridge,/if\(authenticated\(\)\)schedule\(700\)/);
   assert.match(bridge,/authenticated\(\)&&retries<4/);
   assert.doesNotMatch(bridge,/retries<12/);
+});
+
+test('the canonical roster projects employees and vehicles locally without issuing a cloud state write',()=>{
+  assert.match(bridge,/mergeCloudVehicles/);
+  assert.match(bridge,/registry\.canonicalAssets/);
+  assert.match(bridge,/localStorage\.setItem\('binhamid_v1'/);
+  assert.match(bridge,/binhamid-vehicle-roster-updated/);
+  assert.doesNotMatch(bridge,/window\.save/);
+  assert.doesNotMatch(bridge,/bhCloudPush/);
 });

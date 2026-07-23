@@ -1,9 +1,9 @@
-// [BinHamid] 2026.07.23-sync-integrity-guard-v4-full-pull-no-print
+// [BinHamid] 2026.07.23-sync-integrity-guard-v5-revision-preflight
 (function(){
   'use strict';
   if(window.__BH_SYNC_INTEGRITY_GUARD__)return;
   window.__BH_SYNC_INTEGRITY_GUARD__=true;
-  var VERSION='2026.07.23-sync-integrity-guard-v4-full-pull-no-print';
+  var VERSION='2026.07.23-sync-integrity-guard-v5-revision-preflight';
   var CONFLICT_KEY='binhamid_cloud_conflict_lock_v1',MASTER_KEY='binhamid_master_sync_status_v1',REVISION_KEY='binhamid_cloud_revision';
   var previousFetch=window.fetch.bind(window),pullBusy=false;
 
@@ -62,6 +62,7 @@
   window.fetch=async function(input,options){if(!isStatePut(input,options))return previousFetch(input,options);var existing=readJson(CONFLICT_KEY);if(existing)return syntheticConflict(existing);var response=await previousFetch(input,options),data=await response.clone().json().catch(function(){return{};});if(response.status===409){lockConflict(data);return response;}if(response.ok){remove(CONFLICT_KEY);showMasterSync(data.masterSync);}return response;};
   window.addEventListener('binhamid-cloud-state-pulled',function(){remove(CONFLICT_KEY);hide();});
   window.bhCloudConflictStatus=function(){return readJson(CONFLICT_KEY);};
+  window.bhLockCloudConflict=lockConflict;
   window.bhClearCloudConflictAfterPull=function(){remove(CONFLICT_KEY);hide();};
   window.bhPullLatestCloudStateSafely=safePullLatest;
   var existing=readJson(CONFLICT_KEY);if(existing)setTimeout(function(){renderConflict(existing);},300);

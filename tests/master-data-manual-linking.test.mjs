@@ -57,7 +57,7 @@ test('workbook parser supports new ERP plate and source statuses',()=>{
 
 test('unified page keeps manual employee ERP status and type controls in one editor',()=>{
   const page=read('master-data.html'),canonical=read('api/_lib/routes/canonical-master-data.js'),guard=read('assets/master-data-workspace-guards.js');
-  assert.match(page,/السيارة وERP والديزل يظهرون كأصل واحد/);
+  assert.match(page,/السيارة وERP والديزل أصل واحد/);
   assert.match(page,/id="assetEmployee"/);
   assert.match(page,/id="assetErp"/);
   assert.match(page,/id="assetStatus"/);

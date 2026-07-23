@@ -108,5 +108,5 @@ test('delayed customer and employee table synchronization is visible',()=>{
   assert.match(stateApi,/status:deferredChunks\|\|failedChunks\?'delayed':'complete'/);
   assert.match(syncGuard,/binhamid-master-sync-status/);
   assert.match(syncGuard,/مزامنة جداول العملاء والموظفين متأخرة/);
-  assert.match(index,/sync-integrity-guard\.js\?v=20260723-4/);
+  assert.match(index,/sync-integrity-guard\.js\?v=20260723-5/);
 });

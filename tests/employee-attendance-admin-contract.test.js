@@ -92,7 +92,9 @@ test('attendance page uses the resilient read route and includes site testing',(
   assert.match(page,/testCurrentLocation/);
   assert.match(page,/سيُقبل الحضور/);
   assert.match(page,/سيُرفض الحضور/);
-  assert.match(page,/الموظفون وحالة التشغيل/);
+  assert.match(page,/إدارة الموظفين والمركبات من السجل الموحد/);
+  assert.match(page,/<section class="card c12" hidden>/);
+  assert.match(page,/href='\/master-data\.html'/);
 });
 
 test('session timeout remains non-blocking and professionally reported',()=>{
@@ -102,11 +104,14 @@ test('session timeout remains non-blocking and professionally reported',()=>{
   assert.doesNotMatch(login,/session check timed out; keeping existing local session/);
 });
 
-test('cache keys load the repaired employee, transfer, and session modules',()=>{
+test('runtime uses the single master workspace instead of loading duplicate employee editors',()=>{
   const index=read('index.html');
   const nav=read('assets/admin-nav.js');
-  assert.match(index,/owner-web-login\.js\?v=20260722-1/);
-  assert.match(index,/attendance-control\.js\?v=20260722-1/);
+  assert.match(index,/owner-web-login\.js\?v=20260723-final-lock-1/);
+  assert.match(index,/single-master-workspace\.js\?v=20260723-1/);
+  assert.doesNotMatch(index,/attendance-control\.js\?v=/);
   assert.match(nav,/owner-web-login\.js\?v=20260722-1/);
-  assert.match(nav,/employee-link-transfer\.js\?v=20260722-1/);
+  assert.doesNotMatch(nav,/employee-link-transfer\.js\?v=/);
+  assert.doesNotMatch(nav,/attendance-canonical-employees\.js\?v=/);
+  assert.match(nav,/الحضور والمواقع/);
 });
