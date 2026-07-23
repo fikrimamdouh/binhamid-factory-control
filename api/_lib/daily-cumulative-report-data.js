@@ -56,9 +56,9 @@ export function projectCumulativeDailyReport({storedSales=[],dailySales=[],daily
 export async function loadProjectedCumulativeDailyReport(analysis={},reportDate,options={}){
   const [sales,batches]=await Promise.all([
     pagedSelect('sales_orders','select=reference_no,sales_type,customer_external_id,customer_name,item,quantity,total_amount,paid_amount,status,delivery_date,created_at&order=created_at.asc').catch(()=>[]),
-    select('daily_report_batches','status=eq.approved&select=report_date,status&order=report_date.desc&limit=1').catch(()=>[])
-  ]);
-  const storedSales=options?.currentBatch===true?(sales||[]).filter(row=>date(row.delivery_date||row.created_at)<String(reportDate||'')):(sales||[]);
-  const latestApprovedDate=options?.currentBatch===true?((batches||[]).map(row=>String(row.report_date||'')).find(value=>value&&value<String(reportDate||''))||''):(batches?.[0]?.report_date||'');
+    select('daily_report_batches','status=eq.approved&select=report_date,status&order=report_date.desc&limit=50').catch(()=>[])
+  ]),currentBatch=options?.currentBatch===true||analysis?.currentBatch===true;
+  const storedSales=currentBatch?(sales||[]).filter(row=>date(row.delivery_date||row.created_at)<String(reportDate||'')):(sales||[]);
+  const latestApprovedDate=currentBatch?((batches||[]).map(row=>String(row.report_date||'')).find(value=>value&&value<String(reportDate||''))||''):(batches?.[0]?.report_date||'');
   return projectCumulativeDailyReport({storedSales,dailySales:analysis?.sales||[],dailyCollections:analysis?.collections||[],reportDate,latestApprovedDate});
 }
