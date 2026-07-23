@@ -22,7 +22,7 @@ async function cloudRequest(payload,attempts=3){
       const response=await fetch('/api/router?route=canonical-master-data',{method:'POST',credentials:'same-origin',cache:'no-store',headers:headers(),body:JSON.stringify(payload),signal:controller.signal}),data=await json(response);
       if(response.ok)return data;
       const error=Object.assign(new Error(data.error||data.message||`تعذر الحفظ السحابي HTTP ${response.status}`),{status:response.status,code:data.code||''});
-      if(![408,425,429,500,502,503,504].includes(response.status))throw error;
+      if(data.code||![408,425,429,500,502,503,504].includes(response.status))throw error;
       lastError=error;
     }catch(error){
       lastError=error;
@@ -56,8 +56,9 @@ async function saveAndVerify(kind,button){
   if(saving)return;saving=true;button.disabled=true;const payload=kind==='employee'?employeePayload():assetPayload(),label=kind==='employee'?'الموظف':'الأصل';message(`جاري حفظ ${label} في السحابة والتحقق منه...`);
   try{
     let mismatches=['لم يتم التحقق'];
+    await cloudRequest(payload);
     for(let attempt=1;attempt<=3;attempt++){
-      await cloudRequest(payload,attempt===1?3:2);await sleep(250*attempt);const data=await cloudRead();mismatches=kind==='employee'?employeeMismatches(data,payload):assetMismatches(data,payload);if(!mismatches.length)break;if(attempt<3){message(`تم إرسال الحفظ، وجارٍ تثبيت ${mismatches.join('، ')}...`);await sleep(500*attempt);}
+      await sleep(250*attempt);const data=await cloudRead();mismatches=kind==='employee'?employeeMismatches(data,payload):assetMismatches(data,payload);if(!mismatches.length)break;if(attempt<3){message(`تم الحفظ مرة واحدة، وجارٍ التحقق من ${mismatches.join('، ')}...`);await sleep(500*attempt);}
     }
     if(mismatches.length)throw Object.assign(new Error(`وصل الحفظ جزئيًا ولم تتأكد الحقول التالية: ${mismatches.join('، ')}. لم تُغلق النافذة حتى لا تفقد التعديل.`),{code:'CLOUD_SAVE_NOT_CONFIRMED'});
     document.getElementById(kind==='employee'?'employeeModal':'assetModal')?.classList.remove('on');if(kind==='employee')editingEmployeeId=payload.employeeExternalId;else editingAssetId=payload.assetExternalId;message(`تم حفظ ${label} في السحابة والتأكد من جميع البيانات.`, 'ok');setTimeout(()=>document.getElementById('refresh')?.click(),250);

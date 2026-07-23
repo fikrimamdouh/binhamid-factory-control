@@ -24,10 +24,11 @@ test('revision conflicts stop writes until a clean cloud pull replaces local sta
   const guard=await read('assets/sync-integrity-guard.js'),index=await read('index.html');
   assert.match(guard,/REVISION_CONFLICT_LOCKED/);
   assert.match(guard,/syntheticConflict/);
-  assert.match(guard,/if\(existing\)return syntheticConflict\(existing\)/);
+  assert.match(guard,/if\(existing\)\{scheduleAutomaticRecovery\(\);return syntheticConflict\(existing\)/);
   assert.match(guard,/response\.status===409/);
   assert.match(guard,/binhamid-cloud-state-pulled/);
-  assert.match(guard,/سحب وتنظيف النسخة المحلية/);
+  assert.match(guard,/scheduleAutomaticRecovery/);
+  assert.match(guard,/preserveRecoveryBackup/);
   assert.match(guard,/function cleanProgramLocalState\(\)/);
   assert.match(guard,/function writePulledState\(data\)/);
   assert.doesNotMatch(guard,/binhamid_conflict_backup_/);

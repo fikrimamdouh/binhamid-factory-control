@@ -11,7 +11,7 @@
    fix.js, daily-report-source-of-truth.js and fleet-attendance-
    status.js all keep working without changes.
    ============================================================ */
-const V='2026.07.23-cloud-foundation-4-revision-preflight';
+const V='2026.07.23-cloud-foundation-5-conflict-auto-recovery';
 const TK='binhamid_cloud_access_token',DK='binhamid_cloud_device_id',RK='binhamid_cloud_revision',QK='binhamid_cloud_pending',CK='binhamid_cloud_conflict_lock_v1';
 let askedLogin=false;
 let autoBusy=false;
@@ -86,15 +86,11 @@ async function push(reason='حفظ تلقائي',force=false){
   }catch(e){
     S.error=e.message;queue();
     if(e.status===409){
-      // تعارض رقم النسخة: بدل إيقاف الحفظ نهائيًا، نجلب رقم النسخة الحالي
-      // من السيرفر ونعيد المحاولة مرة واحدة، فالحفظ لا يتعطل بسبب فارق ترقيم.
-      try{
-        const current=await api('/api/state?meta=1');
-        setRev(current.revision);
-        const retry=await api('/api/state',{method:'PUT',body:JSON.stringify({baseRevision:current.revision,reason,deviceId:device(),payload:shot()})});
-        setRev(retry.revision);S.lastSync=retry.updatedAt||new Date().toISOString();clearQueue();S.error='';
-        toast('تمت المزامنة بعد تحديث رقم النسخة.');
-      }catch(retryError){toast('توجد نسخة سحابية أحدث. لم تُستبدل بياناتك.',true);}
+      // السحابة هي المصدر الأحدث. لا نعيد رفع اللقطة المحلية برقم Revision
+      // جديد لأن ذلك يكتب بيانات قديمة فوق النسخة الصحيحة.
+      toast('توجد نسخة سحابية أحدث — جارٍ تطبيقها تلقائيًا.');
+      if(typeof window.bhResolveCloudConflictAutomatically==='function')window.bhResolveCloudConflictAutomatically();
+      else window.dispatchEvent(new CustomEvent('binhamid-cloud-conflict',{detail:{code:'REVISION_CONFLICT',remoteRevision:0}}));
     }
     else if(e.status===401){if(!askedLogin){askedLogin=true;login()}}
     else toast('الحفظ المحلي تم، وتعذرت المزامنة: '+e.message,true);

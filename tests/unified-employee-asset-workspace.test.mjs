@@ -85,6 +85,8 @@ test('save buttons use stable ids and verify the cloud read-back before closing'
   assert.match(guards,/CLOUD_SAVE_NOT_CONFIRMED/);
   assert.match(guards,/stopImmediatePropagation/);
   assert.match(guards,/attempt<=3/);
+  assert.match(guards,/await cloudRequest\(payload\);\s*for\(let attempt=1;attempt<=3;attempt\+\+\)/);
+  assert.match(guards,/if\(data\.code\|\|!/);
   assert.match(guards,/تم حفظ \$\{label\} في السحابة والتأكد من جميع البيانات/);
   assert.match(route,/CANONICAL_EMPLOYEE_SAVE_NOT_CONFIRMED/);
   assert.match(route,/CANONICAL_ASSET_SAVE_NOT_CONFIRMED/);

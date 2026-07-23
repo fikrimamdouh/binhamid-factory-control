@@ -14,13 +14,17 @@ const employeeSync=read('assets/employee-declaration-sync.js');
 const workspace=read('assets/declaration-workspace-fixes.js');
 const masterOps=read('assets/master-data-unified-operations.js');
 const index=read('index.html');
+const legacy=read('legacy.html');
 
 test('safe cloud pull always bypasses boot metadata interception and never prints runtime notices',()=>{
   assert.match(sync,/\/api\/state\?full=1/);
+  assert.match(sync,/previousFetch\('\/api\/state\?full=1'/);
   assert.match(sync,/className='noprint no-print'/);
+  assert.match(sync,/@media print/);
+  assert.match(sync,/window\.addEventListener\('beforeprint',hide\)/);
   assert.match(login,/className='noprint no-print'/);
   assert.match(cloud,/api\('\/api\/state\?full=1'\)/);
-  assert.match(cloud,/api\('\/api\/state\?meta=1'\)/);
+  assert.match(cloud,/bhResolveCloudConflictAutomatically/);
 });
 
 test('telegram PDF path has a non-sending readiness check and supports preview based print buttons',()=>{
@@ -29,6 +33,7 @@ test('telegram PDF path has a non-sending readiness check and supports preview b
   assert.match(telegram,/deliveryReadiness/);
   assert.match(telegram,/pvStage/);
   assert.match(telegram,/stage\.innerHTML/);
+  assert.match(telegram,/snapshot\.root\.outerHTML/);
   assert.match(telegram,/data-bh-runtime-notice/);
 });
 
@@ -36,10 +41,33 @@ test('telegram employee merge is persisted and propagated to declarations and ot
   assert.match(canonical,/syncEmployeeDeclarationRole/);
   assert.match(canonical,/employee_external_id:employee\.external_id/);
   assert.match(canonical,/app_user_id=neq/);
+  assert.match(canonical,/telegramIdentityProjection/);
+  assert.match(canonical,/directEmployeeId===employeeExternalId/);
+  assert.match(canonical,/numberMatch\.length===1/);
+  assert.match(canonical,/nameMatch\.length===1/);
+  assert.match(canonical,/normalizedName/);
+  assert.match(canonical,/reconcile_employee_telegram_links/);
+  assert.match(canonical,/repairedAssignments/);
+  assert.doesNotMatch(canonical,/CANONICAL_TELEGRAM_SITE_REQUIRED/);
+  assert.match(canonical,/site_id:resolvedSite\|\|null/);
   assert.match(employeeSync,/route=canonical-master-data/);
+  assert.match(employeeSync,/reconcile_employee_telegram_links/);
   assert.match(employeeSync,/binhamid-canonical-master-data-updated/);
   assert.match(masterOps,/binhamid-employee-roster-updated/);
   assert.match(masterOps,/الإقرارات تبقى في صفحة إصدار النماذج الحالية فقط/);
+});
+
+test('Telegram receives the complete print sheet wrapper without server layout overrides',()=>{
+  assert.match(telegram,/snapshot\.root\.outerHTML/);
+  assert.doesNotMatch(telegram,/snapshot\.root\.innerHTML/);
+  assert.match(telegram,/crypto\.subtle\.digest\('SHA-256'/);
+  assert.match(telegram,/data\.contentHash!==contentHash/);
+  assert.match(reports,/body\(req,4_000_000\)/);
+  assert.match(reports,/PRINT_DOCUMENT_HASH_MISMATCH/);
+  assert.doesNotMatch(reports,/@page\{size:A4;margin:10mm\}/);
+  assert.doesNotMatch(reports,/tr,img,.sheet,.doc,.card\{page-break-inside:avoid\}/);
+  assert.match(legacy,/bhSendPrintedButtonToTelegram\(printButton,btn\)/);
+  assert.doesNotMatch(legacy,/sendCliTelegram[\s\S]{0,900}reports\/send-telegram/);
 });
 
 test('existing issue page owns vehicle and driver completion, separate languages, and workshop guard',()=>{

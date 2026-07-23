@@ -33,6 +33,11 @@ test('bot review uses the same approval RPC as the web administration page',()=>
   assert.match(admin,/rpc\('approve_telegram_user'/);
   assert.match(flow,/approve_telegram_employee_registration/);
   assert.match(flow,/identity\?\.role==='admin'/);
+  assert.match(flow,/resolveCanonicalEmployee/);
+  assert.match(flow,/persistEmployeeAssignment/);
+  assert.match(flow,/p_employee_external_id:employee\.externalId/);
+  assert.match(flow,/role==='block_sales'/);
+  assert.match(flow,/metadata\.costCenterCode='block'/);
 });
 
 test('admin home and enterprise callbacks expose registration review',()=>{

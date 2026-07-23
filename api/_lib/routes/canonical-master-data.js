@@ -6,6 +6,7 @@ import { normalizePlate } from '../master-data-workbook.js';
 import { syncEmployeeDeclarationRole } from '../employee-declaration-role.js';
 
 const clean=(value,max=500)=>String(value??'').trim().slice(0,max);
+const normalizedName=value=>clean(value,500).toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ًٌٍَُِّْـ]/g,'').replace(/\s+/g,' ');
 const object=value=>value&&typeof value==='object'&&!Array.isArray(value)?value:{};
 const now=()=>new Date().toISOString();
 const today=()=>now().slice(0,10);
@@ -25,13 +26,42 @@ function employeeStatus(employee){
   return clean(metadata.manualWorkStatus||metadata.workStatus||'working',40);
 }
 
-function linkedTelegram(employeeExternalId,assignments,usersById){
-  const rows=(assignments||[])
-    .filter(row=>clean(row.employee_external_id)===clean(employeeExternalId)&&row.active!==false)
-    .sort((a,b)=>String(b.updated_at||'').localeCompare(String(a.updated_at||'')));
-  const assignment=rows[0]||null;
-  const user=assignment?usersById.get(clean(assignment.app_user_id))||null:null;
-  return{assignment,user};
+function telegramIdentityProjection(employees,assignments,users){
+  const employeeIds=new Set((employees||[]).map(row=>clean(row.external_id)).filter(Boolean));
+  const employeesByNumber=new Map(),employeesByName=new Map();
+  for(const employee of employees||[]){
+    const number=clean(employee.employee_no),name=normalizedName(employee.full_name);
+    if(number){const rows=employeesByNumber.get(number)||[];rows.push(employee);employeesByNumber.set(number,rows);}
+    if(name){const rows=employeesByName.get(name)||[];rows.push(employee);employeesByName.set(name,rows);}
+  }
+  const latestAssignmentByUser=new Map();
+  for(const row of [...(assignments||[])].filter(item=>item.active!==false).sort((a,b)=>String(b.updated_at||'').localeCompare(String(a.updated_at||'')))){
+    const userId=clean(row.app_user_id);
+    if(userId&&!latestAssignmentByUser.has(userId))latestAssignmentByUser.set(userId,row);
+  }
+  const candidates=[];
+  for(const user of users||[]){
+    const userId=clean(user.id),assignment=latestAssignmentByUser.get(userId)||null;
+    const directEmployeeId=clean(user.employee_external_id),assignedEmployeeId=clean(assignment?.employee_external_id);
+    const numberMatch=employeesByNumber.get(directEmployeeId)||[],nameMatch=employeesByName.get(normalizedName(user.full_name))||[];
+    const employeeExternalId=employeeIds.has(directEmployeeId)?directEmployeeId:employeeIds.has(assignedEmployeeId)?assignedEmployeeId:numberMatch.length===1?clean(numberMatch[0].external_id):nameMatch.length===1?clean(nameMatch[0].external_id):'';
+    const sourcePriority=employeeIds.has(directEmployeeId)?4:employeeIds.has(assignedEmployeeId)?3:numberMatch.length===1?2:nameMatch.length===1?1:0;
+    if(!userId||!employeeExternalId)continue;
+    candidates.push({
+      employeeExternalId,user,assignment,
+      direct:directEmployeeId===employeeExternalId,
+      sourcePriority,
+      updatedAt:String(assignment?.updated_at||user.updated_at||user.created_at||'')
+    });
+  }
+  candidates.sort((a,b)=>b.sourcePriority-a.sourcePriority||b.updatedAt.localeCompare(a.updatedAt)||clean(a.user.id).localeCompare(clean(b.user.id)));
+  const pairByEmployee=new Map(),employeeByUser=new Map(),linkedUserIds=new Set(),conflicts=[];
+  for(const candidate of candidates){
+    const userId=clean(candidate.user.id),employeeId=candidate.employeeExternalId;
+    if(linkedUserIds.has(userId)||pairByEmployee.has(employeeId)){conflicts.push(candidate);continue;}
+    linkedUserIds.add(userId);pairByEmployee.set(employeeId,candidate);employeeByUser.set(userId,employeeId);
+  }
+  return{pairByEmployee,employeeByUser,linkedUserIds,latestAssignmentByUser,conflicts};
 }
 
 function canonicalProjection(asset,erp){
@@ -71,8 +101,8 @@ async function loadRegistry(){
     select('employees','active=eq.true&select=external_id,employee_no,national_id,full_name,phone,role,site,metadata&order=full_name.asc&limit=10000'),
     optional('vehicles','active=eq.true&select=external_id,plate_no,asset_no,vehicle_type,make,model,driver_external_id,status&limit=10000'),
     optional('employee_assignments','active=eq.true&select=app_user_id,employee_external_id,site_id,vehicle_external_id,job_title,shift_name,active,updated_at&order=updated_at.desc&limit=5000'),
-    optional('app_users','active=eq.true&select=id,full_name,role,active,employee_external_id&limit=5000'),
-    optional('user_channels','channel=eq.telegram&active=eq.true&select=user_id,external_id,external_username,active&limit=5000'),
+    optional('app_users','active=eq.true&select=id,full_name,role,active,employee_external_id,created_at,updated_at&limit=5000'),
+    optional('user_channels','channel=eq.telegram&active=eq.true&select=user_id,external_id,external_username,active,last_seen_at&limit=5000'),
     optional('cost_centers','active=eq.true&code=in.(general,block,concrete)&select=id,code,name_ar&order=code.asc'),
     optional('employee_cost_assignments','active=eq.true&select=employee_external_id,cost_center_id,allocation_percent,effective_from,updated_at&order=updated_at.desc&limit=10000'),
     optional('work_sites','active=eq.true&select=id,name,code,active&order=name.asc&limit=500')
@@ -98,8 +128,8 @@ async function loadRegistry(){
     canonicalAssets.push(canonicalProjection(asset,null));
   }
 
-  const usersById=new Map((users||[]).map(row=>[clean(row.id),row]));
   const channelByUser=new Map((channels||[]).map(row=>[clean(row.user_id),row]));
+  const telegramIdentities=telegramIdentityProjection(employees,assignments,users);
   const centerById=new Map((centers||[]).map(row=>[clean(row.id),row]));
   const employeeCenterById=new Map();
   for(const row of employeeCenters||[]){
@@ -107,10 +137,9 @@ async function loadRegistry(){
     if(id&&!employeeCenterById.has(id))employeeCenterById.set(id,row);
   }
 
-  const linkedUserIds=new Set();
   const canonicalEmployees=(employees||[]).map(employee=>{
-    const{assignment,user}=linkedTelegram(employee.external_id,assignments,usersById);
-    if(user)linkedUserIds.add(clean(user.id));
+    const link=telegramIdentities.pairByEmployee.get(clean(employee.external_id))||null;
+    const assignment=link?.assignment||null,user=link?.user||null;
     const center=centerById.get(clean(employeeCenterById.get(clean(employee.external_id))?.cost_center_id));
     const metadata=object(employee.metadata);
     const vehicleId=clean(assignment?.vehicle_external_id)||clean(canonicalAssets.find(asset=>clean(asset.employee_external_id)===clean(employee.external_id))?.canonical_external_id);
@@ -128,6 +157,7 @@ async function loadRegistry(){
       vehicle_external_id:vehicleId||null,
       telegram:user?{
         id:user.id,
+        external_id:channelByUser.get(clean(user.id))?.external_id||null,
         full_name:user.full_name,
         role:user.role,
         username:channelByUser.get(clean(user.id))?.external_username||null,
@@ -139,10 +169,10 @@ async function loadRegistry(){
     };
   });
   const unlinkedTelegramUsers=(users||[])
-    .filter(user=>!linkedUserIds.has(clean(user.id))&&!clean(user.employee_external_id))
+    .filter(user=>!telegramIdentities.linkedUserIds.has(clean(user.id)))
     .map(user=>({id:user.id,full_name:user.full_name,role:user.role,username:channelByUser.get(clean(user.id))?.external_username||null}));
 
-  return{assets:assets||[],assetById,vehicles:vehicles||[],employees:employees||[],canonicalAssets,canonicalEmployees,unlinkedTelegramUsers,assignments:assignments||[],users:users||[],channels:channels||[],centers:centers||[],workSites:workSites||[]};
+  return{assets:assets||[],assetById,vehicles:vehicles||[],employees:employees||[],canonicalAssets,canonicalEmployees,unlinkedTelegramUsers,assignments:assignments||[],users:users||[],channels:channels||[],centers:centers||[],workSites:workSites||[],telegramIdentities};
 }
 
 function resolveCanonical(registry,id){
@@ -236,7 +266,6 @@ async function assignTelegram(registry,employee,telegramUserId,siteId,vehicleExt
   if(!user)throw Object.assign(new Error('حساب Telegram المختار غير موجود أو غير نشط.'),{status:404,code:'CANONICAL_TELEGRAM_NOT_FOUND'});
   const channel=registry.channels.find(row=>clean(row.user_id)===selected);
   if(!channel)throw Object.assign(new Error('حساب Telegram لا يحتوي قناة صالحة.'),{status:409,code:'CANONICAL_TELEGRAM_CHANNEL_MISSING'});
-  if(!resolvedSite)throw Object.assign(new Error('اختر موقع العمل قبل ربط Telegram.'),{status:400,code:'CANONICAL_TELEGRAM_SITE_REQUIRED'});
 
   if(current&&current!==selected){
     await patch('employee_assignments',`app_user_id=eq.${encodeURIComponent(current)}`,{active:false,updated_at:stamp});
@@ -244,13 +273,50 @@ async function assignTelegram(registry,employee,telegramUserId,siteId,vehicleExt
   }
   if(selected!==current)await patch('employee_assignments',`app_user_id=eq.${encodeURIComponent(selected)}&active=eq.true`,{active:false,updated_at:stamp}).catch(()=>[]);
 
-  const assignment={app_user_id:selected,employee_external_id:employee.external_id,site_id:resolvedSite,vehicle_external_id:vehicleExternalId||null,job_title:employee.role||user.role||null,shift_name:employeeRow?.telegram?.shift_name||null,active:true,updated_at:stamp};
+  const assignment={app_user_id:selected,employee_external_id:employee.external_id,site_id:resolvedSite||null,vehicle_external_id:vehicleExternalId||null,job_title:employee.role||user.role||null,shift_name:employeeRow?.telegram?.shift_name||null,active:true,updated_at:stamp};
   await patch('employee_assignments',`employee_external_id=eq.${encodeURIComponent(employee.external_id)}&app_user_id=neq.${encodeURIComponent(selected)}&active=eq.true`,{active:false,updated_at:stamp}).catch(()=>[]);
+  await patch('app_users',`employee_external_id=eq.${encodeURIComponent(employee.external_id)}&id=neq.${encodeURIComponent(selected)}`,{employee_external_id:null,updated_at:stamp}).catch(()=>[]);
   await upsert('employee_assignments',[assignment],'app_user_id');
   await rpc('approve_telegram_user',{p_external_id:channel.external_id,p_full_name:employee.full_name||user.full_name||channel.external_username||channel.external_id,p_role:user.role,p_active:true,p_employee_external_id:employee.external_id});
   await patch('app_users',`id=eq.${encodeURIComponent(selected)}`,{employee_external_id:employee.external_id,updated_at:stamp}).catch(()=>[]);
   await syncEmployeeDeclarationRole(employee.external_id,{jobTitle:assignment.job_title||employee.role||'',telegramRole:user.role||'',source:'canonical_employee_save'}).catch(error=>console.warn('[canonical employee declaration role]',error?.message||error));
   await audit(identity,selected===current?'canonical_employee_telegram_updated':'canonical_employee_telegram_linked','employee',employee.external_id,{appUserId:selected,siteId:resolvedSite,vehicleExternalId:vehicleExternalId||null});
+}
+
+async function reconcileEmployeeTelegramLinks(req){
+  const identity=await requireCapability(req,'assets.manage');
+  const registry=await loadRegistry(),stamp=now();
+  let repairedUsers=0,repairedAssignments=0,detachedDuplicates=0;
+  for(const[employeeExternalId,link]of registry.telegramIdentities.pairByEmployee){
+    const userId=clean(link.user.id),assignment=link.assignment;
+    if(clean(link.user.employee_external_id)!==employeeExternalId){
+      await patch('app_users',`id=eq.${encodeURIComponent(userId)}`,{employee_external_id:employeeExternalId,updated_at:stamp});
+      repairedUsers++;
+    }
+    if(!assignment||clean(assignment.employee_external_id)!==employeeExternalId||assignment.active===false){
+      await upsert('employee_assignments',[{
+        app_user_id:userId,
+        employee_external_id:employeeExternalId,
+        site_id:assignment?.site_id||null,
+        vehicle_external_id:assignment?.vehicle_external_id||null,
+        job_title:assignment?.job_title||registry.employees.find(row=>clean(row.external_id)===employeeExternalId)?.role||link.user.role||null,
+        shift_name:assignment?.shift_name||null,
+        active:true,
+        updated_at:stamp
+      }],'app_user_id');
+      repairedAssignments++;
+    }
+    const duplicateAssignments=(registry.assignments||[]).filter(row=>row.active!==false&&clean(row.employee_external_id)===employeeExternalId&&clean(row.app_user_id)!==userId);
+    for(const duplicate of duplicateAssignments){
+      await patch('employee_assignments',`app_user_id=eq.${encodeURIComponent(duplicate.app_user_id)}&active=eq.true`,{active:false,updated_at:stamp}).catch(()=>[]);
+      await patch('app_users',`id=eq.${encodeURIComponent(duplicate.app_user_id)}&employee_external_id=eq.${encodeURIComponent(employeeExternalId)}`,{employee_external_id:null,updated_at:stamp}).catch(()=>[]);
+      detachedDuplicates++;
+    }
+    await syncEmployeeDeclarationRole(employeeExternalId,{jobTitle:assignment?.job_title||'',telegramRole:link.user.role||'',source:'canonical_telegram_identity_reconciliation'}).catch(error=>console.warn('[canonical telegram role reconciliation]',error?.message||error));
+  }
+  const changed=repairedUsers+repairedAssignments+detachedDuplicates;
+  if(changed)await audit(identity,'canonical_employee_telegram_identity_reconciled','employee_registry','telegram-links',{repairedUsers,repairedAssignments,detachedDuplicates,conflicts:registry.telegramIdentities.conflicts.length});
+  return{changed,repairedUsers,repairedAssignments,detachedDuplicates,conflicts:registry.telegramIdentities.conflicts.length};
 }
 
 function verifyEmployee(registry,expected){
@@ -274,7 +340,7 @@ async function saveEmployee(req,input){
   const nationalId=clean(input.nationalId,40).replace(/\D/g,'');
   const employeeNo=clean(input.employeeNo,80);
   const phone=clean(input.phone,80);
-  const role=clean(input.role,160);
+  const requestedRole=clean(input.role,160);
   const siteInput=clean(input.site,160);
   const siteId=clean(input.siteId,200);
   const workStatus=clean(input.workStatus,40)||'working';
@@ -292,13 +358,13 @@ async function saveEmployee(req,input){
   if(vehicleExternalId&&!resolveCanonical(registry,vehicleExternalId))throw Object.assign(new Error('السيارة المختارة غير موجودة أو غير نشطة.'),{status:404,code:'CANONICAL_VEHICLE_NOT_FOUND'});
   if(telegramUserId){
     if(!registry.users.some(row=>clean(row.id)===telegramUserId))throw Object.assign(new Error('حساب Telegram المختار غير موجود أو غير نشط.'),{status:404,code:'CANONICAL_TELEGRAM_NOT_FOUND'});
-    if(!siteId&&!registry.canonicalEmployees.find(row=>clean(row.external_id)===externalId)?.site_id)throw Object.assign(new Error('اختر موقع العمل قبل ربط Telegram.'),{status:400,code:'CANONICAL_TELEGRAM_SITE_REQUIRED'});
   }
 
   const existing=registry.employees.find(row=>clean(row.external_id)===externalId);
+  const role=requestedRole||clean(existing?.role,160)||'employee';
   const site=siteInput||clean(selectedSite?.name);
   const metadata={...object(existing?.metadata),workStatus,manualWorkStatus:workStatus,costCenterCode:costCenterCode||null,canonicalUpdatedAt:now(),canonicalUpdatedBy:actorOf(identity)};
-  const values={external_id:externalId,national_id:nationalId||null,employee_no:employeeNo||null,full_name:fullName,phone:phone||null,role:role||null,site:site||null,active:true,metadata,updated_at:now()};
+  const values={external_id:externalId,national_id:nationalId||null,employee_no:employeeNo||null,full_name:fullName,phone:phone||null,role,site:site||null,active:true,metadata,updated_at:now()};
 
   await upsert('employees',[values],'external_id');
   await assignEmployeeCostCenter(identity,externalId,costCenterCode);
@@ -308,7 +374,7 @@ async function saveEmployee(req,input){
   await assignTelegram(afterVehicle,values,telegramUserId,siteId,vehicleExternalId,identity);
 
   const verified=await loadRegistry();
-  const mismatches=verifyEmployee(verified,{externalId,fullName,role:role||'employee',workStatus,costCenterCode,vehicleExternalId,telegramUserId});
+  const mismatches=verifyEmployee(verified,{externalId,fullName,role,workStatus,costCenterCode,vehicleExternalId,telegramUserId});
   if(mismatches.length)throw Object.assign(new Error(`تم إرسال الحفظ لكن لم تتأكد الحقول التالية من السحابة: ${mismatches.join('، ')}.`),{status:502,code:'CANONICAL_EMPLOYEE_SAVE_NOT_CONFIRMED',mismatches});
 
   await audit(identity,existing?'canonical_employee_updated':'canonical_employee_created','employee',externalId,{fullName,role,vehicleExternalId:vehicleExternalId||null,telegramUserId:telegramUserId||null,costCenterCode:costCenterCode||null,cloudVerified:true});
@@ -511,7 +577,7 @@ async function responsePayload(){
     canonicalAssets:registry.canonicalAssets,
     canonicalEmployees:registry.canonicalEmployees,
     unlinkedTelegramUsers:registry.unlinkedTelegramUsers,
-    telegramUsers:registry.users.map(user=>({id:user.id,full_name:user.full_name,role:user.role,employee_external_id:user.employee_external_id||null,username:registry.channels.find(channel=>clean(channel.user_id)===clean(user.id))?.external_username||null})),
+    telegramUsers:registry.users.map(user=>({id:user.id,full_name:user.full_name,role:user.role,employee_external_id:registry.telegramIdentities.employeeByUser.get(clean(user.id))||null,username:registry.channels.find(channel=>clean(channel.user_id)===clean(user.id))?.external_username||null})),
     employees:registry.employees.map(row=>({external_id:row.external_id,full_name:row.full_name,role:row.role||null})),
     erpCandidates:registry.assets.filter(row=>row.diesel_expected!==true&&!canonicalReferenceId(row)&&!registry.canonicalAssets.some(item=>item.erp_external_id===row.external_id)).map(row=>({external_id:row.external_id,asset_no:row.asset_no||null,plate_no:row.plate_no||null,asset_name:row.asset_name||null,make:row.make||null,model:row.model||null})),
     centers:registry.centers,
@@ -522,6 +588,7 @@ async function responsePayload(){
       employees:registry.canonicalEmployees.length,
       telegramLinked:registry.canonicalEmployees.filter(row=>row.telegram).length,
       unlinkedTelegram:registry.unlinkedTelegramUsers.length,
+      telegramIdentityConflicts:registry.telegramIdentities.conflicts.length,
       employeesWithVehicle:registry.canonicalEmployees.filter(row=>row.vehicle_external_id).length,
       workingAssets:registry.canonicalAssets.filter(row=>row.operational_status==='in_service').length,
       stoppedAssets:registry.canonicalAssets.filter(row=>row.operational_status!=='in_service').length
@@ -546,6 +613,7 @@ export async function canonicalMasterData(req,res){
     else if(action==='link_erp')result=await linkErp(req,input);
     else if(action==='unlink_erp')result=await unlinkErp(req,input);
     else if(action==='auto_link_exact_plate')result=await autoLink(req);
+    else if(action==='reconcile_employee_telegram_links')result=await reconcileEmployeeTelegramLinks(req);
     else throw Object.assign(new Error('إجراء السجل الموحد غير معروف.'),{status:400,code:'CANONICAL_ACTION_UNKNOWN'});
     return json(res,200,{ok:true,result,...await responsePayload(),generatedAt:now()});
   }catch(error){errorResponse(res,error);}
