@@ -29,11 +29,27 @@ const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&
 const norm=value=>String(value||'').toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ًٌٍَُِّْـ]/g,'').replace(/[؟?!.,،؛:]+/g,'').replace(/\s+/g,' ').trim();
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function denyBotModule(chatId,identity,moduleId){if(!moduleId||botMenuItem(moduleId)?.ownerOnly||await botModuleAllowed(identity,moduleId))return false;await sendMessage(chatId,'هذه الوحدة مخفية وموقوفة لحسابك من إعدادات صلاحيات البوت.');return true;}
+function reportCommandKind(value=''){
+  if(/^(تقرير البلوك|فواتير البلوك|مبيعات البلوك اليوم|تقرير مبيعات البلوك)$/.test(value))return'block';
+  if(/^(تقرير الخرسانه|تقرير الخرسانة|فواتير الخرسانه|فواتير الخرسانة|مبيعات الخرسانه اليوم|مبيعات الخرسانة اليوم|تقرير مبيعات الخرسانه|تقرير مبيعات الخرسانة)$/.test(value))return'concrete';
+  if(/^(فواتير اليوم|كل فواتير اليوم|مبيعات اليوم|تفاصيل فواتير اليوم)$/.test(value))return'invoices';
+  if(/^(تحصيلات اليوم|تقرير التحصيلات|تحصيل اليوم)$/.test(value))return'collections';
+  if(/^(حركه الخزائن|حركة الخزائن|الخزائن اليوم|تقرير الخزائن)$/.test(value))return'cash';
+  if(/^(ارصده الخزائن|أرصدة الخزائن|رصيد الخزائن)$/.test(value))return'treasuries';
+  if(/^(مخزون اليوم|حركه المخزون|حركة المخزون|تقرير المخزون)$/.test(value))return'inventory';
+  if(/^(تحليلات اليوم|تحليل اليوم|تحليل تقرير اليوم|مؤشرات اليوم)$/.test(value))return'analysis';
+  if(/^(تقرير اليوم|التقرير اليومي|ملخص اليوم|الحركه اليوميه|الحركة اليومية|تقرير اليوم الكامل)$/.test(value))return'daily';
+  return'';
+}
+function canReadDailyReport(role,kind='daily'){
+  if(['admin','manager','accountant'].includes(role))return true;
+  if(role==='block_sales')return kind==='block';
+  if(role==='concrete_sales')return kind==='concrete';
+  if(role==='collector')return kind==='collections';
+  if(role==='warehouse')return kind==='inventory';
+  return false;
+}
 
-// Telegram callback_data uses the first colon to separate the action from its
-// payload. Customer pagination payloads legitimately contain more colons
-// (for example gt:1000:), so splitting every colon silently destroys the
-// filter parameters and produces false "no matching customers" results.
 export function splitCallbackData(value){
   const raw=String(value||''),separator=raw.indexOf(':');
   return separator<0?[raw,'']:[raw.slice(0,separator),raw.slice(separator+1)];
@@ -68,6 +84,11 @@ async function handleText(message,group,identity,text,voicePath='',stored=null){
   if(session?.state?.startsWith('sales_')){if(await continueSalesSession(message,identity,session,raw))return;}
   if(session?.state?.startsWith('mechanic_')){if(await continueMechanicSession(message,identity,session,raw))return;}
   if(session?.state==='waiting_plate'){const waiting=await continueWaitingPlate(message,identity,session,raw,voicePath);if(waiting?.handled)return;}
+  const directReport=reportCommandKind(normalized);
+  if(directReport){
+    if(!canReadDailyReport(role,directReport))return sendMessage(chatId,'ليست لديك صلاحية عرض هذا الجزء من التقرير اليومي.');
+    return sendReport(chatId,directReport);
+  }
   if(await handleEnterpriseTextCommand(message,identity,raw))return;
   if(await handleInsightCommand(message,identity,raw))return;
   if(await handleProcurementTextCommand(message,identity,raw))return;
@@ -85,7 +106,7 @@ async function handleText(message,group,identity,text,voicePath='',stored=null){
   if(await handleStoredReportTextCommand(message,identity,raw))return;
   if(/^(تقارير|تقرير|ملخص)$/i.test(raw)||/اعرض.*تقارير/.test(raw)){
     if(await denyBotModule(chatId,identity,'reports'))return;
-    if(!allowed(role,'report'))return sendMessage(chatId,'فهمت أنك تطلب التقارير، لكن الإجراء متاح لمدير المصنع ومدير النظام فقط.');
+    if(!canReadDailyReport(role,'daily'))return sendMessage(chatId,'قائمة التقرير الكامل متاحة للإدارة والمحاسب.');
     return sendMessage(chatId,`حاضر ${esc(name)}. اختر التقرير المطلوب:`,reportKeyboard());
   }
   if((group.department==='workshop'||role==='mechanic'||role==='admin')&&isFaultMessage(raw)){
@@ -95,7 +116,7 @@ async function handleText(message,group,identity,text,voicePath='',stored=null){
   }
   const smart=await interpretMessage({message,group,identity,text:raw,stored});
   if(smart.route.intent==='attendance'){if(await denyBotModule(chatId,identity,'attendance'))return;return showAttendanceMenu(message,identity);}
-  if(smart.route.intent==='report'&&allowed(role,'report')){if(await denyBotModule(chatId,identity,'reports'))return;return sendMessage(chatId,`${smart.response}\n\nاختر التقرير المطلوب:`,reportKeyboard());}
+  if(smart.route.intent==='report'&&canReadDailyReport(role,'daily')){if(await denyBotModule(chatId,identity,'reports'))return;return sendMessage(chatId,`${smart.response}\n\nاختر التقرير المطلوب:`,reportKeyboard());}
   if(smart.route.intent==='maintenance'&&(allowed(role,'maintenance')||allowed(role,'approve'))){if(await denyBotModule(chatId,identity,'workshop'))return;return createMaintenanceDraft({chatId,messageId:message.message_id,identity,text:raw,plate:extractPlate(raw),voicePath});}
   return sendMessage(chatId,smart.response);
 }
@@ -122,7 +143,8 @@ async function handleCallback(update){
     if(value==='concrete_file')return sendStoredReportRequest(message.chat.id,identity,'concrete');
     if(value==='block_file')return sendStoredReportRequest(message.chat.id,identity,'block');
     if(value==='daily_file')return sendStoredReportRequest(message.chat.id,identity,'daily');
-    if(!allowed(role,'report'))return sendMessage(message.chat.id,'ليست لديك صلاحية طلب التقرير.');
+    const kind=String(value||'daily').split('|')[0];
+    if(!canReadDailyReport(role,kind))return sendMessage(message.chat.id,'ليست لديك صلاحية عرض هذا الجزء من التقرير اليومي.');
     return sendReport(message.chat.id,value);
   }
   if(action==='sales'){
