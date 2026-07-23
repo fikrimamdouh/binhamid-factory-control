@@ -3,11 +3,6 @@ on:
   push:
     branches:
       - fix/existing-declaration-editor-language-split
-  pull_request:
-    paths:
-      - 'legacy.html'
-      - 'tests/_inspect-declaration-structure.test.mjs'
-      - '.github/workflows/inspect-driver-language.yml'
 permissions:
   contents: read
 jobs:
@@ -21,12 +16,25 @@ jobs:
           const fs=require('fs');
           const source=fs.readFileSync('legacy.html','utf8');
           const lines=source.split(/\r?\n/);
-          const patterns=[/لغة\s*السائق/i,/driver\s*language/i,/driverLang/i,/drvLang/i,/langDrv/i];
+          const patterns=[
+            /id=["']pvLang["']/,
+            /pvLang/,
+            /function\s+prVeh\b/,
+            /function\s+docVeh\b/,
+            /function\s+vehForm\b/,
+            /function\s+empForm\b/,
+            /function\s+saveVeh\b/,
+            /function\s+saveEmp\b/,
+            /D\.veh\b/,
+            /D\.emp\b/
+          ];
+          const raw=[];
+          for(let i=0;i<lines.length;i++) if(patterns.some(p=>p.test(lines[i]))) raw.push(i);
           const indexes=[];
-          for(let i=0;i<lines.length;i++) if(patterns.some(p=>p.test(lines[i]))) indexes.push(i);
+          for(const index of raw){if(!indexes.some(existing=>Math.abs(existing-index)<80))indexes.push(index);}
           const blocks=[];
           for(const index of indexes){
-            const start=Math.max(0,index-80),end=Math.min(lines.length,index+180);
+            const start=Math.max(0,index-90),end=Math.min(lines.length,index+240);
             blocks.push(`--- CONTEXT ${start+1}-${end} ---\n`+lines.slice(start,end).map((line,j)=>`${start+j+1}: ${line}`).join('\n'));
           }
           fs.writeFileSync('driver-language-context.txt',blocks.join('\n\n')||'NOT FOUND');
