@@ -9,8 +9,9 @@ import {
   CUSTOMER_PORTFOLIO_TEXT_VERSION
 } from '../../shared/canonical-declaration-texts.js';
 
-const norm=value=>String(value??'').trim().toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/\s+/g,' ');
+const norm=value=>String(value??'').trim().toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ًٌٍَُِّْـ]/g,'').replace(/\s+/g,' ');
 const clean=value=>String(value??'').trim();
+const digits=value=>clean(value).replace(/\D/g,'');
 const riyadhDate=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Riyadh',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
 const icon=type=>type==='block'?'🧱':'🏗️';
 const ROLE_BY_TYPE={block:'مسؤول مبيعات البلوك',concrete:'مسؤول مبيعات الخرسانة'};
@@ -19,10 +20,10 @@ function publicBase(){let value=String(process.env.PUBLIC_APP_URL||process.env.V
 
 function mergeEmployeeSources(legacyRows,cloudRows){
   const merged=(Array.isArray(legacyRows)?legacyRows:[]).map(row=>({...row})),byId=new Map(),byName=new Map(),byNationalId=new Map();
-  const indexRow=(row,index)=>{const id=clean(row?.id||row?.external_id),name=norm(row?.name||row?.full_name),nationalId=clean(row?.nid||row?.national_id).replace(/\D/g,'');if(id)byId.set(id,index);if(name)byName.set(name,index);if(nationalId)byNationalId.set(nationalId,index);};
+  const indexRow=(row,index)=>{const id=clean(row?.id||row?.external_id),name=norm(row?.name||row?.full_name),nationalId=digits(row?.nid||row?.national_id);if(id)byId.set(id,index);if(name)byName.set(name,index);if(nationalId)byNationalId.set(nationalId,index);};
   merged.forEach(indexRow);
   for(const row of cloudRows||[]){
-    const id=clean(row.external_id),name=clean(row.full_name),nationalId=clean(row.national_id).replace(/\D/g,''),candidate=byId.get(id)??byNationalId.get(nationalId)??byName.get(norm(name)),values={id:id||undefined,name:name||undefined,nid:nationalId||undefined,no:clean(row.employee_no)||undefined,tel:clean(row.phone)||undefined,role:clean(row.role)||undefined};
+    const id=clean(row.external_id),name=clean(row.full_name),nationalId=digits(row.national_id),candidate=byId.get(id)??byNationalId.get(nationalId)??byName.get(norm(name)),values={id:id||undefined,name:name||undefined,nid:nationalId||undefined,no:clean(row.employee_no)||undefined,tel:clean(row.phone)||undefined,role:clean(row.role)||undefined,declarationRole:clean(row.role)||undefined,_cloudSource:true};
     if(candidate!==undefined){merged[candidate]={...merged[candidate],...Object.fromEntries(Object.entries(values).filter(([,value])=>value!==undefined))};indexRow(merged[candidate],candidate);}
     else{const next=Object.fromEntries(Object.entries(values).filter(([,value])=>value!==undefined));merged.push(next);indexRow(next,merged.length-1);}
   }
@@ -43,15 +44,27 @@ async function loadAppState(){
     clients:Array.isArray(legacy?.cli)?legacy.cli:[]
   };
 }
-function findRep(employees,type){
-  const wanted=norm(ROLE_BY_TYPE[type]);
-  return employees.find(employee=>norm(employee?.role||'').includes(wanted))||employees.find(employee=>norm(employee?.role||'').includes(type==='block'?'بلوك':'خرسان'))||null;
+function repScore(employee,type){
+  const role=norm(employee?.declarationRole||employee?.role),wanted=norm(ROLE_BY_TYPE[type]),token=type==='block'?'بلوك':'خرسان';
+  let score=0;
+  if(role===wanted)score+=120;
+  else if(role.includes(wanted))score+=100;
+  else if(role.includes(token))score+=70;
+  if(digits(employee?.nid||employee?.national_id).length>=10)score+=60;
+  if(clean(employee?.no||employee?.employee_no))score+=15;
+  if(employee?._cloudSource)score+=25;
+  if(Array.isArray(employee?.employeeAliases)&&employee.employeeAliases.length)score+=10;
+  return score;
 }
+function findRep(employees,type){
+  return(employees||[]).filter(employee=>employee?.act!==false&&repScore(employee,type)>0).sort((a,b)=>repScore(b,type)-repScore(a,type)||clean(a.name).localeCompare(clean(b.name),'ar'))[0]||null;
+}
+function repIds(rep){return new Set([rep?.id,rep?.external_id,...(Array.isArray(rep?.employeeAliases)?rep.employeeAliases:[])].map(clean).filter(Boolean));}
 function customerKey(value){return clean(value).toLowerCase();}
 function canonicalCustomers(type,projection,state,rep){
   const masterByCode=new Map(),masterByName=new Map();
   for(const client of state.clients){if(client?.code||client?.cr||client?.id)masterByCode.set(customerKey(client.code||client.cr||client.id),client);if(client?.name)masterByName.set(customerKey(client.name),client);}
-  const selected=new Map();
+  const selected=new Map(),linkedRepIds=repIds(rep);
   const add=(client,source={})=>{
     const name=clean(client?.name||source?.name||source?.customerName),code=clean(client?.code||client?.cr||source?.code||source?.customerCode),key=customerKey(client?.id||code||name);
     if(!key||selected.has(key))return;
@@ -66,7 +79,7 @@ function canonicalCustomers(type,projection,state,rep){
     });
   };
   for(const client of state.clients){
-    const assigned=rep&&(clean(client?.rep)===clean(rep.id)||(Array.isArray(client?.repIds)&&client.repIds.map(clean).includes(clean(rep.id))));
+    const assigned=linkedRepIds.has(clean(client?.rep))||(Array.isArray(client?.repIds)&&client.repIds.some(id=>linkedRepIds.has(clean(id))));
     const segment=norm(client?.seg||'');
     if(assigned&&(!segment||segment.includes(type==='block'?'بلوك':'خرسان')||segment.includes('الاثنين')))add(client);
   }
@@ -84,7 +97,7 @@ export async function generateCustomerPortfolioPdfs(analysis={},sourceFile='dail
     const rendered=renderCustomerPortfolioDeclaration({
       type,
       companyName:state.companyName,
-      employee:{name:rep?.name||'',nationalId:rep?.nid||'',role:rep?.role||ROLE_BY_TYPE[type],number:rep?.no||'',phone:rep?.tel||''},
+      employee:{name:rep?.name||'',nationalId:digits(rep?.nid||rep?.national_id),role:rep?.role||ROLE_BY_TYPE[type],number:rep?.no||'',phone:rep?.tel||''},
       customers,
       days:state.days,
       defaultCreditLimit:state.cap,
@@ -98,7 +111,8 @@ export async function generateCustomerPortfolioPdfs(analysis={},sourceFile='dail
       baseUrl
     });
     const pdf=await htmlToPdf(rendered.document,{filename:`portfolio-${type}-${reportDate}`,landscape:false});
-    reports.push({type,pdf,filename:`portfolio-${type}-${reportDate}.pdf`,caption:`${icon(type)} إقرار محفظة عملاء — ${rep?.name||ROLE_BY_TYPE[type]} — ${reportDate}`,templateVersion:CUSTOMER_PORTFOLIO_TEXT_VERSION,sourceFile});
+    const department=type==='block'?'البلوك':'الخرسانة';
+    reports.push({type,pdf,filename:`إقرار محفظة عملاء ${department}.pdf`,caption:`${icon(type)} إقرار محفظة عملاء ${department} — ${rep?.name||ROLE_BY_TYPE[type]} — ${reportDate}`,templateVersion:CUSTOMER_PORTFOLIO_TEXT_VERSION,sourceFile,employeeExternalId:clean(rep?.id||rep?.external_id),employeeNationalId:digits(rep?.nid||rep?.national_id)});
   }
   return reports;
 }
