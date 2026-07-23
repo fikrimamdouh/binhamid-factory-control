@@ -1,4 +1,4 @@
-name: Diagnose Verified Predeploy Patch
+name: Verify Safe Predeploy Patch Chunks
 on:
   pull_request:
     branches:
@@ -6,25 +6,33 @@ on:
 permissions:
   contents: read
 jobs:
-  diagnose:
+  verify-chunks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: fix/existing-declaration-editor-language-split
-      - name: Record part sizes and checksums
+      - name: Verify chunks and assembled archive
         run: |
+          set -o pipefail
           {
-            wc -c .patch/part*.b64
-            sha256sum .patch/part*.b64
-            cat .patch/part*.b64 | base64 --decode > /tmp/binhamid-predeploy-fixes.tgz || true
+            echo '=== sizes ==='
+            wc -c .patch2/chunk*.b64
+            echo '=== sha256 chunks ==='
+            sha256sum .patch2/chunk*.b64
+            echo '=== assemble ==='
+            cat .patch2/chunk*.b64 | base64 --decode > /tmp/binhamid-predeploy-fixes.tgz
             wc -c /tmp/binhamid-predeploy-fixes.tgz
             sha256sum /tmp/binhamid-predeploy-fixes.tgz
-            tar -tzf /tmp/binhamid-predeploy-fixes.tgz || true
-          } > patch-diagnostic.txt 2>&1
-          cat patch-diagnostic.txt
+            echo '=== expected archive ==='
+            echo '1b62839c55fd050c1b3a60f1f6017cdc5312ab09d6ff79110e76e923a773d02d  /tmp/binhamid-predeploy-fixes.tgz' | sha256sum --check -
+            echo '=== files ==='
+            tar -tzf /tmp/binhamid-predeploy-fixes.tgz
+          } > patch2-diagnostic.txt 2>&1
+          cat patch2-diagnostic.txt
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: patch-diagnostic
-          path: patch-diagnostic.txt
+          name: patch2-diagnostic
+          path: patch2-diagnostic.txt
           retention-days: 1
