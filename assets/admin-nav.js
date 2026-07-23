@@ -12,7 +12,7 @@ const LINKS=[
 ];
 function currentPath(){let p=location.pathname||'/';if(p.length>1&&p.endsWith('/'))p=p.slice(0,-1);return p||'/';}
 function ensureScript(id,src,datasetName){if(document.getElementById(id)||document.querySelector(`script[data-${datasetName}]`))return;const script=document.createElement('script');script.id=id;script.src=src;script.async=false;script.dataset[datasetName.replace(/-([a-z])/g,(_,c)=>c.toUpperCase())]='1';document.head.appendChild(script);}
-function ensureOwnerLogin(){if(window.__BH_OWNER_WEB_LOGIN_INSTALLED__)return;ensureScript('bh-owner-login-loader','/assets/owner-web-login.js?v=20260722-1','bh-owner-login');}
+function ensureOwnerLogin(){if(window.__BH_OWNER_WEB_LOGIN_INSTALLED__)return;ensureScript('bh-owner-login-loader','/assets/owner-web-login.js?v=20260723-verified-session-1','bh-owner-login');}
 function ensureSessionControls(){if(window.__BH_SESSION_CONTROLS_INSTALLED__)return;ensureScript('bh-session-controls-loader','/assets/session-controls.js?v=20260721-1','bh-session-controls');}
 function ensureAttendanceSitePresets(){if(currentPath()!=='/attendance-admin.html'||window.__BH_ATTENDANCE_SITE_PRESETS_INSTALLED__)return;ensureScript('bh-attendance-site-presets-loader','/assets/attendance-site-presets.js?v=20260722-1','bh-attendance-site-presets');}
 function ensureMasterWorkspaceGuards(){if(currentPath()!=='/master-data.html')return;if(!window.__BH_MASTER_WORKSPACE_GUARDS__)ensureScript('bh-master-workspace-guards-loader','/assets/master-data-workspace-guards.js?v=20260723-2','bh-master-workspace-guards');if(!window.__BH_MASTER_DATA_UNIFIED_OPERATIONS__)ensureScript('bh-master-data-unified-operations-loader','/assets/master-data-unified-operations.js?v=20260723-2','bh-master-data-unified-operations');}

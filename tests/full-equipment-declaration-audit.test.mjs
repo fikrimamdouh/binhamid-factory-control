@@ -8,7 +8,7 @@ const read=path=>readFileSync(new URL(`../${path}`,import.meta.url),'utf8');
 function rosterHarness(vehicles,operations={}){
   const source=read('assets/employee-declaration-sync.js').replace(
     /\}\)\(\);\s*$/,
-    'window.__rosterTest={mergeCloudVehicles,claimRoleReconciliation};})();'
+    'window.__rosterTest={mergeCloudVehicles,reconciliationFresh,markReconciliation};})();'
   );
   const values=new Map();
   const context={
@@ -92,6 +92,9 @@ test('canonical roster signals do not cause cross-tab reconciliation feedback',(
   assert.match(bridge,/source:'canonical-roster-sync'/);
   assert.match(bridge,/detail\.source==='canonical-roster-sync'/);
   assert.match(bridge,/ROLE_RECONCILE_TTL_MS=5\*60\*1000/);
+  assert.match(bridge,/markReconciliation\(TELEGRAM_RECONCILE_KEY\)/);
+  assert.match(bridge,/markReconciliation\(ROLE_RECONCILE_KEY\)/);
+  assert.doesNotMatch(bridge,/function claimRoleReconciliation/);
   assert.match(management,/if\(result\.changed>0\|\|result\.missing>0\)await audit/);
 });
 

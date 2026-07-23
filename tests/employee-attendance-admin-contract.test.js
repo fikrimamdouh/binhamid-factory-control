@@ -107,10 +107,10 @@ test('session timeout remains non-blocking and professionally reported',()=>{
 test('runtime uses the single master workspace instead of loading duplicate employee editors',()=>{
   const index=read('index.html');
   const nav=read('assets/admin-nav.js');
-  assert.match(index,/owner-web-login\.js\?v=20260723-final-lock-1/);
+  assert.match(index,/owner-web-login\.js\?v=20260723-verified-session-1/);
   assert.match(index,/single-master-workspace\.js\?v=20260723-1/);
   assert.doesNotMatch(index,/attendance-control\.js\?v=/);
-  assert.match(nav,/owner-web-login\.js\?v=20260722-1/);
+  assert.match(nav,/owner-web-login\.js\?v=20260723-verified-session-1/);
   assert.doesNotMatch(nav,/employee-link-transfer\.js\?v=/);
   assert.doesNotMatch(nav,/attendance-canonical-employees\.js\?v=/);
   assert.match(nav,/الحضور والمواقع/);
