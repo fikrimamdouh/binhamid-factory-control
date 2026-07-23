@@ -33,9 +33,10 @@ function datesFromText(text=''){
 }
 
 export function parseStoredReportRequest(text=''){
-  const kind=requestKind(text),normalized=norm(text);
-  if(!kind||!/تقرير|تقارير|ملف|تحميل|نزل|نزّل|ارسل|أرسل/.test(normalized))return null;
-  const dates=datesFromText(text);
+  const raw=String(text||''),kind=requestKind(raw),normalized=norm(raw);
+  const explicitExcel=/\b(?:excel|xlsx|xls)\b/i.test(raw)||/اكسل|إكسل/.test(normalized);
+  if(!kind||!explicitExcel||!/ملف|تحميل|نزل|نزّل|ارسل|أرسل/.test(normalized))return null;
+  const dates=datesFromText(raw);
   if(dates.length>=2)return{kind,from:dates[0]<=dates[1]?dates[0]:dates[1],to:dates[0]<=dates[1]?dates[1]:dates[0]};
   if(dates.length===1)return{kind,date:dates[0]};
   return{kind};
@@ -57,7 +58,7 @@ function canRead(identity,kind){
   return allowed(role,'report');
 }
 function caption(row,kind){
-  const s=summaryOf(row),lines=[kindLabel(kind),`التاريخ: ${row.report_date||'—'}`,`الملف: ${row.original_name||'daily-report.xlsx'}`];
+  const s=summaryOf(row),lines=[`${kindLabel(kind)} — ملف Excel المصدر`,`التاريخ: ${row.report_date||'—'}`,`الملف: ${row.original_name||'daily-report.xlsx'}`];
   if(kind==='concrete'||kind==='daily')lines.push(`الخرسانة: ${number(s.concreteQuantity||s.concrete_quantity)} م³ — ${number(s.concreteSales||s.concrete_sales)} ر.س`);
   if(kind==='block'||kind==='daily')lines.push(`البلوك: ${number(s.blockQuantity||s.block_quantity)} قطعة — ${number(s.blockSales||s.block_sales)} ر.س`);
   if(kind==='daily')lines.push(`التحصيلات: ${number(s.collectionTotal||s.collection_total)} ر.س`);
@@ -70,13 +71,13 @@ async function reportRows(){
 
 export async function sendStoredReportFile(chatId,id,identity,kind='daily'){
   try{
-    if(!canRead(identity,kind))return sendMessage(chatId,'ليست لديك صلاحية تنزيل هذا التقرير.');
+    if(!canRead(identity,kind))return sendMessage(chatId,'ليست لديك صلاحية تنزيل ملف Excel المصدر.');
     const row=(await select('daily_report_batches',`id=eq.${encodeURIComponent(String(id))}&file_storage_path=not.is.null&select=id,report_date,original_name,file_storage_path,status,preview_summary,summary&limit=1`))?.[0];
-    if(!row)return sendMessage(chatId,'ملف التقرير غير موجود أو لم يُحفظ في التخزين السحابي.');
+    if(!row)return sendMessage(chatId,'ملف Excel المصدر غير موجود أو لم يُحفظ في التخزين السحابي.');
     if(!storedReportMatches(row,kind))return sendMessage(chatId,`هذا الملف لا يحتوي على بيانات ${kind==='concrete'?'خرسانة':kind==='block'?'بلوك':'تقرير يومي'} قابلة للعرض.`);
     const object=await downloadObject(row.file_storage_path);
     return sendDocumentBuffer(chatId,object.buffer,row.original_name||`daily-report-${row.report_date}.xlsx`,object.contentType,caption(row,kind));
-  }catch(error){console.error('[telegram stored report file]',error);return sendMessage(chatId,'تعذر تنزيل ملف التقرير من التخزين السحابي. لم يتم إرسال ملف ناقص.');}
+  }catch(error){console.error('[telegram stored report file]',error);return sendMessage(chatId,'تعذر تنزيل ملف Excel المصدر من التخزين السحابي. لم يتم إرسال ملف ناقص.');}
 }
 
 async function showChoices(chatId,rows,kind,title){
@@ -86,16 +87,16 @@ async function showChoices(chatId,rows,kind,title){
 
 export async function sendStoredReportRequest(chatId,identity,kind,options={}){
   try{
-    if(!canRead(identity,kind))return sendMessage(chatId,'ليست لديك صلاحية عرض أو تنزيل هذا النوع من التقارير.');
+    if(!canRead(identity,kind))return sendMessage(chatId,'ليست لديك صلاحية تنزيل ملف Excel المصدر.');
     const rows=(await reportRows()).filter(row=>storedReportMatches(row,kind));
-    if(!rows.length)return sendMessage(chatId,`لا توجد ملفات معتمدة تحتوي على ${kindLabel(kind)} حتى الآن.`);
+    if(!rows.length)return sendMessage(chatId,`لا توجد ملفات Excel معتمدة تحتوي على ${kindLabel(kind)} حتى الآن.`);
     const from=options.from||'',to=options.to||'',date=options.date||'';
     const matching=rows.filter(row=>date?row.report_date===date:from&&to?row.report_date>=from&&row.report_date<=to:true);
-    if(!matching.length)return sendMessage(chatId,`لا يوجد ${kindLabel(kind)} مطابق للتاريخ أو المدة المطلوبة.`);
+    if(!matching.length)return sendMessage(chatId,`لا يوجد ملف Excel لـ${kindLabel(kind)} مطابق للتاريخ أو المدة المطلوبة.`);
     if(date||(!from&&!to))return sendStoredReportFile(chatId,matching[0].id,identity,kind);
     if(matching.length===1)return sendStoredReportFile(chatId,matching[0].id,identity,kind);
-    return showChoices(chatId,matching,kind,`وجدت ملفات ${kindLabel(kind)} من <b>${esc(from)}</b> إلى <b>${esc(to)}</b>.`);
-  }catch(error){console.error('[telegram stored report request]',error);return sendMessage(chatId,'تعذر قراءة سجل التقارير المعتمدة من النظام السحابي.');}
+    return showChoices(chatId,matching,kind,`وجدت ملفات Excel لـ${kindLabel(kind)} من <b>${esc(from)}</b> إلى <b>${esc(to)}</b>.`);
+  }catch(error){console.error('[telegram stored report request]',error);return sendMessage(chatId,'تعذر قراءة سجل ملفات Excel المعتمدة من النظام السحابي.');}
 }
 
 export async function handleStoredReportTextCommand(message,identity,text){
