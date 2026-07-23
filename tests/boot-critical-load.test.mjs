@@ -27,6 +27,12 @@ test('slow optional modules do not trigger the old false timeout error',()=>{
   assert.doesNotMatch(index,/if\(!completed\)fail\(new Error\('استغرق التحميل وقتًا أطول من المتوقع/);
 });
 
+test('boot reveal is synchronous and idempotent so the app cannot remain transparent',()=>{
+  assert.match(index,/function revealFrame\(\)\{frame\.style\.visibility='visible';frame\.style\.opacity='1';if\(completed\)return;completed=true;screen\?\.remove\(\);\}/);
+  assert.match(index,/if\(!completed\)\{frame\.style\.visibility='hidden';frame\.style\.opacity='0';\}/);
+  assert.doesNotMatch(index,/requestAnimationFrame\(\(\)=>\{frame\.style\.opacity='1';\}\)/);
+});
+
 test('the iframe and repaired modules have explicit cache revisions',()=>{
   assert.match(index,/legacy\.html\?v=20260723-sales-role-link-1/);
   assert.match(index,/owner-web-login\.js\?v=20260723-verified-session-1/);
