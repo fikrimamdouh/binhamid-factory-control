@@ -4284,11 +4284,11 @@ function rCli(){
 
 function roleDeclarationEmployees(kind){
   const active = e=>e.act!==false;
-  const role = e=>String(e.role||'');
+  const role = e=>String(e.role||'').toLowerCase();
   if(kind==='clear') return D.emp.slice();
-  if(kind==='acct') return D.emp.filter(e=>active(e)&&/(محاسب|صندوق)/.test(role(e)));
-  if(kind==='plant') return D.emp.filter(e=>active(e)&&/(مشرف.*محطة|محطة.*خلط)/.test(role(e)));
-  if(kind==='mech') return D.emp.filter(e=>active(e)&&/(ميكانيكي|فني.*ورشة)/.test(role(e)));
+  if(kind==='acct') return D.emp.filter(e=>active(e)&&/(محاسب|صندوق|accountant|cashier)/.test(role(e)));
+  if(kind==='plant') return D.emp.filter(e=>active(e)&&/(مشرف.*محطة|محطة.*خلط|plant[_ -]?supervisor|batching[_ -]?plant)/.test(role(e)));
+  if(kind==='mech') return D.emp.filter(e=>active(e)&&/(ميكانيكي|فني.*ورشة|mechanic|workshop|maintenance)/.test(role(e)));
   return [];
 }
 
@@ -4303,8 +4303,8 @@ function refreshRoleEmployeeOptions(){
 }
 
 function rSel(){
-  const reps = D.emp.filter(e=>e.role.includes('مندوب')||e.role.includes('مسؤول مبيعات'));
-  const drvs = D.emp.filter(e=>e.role.includes('سائق')||e.role.includes('مشغّل'));
+  const reps = D.emp.filter(e=>/(مندوب|مسؤول مبيعات|block_sales|concrete_sales|sales_representative)/i.test(String(e.role||'')));
+  const drvs = D.emp.filter(e=>/(سائق|مشغّل|driver|equipment_operator)/i.test(String(e.role||'')));
 
   $('fEmp').innerHTML = '<option value="">كل الوظائف</option>'+ROLES.map(r=>`<option ${$('fEmp').value===r?'selected':''}>${r}</option>`).join('');
   $('fRep').innerHTML = '<option value="">كل المندوبين</option>'+reps.map(e=>`<option value="${e.id}" ${$('fRep').value===e.id?'selected':''}>${esc(e.name)}</option>`).join('');
@@ -4333,7 +4333,7 @@ const V = i=> ($('m_'+i)?.value||'').trim();
 
 function vehForm(id){
   const v = id? D.veh.find(x=>x.id===id) : {};
-  const drvs = D.emp.filter(e=>e.role.includes('سائق')||e.role.includes('مشغّل'));
+  const drvs = D.emp.filter(e=>/(سائق|مشغّل|driver|equipment_operator)/i.test(String(e.role||'')));
   openMo(id?'تعديل مركبة':'إضافة مركبة', `
     <div class="grid g2">
       <div><label>رقم اللوحة *</label><input id="m_plate" value="${esc(v.plate||'')}" placeholder="أ ب ج 1234"></div>
@@ -7127,6 +7127,9 @@ function bh4StatusLabel(v){return (BH4_VEHICLE_STATUSES.find(x=>x[0]===String(v?
 function bh4StatusClass(v){return ({in_service:'active',parked:'parked',maintenance:'maintenance',stopped:'stopped',out_of_service:'out',sold:'out'})[v?.operationalStatus]||'';}
 function bh4DieselExpected(v){const m=String(v?.dieselExpected||'auto');if(m==='yes')return true;if(m==='no')return false;if(v?.operationalStatus==='in_service')return true;if(['parked','stopped','maintenance','out_of_service','sold'].includes(v?.operationalStatus))return false;return null;}
 function bh4StatusChip(v){return `<span class="bh4-status ${bh4StatusClass(v)}">${opsEsc(bh4StatusLabel(v))}</span>`;}
+window.BH4_VEHICLE_STATUSES=BH4_VEHICLE_STATUSES;
+window.bh4DieselExpected=bh4DieselExpected;
+window.bh4StatusChip=bh4StatusChip;
 function bh4NormName(v){return String(v||'').normalize('NFKD').replace(/[\u064B-\u065F\u0670]/g,'').replace(/[أإآ]/g,'ا').replace(/ى/g,'ي').replace(/ة/g,'ه').replace(/[^\p{L}\p{N}]+/gu,'').toLowerCase();}
 function bh4DateOverlap(a1,a2,b1,b2){return (!a2||!b1||a2>=b1)&&(!b2||!a1||b2>=a1);}
 function bh4CustomerBalanceText(l){if(l.creditBalance>0)return `رصيد دائن ${opsMoney(l.creditBalance)} ر.س`;if(l.remaining>0)return `رصيد مدين ${opsMoney(l.remaining)} ر.س`;return 'الرصيد مسدد';}
