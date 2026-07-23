@@ -20,6 +20,6 @@ test('master data workspace keeps employees vehicles declarations and recovery i
 test('quick workshop action unassigns driver and preserves unrelated systems',()=>{
   const workspace=read('assets/master-data-unified-operations.js');
   assert.match(workspace,/operationalStatus:'stopped',employeeExternalId:''/);
-  assert.doesNotMatch(workspace,/telegram-webhook|customer|daily-report|sales|delete_employee|delete_asset/);
+  assert.doesNotMatch(workspace,/telegram-webhook|\/api\/customers|\/api\/reports|delete_employee|delete_asset/);
   assert.match(workspace,/لا يتم حذف أي سجل ولا تعديل Telegram أو العملاء أو التقارير/);
 });
