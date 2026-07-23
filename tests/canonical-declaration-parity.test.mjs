@@ -16,7 +16,7 @@ test('Telegram customer portfolio PDFs keep the shared server renderer',()=>{
 test('website keeps the original legacy print layout instead of replacing docCli',()=>{
   const index=read('index.html');
   const legacy=read('legacy.html');
-  assert.match(index,/legacy\.html\?v=20260722-vehicle-preflight-1/);
+  assert.match(index,/legacy\.html\?v=20260723-equipment-declarations-audit-1/);
   assert.doesNotMatch(index,/customer-portfolio-canonical-bridge\.js/);
   assert.doesNotMatch(index,/bhCanonicalPortfolioReady/);
   assert.match(legacy,/(?:function\s+docCli|window\.docCli|docCli\s*=\s*function)/);
@@ -70,5 +70,5 @@ test('boot loads editable text behavior before Telegram print integration',()=>{
   const canonical=index.indexOf('canonical-declaration-texts.js?v=20260722-2');
   const telegram=index.indexOf('telegram-pdf-declarations.js?v=20260723-8');
   assert.ok(canonical>=0&&telegram>canonical);
-  assert.match(index,/legacy\.html\?v=20260722-vehicle-preflight-1/);
+  assert.match(index,/legacy\.html\?v=20260723-equipment-declarations-audit-1/);
 });
