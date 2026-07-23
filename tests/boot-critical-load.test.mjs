@@ -29,7 +29,7 @@ test('slow optional modules do not trigger the old false timeout error',()=>{
 
 test('the iframe and repaired modules have explicit cache revisions',()=>{
   assert.match(index,/legacy\.html\?v=20260722-vehicle-preflight-1/);
-  assert.match(index,/owner-web-login\.js\?v=20260722-1/);
+  assert.match(index,/owner-web-login\.js\?v=20260723-final-lock-1/);
   assert.match(index,/attendance-control\.js\?v=20260722-1/);
   assert.match(index,/state-load-performance\.js\?v=20260722-3/);
   assert.match(index,/sync-integrity-guard\.js\?v=20260723-4/);

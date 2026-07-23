@@ -18,3 +18,9 @@ test('invalid bound session still clears local access and shows the login gate',
   assert.match(source,/response\.status===401\|\|response\.status===403/);
   assert.match(source,/resetGate\(\);show\(\);lock\(\);return false/);
 });
+
+test('the mandatory login gate cannot be dismissed into a blank locked screen',()=>{
+  assert.doesNotMatch(source,/id="bhOwnerCancel"/);
+  assert.doesNotMatch(source,/box\.classList\.remove\('on'\)/);
+  assert.match(source,/id="bhOwnerSend"/);
+});
