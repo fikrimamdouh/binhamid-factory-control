@@ -58,6 +58,20 @@ const upstreamText=error=>[
   error?.message,error?.data?.message,error?.data?.details,error?.data?.hint,error?.data?.code,error?.code
 ].filter(Boolean).join(' ');
 
+function logDailyReportCommitFailure(error,context={}){
+  console.error('[DAILY_REPORT_COMMIT_UPSTREAM]',{
+    source:clean(context.source,40)||'unknown',
+    reportDate:clean(context.reportDate,10)||null,
+    importId:clean(context.importId,100)||null,
+    upstreamStatus:Number(error?.upstreamStatus||0)||null,
+    status:Number(error?.status||0)||null,
+    code:clean(error?.data?.code??error?.code,120)||null,
+    message:clean(error?.data?.message??error?.message,2000)||null,
+    details:clean(error?.data?.details,4000)||null,
+    hint:clean(error?.data?.hint,2000)||null
+  });
+}
+
 export function classifyDailyReportCommitError(error,stage='database'){
   if(error?.code&&Number(error?.status||0)<500)return error;
   const text=upstreamText(error);
@@ -204,6 +218,7 @@ export async function commitDailyReportFromTelegram(input={},actor='telegram-bot
     const resultRaw=await commitAcceptance({p_report_date:reportDate,p_original_name:originalName,p_file_hash:fileHash,p_content_hash:contentHash,p_payload:{...payload,summary:{...payload.summary,...validation.preview}},p_actor:actor,p_file_storage_path:original.path,p_preview_summary:validation.preview,p_validation_warnings:validation.warnings,p_idempotency_key:idempotencyKey,p_import_id:importId}),result=one(resultRaw),accounting=result?.accounting||{entryCount:0,totalDebit:0,totalCredit:0,balanced:false};
     return{ok:true,duplicate:Boolean(result?.duplicate),existingImportId:result?.duplicate?result.id:null,importId:result?.id||importId,status:result?.status||'approved',postedBatchId:result?.id||null,accounting,...validation,result,affectedBalances:await affectedCustomerBalances(payload)};
   }catch(error){
+    logDailyReportCommitFailure(error,{source:'telegram',reportDate,importId});
     await transitionImport(importId,'failed',actor,'فشل الترحيل التلقائي ولم يُسجل اعتماد جزئي',null,{errorCode:String(error?.code||'POSTING_FAILED'),errorMessage:String(error?.message||'').slice(0,1000)}).catch(()=>{});
     throw classifyDailyReportCommitError(error,'database');
   }
@@ -228,6 +243,7 @@ async function previewOrCommit(req,res,input){
     const resultRaw=await commitAcceptance({p_report_date:reportDate,p_original_name:originalName,p_file_hash:fileHash,p_content_hash:contentHash,p_payload:{...payload,summary:{...payload.summary,...validation.preview}},p_actor:actor,p_file_storage_path:original.path,p_preview_summary:validation.preview,p_validation_warnings:validation.warnings,p_idempotency_key:idempotencyKey,p_import_id:importId||null}),result=one(resultRaw),accounting=result?.accounting||{entryCount:0,totalDebit:0,totalCredit:0,balanced:false};
     return json(res,200,{ok:true,duplicate:Boolean(result?.duplicate),existingImportId:result?.duplicate?result.id:null,importId:result?.id,status:result?.status||'approved',storagePath:original.path,sourceImportId:importId||null,postedBatchId:result?.id||null,accounting,...validation,result});
   }catch(error){
+    logDailyReportCommitFailure(error,{source:'web',reportDate,importId});
     if(importId)await transitionImport(importId,'failed',actor,'فشل الترحيل ولم يُسجل اعتماد جزئي',null,{errorCode:String(error?.code||'POSTING_FAILED'),errorMessage:String(error?.message||'').slice(0,1000)}).catch(()=>{});
     throw classifyDailyReportCommitError(error,'database');
   }
