@@ -32,9 +32,10 @@ test('the iframe and repaired modules have explicit cache revisions',()=>{
   assert.match(index,/owner-web-login\.js\?v=20260722-1/);
   assert.match(index,/attendance-control\.js\?v=20260722-1/);
   assert.match(index,/state-load-performance\.js\?v=20260722-3/);
-  assert.match(index,/sync-integrity-guard\.js\?v=20260722-3/);
+  assert.match(index,/sync-integrity-guard\.js\?v=20260723-4/);
   assert.match(index,/canonical-declaration-texts\.js\?v=20260722-2/);
-  assert.match(index,/telegram-pdf-declarations\.js\?v=20260722-7/);
+  assert.match(index,/telegram-pdf-declarations\.js\?v=20260723-8/);
   assert.match(index,/default-sales-reps\.js\?v=20260722-4/);
   assert.match(index,/vehicle-master-link\.js\?v=20260722-1/);
+  assert.match(index,/declaration-workspace-fixes\.js\?v=20260723-1/);
 });

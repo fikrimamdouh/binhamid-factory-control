@@ -3,11 +3,12 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 const read=path=>readFileSync(new URL(`../${path}`,import.meta.url),'utf8');
 
-test('master data workspace keeps employees vehicles declarations and recovery in one screen',()=>{
+test('master data workspace keeps employees vehicles and recovery in one screen while declarations stay in their existing page',()=>{
   const nav=read('assets/admin-nav.js');
   const workspace=read('assets/master-data-unified-operations.js');
   assert.match(nav,/master-data-unified-operations\.js/);
-  assert.match(workspace,/الإقرارات والسائقون/);
+  assert.match(workspace,/الإقرارات تبقى في صفحة إصدار النماذج الحالية فقط/);
+  assert.doesNotMatch(workspace,/button.textContent='الإقرارات والسائقون'/);
   assert.match(workspace,/استعادة شغل الموظفين والمركبات المحفوظ من 22 يوليو/);
   assert.match(workspace,/إدخال الورشة/);
   assert.match(workspace,/إرجاع للعمل/);

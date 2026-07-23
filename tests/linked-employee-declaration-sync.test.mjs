@@ -37,7 +37,8 @@ test('existing linked employees are reconciled into one canonical legacy employe
   assert.match(roles,/employee_assignments/);
   assert.match(roles,/app_users/);
   assert.match(bridge,/reconcile_employee_declaration_roles/);
-  assert.match(bridge,/attendance-safe&scope=employee-sites/);
+  assert.match(bridge,/route=canonical-master-data/);
+  assert.match(bridge,/canonicalEmployees/);
   assert.match(bridge,/mergeCloudEmployees/);
   assert.match(bridge,/linkedIds/);
   assert.match(bridge,/rewriteAliases/);
@@ -52,7 +53,7 @@ test('opening declaration forms refreshes their employee list without a boot-wid
   assert.match(bridge,/الإقرارات/);
   assert.match(bridge,/refreshDeclarations\(true\)/);
   assert.match(bridge,/typeof window\.rAll==='function'/);
-  assert.match(index,/employee-declaration-sync\.js\?v=20260722-1/);
+  assert.match(index,/employee-declaration-sync\.js\?v=20260723-3/);
   assert.ok(index.indexOf('attendance-control.js')<index.indexOf('employee-declaration-sync.js'));
 });
 

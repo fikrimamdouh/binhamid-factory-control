@@ -47,7 +47,7 @@ test('print-to-Telegram uses the original print path and releases stale captures
   assert.match(print,/clonePrintSheet/);
   assert.match(print,/document-ready/);
   assert.match(print,/if\(captureRequest\)settle\(captureRequest,'reject'/);
-  assert.match(print,/زر الطباعة لم يُنشئ ورقة جديدة/);
+  assert.match(print,/زر الطباعة لم يُنشئ ورقة أو معاينة صالحة/);
   assert.doesNotMatch(print,/يوجد مستند آخر قيد التجهيز/);
   assert.match(print,/ورقة الطباعة فارغة/);
   assert.doesNotMatch(print.match(/function captureByClick[\s\S]*?window\.addEventListener\('pagehide'/)?.[0]||'',/setTimeout/);

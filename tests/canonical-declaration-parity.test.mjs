@@ -68,7 +68,7 @@ test('Telegram daily PDF bundle includes both customer portfolio declarations',(
 test('boot loads editable text behavior before Telegram print integration',()=>{
   const index=read('index.html');
   const canonical=index.indexOf('canonical-declaration-texts.js?v=20260722-2');
-  const telegram=index.indexOf('telegram-pdf-declarations.js?v=20260722-7');
+  const telegram=index.indexOf('telegram-pdf-declarations.js?v=20260723-8');
   assert.ok(canonical>=0&&telegram>canonical);
   assert.match(index,/legacy\.html\?v=20260722-vehicle-preflight-1/);
 });
