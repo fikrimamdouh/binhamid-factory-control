@@ -1,0 +1,35 @@
+name: Inspect Driver Language
+on:
+  pull_request:
+    paths:
+      - 'legacy.html'
+      - 'tests/_inspect-declaration-structure.test.mjs'
+      - '.github/workflows/inspect-driver-language.yml'
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract exact declaration context
+        run: |
+          node <<'NODE'
+          const fs=require('fs');
+          const source=fs.readFileSync('legacy.html','utf8');
+          const lines=source.split(/\r?\n/);
+          const patterns=[/لغة\s*السائق/i,/driver\s*language/i,/driverLang/i,/drvLang/i,/langDrv/i];
+          const indexes=[];
+          for(let i=0;i<lines.length;i++) if(patterns.some(p=>p.test(lines[i]))) indexes.push(i);
+          const blocks=[];
+          for(const index of indexes){
+            const start=Math.max(0,index-80),end=Math.min(lines.length,index+180);
+            blocks.push(`--- CONTEXT ${start+1}-${end} ---\n`+lines.slice(start,end).map((line,j)=>`${start+j+1}: ${line}`).join('\n'));
+          }
+          fs.writeFileSync('driver-language-context.txt',blocks.join('\n\n')||'NOT FOUND');
+          NODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: driver-language-context
+          path: driver-language-context.txt
+          retention-days: 1
