@@ -27,7 +27,7 @@ jobs:
           const blocks=[];
           for(const index of indexes){
             const start=Math.max(0,index-80),end=Math.min(lines.length,index+180);
-            blocks.push(`--- CONTEXT ${start+1}-${end} ---\n`+lines.slice(start,end).map((line,j)=>`${start+j+1}: ${lines[i=start+j]}`).join('\n'));
+            blocks.push(`--- CONTEXT ${start+1}-${end} ---\n`+lines.slice(start,end).map((line,j)=>`${start+j+1}: ${line}`).join('\n'));
           }
           fs.writeFileSync('driver-language-context.txt',blocks.join('\n\n')||'NOT FOUND');
           NODE
