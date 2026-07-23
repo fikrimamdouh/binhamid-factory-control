@@ -31,9 +31,10 @@ test('registration media is intercepted before generic document processing',()=>
 
 test('driver approval validates the form and creates vehicle assignment before activation',()=>{
   const source=read(['..','api','_lib','bot-employee-approvals.js']);
-  assert.match(source,/prepareDriverAssignment/);
+  assert.match(source,/resolveDriverAssignment/);
+  assert.match(source,/persistEmployeeAssignment/);
   assert.match(source,/employee_assignments/);
   assert.match(source,/driverRegistrationReady/);
   assert.match(source,/driver_documents/);
-  assert.ok(source.indexOf('prepareDriverAssignment(row,role)')<source.indexOf("rpc('approve_telegram_user'"));
+  assert.ok(source.indexOf('persistEmployeeAssignment(row,employee,role,driverAssignment)')<source.indexOf("rpc('approve_telegram_user'"));
 });

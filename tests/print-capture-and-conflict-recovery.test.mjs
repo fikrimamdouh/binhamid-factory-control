@@ -6,7 +6,7 @@ const read=path=>readFileSync(new URL(`../${path}`,import.meta.url),'utf8');
 
 test('Telegram exact-print capture cancels stale work instead of blocking the next document',()=>{
   const source=read('assets/telegram-pdf-declarations.js');
-  assert.match(source,/v8-runtime-notice-filter/);
+  assert.match(source,/v9-exact-sheet-wrapper/);
   assert.match(source,/if\(captureRequest\)settle\(captureRequest,'reject'/);
   assert.match(source,/requestAnimationFrame\(function\(\)\{requestAnimationFrame/);
   assert.match(source,/زر الطباعة لم يُنشئ ورقة أو معاينة صالحة/);
@@ -14,11 +14,14 @@ test('Telegram exact-print capture cancels stale work instead of blocking the ne
   assert.match(source,/sending\.has\(key\)/);
 });
 
-test('revision conflict recovery downloads backup then replaces local program state cleanly',()=>{
+test('revision conflict recovery preserves a recovery backup and replaces local state automatically',()=>{
   const source=read('assets/sync-integrity-guard.js');
-  assert.match(source,/v5-revision-preflight/);
+  assert.match(source,/v6-automatic-cloud-recovery/);
   assert.match(source,/window\.bhLockCloudConflict=lockConflict/);
-  assert.match(source,/سحب وتنظيف النسخة المحلية/);
+  assert.match(source,/scheduleAutomaticRecovery/);
+  assert.match(source,/bhResolveCloudConflictAutomatically/);
+  assert.match(source,/function preserveRecoveryBackup\(\)/);
+  assert.match(source,/indexedDB\.open\('binhamid_recovery_v1'/);
   assert.match(source,/function downloadBackup\(\)/);
   assert.match(source,/function cleanProgramLocalState\(\)/);
   assert.match(source,/binhamid_cloud_access_token/);
@@ -27,12 +30,13 @@ test('revision conflict recovery downloads backup then replaces local program st
   assert.match(source,/function writePulledState\(data\)/);
   assert.match(source,/remove\('binhamid_cloud_pending'\)/);
   assert.match(source,/binhamid-cloud-state-pulled/);
+  assert.match(source,/@media print/);
   assert.doesNotMatch(source,/binhamid_conflict_backup_/);
 });
 
 test('boot cache keys point to repaired synchronization and PDF modules',()=>{
   const index=read('index.html');
   assert.match(index,/state-load-performance\.js\?v=20260722-3/);
-  assert.match(index,/sync-integrity-guard\.js\?v=20260723-5/);
-  assert.match(index,/telegram-pdf-declarations\.js\?v=20260723-8/);
+  assert.match(index,/sync-integrity-guard\.js\?v=20260723-6/);
+  assert.match(index,/telegram-pdf-declarations\.js\?v=20260723-9/);
 });

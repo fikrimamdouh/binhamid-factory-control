@@ -56,6 +56,7 @@ test('logos and images are absolute or embedded before PDF conversion',()=>{
   assert.match(telegram,/absoluteCss/);
   assert.match(telegram,/inlineSnapshotImages/);
   assert.match(telegram,/blobToDataUrl/);
+  assert.match(telegram,/snapshot\.root\.outerHTML/);
   assert.match(telegram,/image\.setAttribute\('src',await blobToDataUrl/);
   assert.match(reportRoute,/<base href=/);
 });
@@ -93,8 +94,9 @@ test('revision conflicts never force-save and safe pull replaces local state cle
   assert.match(stateApi,/REVISION_REQUIRED/);
   assert.match(stateApi,/REVISION_CONFLICT/);
   assert.match(syncGuard,/REVISION_CONFLICT_LOCKED/);
-  assert.match(syncGuard,/if\(existing\)return syntheticConflict/);
-  assert.match(syncGuard,/سحب وتنظيف النسخة المحلية/);
+  assert.match(syncGuard,/if\(existing\)\{scheduleAutomaticRecovery\(\);return syntheticConflict/);
+  assert.match(syncGuard,/scheduleAutomaticRecovery/);
+  assert.match(syncGuard,/preserveRecoveryBackup/);
   assert.match(syncGuard,/api\/state\?full=1/);
   assert.match(syncGuard,/noprint no-print/);
   assert.match(syncGuard,/function cleanProgramLocalState\(\)/);
@@ -108,5 +110,5 @@ test('delayed customer and employee table synchronization is visible',()=>{
   assert.match(stateApi,/status:deferredChunks\|\|failedChunks\?'delayed':'complete'/);
   assert.match(syncGuard,/binhamid-master-sync-status/);
   assert.match(syncGuard,/مزامنة جداول العملاء والموظفين متأخرة/);
-  assert.match(index,/sync-integrity-guard\.js\?v=20260723-5/);
+  assert.match(index,/sync-integrity-guard\.js\?v=20260723-6/);
 });
