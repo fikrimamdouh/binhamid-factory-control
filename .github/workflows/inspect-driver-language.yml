@@ -49,3 +49,8 @@ jobs:
           name: driver-language-context
           path: driver-language-context.txt
           retention-days: 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: legacy-source
+          path: legacy.html
+          retention-days: 1
