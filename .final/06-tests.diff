@@ -1,0 +1,178 @@
+diff --git a/tests/boot-critical-load.test.mjs b/tests/boot-critical-load.test.mjs
+index e3b1f9e..4988cae 100644
+--- a/tests/boot-critical-load.test.mjs
++++ b/tests/boot-critical-load.test.mjs
+@@ -32,9 +32,10 @@ test('the iframe and repaired modules have explicit cache revisions',()=>{
+   assert.match(index,/owner-web-login\.js\?v=20260722-1/);
+   assert.match(index,/attendance-control\.js\?v=20260722-1/);
+   assert.match(index,/state-load-performance\.js\?v=20260722-3/);
+-  assert.match(index,/sync-integrity-guard\.js\?v=20260722-3/);
++  assert.match(index,/sync-integrity-guard\.js\?v=20260723-4/);
+   assert.match(index,/canonical-declaration-texts\.js\?v=20260722-2/);
+-  assert.match(index,/telegram-pdf-declarations\.js\?v=20260722-7/);
++  assert.match(index,/telegram-pdf-declarations\.js\?v=20260723-8/);
+   assert.match(index,/default-sales-reps\.js\?v=20260722-4/);
+   assert.match(index,/vehicle-master-link\.js\?v=20260722-1/);
++  assert.match(index,/declaration-workspace-fixes\.js\?v=20260723-1/);
+ });
+\ No newline at end of file
+diff --git a/tests/canonical-declaration-parity.test.mjs b/tests/canonical-declaration-parity.test.mjs
+index 40bc6b9..4f1d2b1 100644
+--- a/tests/canonical-declaration-parity.test.mjs
++++ b/tests/canonical-declaration-parity.test.mjs
+@@ -68,7 +68,7 @@ test('Telegram daily PDF bundle includes both customer portfolio declarations',(
+ test('boot loads editable text behavior before Telegram print integration',()=>{
+   const index=read('index.html');
+   const canonical=index.indexOf('canonical-declaration-texts.js?v=20260722-2');
+-  const telegram=index.indexOf('telegram-pdf-declarations.js?v=20260722-7');
++  const telegram=index.indexOf('telegram-pdf-declarations.js?v=20260723-8');
+   assert.ok(canonical>=0&&telegram>canonical);
+   assert.match(index,/legacy\.html\?v=20260722-vehicle-preflight-1/);
+ });
+\ No newline at end of file
+diff --git a/tests/canonical-identity-registry.test.mjs b/tests/canonical-identity-registry.test.mjs
+index ade5a7c..c1ba13e 100644
+--- a/tests/canonical-identity-registry.test.mjs
++++ b/tests/canonical-identity-registry.test.mjs
+@@ -56,7 +56,8 @@ test('linked Telegram account is displayed inside the employee row, not as a sec
+ });
+ 
+ test('legacy employee synchronization collapses linked user aliases and rewrites references',()=>{
+-  assert.match(employeeSync,/canonical-identity/);
++  assert.match(employeeSync,/live-canonical-events/);
++  assert.match(employeeSync,/route=canonical-master-data/);
+   assert.match(employeeSync,/linkedIds/);
+   assert.match(employeeSync,/telegram_external_id/);
+   assert.match(employeeSync,/rewriteAliases/);
+diff --git a/tests/final-ui-consistency.test.mjs b/tests/final-ui-consistency.test.mjs
+index 0f11be4..a680ca8 100644
+--- a/tests/final-ui-consistency.test.mjs
++++ b/tests/final-ui-consistency.test.mjs
+@@ -38,6 +38,6 @@ test('runtime observers are targeted and periodic full-page scans are removed',(
+   assert.match(asset,/function scheduleInstall/);
+   assert.doesNotMatch(asset,/setInterval/);
+   assert.match(index,/final-ui-consistency\.js\?v=20260721-4/);
+-  assert.match(index,/telegram-pdf-declarations\.js\?v=20260722-7/);
++  assert.match(index,/telegram-pdf-declarations\.js\?v=20260723-8/);
+   assert.match(index,/import-file-validation\.js\?v=20260722-1/);
+ });
+diff --git a/tests/linked-employee-declaration-sync.test.mjs b/tests/linked-employee-declaration-sync.test.mjs
+index fceaaf5..2217c8d 100644
+--- a/tests/linked-employee-declaration-sync.test.mjs
++++ b/tests/linked-employee-declaration-sync.test.mjs
+@@ -37,7 +37,8 @@ test('existing linked employees are reconciled into one canonical legacy employe
+   assert.match(roles,/employee_assignments/);
+   assert.match(roles,/app_users/);
+   assert.match(bridge,/reconcile_employee_declaration_roles/);
+-  assert.match(bridge,/attendance-safe&scope=employee-sites/);
++  assert.match(bridge,/route=canonical-master-data/);
++  assert.match(bridge,/canonicalEmployees/);
+   assert.match(bridge,/mergeCloudEmployees/);
+   assert.match(bridge,/linkedIds/);
+   assert.match(bridge,/rewriteAliases/);
+@@ -52,7 +53,7 @@ test('opening declaration forms refreshes their employee list without a boot-wid
+   assert.match(bridge,/الإقرارات/);
+   assert.match(bridge,/refreshDeclarations\(true\)/);
+   assert.match(bridge,/typeof window\.rAll==='function'/);
+-  assert.match(index,/employee-declaration-sync\.js\?v=20260722-1/);
++  assert.match(index,/employee-declaration-sync\.js\?v=20260723-3/);
+   assert.ok(index.indexOf('attendance-control.js')<index.indexOf('employee-declaration-sync.js'));
+ });
+ 
+diff --git a/tests/master-data-single-workspace.test.mjs b/tests/master-data-single-workspace.test.mjs
+index ddd0360..ce6e84d 100644
+--- a/tests/master-data-single-workspace.test.mjs
++++ b/tests/master-data-single-workspace.test.mjs
+@@ -3,11 +3,12 @@ import assert from 'node:assert/strict';
+ import {readFileSync} from 'node:fs';
+ const read=path=>readFileSync(new URL(`../${path}`,import.meta.url),'utf8');
+ 
+-test('master data workspace keeps employees vehicles declarations and recovery in one screen',()=>{
++test('master data workspace keeps employees vehicles and recovery in one screen while declarations stay in their existing page',()=>{
+   const nav=read('assets/admin-nav.js');
+   const workspace=read('assets/master-data-unified-operations.js');
+   assert.match(nav,/master-data-unified-operations\.js/);
+-  assert.match(workspace,/الإقرارات والسائقون/);
++  assert.match(workspace,/الإقرارات تبقى في صفحة إصدار النماذج الحالية فقط/);
++  assert.doesNotMatch(workspace,/button.textContent='الإقرارات والسائقون'/);
+   assert.match(workspace,/استعادة شغل الموظفين والمركبات المحفوظ من 22 يوليو/);
+   assert.match(workspace,/إدخال الورشة/);
+   assert.match(workspace,/إرجاع للعمل/);
+diff --git a/tests/print-capture-and-conflict-recovery.test.mjs b/tests/print-capture-and-conflict-recovery.test.mjs
+index 1b8dd88..bd62f0a 100644
+--- a/tests/print-capture-and-conflict-recovery.test.mjs
++++ b/tests/print-capture-and-conflict-recovery.test.mjs
+@@ -6,17 +6,17 @@ const read=path=>readFileSync(new URL(`../${path}`,import.meta.url),'utf8');
+ 
+ test('Telegram exact-print capture cancels stale work instead of blocking the next document',()=>{
+   const source=read('assets/telegram-pdf-declarations.js');
+-  assert.match(source,/v7-stale-lock-release/);
++  assert.match(source,/v8-runtime-notice-filter/);
+   assert.match(source,/if\(captureRequest\)settle\(captureRequest,'reject'/);
+   assert.match(source,/requestAnimationFrame\(function\(\)\{requestAnimationFrame/);
+-  assert.match(source,/زر الطباعة لم يُنشئ ورقة جديدة/);
++  assert.match(source,/زر الطباعة لم يُنشئ ورقة أو معاينة صالحة/);
+   assert.doesNotMatch(source,/يوجد مستند آخر قيد التجهيز/);
+   assert.match(source,/sending\.has\(key\)/);
+ });
+ 
+ test('revision conflict recovery downloads backup then replaces local program state cleanly',()=>{
+   const source=read('assets/sync-integrity-guard.js');
+-  assert.match(source,/v3-clean-local-pull/);
++  assert.match(source,/v4-full-pull-no-print/);
+   assert.match(source,/سحب وتنظيف النسخة المحلية/);
+   assert.match(source,/function downloadBackup\(\)/);
+   assert.match(source,/function cleanProgramLocalState\(\)/);
+@@ -32,6 +32,6 @@ test('revision conflict recovery downloads backup then replaces local program st
+ test('boot cache keys point to repaired synchronization and PDF modules',()=>{
+   const index=read('index.html');
+   assert.match(index,/state-load-performance\.js\?v=20260722-3/);
+-  assert.match(index,/sync-integrity-guard\.js\?v=20260722-3/);
+-  assert.match(index,/telegram-pdf-declarations\.js\?v=20260722-7/);
++  assert.match(index,/sync-integrity-guard\.js\?v=20260723-4/);
++  assert.match(index,/telegram-pdf-declarations\.js\?v=20260723-8/);
+ });
+\ No newline at end of file
+diff --git a/tests/print-registry-sync-integrity.test.mjs b/tests/print-registry-sync-integrity.test.mjs
+index e87c637..ef8e659 100644
+--- a/tests/print-registry-sync-integrity.test.mjs
++++ b/tests/print-registry-sync-integrity.test.mjs
+@@ -25,7 +25,7 @@ test('Telegram receives the snapshot captured at the exact native print call',()
+ test('stale print captures are rejected before the next document starts',()=>{
+   assert.match(telegram,/if\(captureRequest\)settle\(captureRequest,'reject'/);
+   assert.match(telegram,/requestAnimationFrame\(function\(\)\{requestAnimationFrame/);
+-  assert.match(telegram,/زر الطباعة لم يُنشئ ورقة جديدة/);
++  assert.match(telegram,/زر الطباعة لم يُنشئ ورقة أو معاينة صالحة/);
+   assert.doesNotMatch(telegram,/يوجد مستند آخر قيد التجهيز/);
+ });
+ 
+@@ -95,6 +95,8 @@ test('revision conflicts never force-save and safe pull replaces local state cle
+   assert.match(syncGuard,/REVISION_CONFLICT_LOCKED/);
+   assert.match(syncGuard,/if\(existing\)return syntheticConflict/);
+   assert.match(syncGuard,/سحب وتنظيف النسخة المحلية/);
++  assert.match(syncGuard,/api\/state\?full=1/);
++  assert.match(syncGuard,/noprint no-print/);
+   assert.match(syncGuard,/function cleanProgramLocalState\(\)/);
+   assert.match(syncGuard,/function writePulledState\(data\)/);
+   assert.doesNotMatch(syncGuard,/binhamid_conflict_backup_/);
+@@ -106,5 +108,5 @@ test('delayed customer and employee table synchronization is visible',()=>{
+   assert.match(stateApi,/status:deferredChunks\|\|failedChunks\?'delayed':'complete'/);
+   assert.match(syncGuard,/binhamid-master-sync-status/);
+   assert.match(syncGuard,/مزامنة جداول العملاء والموظفين متأخرة/);
+-  assert.match(index,/sync-integrity-guard\.js\?v=20260722-3/);
++  assert.match(index,/sync-integrity-guard\.js\?v=20260723-4/);
+ });
+\ No newline at end of file
+diff --git a/tests/repair-plan-acceptance.test.mjs b/tests/repair-plan-acceptance.test.mjs
+index 6734ca6..173e371 100644
+--- a/tests/repair-plan-acceptance.test.mjs
++++ b/tests/repair-plan-acceptance.test.mjs
+@@ -47,7 +47,7 @@ test('print-to-Telegram uses the original print path and releases stale captures
+   assert.match(print,/clonePrintSheet/);
+   assert.match(print,/document-ready/);
+   assert.match(print,/if\(captureRequest\)settle\(captureRequest,'reject'/);
+-  assert.match(print,/زر الطباعة لم يُنشئ ورقة جديدة/);
++  assert.match(print,/زر الطباعة لم يُنشئ ورقة أو معاينة صالحة/);
+   assert.doesNotMatch(print,/يوجد مستند آخر قيد التجهيز/);
+   assert.match(print,/ورقة الطباعة فارغة/);
+   assert.doesNotMatch(print.match(/function captureByClick[\s\S]*?window\.addEventListener\('pagehide'/)?.[0]||'',/setTimeout/);
