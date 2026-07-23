@@ -1,6 +1,6 @@
 (function(){
 'use strict';
-const VERSION='2026.07.23-admin-nav-v13-single-master-workspace';
+const VERSION='2026.07.23-admin-nav-v13-unified-workspace-guards-single-master-workspace';
 const LINKS=[
   ['🏠','البرنامج','/','التشغيل'],
   ['⚙️','مركز الإدارة','/control-center.html','الإدارة'],
