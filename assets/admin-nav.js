@@ -1,6 +1,6 @@
 (function(){
 'use strict';
-const VERSION='2026.07.22-admin-nav-v12-unified-workspace-guards';
+const VERSION='2026.07.23-admin-nav-v13-unified-workspace-guards-single-master-workspace';
 const LINKS=[
   ['🏠','البرنامج','/','التشغيل'],
   ['⚙️','مركز الإدارة','/control-center.html','الإدارة'],
@@ -17,7 +17,7 @@ function ensureSessionControls(){if(window.__BH_SESSION_CONTROLS_INSTALLED__)ret
 function ensureEmployeeTransfer(){if(currentPath()!=='/attendance-admin.html'||window.__BH_EMPLOYEE_LINK_TRANSFER_INSTALLED__)return;ensureScript('bh-employee-link-transfer-loader','/assets/employee-link-transfer.js?v=20260722-2','bh-employee-link-transfer');}
 function ensureAttendanceSitePresets(){if(currentPath()!=='/attendance-admin.html'||window.__BH_ATTENDANCE_SITE_PRESETS_INSTALLED__)return;ensureScript('bh-attendance-site-presets-loader','/assets/attendance-site-presets.js?v=20260722-1','bh-attendance-site-presets');}
 function ensureAttendanceCanonicalEmployees(){if(currentPath()!=='/attendance-admin.html'||window.__BH_ATTENDANCE_CANONICAL_EMPLOYEES__)return;ensureScript('bh-attendance-canonical-employees-loader','/assets/attendance-canonical-employees.js?v=20260722-1','bh-attendance-canonical-employees');}
-function ensureMasterWorkspaceGuards(){if(currentPath()!=='/master-data.html'||window.__BH_MASTER_WORKSPACE_GUARDS__)return;ensureScript('bh-master-workspace-guards-loader','/assets/master-data-workspace-guards.js?v=20260722-1','bh-master-workspace-guards');}
+function ensureMasterWorkspaceGuards(){if(currentPath()!=='/master-data.html')return;if(!window.__BH_MASTER_WORKSPACE_GUARDS__)ensureScript('bh-master-workspace-guards-loader','/assets/master-data-workspace-guards.js?v=20260722-1','bh-master-workspace-guards');if(!window.__BH_MASTER_DATA_UNIFIED_OPERATIONS__)ensureScript('bh-master-data-unified-operations-loader','/assets/master-data-unified-operations.js?v=20260723-1','bh-master-data-unified-operations');}
 function installPageExtensions(){ensureEmployeeTransfer();ensureAttendanceSitePresets();ensureAttendanceCanonicalEmployees();ensureMasterWorkspaceGuards();}
 function style(){if(document.getElementById('bh-admin-nav-style'))return;const el=document.createElement('style');el.id='bh-admin-nav-style';el.textContent=`
     :root{--bh-gold:#B4893A;--bh-gold-pale:#F5EDDF;--bh-navy:#14425F;--bh-navy-dk:#0C2A3D;--bh-line:#E2DCD1;--bh-muted:#6E6E6E}
