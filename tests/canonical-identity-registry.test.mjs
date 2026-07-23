@@ -56,7 +56,7 @@ test('linked Telegram account is displayed inside the employee row, not as a sec
 });
 
 test('legacy employee synchronization collapses linked user aliases and rewrites references',()=>{
-  assert.match(employeeSync,/live-canonical-events/);
+  assert.match(employeeSync,/auth-gated/);
   assert.match(employeeSync,/route=canonical-master-data/);
   assert.match(employeeSync,/linkedIds/);
   assert.match(employeeSync,/telegram_external_id/);

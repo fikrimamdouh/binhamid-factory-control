@@ -53,7 +53,7 @@ test('opening declaration forms refreshes their employee list without a boot-wid
   assert.match(bridge,/الإقرارات/);
   assert.match(bridge,/refreshDeclarations\(true\)/);
   assert.match(bridge,/typeof window\.rAll==='function'/);
-  assert.match(index,/employee-declaration-sync\.js\?v=20260723-3/);
+  assert.match(index,/employee-declaration-sync\.js\?v=20260723-final-auth-gate-1/);
   assert.ok(index.indexOf('attendance-control.js')<index.indexOf('employee-declaration-sync.js'));
 });
 
@@ -62,4 +62,12 @@ test('link changes notify other open program tabs to refresh declaration employe
   assert.match(transfer,/signalDeclarations/);
   assert.match(transfer,/تحديث نموذج الخطاب/);
   assert.match(bridge,/window\.addEventListener\('storage'/);
+});
+
+test('declaration synchronization waits for an authenticated user and bounds authorization retries',()=>{
+  assert.match(bridge,/const authenticated=/);
+  assert.match(bridge,/if\(running\|\|!authenticated\(\)\)return/);
+  assert.match(bridge,/if\(authenticated\(\)\)schedule\(700\)/);
+  assert.match(bridge,/authenticated\(\)&&retries<4/);
+  assert.doesNotMatch(bridge,/retries<12/);
 });
