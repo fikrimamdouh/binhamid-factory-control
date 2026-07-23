@@ -38,6 +38,6 @@ test('runtime observers are targeted and periodic full-page scans are removed',(
   assert.match(asset,/function scheduleInstall/);
   assert.doesNotMatch(asset,/setInterval/);
   assert.match(index,/final-ui-consistency\.js\?v=20260721-4/);
-  assert.match(index,/telegram-pdf-declarations\.js\?v=20260722-7/);
+  assert.match(index,/telegram-pdf-declarations\.js\?v=20260723-8/);
   assert.match(index,/import-file-validation\.js\?v=20260722-1/);
 });

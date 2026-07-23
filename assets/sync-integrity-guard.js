@@ -1,9 +1,9 @@
-// [BinHamid] 2026.07.22-sync-integrity-guard-v3-clean-local-pull
+// [BinHamid] 2026.07.23-sync-integrity-guard-v4-full-pull-no-print
 (function(){
   'use strict';
   if(window.__BH_SYNC_INTEGRITY_GUARD__)return;
   window.__BH_SYNC_INTEGRITY_GUARD__=true;
-  var VERSION='2026.07.22-sync-integrity-guard-v3-clean-local-pull';
+  var VERSION='2026.07.23-sync-integrity-guard-v4-full-pull-no-print';
   var CONFLICT_KEY='binhamid_cloud_conflict_lock_v1',MASTER_KEY='binhamid_master_sync_status_v1',REVISION_KEY='binhamid_cloud_revision';
   var previousFetch=window.fetch.bind(window),pullBusy=false;
 
@@ -15,7 +15,7 @@
   function syntheticConflict(lock){return new Response(JSON.stringify({ok:false,error:'الحفظ متوقف: توجد نسخة سحابية أحدث. اسحب النسخة الحديثة قبل الحفظ.',code:'REVISION_CONFLICT_LOCKED',remoteRevision:Number(lock&&lock.remoteRevision||0)}),{status:409,headers:{'Content-Type':'application/json'}});}
   function requestHeaders(){var token=clean(localStorage.getItem('binhamid_cloud_access_token')),userId=clean(localStorage.getItem('binhamid_cloud_app_user_id')),headers={'Content-Type':'application/json'};if(token&&token!=='device-session')headers.Authorization='Bearer '+token;if(userId)headers['X-App-User-Id']=userId;return headers;}
 
-  function statusNode(){var node=document.getElementById('bhSyncIntegrityStatus');if(node)return node;node=document.createElement('div');node.id='bhSyncIntegrityStatus';node.style.cssText='position:fixed;bottom:14px;right:14px;z-index:16000;max-width:min(560px,92vw);padding:13px 15px;border-radius:12px;box-shadow:0 7px 28px rgba(0,0,0,.28);font:700 12px/1.7 system-ui,sans-serif;display:none';document.body.appendChild(node);return node;}
+  function statusNode(){var node=document.getElementById('bhSyncIntegrityStatus');if(node)return node;node=document.createElement('div');node.id='bhSyncIntegrityStatus';node.className='noprint no-print';node.dataset.bhRuntimeNotice='cloud-conflict';node.style.cssText='position:fixed;bottom:14px;right:14px;z-index:16000;max-width:min(560px,92vw);padding:13px 15px;border-radius:12px;box-shadow:0 7px 28px rgba(0,0,0,.28);font:700 12px/1.7 system-ui,sans-serif;display:none';document.body.appendChild(node);return node;}
   function hide(){var node=document.getElementById('bhSyncIntegrityStatus');if(node)node.style.display='none';}
   function show(message,kind,persistent){var node=statusNode();node.innerHTML='';var text=document.createElement('div');text.textContent=message;node.appendChild(text);node.style.display='block';node.style.background=kind==='error'?'#8b2525':kind==='warn'?'#f4d58d':'#dff2e8';node.style.color=kind==='warn'?'#382b08':kind==='ok'?'#124c32':'#fff';clearTimeout(node._timer);if(!persistent)node._timer=setTimeout(hide,kind==='warn'?12000:5000);return node;}
   function downloadBackup(){var stamp=new Date().toISOString().replace(/[:.]/g,'-'),backup={createdAt:new Date().toISOString(),reason:'revision-conflict-before-cloud-pull',revision:Number(localStorage.getItem(REVISION_KEY)||0),legacy:readJson('binhamid_v1'),ops:readJson('binhamid_factory_control_v3')},filename='binhamid-conflict-backup-'+stamp+'.json';try{var blob=new Blob([JSON.stringify(backup,null,2)],{type:'application/json'}),link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=filename;link.click();setTimeout(function(){URL.revokeObjectURL(link.href);},1000);}catch(_){}return filename;}
@@ -31,7 +31,7 @@
     if(data.payload.legacy)try{localStorage.setItem('binhamid_v1',JSON.stringify(data.payload.legacy));}catch(error){throw new Error('تعذر حفظ بيانات البرنامج الأساسية بعد تنظيف التخزين المحلي: '+String(error&&error.message||error));}
     if(data.payload.ops)try{localStorage.setItem('binhamid_factory_control_v3',JSON.stringify(data.payload.ops));}catch(error){remove('binhamid_v1');throw new Error('تعذر حفظ بيانات التشغيل بعد تنظيف التخزين المحلي: '+String(error&&error.message||error));}
     localStorage.setItem(REVISION_KEY,String(Number(data.revision)||0));
-    remove('binhamid_cloud_pending');remove(CONFLICT_KEY);remove(MASTER_KEY);
+    remove('binhamid_cloud_pending');remove(CONFLICT_KEY);remove(MASTER_KEY);try{sessionStorage.removeItem('bh_login_sync_done_v2');}catch(_){}
     try{sessionStorage.setItem('bh_restore_try','1');sessionStorage.setItem('binhamid_cloud_pull_applied_once','1');}catch(_){}
   }
   async function safePullLatest(){
@@ -40,7 +40,7 @@
     pullBusy=true;
     try{
       var backupFile=downloadBackup();show('تم تنزيل النسخة الاحتياطية. جارٍ سحب النسخة السحابية وتنظيف الحالة المحلية القديمة…','warn',true);
-      var response=await previousFetch('/api/state',{method:'GET',credentials:'same-origin',cache:'no-store',headers:requestHeaders()}),data=await response.json().catch(function(){return{};});
+      var response=await previousFetch('/api/state?full=1',{method:'GET',credentials:'same-origin',cache:'no-store',headers:requestHeaders()}),data=await response.json().catch(function(){return{};});
       if(!response.ok)throw new Error(data.error||data.message||('HTTP '+response.status));
       if(!data.payload)throw new Error('لا توجد نسخة سحابية صالحة للاستعادة.');
       writePulledState(data);

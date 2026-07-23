@@ -1,7 +1,7 @@
 import { body, errorResponse, json, method } from '../http.js';
 import { requireCapability } from '../permissions.js';
 import { config } from '../config.js';
-import { htmlToPdf } from '../pdf-service.js';
+import { htmlToPdf, pdfServiceStatus } from '../pdf-service.js';
 import { sendDocumentBuffer } from '../telegram.js';
 
 const clean=(value,max=200)=>String(value??'').trim().slice(0,max);
@@ -10,9 +10,10 @@ function safeBaseUrl(value){try{const url=new URL(String(value||''));return /^ht
 
 // يستقبل لقطة HTML المجمدة عند لحظة window.print، لا يعيد بناء الإقرار.
 export async function sendPrintedReport(req,res){
-  if(!method(req,res,['POST']))return;
+  if(!method(req,res,['GET','POST']))return;
   try{
     await requireCapability(req,'reports.send_telegram');
+    if(req.method==='GET'){const pdf=pdfServiceStatus();return json(res,200,{ok:true,ready:Boolean(config.telegramOwnerId&&pdf.configured),telegramOwnerConfigured:Boolean(config.telegramOwnerId),pdf});}
     if(!config.telegramOwnerId)throw Object.assign(new Error('لم يتم ضبط TELEGRAM_OWNER_ID؛ لا توجد وجهة لإرسال النموذج.'),{status:503,code:'TELEGRAM_OWNER_NOT_CONFIGURED'});
     const input=await body(req,2_000_000),html=String(input.html||'');
     if(!html||html.length<20)throw Object.assign(new Error('محتوى النموذج فارغ.'),{status:400,code:'PRINT_DOCUMENT_EMPTY'});

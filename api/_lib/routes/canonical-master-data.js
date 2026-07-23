@@ -3,6 +3,7 @@ import { body,errorResponse,json,method } from '../http.js';
 import { requireCapability } from '../permissions.js';
 import { insert,patch,rpc,select,upsert } from '../supabase.js';
 import { normalizePlate } from '../master-data-workbook.js';
+import { syncEmployeeDeclarationRole } from '../employee-declaration-role.js';
 
 const clean=(value,max=500)=>String(value??'').trim().slice(0,max);
 const object=value=>value&&typeof value==='object'&&!Array.isArray(value)?value:{};
@@ -244,8 +245,11 @@ async function assignTelegram(registry,employee,telegramUserId,siteId,vehicleExt
   if(selected!==current)await patch('employee_assignments',`app_user_id=eq.${encodeURIComponent(selected)}&active=eq.true`,{active:false,updated_at:stamp}).catch(()=>[]);
 
   const assignment={app_user_id:selected,employee_external_id:employee.external_id,site_id:resolvedSite,vehicle_external_id:vehicleExternalId||null,job_title:employee.role||user.role||null,shift_name:employeeRow?.telegram?.shift_name||null,active:true,updated_at:stamp};
+  await patch('employee_assignments',`employee_external_id=eq.${encodeURIComponent(employee.external_id)}&app_user_id=neq.${encodeURIComponent(selected)}&active=eq.true`,{active:false,updated_at:stamp}).catch(()=>[]);
   await upsert('employee_assignments',[assignment],'app_user_id');
   await rpc('approve_telegram_user',{p_external_id:channel.external_id,p_full_name:employee.full_name||user.full_name||channel.external_username||channel.external_id,p_role:user.role,p_active:true,p_employee_external_id:employee.external_id});
+  await patch('app_users',`id=eq.${encodeURIComponent(selected)}`,{employee_external_id:employee.external_id,updated_at:stamp}).catch(()=>[]);
+  await syncEmployeeDeclarationRole(employee.external_id,{jobTitle:assignment.job_title||employee.role||'',telegramRole:user.role||'',source:'canonical_employee_save'}).catch(error=>console.warn('[canonical employee declaration role]',error?.message||error));
   await audit(identity,selected===current?'canonical_employee_telegram_updated':'canonical_employee_telegram_linked','employee',employee.external_id,{appUserId:selected,siteId:resolvedSite,vehicleExternalId:vehicleExternalId||null});
 }
 

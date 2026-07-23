@@ -25,7 +25,7 @@ test('Telegram receives the snapshot captured at the exact native print call',()
 test('stale print captures are rejected before the next document starts',()=>{
   assert.match(telegram,/if\(captureRequest\)settle\(captureRequest,'reject'/);
   assert.match(telegram,/requestAnimationFrame\(function\(\)\{requestAnimationFrame/);
-  assert.match(telegram,/زر الطباعة لم يُنشئ ورقة جديدة/);
+  assert.match(telegram,/زر الطباعة لم يُنشئ ورقة أو معاينة صالحة/);
   assert.doesNotMatch(telegram,/يوجد مستند آخر قيد التجهيز/);
 });
 
@@ -95,6 +95,8 @@ test('revision conflicts never force-save and safe pull replaces local state cle
   assert.match(syncGuard,/REVISION_CONFLICT_LOCKED/);
   assert.match(syncGuard,/if\(existing\)return syntheticConflict/);
   assert.match(syncGuard,/سحب وتنظيف النسخة المحلية/);
+  assert.match(syncGuard,/api\/state\?full=1/);
+  assert.match(syncGuard,/noprint no-print/);
   assert.match(syncGuard,/function cleanProgramLocalState\(\)/);
   assert.match(syncGuard,/function writePulledState\(data\)/);
   assert.doesNotMatch(syncGuard,/binhamid_conflict_backup_/);
@@ -106,5 +108,5 @@ test('delayed customer and employee table synchronization is visible',()=>{
   assert.match(stateApi,/status:deferredChunks\|\|failedChunks\?'delayed':'complete'/);
   assert.match(syncGuard,/binhamid-master-sync-status/);
   assert.match(syncGuard,/مزامنة جداول العملاء والموظفين متأخرة/);
-  assert.match(index,/sync-integrity-guard\.js\?v=20260722-3/);
+  assert.match(index,/sync-integrity-guard\.js\?v=20260723-4/);
 });

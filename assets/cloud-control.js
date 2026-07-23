@@ -11,7 +11,7 @@
    fix.js, daily-report-source-of-truth.js and fleet-attendance-
    status.js all keep working without changes.
    ============================================================ */
-const V='2026.07.19-cloud-foundation-2-reorganized';
+const V='2026.07.23-cloud-foundation-3-explicit-state-modes';
 const TK='binhamid_cloud_access_token',DK='binhamid_cloud_device_id',RK='binhamid_cloud_revision',QK='binhamid_cloud_pending';
 let askedLogin=false;
 let autoBusy=false;
@@ -89,7 +89,7 @@ async function push(reason='حفظ تلقائي',force=false){
       // تعارض رقم النسخة: بدل إيقاف الحفظ نهائيًا، نجلب رقم النسخة الحالي
       // من السيرفر ونعيد المحاولة مرة واحدة، فالحفظ لا يتعطل بسبب فارق ترقيم.
       try{
-        const current=await api('/api/state');
+        const current=await api('/api/state?meta=1');
         setRev(current.revision);
         const retry=await api('/api/state',{method:'PUT',body:JSON.stringify({baseRevision:current.revision,reason,deviceId:device(),payload:shot()})});
         setRev(retry.revision);S.lastSync=retry.updatedAt||new Date().toISOString();clearQueue();S.error='';
@@ -104,7 +104,7 @@ function schedule(r){clearTimeout(timer);timer=setTimeout(()=>push(r),1400)}
 async function pull(){
   if(!token()&&!localStorage.getItem('binhamid_cloud_app_user_id'))return login();
   try{
-    const r=await api('/api/state');
+    const r=await api('/api/state?full=1');
     if(!r.payload)return toast('لا توجد نسخة سحابية بعد.');
     if(hasData()&&!confirm('ستُنشأ نسخة احتياطية محلية ثم تستبدل البيانات الحالية بالنسخة السحابية. استمرار؟'))return;
     if(typeof opsSnapshot==='function')await opsSnapshot('قبل استعادة السحابي');
@@ -144,7 +144,7 @@ window.bhCloudSaveLogin=async()=>{
   const v=$('bhCloudToken').value.trim();if(!v)return toast('اكتب رمز الدخول.',true);
   setToken(v);askedLogin=false;
   try{
-    const remote=await api('/api/state');S.authorized=true;bhCloudCloseLogin();
+    const remote=await api('/api/state?full=1');S.authorized=true;bhCloudCloseLogin();
     if(remote.payload&&hasData()&&rev()===0){S.error='نسخة سحابية موجودة';toast('تم الربط دون رفع بيانات هذا الجهاز لأن نسخة سحابية موجودة.',true)}
     else if(!remote.payload){await push('إنشاء النسخة الأولى',true);toast('تم إنشاء النسخة السحابية الأولى.')}
     else{setRev(remote.revision);toast('تم ربط الجهاز.')}

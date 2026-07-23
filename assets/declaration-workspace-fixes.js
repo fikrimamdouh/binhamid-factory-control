@@ -1,3 +1,69 @@
+(function declarationWorkspaceFixes(){
+'use strict';
+if(window.__BH_DECLARATION_WORKSPACE_FIXES__)return;
+window.__BH_DECLARATION_WORKSPACE_FIXES__=true;
+const VERSION='2026.07.23-declaration-workspace-fixes-v1';
+const TOKEN_KEY='binhamid_cloud_access_token',USER_KEY='binhamid_cloud_app_user_id',SIGNAL_KEY='binhamid_employee_declaration_refresh_v1';
+const clean=value=>String(value??'').trim();
+const esc=value=>String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+const plate=value=>clean(value).toUpperCase().replace(/[^A-Z0-9\u0600-\u06FF]/g,'');
+const $=id=>document.getElementById(id);
+let registry=null,busy=false,installed=false;
+function localState(){try{return typeof D!=='undefined'&&D?D:null;}catch{return null;}}
+function notify(message,bad=false){try{if(typeof toast==='function')return toast(message,bad?'err':undefined);if(typeof window.opsToast==='function')return window.opsToast(message,bad?'err':'ok');}catch(_){}console[bad?'error':'info']('[Declaration workspace]',message);}
+function headers(){const token=clean(localStorage.getItem(TOKEN_KEY)),userId=clean(localStorage.getItem(USER_KEY));return{'Content-Type':'application/json',...(token&&token!=='device-session'?{Authorization:`Bearer ${token}`} :{}),...(userId?{'X-App-User-Id':userId}:{})};}
+async function request(payload){const response=await fetch('/api/router?route=canonical-master-data',{method:payload?'POST':'GET',credentials:'same-origin',cache:'no-store',headers:headers(),...(payload?{body:JSON.stringify(payload)}:{})}),data=await response.json().catch(()=>({}));if(!response.ok)throw Object.assign(new Error(data.error||data.message||`HTTP ${response.status}`),{status:response.status,code:data.code||''});if(data.canonicalAssets||data.canonicalEmployees)registry=data;return data;}
+function statusOf(v){const raw=clean(v?.operationalStatus||v?.operational_status||v?.status||'in_service').toLowerCase();return['in_service','active','working','spare','موجودة','يعمل','في الخدمة'].includes(raw)?'in_service':'stopped';}
+function inService(v){return statusOf(v)==='in_service';}
+function vehicle(){const S=localState();return S?.veh?.find(row=>clean(row.id)===clean($('pvVeh')?.value))||null;}
+function employeeById(id){const S=localState();return S?.emp?.find(row=>clean(row.id)===clean(id))||null;}
+function employee(){const v=vehicle(),id=clean($('pvEmp')?.value)||clean(v?.drv);return employeeById(id);}
+function canonicalAsset(v){if(!v||!registry)return null;const key=plate(v.plate);return(registry.canonicalAssets||[]).find(row=>[row.canonical_external_id,row.diesel_external_id,row.erp_external_id].includes(v.id)||key&&plate(row.plate_no)===key)||null;}
+function canonicalEmployee(e){return e&&registry?(registry.canonicalEmployees||[]).find(row=>clean(row.external_id)===clean(e.id)||clean(row.national_id)&&clean(row.national_id)===clean(e.nid))||null:null;}
+function val(id){return clean($(id)?.value);}
+function set(id,value){const node=$(id);if(node)node.value=value??'';}
+function setText(id,value){const node=$(id);if(node)node.textContent=value??'';}
+function languageName(L){return L==='en'?'English':L==='ur'?'اردو':'العربية';}
+function tr(key,L,fallback=''){try{return clean(t(key,L))||fallback;}catch{return fallback;}}
+function langDir(L){try{return LANGS[L]?.dir||'ltr';}catch{return L==='ur'?'rtl':'ltr';}}
+function replaceFromChild(parent,selector,L){if(!parent)return;const child=parent.querySelector(selector);if(!child)return;const text=clean(child.textContent);parent.textContent=text;parent.dir=langDir(L);parent.lang=L;}
+function languageOnly(html,L){
+  if(!html||L==='ar')return html;
+  const tpl=document.createElement('template');tpl.innerHTML=html;const root=tpl.content,dir=langDir(L);
+  root.querySelectorAll('.doc').forEach(doc=>{doc.dir=dir;doc.lang=L;doc.dataset.driverLanguage=L;});
+  root.querySelectorAll('.h1x').forEach(node=>{const h=node.parentElement?.querySelector('h1');if(h){h.textContent=clean(node.textContent);h.dir=dir;h.lang=L;}node.remove();});
+  root.querySelectorAll('.t2').forEach(node=>{const target=node.parentElement?.querySelector('.t');if(target){target.textContent=clean(node.textContent);target.dir=dir;target.lang=L;}node.remove();});
+  root.querySelectorAll('.k2').forEach(node=>{const target=node.parentElement;if(target){target.textContent=clean(node.textContent);target.dir=dir;target.lang=L;}});
+  root.querySelectorAll('.r2').forEach(node=>replaceFromChild(node.parentElement,'.r2',L));
+  root.querySelectorAll('.tbar .eyebrow').forEach(node=>{const parts=clean(node.textContent).split('·');node.textContent=clean(parts.at(-1));node.dir=dir;node.lang=L;});
+  const metaKeys=['docNo','greg','hij'];root.querySelectorAll('.tbar .meta .row .k').forEach((node,index)=>{node.textContent=tr(metaKeys[index],L,clean(node.textContent));node.dir=dir;node.lang=L;});
+  root.querySelectorAll('.bi .bir').forEach(row=>{row.querySelector('.a')?.remove();const b=row.querySelector('.b');if(b){b.style.gridColumn='2 / -1';b.dir=dir;b.lang=L;}});
+  root.querySelectorAll('.att').forEach(att=>{const lb=att.querySelector('.lb');if(lb){lb.textContent=tr('secAtt',L,clean(lb.textContent).split('·').at(-1));lb.dir=dir;lb.lang=L;}const translated=att.querySelector('.tx.x');att.querySelectorAll('.tx:not(.x)').forEach(node=>node.remove());if(translated){translated.classList.remove('x');translated.dir=dir;translated.lang=L;}});
+  root.querySelectorAll('.nm > .x,.l > .x,.ck span > .x,.ledn > .x').forEach(node=>replaceFromChild(node.parentElement,'.x',L));
+  root.querySelectorAll('.exe .cap').forEach(cap=>{const spans=cap.querySelectorAll('span');if(spans[0])spans[0].textContent=tr('sSign',L,'Signature');if(spans[1])spans[1].textContent=tr('sDate',L,'Date');});
+  root.querySelectorAll('.sig.thumb').forEach(sig=>{const role=sig.querySelector('.role'),box=sig.querySelector('.box');if(role)role.textContent=tr('sThumb',L,clean(role.textContent));if(box)box.textContent=tr('sThumbB',L,clean(box.textContent));});
+  root.querySelectorAll('.exe .seal').forEach(node=>node.textContent=tr('sSeal',L,clean(node.textContent)));
+  root.querySelectorAll('.colo .tx').forEach(box=>{const x=box.querySelector('.x'),legal=x?clean(x.textContent):tr('legalNote',L,'');box.innerHTML=`<b>${esc(tr('colo',L,''))}</b>${legal?` — ${esc(legal)}`:''}`;box.dir=dir;box.lang=L;});
+  root.querySelectorAll('.led.ins thead tr').forEach(row=>{const keys=['','tPos','tSize','tTread','tCond'];row.querySelectorAll('th').forEach((th,i)=>{th.textContent=i===0?(L==='en'?'No.':'نمبر'):tr(keys[i],L,clean(th.textContent));});});
+  const logKeys=['','lDate','lOdo','lKind','lDesc','lCost','lRep','lSigD','lSigS'];root.querySelectorAll('.led.log thead tr').forEach(row=>row.querySelectorAll('th').forEach((th,i)=>{th.textContent=i===0?(L==='en'?'No.':'نمبر'):tr(logKeys[i],L,clean(th.textContent));}));
+  const kindKeys=['kAcc','kBrk','kFine','kMnt','kTyre','kFuel','kOth'];root.querySelectorAll('.led.log tbody tr').forEach(row=>{row.querySelectorAll('.kk .ck2').forEach((node,i)=>{const cb=node.querySelector('.cb')?.outerHTML||'';node.innerHTML=cb+esc(tr(kindKeys[i],L,clean(node.textContent)));});const yn=row.querySelector('.yn');if(yn)yn.innerHTML=`<span class="cb"></span>${esc(tr('yes',L,'Yes'))} &nbsp; <span class="cb"></span>${esc(tr('no',L,'No'))}`;});
+  root.querySelectorAll('.vlabel').forEach(node=>{const doc=node.closest('.doc'),title=clean(doc?.querySelector('h1')?.textContent);if(title)node.textContent=title;});
+  root.querySelectorAll('.no-print,.noprint,[data-bh-runtime-notice],#bhSyncIntegrityStatus,#bhLoginSyncBanner,#bhSyncToast,.bh-sync-toast,.toast').forEach(node=>node.remove());
+  return tpl.innerHTML;
+}
+function panelHtml(){return `<section id="bhVehicleDeclarationEditor" class="note" style="margin-top:14px;padding:14px;background:#f8f5ef;border:1px solid var(--line);border-radius:10px">
+  <div class="row" style="margin-bottom:10px"><b style="color:var(--navy)">استكمال بيانات السيارة والسائق من نفس صفحة الإقرار</b><span class="sp"></span><span id="bhdSaveState" style="font-size:12px;color:var(--muted)"></span></div>
+  <div id="bhdWorkshopWarning" style="display:none;margin-bottom:10px;padding:10px;border-radius:8px;background:#f6e7e5;color:#8b2525;font-weight:700">هذه المركبة في الورشة أو متوقفة. أعدها للعمل أولًا قبل إصدار الإقرار.</div>
+  <div class="grid g4">
+    <div><label>حالة المركبة</label><select id="bhd_status"><option value="in_service">تعمل / في الخدمة</option><option value="stopped">في الورشة / متوقفة</option></select></div>
+    <div><label>رقم اللوحة</label><input id="bhd_plate"></div><div><label>نوع المركبة / المعدة</label><input id="bhd_type"></div><div><label>الماركة والموديل</label><input id="bhd_make"></div>
+    <div><label>سنة الصنع</label><input id="bhd_yr"></div><div><label>رقم الهيكل VIN</label><input id="bhd_vin" dir="ltr"></div><div><label>رقم المحرك</label><input id="bhd_eng" dir="ltr"></div><div><label>السعة / القدرة</label><input id="bhd_cap"></div>
+    <div><label>رقم الاستمارة</label><input id="bhd_reg"></div><div><label>انتهاء الاستمارة</label><input id="bhd_regE" type="date"></div><div><label>رقم الأصل ERP</label><input id="bhd_acct"></div><div><label>القيمة التقديرية</label><input id="bhd_val" type="number"></div>
+    <div style="grid-column:1/-1"><label>الملحقات المسلّمة</label><textarea id="bhd_acc" rows="2"></textarea></div><div style="grid-column:1/-1"><label>ملاحظات حالة المركبة</label><textarea id="bhd_note" rows="2"></textarea></div>
+  </div>
+  <div style="border-top:1px solid var(--line);margin:14px 0 10px;padding-top:12px"><b>بيانات السائق / المستلم المختار</b></div>
+  <div class="grid g4">
+    <div style="grid-column:span 2"><label>الاسم</label><input id="bhd_name"></div><div><label>الهوية / الإقامة</label><input id="bhd_nid"></div><div><label>الجنسية</label><input id="bhd_nat"></div>
     <div><label>المسمى الوظيفي</label><input id="bhd_role"></div><div><label>الرقم الوظيفي</label><input id="bhd_no"></div><div><label>الجوال</label><input id="bhd_tel"></div><div><label>تاريخ التعيين</label><input id="bhd_hire" type="date"></div>
     <div><label>رقم رخصة القيادة</label><input id="bhd_lic"></div><div><label>انتهاء الرخصة</label><input id="bhd_licE" type="date"></div>
   </div>
