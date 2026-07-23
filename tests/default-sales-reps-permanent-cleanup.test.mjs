@@ -13,10 +13,10 @@ test('placeholder sales employees are permanently removed and never recreated',(
   assert.match(cleanup,/list\.splice\(index,1\)/);
   assert.doesNotMatch(cleanup,/D\.emp\.push/);
   assert.doesNotMatch(cleanup,/PLACEHOLDERS/);
-  assert.match(index,/default-sales-reps\.js\?v=20260723-5/);
+  assert.match(index,/default-sales-reps\.js\?v=20260723-6/);
   assert.match(cleanup,/SESSION_VERIFIED_KEY='binhamid_owner_session_verified_v1'/);
   assert.match(cleanup,/if\(cleanupComplete\|\|!sessionReady\(\)\)return/);
-  assert.match(cleanup,/tries<3/);
+  assert.match(cleanup,/tries<2/);
   assert.doesNotMatch(cleanup,/tries<20/);
   assert.doesNotMatch(cleanup,/\nschedule\(\);\n/);
 });
