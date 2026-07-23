@@ -6,7 +6,7 @@ const clean=(value,max=500)=>String(value??'').trim().slice(0,max);
 const compact=value=>clean(value,500).toUpperCase().replace(/[^A-Z0-9\u0600-\u06FF]/g,'');
 const now=()=>new Date().toISOString();
 const PLATE_FIELDS=['plate','plate_no','plate_number','license_plate','license_plate_no','registration_no','registration_number','vehicle_no','number','code','name','external_id'];
-const MAKE_FIELDS=['make','brand','manufacturer','model','type','description','name'];
+const MAKE_FIELDS=['make','brand','manufacturer','model','type','description','name','vehicle_type','asset_name','asset_type'];
 
 function values(row,fields){return fields.map(field=>clean(row?.[field],500)).filter(Boolean);}
 function matchesTarget(row,targetPlate,targetMake){
@@ -31,13 +31,13 @@ async function deleteVehicleByPlate(input,identity){
   const plate=compact(input.plate),make=compact(input.make);
   if(plate!=='DGD7293')throw Object.assign(new Error('هذه العملية مقيدة باللوحة DGD-7293 فقط.'),{status:400,code:'CLEANUP_TARGET_REJECTED'});
   const [vehicles,assets]=await Promise.all([
-    select('vehicles','select=*&limit=2000'),
-    select('unified_assets','select=*&limit=2000').catch(error=>{console.error('[permanent cleanup unified_assets read]',error);return[];})
+    select('vehicles','active=eq.true&plate_no=ilike.*7293*&select=id,external_id,plate_no,make,model,vehicle_type,active&limit=100').catch(error=>{console.error('[permanent cleanup vehicles read]',error);return[];}),
+    select('unified_assets','active=eq.true&plate_no=ilike.*7293*&select=id,external_id,plate_no,make,model,asset_name,asset_type,active&limit=100').catch(error=>{console.error('[permanent cleanup unified_assets read]',error);return[];})
   ]);
   const vehicleMatches=(vehicles||[]).filter(row=>matchesTarget(row,plate,make)),assetMatches=(assets||[]).filter(row=>matchesTarget(row,plate,make));
   const stamp=now(),vehiclesChanged=await deactivateRows('vehicles',vehicleMatches,{active:false,driver_external_id:null}),assetsChanged=await deactivateRows('unified_assets',assetMatches,{active:false,assigned_employee_external_id:null});
-  await audit(identity,'vehicle_permanently_removed_from_active_roster','DGD-7293',{plate:'DGD-7293',make:'Renault',vehiclesChanged,assetsChanged,dieselExclusionChanged:false,at:stamp});
-  return{plate:'DGD-7293',make:'Renault',vehiclesChanged,assetsChanged,removed:vehiclesChanged+assetsChanged>0,dieselExclusionChanged:false};
+  if(vehiclesChanged||assetsChanged)await audit(identity,'vehicle_permanently_removed_from_active_roster','DGD-7293',{plate:'DGD-7293',make:'Renault',vehiclesChanged,assetsChanged,dieselExclusionChanged:false,at:stamp});
+  return{plate:'DGD-7293',make:'Renault',vehiclesChanged,assetsChanged,removed:vehiclesChanged+assetsChanged>0,alreadyAbsent:vehiclesChanged+assetsChanged===0,dieselExclusionChanged:false};
 }
 
 export async function permanentCleanup(req,res){
