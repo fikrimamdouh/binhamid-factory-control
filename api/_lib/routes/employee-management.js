@@ -122,7 +122,7 @@ async function transferTelegramEmployee(input,identity){
 
 async function reconcileDeclarationRoles(identity){
   const result=await reconcileLinkedEmployeeDeclarationRoles();
-  await audit(identity,'linked_employee_declaration_roles_reconciled','linked-employees',{...result,results:undefined});
+  if(result.changed>0||result.missing>0)await audit(identity,'linked_employee_declaration_roles_reconciled','linked-employees',{...result,results:undefined});
   return result;
 }
 
