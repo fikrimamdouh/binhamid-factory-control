@@ -14,11 +14,16 @@ async function syncMasters(payload){
   const vehicles=(legacy.veh||[]).map(x=>({external_id:clean(x.id,120),plate_no:clean(x.plate,120),asset_no:clean(x.acct,120),vehicle_type:clean(x.type,180),make:clean(x.make,180),model:clean(x.model,120),driver_external_id:clean(x.drv,120),status:clean(x.status||'active',80),active:x.act!==false,source_updated_at:now})).filter(x=>x.external_id);
   const customers=(legacy.cli||[]).map(x=>({external_id:clean(x.id,120),customer_code:clean(x.code||x.no,120),customer_name:clean(x.name),phone:clean(x.tel,80),segment:clean(x.seg,80),credit_limit:Number(x.cap||x.credit||0),payment_days:Number(x.days||0),active:x.act!==false,source_updated_at:now})).filter(x=>x.external_id);
   const jobs=[];for(const[table,rows]of[['employees',employees],['vehicles',vehicles],['customers',customers]])for(let i=0;i<rows.length;i+=200){const slice=rows.slice(i,i+200);jobs.push({table,count:slice.length,run:()=>upsert(table,slice,'external_id')});}
-  const totalChunks=jobs.length,totalRows=employees.length+vehicles.length+customers.length,deadline=Date.now()+8_000;let completedChunks=0,completedRows=0,deferredChunks=0,failedChunks=0;
+  const totalChunks=jobs.length,totalRows=employees.length+vehicles.length+customers.length,deadline=Date.now()+3_000;let completedChunks=0,completedRows=0,deferredChunks=0,failedChunks=0;
   async function worker(){while(jobs.length){if(Date.now()>deadline){deferredChunks+=jobs.length;jobs.length=0;return;}const job=jobs.shift();try{await job.run();completedChunks++;completedRows+=job.count;}catch(error){failedChunks++;console.warn('[state master chunk]',job.table,String(error?.message||'').slice(0,200));}}}
-  await Promise.all([worker(),worker(),worker(),worker()]);
+  await Promise.all([worker(),worker()]);
   if(deferredChunks)console.warn('[state master sync] deferred chunks:',deferredChunks);
   return{status:deferredChunks||failedChunks?'delayed':'complete',totalChunks,completedChunks,deferredChunks,failedChunks,totalRows,completedRows};
+}
+
+function shouldSyncMasters(input,reason){
+  if(input?.syncMasters===true)return true;
+  return /(تحديث البيانات الرئيسية|السجل الموحد|موظف|مركبة|مركبات|سيارة|عميل|عملاء|master data|employee|vehicle|customer)/i.test(reason);
 }
 
 export default async function handler(req,res){
@@ -32,9 +37,9 @@ export default async function handler(req,res){
       if(metaOnly)return json(res,200,{revision:Number(row.revision||0),updatedAt:row.updated_at,updatedBy:row.updated_by,deviceId:row.device_id,hasState:true,metaOnly:true});
       const payload=await enrichStatePayload(row.payload);return json(res,200,{revision:row.revision,updatedAt:row.updated_at,updatedBy:row.updated_by,deviceId:row.device_id,payload,hasState:true,metaOnly:false});
     }
-    const startedAt=Date.now(),input=await body(req),deviceId=clean(input.deviceId,160),payloadBytes=JSON.stringify(input.payload||{}).length;
+    const startedAt=Date.now(),input=await body(req),deviceId=clean(input.deviceId,160),payloadBytes=JSON.stringify(input.payload||{}).length,reason=clean(input.reason||'مزامنة',300);
     const incomingClients=(input.payload?.legacy?.cli||[]).length,incomingOpening=(input.payload?.ops?.customerOpeningBalances||[]).length;
-    console.log('[state save] bytes',payloadBytes,'| clients',incomingClients,'| opening',incomingOpening);
+    console.log('[state save] bytes',payloadBytes,'| clients',incomingClients,'| opening',incomingOpening,'| reason',reason);
     if(!input.payload||typeof input.payload!=='object')throw Object.assign(new Error('حالة البرنامج غير موجودة'),{status:400});
     if(!input.payload.legacy||!input.payload.ops)throw Object.assign(new Error('الحالة المرسلة ناقصة'),{status:400});
     if(actor.kind==='device'&&deviceId!==actor.deviceId)throw Object.assign(new Error('معرف الجهاز لا يطابق جلسة الربط'),{status:403,code:'DEVICE_ID_MISMATCH'});
@@ -44,10 +49,12 @@ export default async function handler(req,res){
 
     const requestedRevision=input.baseRevision===null||input.baseRevision===undefined?null:Number(input.baseRevision);
     if(requestedRevision===null){const existing=(await select('app_state','key=eq.primary&select=revision&limit=1').catch(()=>[]))?.[0];if(existing&&Number(existing.revision||0)>0)throw Object.assign(new Error('توجد نسخة سحابية قائمة. يجب سحبها ودمج التغييرات قبل الحفظ.'),{status:409,code:'REVISION_REQUIRED',remoteRevision:Number(existing.revision||0)});}
-    const saveStartedAt=Date.now(),result=await rpc('save_app_state',{p_payload:input.payload,p_base_revision:requestedRevision,p_updated_by:actor.actor,p_device_id:deviceId,p_reason:clean(input.reason||'مزامنة',300)}),saved=Array.isArray(result)?result[0]:result;
+    const saveStartedAt=Date.now(),result=await rpc('save_app_state',{p_payload:input.payload,p_base_revision:requestedRevision,p_updated_by:actor.actor,p_device_id:deviceId,p_reason:reason}),saved=Array.isArray(result)?result[0]:result;
     console.log('[state save] rpc ms',Date.now()-saveStartedAt);
-    const masterSync=await syncMasters(input.payload).catch(error=>({status:'delayed',totalChunks:0,completedChunks:0,deferredChunks:0,failedChunks:1,totalRows:0,completedRows:0,error:String(error?.message||'').slice(0,160)}));
-    await insert('audit_log',[{actor_type:actor.kind==='device'?'device':'web',actor_id:actor.actor,action:'state_sync',entity_type:'app_state',entity_id:'primary',details:{reason:clean(input.reason,300),deviceId,revision:saved?.revision,masterSync}}],{prefer:'return=minimal'}).catch(()=>{});
+    const masterSync=shouldSyncMasters(input,reason)
+      ?await syncMasters(input.payload).catch(error=>({status:'delayed',totalChunks:0,completedChunks:0,deferredChunks:0,failedChunks:1,totalRows:0,completedRows:0,error:String(error?.message||'').slice(0,160)}))
+      :{status:'skipped',reason:'snapshot_only',totalChunks:0,completedChunks:0,deferredChunks:0,failedChunks:0,totalRows:0,completedRows:0};
+    await insert('audit_log',[{actor_type:actor.kind==='device'?'device':'web',actor_id:actor.actor,action:'state_sync',entity_type:'app_state',entity_id:'primary',details:{reason,deviceId,revision:saved?.revision,masterSync}}],{prefer:'return=minimal'}).catch(()=>{});
     json(res,200,{ok:true,revision:Number(saved?.revision||0),updatedAt:saved?.updated_at||new Date().toISOString(),elapsedMs:Date.now()-startedAt,masterSync});
   }catch(error){if(/revision conflict/i.test(error.message||'')||error.data?.code==='40001'){error.status=409;error.code='REVISION_CONFLICT';error.message='توجد نسخة سحابية أحدث. يجب سحبها ودمج التغييرات قبل الحفظ.';}errorResponse(res,error);}
 }
