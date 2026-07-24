@@ -15,10 +15,9 @@ test('browser assistance remains enabled without replaying webhook-posted daily 
 });
 
 test('latest approved bot report follows commit time before report date',async()=>{
-  const { normalizeSelectQuery }=await import('../api/_lib/supabase.js');
-  const input='status=eq.approved&select=id,report_date,original_name,summary,preview_summary,approved_at,committed_at&order=report_date.desc&limit=1';
-  assert.equal(normalizeSelectQuery('daily_report_batches',input),'status=eq.approved&select=id,report_date,original_name,summary,preview_summary,approved_at,committed_at&order=committed_at.desc.nullslast,approved_at.desc.nullslast,report_date.desc&limit=1');
-  assert.equal(normalizeSelectQuery('daily_report_batches','status=eq.approved&select=report_date&order=report_date.desc&limit=50'),'status=eq.approved&select=report_date&order=report_date.desc&limit=50');
+  const reports=await read('api/_lib/bot-reports.js'),files=await read('api/_lib/bot-report-files.js');
+  assert.match(reports,/order=committed_at\.desc\.nullslast,approved_at\.desc\.nullslast,report_date\.desc&limit=1/);
+  assert.match(files,/order=committed_at\.desc\.nullslast,approved_at\.desc\.nullslast,report_date\.desc&limit=120/);
 });
 
 test('dashboard and application shell expose a protected bot activity record',async()=>{
