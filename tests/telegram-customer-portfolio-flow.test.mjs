@@ -52,19 +52,31 @@ test('concrete classifier accepts canonical and ready-mix values',()=>{
   assert.match(portfolio,/raw==='rmc'/);
 });
 
-test('server PDF reuses the canonical customer portfolio declaration renderer',()=>{
+test('server PDF uses the same website docCli document system',()=>{
   assert.match(portfolio,/renderCustomerPortfolioDeclaration/);
-  assert.match(portfolio,/CUSTOMER_PORTFOLIO_DECLARATION/);
-  assert.match(renderer,/إقرار مسؤولية عن محفظة عملاء/);
+  assert.match(portfolio,/company:state\.company/);
+  assert.match(renderer,/website-docCli-exact-v1/);
+  assert.match(renderer,/class="doc"/);
+  assert.match(renderer,/class="spine"/);
+  assert.match(renderer,/class="mast"/);
+  assert.match(renderer,/class="tbar"/);
+  assert.match(renderer,/class="dg"/);
+  assert.match(renderer,/class="led"/);
+  assert.match(renderer,/class="cov"/);
+  assert.match(renderer,/class="exe"/);
+  assert.match(renderer,/IBM Plex Sans Arabic/);
+  assert.match(renderer,/Reem Kufi/);
+  assert.match(renderer,/width:210mm;height:297mm/);
+  assert.match(renderer,/background:linear-gradient\(180deg,#0B2233/);
 });
 
-test('portfolio PDF is split into explicit complete A4 pages without cutting signatures or tables',()=>{
-  assert.match(renderer,/chunks\(customers,10\)/);
-  assert.match(renderer,/portfolio-page/);
-  assert.match(renderer,/height:281mm/);
+test('website-style PDF splits only at complete A4 document pages',()=>{
+  assert.match(renderer,/chunks\(model\.customers,10\)/);
+  assert.match(renderer,/page-break-after:always/);
   assert.match(renderer,/break-after:page/);
-  assert.match(renderer,/page-break-inside:avoid/);
-  assert.match(renderer,/signatures/);
+  assert.match(renderer,/break-inside:avoid/);
+  assert.match(renderer,/execution\(model,reference,model\.dateGregorian\)/);
+  assert.match(renderer,/pages\.push\(page/);
 });
 
 test('employee selection is exact, prioritizes residency, and never falls back to a mechanic',()=>{
