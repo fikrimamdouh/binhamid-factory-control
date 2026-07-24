@@ -22,6 +22,7 @@ import * as webAuth from './_lib/routes/web-auth.js';
 import * as factoryReset from './_lib/routes/factory-reset.js';
 import * as telegramMiniApp from './_lib/routes/telegram-mini-app.js';
 import * as reportsTelegram from './_lib/routes/reports-telegram.js';
+import * as customerPortfolioRange from './_lib/routes/customer-portfolio-range.js';
 import * as attendanceSafe from './_lib/routes/attendance-safe.js';
 import * as botPermissions from './_lib/routes/bot-permissions.js';
 import * as employeeManagement from './_lib/routes/employee-management.js';
@@ -50,6 +51,7 @@ const routes={
   'imports/status':imports.status,
   'daily-report':dailyReport.dailyReport,
   'daily-report/fifo':fifo.fifo,
+  'customer-portfolio/range':customerPortfolioRange.customerPortfolioRange,
   'accounting':accounting.accounting,
   'system/database-readiness':systemRuntime.databaseReadiness,
   'system/status':systemRuntime.status,
