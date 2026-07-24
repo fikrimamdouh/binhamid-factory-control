@@ -65,7 +65,8 @@ test('exact print capture carries portfolio metadata to the server',()=>{
 
 test('Telegram bot reuses exact stored website PDF before server fallback',()=>{
   assert.match(bot,/downloadObject/);
-  assert.match(bot,/latest-daily-\$\{type\}\.json/);
+  assert.match(bot,/function pointerPath\(type,mode='daily'\)/);
+  assert.match(bot,/readExactPointer\(type,'daily'\)/);
   assert.match(bot,/sendExactDailyPortfolio/);
   assert.match(bot,/exactWebsitePrint:true/);
   const exactCall=bot.indexOf('const exact=await sendExactDailyPortfolio'),fallbackCall=bot.indexOf('const generated=await generateCustomerPortfolioPdfs');
