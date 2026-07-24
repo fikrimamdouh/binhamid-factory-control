@@ -1,9 +1,97 @@
-import { select } from './supabase.js';
+import * as XLSX from 'xlsx';
+import { downloadObject, select } from './supabase.js';
 import { sendMessage, sendDocumentBuffer } from './telegram.js';
 import { generateCustomerPortfolioPdfs } from './customer-portfolio-pdf.js';
 
 const ALLOWED_ROLES=new Set(['admin','manager','accountant','block_sales','concrete_sales']);
 const collectionAmount=row=>Math.max(Number(row?.debit||0),Number(row?.credit||0));
+const clean=value=>String(value??'').trim();
+const westernDigits=value=>String(value??'').replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d));
+const DATE_CACHE=new Map();
+const ARABIC_MONTHS=new Map([
+  ['يناير',1],['فبراير',2],['مارس',3],['ابريل',4],['أبريل',4],['مايو',5],['يونيو',6],
+  ['يوليو',7],['اغسطس',8],['أغسطس',8],['سبتمبر',9],['اكتوبر',10],['أكتوبر',10],['نوفمبر',11],['ديسمبر',12]
+]);
+
+function isoDateParts(year,month,day){
+  const y=Number(year),m=Number(month),d=Number(day);
+  if(y<2000||y>2100||m<1||m>12||d<1||d>31)return'';
+  const value=`${String(y).padStart(4,'0')}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+  const parsed=new Date(`${value}T12:00:00Z`);
+  return Number.isNaN(parsed.getTime())||parsed.getUTCFullYear()!==y||parsed.getUTCMonth()+1!==m||parsed.getUTCDate()!==d?'':value;
+}
+function dateFromValue(value){
+  if(value instanceof Date&&!Number.isNaN(value.getTime()))return`${value.getFullYear()}-${String(value.getMonth()+1).padStart(2,'0')}-${String(value.getDate()).padStart(2,'0')}`;
+  const text=westernDigits(clean(value)).replace(/\s+/g,' ');
+  if(!text)return'';
+  let match=text.match(/\b(20\d{2})[./_-](\d{1,2})[./_-](\d{1,2})\b/);
+  if(match)return isoDateParts(match[1],match[2],match[3]);
+  match=text.match(/\b(\d{1,2})[./_-](\d{1,2})[./_-](20\d{2})\b/);
+  if(match)return isoDateParts(match[3],match[2],match[1]);
+  match=text.match(/\b(\d{1,2})\s+([أإا]?[^\s\d]{3,10})\s+(20\d{2})\b/);
+  if(match){
+    const normalized=match[2].replace(/^ا/,'أ'),month=ARABIC_MONTHS.get(match[2])||ARABIC_MONTHS.get(normalized);
+    if(month)return isoDateParts(match[3],month,match[1]);
+  }
+  return'';
+}
+function committedDate(batch){
+  const parsed=new Date(batch?.committed_at||batch?.approved_at||'');
+  return Number.isNaN(parsed.getTime())?'':new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Riyadh',year:'numeric',month:'2-digit',day:'2-digit'}).format(parsed);
+}
+function dateDistanceDays(left,right){
+  const a=new Date(`${left}T12:00:00Z`),b=new Date(`${right}T12:00:00Z`);
+  return Number.isNaN(a.getTime())||Number.isNaN(b.getTime())?9999:Math.round((a-b)/86400000);
+}
+async function originalPath(batch){
+  const direct=clean(batch?.file_storage_path||batch?.file_path||batch?.storage_path);
+  if(direct)return direct;
+  const id=clean(batch?.id);if(!id)return'';
+  const linked=await select('imports',`posted_batch_id=eq.${encodeURIComponent(id)}&select=file_path,original_name,created_at&order=created_at.desc&limit=1`).catch(()=>[]);
+  return clean(linked?.[0]?.file_path);
+}
+async function detectOriginalReportDate(batch){
+  const key=clean(batch?.id)||clean(batch?.file_hash)||clean(batch?.original_name);
+  const cached=DATE_CACHE.get(key);if(cached&&Date.now()-cached.at<300000)return cached.value;
+  const candidates=[];
+  const add=(value,score,source)=>{
+    const date=dateFromValue(value);if(!date)return;
+    const commit=committedDate(batch),distance=commit?dateDistanceDays(commit,date):9999;
+    let adjusted=score;
+    if(commit&&distance>=0&&distance<=45)adjusted+=20;
+    if(commit&&distance<0)adjusted-=80;
+    candidates.push({date,score:adjusted,source});
+  };
+  add(batch?.preview_summary?.reportDate,150,'preview');
+  add(batch?.summary?.reportDate,140,'summary');
+  add(batch?.original_name,85,'filename');
+  try{
+    const path=await originalPath(batch);
+    if(path){
+      const file=await downloadObject(path),workbook=XLSX.read(file.buffer,{type:'buffer',cellDates:true});
+      for(const sheetName of workbook.SheetNames.slice(0,20)){
+        const rows=XLSX.utils.sheet_to_json(workbook.Sheets[sheetName],{header:1,defval:'',raw:true,blankrows:false});
+        for(let rowIndex=0;rowIndex<Math.min(rows.length,400);rowIndex++){
+          const row=Array.isArray(rows[rowIndex])?rows[rowIndex].slice(0,50):[],rowLabel=westernDigits(row.map(clean).join(' '));
+          const exactLabel=/تاريخ\s*(?:التقرير|الحركه|الحركة|التشغيل|اليوم)|report\s*date|operating\s*date/i.test(rowLabel);
+          const genericLabel=/\bتاريخ\b|\bdate\b/i.test(rowLabel);
+          for(let cellIndex=0;cellIndex<row.length;cellIndex++){
+            const value=row[cellIndex],date=dateFromValue(value);if(!date)continue;
+            const nearby=westernDigits([row[cellIndex-2],row[cellIndex-1],row[cellIndex+1],row[cellIndex+2]].map(clean).join(' '));
+            const nearbyExact=/تاريخ\s*(?:التقرير|الحركه|الحركة|التشغيل|اليوم)|report\s*date|operating\s*date/i.test(nearby);
+            add(date,nearbyExact?180:exactLabel?160:genericLabel?95:25,`workbook:${sheetName}:${rowIndex+1}:${cellIndex+1}`);
+          }
+        }
+      }
+    }
+  }catch(error){
+    console.warn('[telegram portfolio workbook date]',{batchId:batch?.id||null,message:String(error?.message||'').slice(0,300)});
+  }
+  candidates.sort((a,b)=>b.score-a.score||b.date.localeCompare(a.date));
+  const value=candidates[0]?.score>=40?candidates[0]:null;
+  DATE_CACHE.set(key,{at:Date.now(),value});
+  return value;
+}
 
 function analysisFromCommitted(data){
   const sales=(data.sales||[]).map(row=>({
@@ -26,16 +114,16 @@ function analysisFromCommitted(data){
       treasuryCode:row.treasury_code,
       treasuryName:row.treasury_name
     }));
-  return{currentBatch:true,reportDate:data.batch.report_date,sales,collections};
+  return{currentBatch:true,reportDate:data.reportDate,sales,collections};
 }
 
 async function latestApprovedReportWithSales(){
   const batches=await select(
     'daily_report_batches',
-    'status=eq.approved&select=id,report_date,original_name,approved_at,committed_at&order=report_date.desc,committed_at.desc.nullslast,approved_at.desc.nullslast&limit=30'
+    'status=eq.approved&select=*&order=committed_at.desc.nullslast,approved_at.desc.nullslast,report_date.desc&limit=30'
   ).catch(()=>[]);
   if(!batches?.length)return null;
-  const ids=batches.map(row=>String(row.id||'').trim()).filter(Boolean);
+  const ids=batches.map(row=>clean(row.id)).filter(Boolean);
   if(!ids.length)return null;
   const sales=await select(
     'daily_report_sales_lines',
@@ -43,18 +131,26 @@ async function latestApprovedReportWithSales(){
   ).catch(()=>[]);
   const salesByBatch=new Map();
   for(const row of sales||[]){
-    const key=String(row.batch_id||'');
+    const key=clean(row.batch_id);
     if(!salesByBatch.has(key))salesByBatch.set(key,[]);
     salesByBatch.get(key).push(row);
   }
-  const batch=batches.find(row=>(salesByBatch.get(String(row.id))||[]).some(item=>Number(item.amount||0)>0));
+  const batch=batches.find(row=>(salesByBatch.get(clean(row.id))||[]).some(item=>Number(item.amount||0)>0));
   if(!batch)return null;
-  const id=encodeURIComponent(String(batch.id));
+  const id=encodeURIComponent(clean(batch.id));
   const cash=await select(
     'daily_report_cash_movements',
     `batch_id=eq.${id}&select=source_row_no,treasury_code,treasury_name,debit,credit,account_name,account_code,is_customer_collection&order=source_row_no.asc&limit=3000`
   ).catch(()=>[]);
-  return{batch,sales:salesByBatch.get(String(batch.id))||[],cash:cash||[]};
+  const detected=await detectOriginalReportDate(batch),storedReportDate=dateFromValue(batch.report_date);
+  return{
+    batch,
+    sales:salesByBatch.get(clean(batch.id))||[],
+    cash:cash||[],
+    reportDate:detected?.date||storedReportDate,
+    storedReportDate,
+    dateSource:detected?.source||'database'
+  };
 }
 
 function requestedTypes(identity,forcedTypes=[]){
@@ -71,19 +167,27 @@ export async function sendLatestPortfolioDeclarations(chatId,identity={},forcedT
   }
   const data=await latestApprovedReportWithSales();
   if(!data)return sendMessage(chatId,'لا يوجد تقرير يومي معتمد يحتوي مبيعات فعلية في قاعدة البيانات حتى الآن.');
-  const types=requestedTypes(identity,forcedTypes),date=data.batch.report_date;
-  await sendMessage(chatId,`جارٍ إعداد إقرارات محفظة العملاء من أحدث تقرير معتمد يحتوي مبيعات فعلية بتاريخ <b>${date}</b>. تم تجاوز أي تقرير أحدث فارغ.`);
+  if(!data.reportDate)return sendMessage(chatId,'تعذر تحديد تاريخ التقرير من قاعدة البيانات أو ملف Excel الأصلي؛ تم منع إرسال إقرار بتاريخ اليوم.');
+  const types=requestedTypes(identity,forcedTypes),date=data.reportDate,invoiceCount=data.sales.filter(row=>Number(row.amount||0)>0).length;
+  const corrected=data.storedReportDate&&data.storedReportDate!==date;
+  await sendMessage(chatId,[
+    '<b>إعداد إقرار محفظة العملاء — نسخة الخادم الجديدة</b>',
+    `الملف: <b>${clean(data.batch.original_name)||'التقرير اليومي'}</b>`,
+    `تاريخ التقرير: <b>${date}</b>`,
+    `الفواتير المعتمدة: <b>${invoiceCount}</b>`,
+    corrected?`تم تصحيح التاريخ المسجل <s>${data.storedReportDate}</s> إلى <b>${date}</b> بعد قراءة ملف Excel الأصلي.`:`مصدر التاريخ: <b>${data.dateSource==='database'?'سجل التقرير المعتمد':'ملف Excel الأصلي'}</b>.`
+  ].join('\n'));
   try{
     const reports=await generateCustomerPortfolioPdfs(
       analysisFromCommitted(data),
       data.batch.original_name||'التقرير اليومي',
       types,
-      {reportDate:date,dailyOnly:true}
+      {reportDate:date,dailyOnly:true,sourceBatchId:data.batch.id,storedReportDate:data.storedReportDate,dateSource:data.dateSource}
     );
     for(const report of reports){
       await sendDocumentBuffer(chatId,report.pdf,report.filename,'application/pdf',report.caption);
     }
-    await sendMessage(chatId,`تم إرسال ${reports.length} إقرار من التقرير المعتمد ذي المبيعات بتاريخ <b>${date}</b>.`);
+    await sendMessage(chatId,`تم إرسال ${reports.length} إقرار من نفس دفعة التقرير: <b>${invoiceCount}</b> فاتورة بتاريخ <b>${date}</b>.`);
     return reports;
   }catch(error){
     console.error('[telegram latest portfolio declarations]',{code:error?.code||null,status:Number(error?.status||error?.upstreamStatus||0),message:String(error?.message||'').slice(0,500)});
