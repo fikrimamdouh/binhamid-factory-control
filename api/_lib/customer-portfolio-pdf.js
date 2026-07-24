@@ -17,13 +17,21 @@ const icon=type=>type==='block'?'🧱':'🏗️';
 const ROLE_BY_TYPE={block:'مسؤول مبيعات البلوك',concrete:'مسؤول مبيعات الخرسانة'};
 const VALID_TYPES=new Set(['block','concrete']);
 function publicBase(){let value=String(process.env.PUBLIC_APP_URL||process.env.VERCEL_PROJECT_PRODUCTION_URL||'').trim().replace(/\/$/,'');if(value&&!/^https?:\/\//i.test(value))value=`https://${value}`;return value||'https://binhamid-factory-control.vercel.app';}
+function isoDate(value){const day=clean(value).slice(0,10);return /^\d{4}-\d{2}-\d{2}$/.test(day)?day:'';}
+function dateFromName(value){const text=clean(value).replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d));let match=text.match(/(20\d{2})[./_-](\d{1,2})[./_-](\d{1,2})/);if(match)return`${match[1]}-${String(match[2]).padStart(2,'0')}-${String(match[3]).padStart(2,'0')}`;match=text.match(/(\d{1,2})[./_-](\d{1,2})[./_-](20\d{2})/);return match?`${match[3]}-${String(match[2]).padStart(2,'0')}-${String(match[1]).padStart(2,'0')}`:'';}
+async function resolveReportDate(analysis,sourceFile){
+  const direct=isoDate(analysis?.reportDate||analysis?.detectedDate||analysis?.summary?.reportDate);if(direct)return direct;
+  const named=dateFromName(sourceFile);if(named)return named;
+  try{const rows=await select('daily_report_batches',`original_name=eq.${encodeURIComponent(sourceFile)}&status=eq.approved&select=report_date,committed_at&order=committed_at.desc&limit=1`),approved=isoDate(rows?.[0]?.report_date);if(approved)return approved;}catch(error){console.warn('[customer portfolio report date]',{message:String(error?.message||'').slice(0,240)});}
+  return riyadhDate();
+}
 
 function mergeEmployeeSources(legacyRows,cloudRows){
   const merged=(Array.isArray(legacyRows)?legacyRows:[]).map(row=>({...row})),byId=new Map(),byName=new Map(),byNationalId=new Map();
   const indexRow=(row,index)=>{const id=clean(row?.id||row?.external_id),name=norm(row?.name||row?.full_name),nationalId=digits(row?.nid||row?.national_id);if(id)byId.set(id,index);if(name)byName.set(name,index);if(nationalId)byNationalId.set(nationalId,index);};
   merged.forEach(indexRow);
   for(const row of cloudRows||[]){
-    const id=clean(row.external_id),name=clean(row.full_name),nationalId=digits(row.national_id),candidate=byId.get(id)??byNationalId.get(nationalId)??byName.get(norm(name)),values={id:id||undefined,name:name||undefined,nid:nationalId||undefined,no:clean(row.employee_no)||undefined,tel:clean(row.phone)||undefined,role:clean(row.role)||undefined,declarationRole:clean(row.role)||undefined,_cloudSource:true};
+    const id=clean(row.external_id),name=clean(row.full_name),nationalId=digits(row.national_id),candidate=byNationalId.get(nationalId)??byName.get(norm(name))??byId.get(id),values={id:id||undefined,name:name||undefined,nid:nationalId||undefined,no:clean(row.employee_no)||undefined,tel:clean(row.phone)||undefined,role:clean(row.role)||undefined,declarationRole:clean(row.role)||undefined,_cloudSource:true};
     if(candidate!==undefined){merged[candidate]={...merged[candidate],...Object.fromEntries(Object.entries(values).filter(([,value])=>value!==undefined))};indexRow(merged[candidate],candidate);}
     else{const next=Object.fromEntries(Object.entries(values).filter(([,value])=>value!==undefined));merged.push(next);indexRow(next,merged.length-1);}
   }
@@ -56,12 +64,11 @@ function repScore(employee,type){
   if(Array.isArray(employee?.employeeAliases)&&employee.employeeAliases.length)score+=10;
   return score;
 }
-function findRep(employees,type){
-  return(employees||[]).filter(employee=>employee?.act!==false&&repScore(employee,type)>0).sort((a,b)=>repScore(b,type)-repScore(a,type)||clean(a.name).localeCompare(clean(b.name),'ar'))[0]||null;
-}
+function findRep(employees,type){return(employees||[]).filter(employee=>employee?.act!==false&&repScore(employee,type)>0).sort((a,b)=>repScore(b,type)-repScore(a,type)||clean(a.name).localeCompare(clean(b.name),'ar'))[0]||null;}
 function repIds(rep){return new Set([rep?.id,rep?.external_id,...(Array.isArray(rep?.employeeAliases)?rep.employeeAliases:[])].map(clean).filter(Boolean));}
 function customerKey(value){return clean(value).toLowerCase();}
-function canonicalCustomers(type,projection,state,rep){
+function hasCurrentActivity(row){return Number(row?.currentSales||0)>0||Number(row?.currentApplied||0)>0||(Array.isArray(row?.invoices)&&row.invoices.length>0);}
+function canonicalCustomers(type,projection,state,rep,{dailyOnly=true}={}){
   const masterByCode=new Map(),masterByName=new Map();
   for(const client of state.clients){if(client?.code||client?.cr||client?.id)masterByCode.set(customerKey(client.code||client.cr||client.id),client);if(client?.name)masterByName.set(customerKey(client.name),client);}
   const selected=new Map(),linkedRepIds=repIds(rep);
@@ -78,22 +85,22 @@ function canonicalCustomers(type,projection,state,rep){
       paymentDays:Number(client?.days??state.days??3)||state.days
     });
   };
-  for(const client of state.clients){
+  if(!dailyOnly)for(const client of state.clients){
     const assigned=linkedRepIds.has(clean(client?.rep))||(Array.isArray(client?.repIds)&&client.repIds.some(id=>linkedRepIds.has(clean(id))));
     const segment=norm(client?.seg||'');
     if(assigned&&(!segment||segment.includes(type==='block'?'بلوك':'خرسان')||segment.includes('الاثنين')))add(client);
   }
   const projected=projection?.departments?.[type]?.rows||[];
-  for(const row of projected){const master=masterByCode.get(customerKey(row.code||row.customerCode))||masterByName.get(customerKey(row.name||row.customerName));add(master||{},row);}
+  for(const row of projected){if(dailyOnly&&!hasCurrentActivity(row))continue;const master=masterByCode.get(customerKey(row.code||row.customerCode))||masterByName.get(customerKey(row.name||row.customerName));add(master||{},row);}
   return[...selected.values()].sort((a,b)=>a.name.localeCompare(b.name,'ar'));
 }
 
-export async function generateCustomerPortfolioPdfs(analysis={},sourceFile='daily-report.xlsx',requestedTypes=['block','concrete']){
+export async function generateCustomerPortfolioPdfs(analysis={},sourceFile='daily-report.xlsx',requestedTypes=['block','concrete'],options={}){
   const types=[...new Set((Array.isArray(requestedTypes)?requestedTypes:[requestedTypes]).map(clean).filter(type=>VALID_TYPES.has(type)))];
   if(!types.length)throw Object.assign(new Error('حدد إقرار البلوك أو إقرار الخرسانة.'),{status:400,code:'PORTFOLIO_TYPE_REQUIRED'});
-  const reportDate=riyadhDate(),[state,projection]=await Promise.all([loadAppState(),loadProjectedCumulativeDailyReport(analysis,reportDate)]),baseUrl=`${publicBase()}/`,reports=[];
+  const reportDate=isoDate(options?.reportDate)||await resolveReportDate(analysis,sourceFile),dailyOnly=options?.dailyOnly!==false,[state,projection]=await Promise.all([loadAppState(),loadProjectedCumulativeDailyReport(analysis,reportDate,{currentBatch:true})]),baseUrl=`${publicBase()}/`,reports=[];
   for(const type of types){
-    const rep=findRep(state.employees,type),customers=canonicalCustomers(type,projection,state,rep),documentRef=`BHF-${type.toUpperCase()}-${reportDate.replace(/-/g,'')}`;
+    const rep=findRep(state.employees,type),customers=canonicalCustomers(type,projection,state,rep,{dailyOnly}),documentRef=`BHF-${type.toUpperCase()}-${reportDate.replace(/-/g,'')}`;
     const rendered=renderCustomerPortfolioDeclaration({
       type,
       companyName:state.companyName,
@@ -112,7 +119,7 @@ export async function generateCustomerPortfolioPdfs(analysis={},sourceFile='dail
     });
     const pdf=await htmlToPdf(rendered.document,{filename:`portfolio-${type}-${reportDate}`,landscape:false});
     const department=type==='block'?'البلوك':'الخرسانة';
-    reports.push({type,pdf,filename:`إقرار محفظة عملاء ${department}.pdf`,caption:`${icon(type)} إقرار محفظة عملاء ${department} — ${rep?.name||ROLE_BY_TYPE[type]} — ${reportDate}`,templateVersion:CUSTOMER_PORTFOLIO_TEXT_VERSION,sourceFile,employeeExternalId:clean(rep?.id||rep?.external_id),employeeNationalId:digits(rep?.nid||rep?.national_id)});
+    reports.push({type,pdf,filename:`إقرار محفظة عملاء ${department} — ${reportDate}.pdf`,caption:`${icon(type)} إقرار محفظة عملاء ${department} — ${rep?.name||ROLE_BY_TYPE[type]} — ${reportDate} — عملاء حركة اليوم: ${customers.length}`,templateVersion:CUSTOMER_PORTFOLIO_TEXT_VERSION,sourceFile,reportDate,customerCount:customers.length,employeeExternalId:clean(rep?.id||rep?.external_id),employeeNationalId:digits(rep?.nid||rep?.national_id)});
   }
   return reports;
 }
