@@ -32,7 +32,7 @@ function analysisFromCommitted(data){
 async function latestApprovedReport(){
   const batch=(await select(
     'daily_report_batches',
-    'status=eq.approved&select=id,report_date,original_name,approved_at,committed_at&order=committed_at.desc.nullslast,approved_at.desc.nullslast,report_date.desc&limit=1'
+    'status=eq.approved&select=id,report_date,original_name,approved_at,committed_at&order=report_date.desc,committed_at.desc.nullslast,approved_at.desc.nullslast&limit=1'
   ))?.[0];
   if(!batch)return null;
   const id=encodeURIComponent(String(batch.id));
@@ -56,7 +56,7 @@ export async function sendLatestPortfolioDeclarations(chatId,identity={}){
   const data=await latestApprovedReport();
   if(!data)return sendMessage(chatId,'لا يوجد تقرير يومي معتمد في قاعدة البيانات حتى الآن.');
   const types=requestedTypes(identity),date=data.batch.report_date;
-  await sendMessage(chatId,`جارٍ إعداد إقرارات محفظة العملاء من آخر تقرير معتمد بتاريخ <b>${date}</b>. لا يلزم فتح الموقع أو رفع الملف مرة أخرى.`);
+  await sendMessage(chatId,`جارٍ إعداد إقرارات محفظة العملاء من أحدث يوم مرفوع ومعتمد فعليًا: <b>${date}</b>. لا يعتمد الإقرار على تاريخ اليوم.`);
   try{
     const reports=await generateCustomerPortfolioPdfs(
       analysisFromCommitted(data),
@@ -67,7 +67,7 @@ export async function sendLatestPortfolioDeclarations(chatId,identity={}){
     for(const report of reports){
       await sendDocumentBuffer(chatId,report.pdf,report.filename,'application/pdf',report.caption);
     }
-    await sendMessage(chatId,`تم إرسال ${reports.length} إقرار من آخر تقرير معتمد بتاريخ <b>${date}</b>.`);
+    await sendMessage(chatId,`تم إرسال ${reports.length} إقرار من أحدث تقرير معتمد بتاريخ <b>${date}</b>.`);
     return reports;
   }catch(error){
     console.error('[telegram latest portfolio declarations]',{code:error?.code||null,status:Number(error?.status||error?.upstreamStatus||0),message:String(error?.message||'').slice(0,500)});
