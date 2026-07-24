@@ -28,7 +28,7 @@ test('Telegram portfolio command skips newer empty approved batches',()=>{
   assert.match(botPortfolio,/order=report_date\.desc,committed_at\.desc\.nullslast,approved_at\.desc\.nullslast&limit=30/);
   assert.match(botPortfolio,/salesByBatch/);
   assert.match(botPortfolio,/Number\(item\.amount\|\|0\)>0/);
-  assert.match(botPortfolio,/تم تجاوز أي تقرير أحدث فارغ/);
+  assert.match(botPortfolio,/const batch=batches\.find/);
   assert.doesNotMatch(botPortfolio,/report_date=eq\./);
 });
 
