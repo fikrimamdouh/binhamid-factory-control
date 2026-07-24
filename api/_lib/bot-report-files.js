@@ -34,8 +34,8 @@ function datesFromText(text=''){
 
 export function parseStoredReportRequest(text=''){
   const raw=String(text||''),kind=requestKind(raw),normalized=norm(raw);
-  const explicitExcel=/\b(?:excel|xlsx|xls)\b/i.test(raw)||/اكسل|إكسل/.test(normalized);
-  if(!kind||!explicitExcel||!/ملف|تحميل|نزل|نزّل|ارسل|أرسل/.test(normalized))return null;
+  const explicitExcel=/\b(?:excel|xlsx|xls)\b/i.test(raw)||/اكسل|إكسل/.test(normalized),reportRequest=/تقرير|تقارير/.test(normalized),deliveryRequest=/ملف|تحميل|نزل|نزّل|ارسل|أرسل/.test(normalized);
+  if(!kind||(!explicitExcel&&!reportRequest&&!deliveryRequest))return null;
   const dates=datesFromText(raw);
   if(dates.length>=2)return{kind,from:dates[0]<=dates[1]?dates[0]:dates[1],to:dates[0]<=dates[1]?dates[1]:dates[0]};
   if(dates.length===1)return{kind,date:dates[0]};
@@ -66,7 +66,7 @@ function caption(row,kind){
 }
 
 async function reportRows(){
-  return select('daily_report_batches','file_storage_path=not.is.null&select=id,report_date,original_name,file_storage_path,status,preview_summary,summary,approved_at,committed_at&order=report_date.desc&limit=120');
+  return select('daily_report_batches','file_storage_path=not.is.null&select=id,report_date,original_name,file_storage_path,status,preview_summary,summary,approved_at,committed_at&order=committed_at.desc.nullslast,approved_at.desc.nullslast,report_date.desc&limit=120');
 }
 
 export async function sendStoredReportFile(chatId,id,identity,kind='daily'){

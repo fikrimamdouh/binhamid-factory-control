@@ -14,6 +14,12 @@ test('browser assistance remains enabled without replaying webhook-posted daily 
   assert.match(cloud,/مساعد المتصفح/);assert.match(cloud,/Telegram\. The website remains a complete manual path/);assert.match(cloud,/status==='ready'/);assert.match(stream,/function eligible\(\)\{return false;\}/);assert.match(guard,/dailyWebsiteApproval:true/);assert.doesNotMatch(guard,/الترحيل التلقائي موقوف رقابيًا/);
 });
 
+test('latest approved bot report follows commit time before report date',async()=>{
+  const reports=await read('api/_lib/bot-reports.js'),files=await read('api/_lib/bot-report-files.js');
+  assert.match(reports,/order=committed_at\.desc\.nullslast,approved_at\.desc\.nullslast,report_date\.desc&limit=1/);
+  assert.match(files,/order=committed_at\.desc\.nullslast,approved_at\.desc\.nullslast,report_date\.desc&limit=120/);
+});
+
 test('dashboard and application shell expose a protected bot activity record',async()=>{
   const dashboard=await read('api/_lib/routes/manager-dashboard.js'),index=await read('index.html'),ui=await read('assets/bot-activity-dashboard.js');
   for(const marker of ['botActivity','topUsers','topActions','recentActions'])assert.match(dashboard,new RegExp(marker));assert.match(index,/bot-activity-dashboard\.js/);for(const marker of ['bhBotActivityTab','/api/dashboard','سجل وتحليلات البوت','topUsers'])assert.match(ui,new RegExp(marker));

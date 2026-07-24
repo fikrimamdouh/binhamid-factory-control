@@ -31,10 +31,15 @@ async function notifyOwnerOfNewIdentity(identity,from,wasKnown){
   try{return await sendMessage(owner,text,{action_name:'telegram_user_first_seen',action_payload:{external_id:externalId,role,status:identity?.active?'active':'pending'}});}
   catch(error){console.warn('[telegram owner new user notification]',{externalId,message:String(error?.message||'').slice(0,220)});return null;}
 }
+export function enforceTelegramOwnerIdentity(identity,externalId,ownerId=config.telegramOwnerId){
+  const owner=String(ownerId||'').trim(),sender=String(externalId||'').trim();
+  if(!owner||!sender||owner!==sender)return identity;
+  return{...identity,external_id:sender,active:true,role:'admin'};
+}
 export async function ensureTelegramIdentity(from){
-  const externalId=String(from.id),wasKnown=await identityWasKnown(externalId);
-  const raw=await rpc('register_telegram_identity',{p_external_id:externalId,p_username:String(from.username||''),p_full_name:[from.first_name,from.last_name].filter(Boolean).join(' ')||externalId,p_make_owner:Boolean(config.telegramOwnerId&&externalId===config.telegramOwnerId)});
-  const identity=await enrichIdentity(raw,from);await syncEmployeeMaster(identity,from);await notifyOwnerOfNewIdentity(identity,from,wasKnown);return identity;
+  const externalId=String(from.id),wasKnown=await identityWasKnown(externalId),owner=Boolean(config.telegramOwnerId&&externalId===String(config.telegramOwnerId));
+  const raw=await rpc('register_telegram_identity',{p_external_id:externalId,p_username:String(from.username||''),p_full_name:[from.first_name,from.last_name].filter(Boolean).join(' ')||externalId,p_make_owner:owner});
+  const identity=enforceTelegramOwnerIdentity(await enrichIdentity(raw,from),externalId);await syncEmployeeMaster(identity,from);await notifyOwnerOfNewIdentity(identity,from,wasKnown);return identity;
 }
 // إخفاء الأسرار قبل الحفظ: التوكنات وكلمات المرور التي قد يرسلها المستخدم
 // بالخطأ لا تُسجَّل أبدًا — لا في نص الرسالة ولا في النسخة الخام المحفوظة.

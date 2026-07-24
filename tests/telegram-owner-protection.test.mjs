@@ -16,6 +16,16 @@ test('Telegram owner uses one canonical environment variable',async()=>{
   assert.doesNotMatch(example,/OWNER_TELEGRAM_ID/);
 });
 
+test('Telegram owner identity is forced active admin for direct daily approval',async()=>{
+  const { enforceTelegramOwnerIdentity }=await import('../api/_lib/bot-webhook-core.js');
+  const pending={user_id:'owner-user',external_id:'123',active:false,role:'pending'};
+  assert.deepEqual(enforceTelegramOwnerIdentity(pending,'123','123'),{...pending,external_id:'123',active:true,role:'admin'});
+  assert.equal(enforceTelegramOwnerIdentity(pending,'456','123'),pending);
+  const source=await read('api/_lib/bot-webhook-core.js');
+  assert.match(source,/p_make_owner:owner/);
+  assert.match(source,/enforceTelegramOwnerIdentity\(await enrichIdentity\(raw,from\),externalId\)/);
+});
+
 test('Telegram test cleanup is owner-only and cannot select the owner account',async()=>{
   const source=await read('api/_lib/bot-enterprise.js');
   assert.match(source,/if\(!isOwner\(identity\)\)return sendMessage/);

@@ -45,6 +45,8 @@ export function reportKeyboard(){
   return keyboard([
     [{text:'تقرير اليوم الكامل',callback_data:'report:daily'}],
     [{text:'تقرير البلوك PDF',callback_data:'report:block'},{text:'تقرير الخرسانة PDF',callback_data:'report:concrete'}],
+    [{text:'آخر ملف بلوك Excel',callback_data:'report:block_file'},{text:'آخر ملف خرسانة Excel',callback_data:'report:concrete_file'}],
+    [{text:'آخر ملف التقرير الكامل Excel',callback_data:'report:daily_file'}],
     [{text:'كل فواتير اليوم',callback_data:'report:invoices'},{text:'تحصيلات اليوم',callback_data:'report:collections'}],
     [{text:'حركة الخزائن',callback_data:'report:cash'},{text:'أرصدة الخزائن',callback_data:'report:treasuries'}],
     [{text:'حركة المخزون',callback_data:'report:inventory'},{text:'تحليلات اليوم',callback_data:'report:analysis'}],
@@ -54,7 +56,7 @@ export function reportKeyboard(){
 
 async function latestCommittedData(){
   if(dailyCache.value&&Date.now()-dailyCache.at<15_000)return dailyCache.value;
-  const batch=(await select('daily_report_batches','status=eq.approved&select=id,report_date,original_name,summary,preview_summary,approved_at,committed_at&order=report_date.desc&limit=1'))?.[0];
+  const batch=(await select('daily_report_batches','status=eq.approved&select=id,report_date,original_name,summary,preview_summary,approved_at,committed_at&order=committed_at.desc.nullslast,approved_at.desc.nullslast,report_date.desc&limit=1'))?.[0];
   if(!batch)return null;
   const id=encodeURIComponent(String(batch.id));
   const[sales,cash,treasuries,inventory]=await Promise.all([
@@ -117,6 +119,8 @@ function analytics(data,opening){
 function dailyDetailKeyboard(){
   return keyboard([
     [{text:'تقرير البلوك PDF',callback_data:'report:block'},{text:'تقرير الخرسانة PDF',callback_data:'report:concrete'}],
+    [{text:'آخر ملف بلوك Excel',callback_data:'report:block_file'},{text:'آخر ملف خرسانة Excel',callback_data:'report:concrete_file'}],
+    [{text:'آخر ملف التقرير الكامل Excel',callback_data:'report:daily_file'}],
     [{text:'كل الفواتير',callback_data:'report:invoices'},{text:'التحصيلات',callback_data:'report:collections'}],
     [{text:'الخزائن',callback_data:'report:cash'},{text:'المخزون',callback_data:'report:inventory'}],
     [{text:'التحليلات',callback_data:'report:analysis'}]
