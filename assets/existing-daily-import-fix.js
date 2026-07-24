@@ -85,6 +85,10 @@
   async function saveMovementCollections(rows,reportDate,batch){
     const fresh=filterFreshCollections(rows,reportDate);
     if(!fresh.length)return{count:0,amount:0};
+    // OPS متغيّر محلي في الصفحة وقد لا يظهر على window للسكربتات المحقونة. بلا سجل
+    // التحصيلات المحلي لا يمكن الحفظ محليًا؛ الاعتماد السحابي هو مصدر الحقيقة، فنتخطى
+    // بأمان بدل الانهيار بـ«Cannot read properties of undefined (reading 'collections')».
+    if(!window.OPS||!Array.isArray(window.OPS.collections))return{count:0,amount:0,skipped:'no-local-ops'};
     let count=0,amount=0;
     for(const source of fresh){
       const row={...source,date:source.date||reportDate};

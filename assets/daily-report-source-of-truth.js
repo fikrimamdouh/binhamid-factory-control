@@ -3,6 +3,7 @@
   const VERSION='2026.07.24-daily-report-source-v4',TOKEN_KEY='binhamid_cloud_access_token';
   let installed=false,activeContext=null,modalWrapped=false;
   const wrappedImports=new Set();
+  const guardedByAccessor=new Set();
   const clean=value=>String(value??'').trim();
   const num=value=>{const parsed=Number(String(value??0).replace(/[٬,]/g,'').replace(/٫/g,'.'));return Number.isFinite(parsed)?parsed:0;};
   const norm=value=>clean(value).toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/ـ/g,'').replace(/\s+/g,' ');
@@ -47,8 +48,13 @@
           },
           set(value){realImports.set(name,value);}
         });
+        guardedByAccessor.add(name);
       }catch(error){
-        console.warn('[BinHamid] تعذر تركيب حارس الاستيراد لـ',name,error);
+        // الدالة معرّفة كخاصية غير قابلة لإعادة التعريف (تصريح دالة عام). لا نستسلم:
+        // نُركّب الحارس بالإسناد المباشر لأن الخاصية تبقى قابلة للكتابة. الأصل محفوظ
+        // في realImports، وwrapImports سيُسند الغلاف الحقيقي لاحقًا بالطريقة ذاتها.
+        try{window[name]=blockedImport();}
+        catch(assignError){console.warn('[BinHamid] تعذر تركيب حارس الاستيراد لـ',name,assignError);}
       }
     }
   }
@@ -180,6 +186,12 @@
       Object.defineProperty(wrapped,'name',{value:`bhWrapped_${name}`,configurable:true});
       realImports.set(name,wrapped);
       wrappedImports.add(name);
+      // إن تعذّر تركيب الـaccessor، فإن window[name] لا يمرّ عبر realImports، فنُسند
+      // الغلاف مباشرةً (الخاصية قابلة للكتابة) وإلا بقي الاستيراد الأصلي بلا اعتماد سحابي.
+      if(!guardedByAccessor.has(name)){
+        try{window[name]=wrapped;}
+        catch(assignError){console.warn('[BinHamid] تعذر إسناد غلاف الاستيراد لـ',name,assignError);}
+      }
     }
     return IMPORT_FNS.every(([name])=>wrappedImports.has(name));
   }
