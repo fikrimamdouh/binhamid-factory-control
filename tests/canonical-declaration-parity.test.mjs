@@ -70,6 +70,6 @@ test('boot loads editable text behavior before exact Telegram print capture',()=
   const canonical=index.indexOf('canonical-declaration-texts.js?v=20260722-2');
   const telegram=index.indexOf('telegram-pdf-declarations.js?v=20260724-10');
   assert.ok(canonical>=0&&telegram>canonical);
-  assert.match(index,/exact-portfolio-metadata-bridge\.js\?v=20260724-1/);
+  assert.match(index,/exact-portfolio-metadata-bridge\.js\?v=20260724-2/);
   assert.match(index,/legacy\.html\?v=20260723-boot-write-serialization-1/);
 });
