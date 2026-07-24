@@ -20,12 +20,19 @@ test('portfolio declarations use the approved report date instead of browser dat
   assert.match(portfolio,/dateGregorian:reportDate/);
 });
 
-test('portfolio declarations include only customers affected by the report day',()=>{
-  assert.match(portfolio,/dailyOnly=options\?\.dailyOnly!==false/);
-  assert.match(portfolio,/hasCurrentActivity/);
-  assert.match(portfolio,/currentSales/);
-  assert.match(portfolio,/currentApplied/);
-  assert.match(portfolio,/loadProjectedCumulativeDailyReport\(analysis,reportDate,\{currentBatch:true\}\)/);
+test('portfolio declarations build report-day customers directly from approved sales lines',()=>{
+  assert.match(portfolio,/directDailyCustomers/);
+  assert.match(portfolio,/analysis\?\.sales/);
+  assert.match(portfolio,/row\?\.customerCode\|\|row\?\.customer_code/);
+  assert.match(portfolio,/saleType\(row\)!==type/);
+  assert.match(portfolio,/if\(!direct\.length\)/);
+});
+
+test('concrete classifier accepts canonical and ready-mix values',()=>{
+  assert.match(portfolio,/raw\.includes\('خرسان'\)/);
+  assert.match(portfolio,/raw\.includes\('concrete'\)/);
+  assert.match(portfolio,/raw\.includes\('ready mix'\)/);
+  assert.match(portfolio,/raw==='rmc'/);
 });
 
 test('server PDF reuses the canonical customer portfolio declaration renderer',()=>{
@@ -34,7 +41,12 @@ test('server PDF reuses the canonical customer portfolio declaration renderer',(
   assert.match(renderer,/إقرار مسؤولية عن محفظة عملاء/);
 });
 
-test('employee selection gives priority to a residency identity',()=>{
+test('employee selection is exact, prioritizes residency, and never falls back to a mechanic',()=>{
+  assert.match(portfolio,/ROLE_ALIASES/);
+  assert.match(portfolio,/if\(!roleMatches\(employee,type\)\)return-1/);
   assert.match(portfolio,/digits\(employee\?\.nid\|\|employee\?\.national_id\)\.length>=10/);
-  assert.match(portfolio,/byNationalId\.get\(nationalId\)\?\?byName\.get/);
+  assert.doesNotMatch(portfolio,/role\.includes\(token\)/);
+  assert.doesNotMatch(portfolio,/byName\.get/);
+  assert.match(portfolio,/تم منع إصدار الإقرار باسم موظف غير صحيح/);
+  assert.match(portfolio,/role:ROLE_BY_TYPE\[type\]/);
 });
