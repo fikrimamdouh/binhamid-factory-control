@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 
 const read=path=>readFileSync(new URL(`../${path}`,import.meta.url),'utf8');
 
-test('Telegram customer portfolio PDFs keep the shared server renderer',()=>{
+test('Telegram customer portfolio PDFs keep the shared server renderer as fallback',()=>{
   const shared=read('shared/customer-portfolio-declaration.js');
   const server=read('api/_lib/customer-portfolio-pdf.js');
   assert.match(shared,/export function renderCustomerPortfolioDeclaration/);
@@ -65,10 +65,11 @@ test('Telegram daily PDF bundle includes both customer portfolio declarations',(
   assert.match(files,/for\(const portfolio of portfolios\)\{await sendDocumentBuffer\(chatId,portfolio\.pdf,portfolio\.filename,'application\/pdf',portfolio\.caption\)/);
 });
 
-test('boot loads editable text behavior before Telegram print integration',()=>{
+test('boot loads editable text behavior before exact Telegram print capture',()=>{
   const index=read('index.html');
   const canonical=index.indexOf('canonical-declaration-texts.js?v=20260722-2');
-  const telegram=index.indexOf('telegram-pdf-declarations.js?v=20260723-9');
+  const telegram=index.indexOf('telegram-pdf-declarations.js?v=20260724-10');
   assert.ok(canonical>=0&&telegram>canonical);
+  assert.match(index,/exact-portfolio-metadata-bridge\.js\?v=20260724-1/);
   assert.match(index,/legacy\.html\?v=20260723-boot-write-serialization-1/);
 });
