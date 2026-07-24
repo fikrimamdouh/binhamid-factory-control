@@ -1,12 +1,13 @@
-// [BinHamid] 2026.07.24-exact-portfolio-metadata-bridge-v1
+// [BinHamid] 2026.07.24-exact-portfolio-metadata-bridge-v2-activity-date
 (function(){
   'use strict';
   if(window.__BH_EXACT_PORTFOLIO_METADATA_BRIDGE__)return;
   window.__BH_EXACT_PORTFOLIO_METADATA_BRIDGE__=true;
-  const VERSION='2026.07.24-exact-portfolio-metadata-bridge-v1';
+  const VERSION='2026.07.24-exact-portfolio-metadata-bridge-v2-activity-date';
   const clean=value=>String(value??'').replace(/\s+/g,' ').trim();
   const digits=value=>clean(value).replace(/\D/g,'');
-  let latestCommit=null,installedSender=null;
+  const iso=value=>/^\d{4}-\d{2}-\d{2}$/.test(clean(value).slice(0,10))?clean(value).slice(0,10):'';
+  let latestCommit=null,installedSender=null,activityCache={at:0,dates:{}};
 
   function runtime(){let data={},ops={};try{data=typeof D!=='undefined'?D:(window.D||{});}catch{data=window.D||{};}try{ops=typeof OPS!=='undefined'?OPS:(window.OPS||{});}catch{ops=window.OPS||{};}return{D:data||{},OPS:ops||{}};}
   function kindFromSegment(value){return clean(value)==='بلوك'?'block':clean(value)==='خرسانة'?'concrete':'';}
@@ -14,10 +15,19 @@
   function declarationButton(button){return Boolean(button&&(/\bprCli\s*\(/.test(button.getAttribute?.('onclick')||'')||button.dataset?.bhPortfolioRangePrint==='1'));}
   function storedDate(employee,kind){const rows=runtime().OPS.dailyPortfolioDeclarations||[];return rows.filter(row=>row.employeeId===employee?.id&&row.kind===kind&&row.reportDate).sort((a,b)=>String(b.reportDate).localeCompare(String(a.reportDate)))[0]?.reportDate||'';}
   function customerCount(employee,segment){try{return typeof window.clientPortfolioForEmployee==='function'?(window.clientPortfolioForEmployee(employee,segment)||[]).length:0;}catch{return 0;}}
-  function metadata(){
+  async function latestActivityDate(kind,employee){
+    const key=`${kind}:${clean(employee?.id)}`,cached=activityCache.dates[key];
+    if(cached&&Date.now()-activityCache.at<30_000)return cached;
+    try{
+      const params=new URLSearchParams({route:'customer-portfolio/range',sector:kind,employee:clean(employee?.id)}),response=await fetch(`/api/router?${params}`,{credentials:'same-origin',cache:'no-store'}),data=await response.json().catch(()=>({}));
+      if(response.ok&&data.ok){const date=iso(data.latestActivityDate||data.to);if(date){activityCache={at:Date.now(),dates:{...activityCache.dates,[key]:date}};return date;}}
+    }catch(error){console.warn('[BinHamid exact portfolio activity date]',error);}
+    return'';
+  }
+  async function metadata(){
     const employee=selectedEmployee(),segment=document.getElementById('pcSeg')?.value||'',kind=kindFromSegment(segment);
     if(!employee||!kind)return null;
-    const reportDate=latestCommit?.reportDate||storedDate(employee,kind)||new Date().toISOString().slice(0,10);
+    const reportDate=iso(latestCommit?.reportDate)||await latestActivityDate(kind,employee)||iso(storedDate(employee,kind))||new Date().toISOString().slice(0,10);
     return{documentType:'customer_portfolio',portfolioType:kind,periodMode:'daily',periodFrom:reportDate,periodTo:reportDate,reportDate,employeeId:clean(employee.id),employeeName:clean(employee.name),employeeNationalId:digits(employee.nid||employee.iqamaId||employee.nationalId||employee.no),customerCount:customerCount(employee,segment),sector:kind};
   }
   function wrapFetch(){
@@ -41,7 +51,7 @@
     if(typeof current!=='function')return false;
     if(current===installedSender||current.__bhExactPortfolioMetadata)return true;
     const wrapped=async function(printButton,sendButton){
-      if(declarationButton(printButton)&&!window.__BH_PORTFOLIO_EXPLICIT_METADATA_LOCK__){const value=metadata();if(value)window.bhSetNextPrintMetadata?.(value);}
+      if(declarationButton(printButton)&&!window.__BH_PORTFOLIO_EXPLICIT_METADATA_LOCK__){const value=await metadata();if(value)window.bhSetNextPrintMetadata?.(value);}
       return current.apply(this,arguments);
     };
     wrapped.__bhExactPortfolioMetadata=true;wrapped.__bhOriginal=current;installedSender=wrapped;window.bhSendPrintedButtonToTelegram=wrapped;return true;
