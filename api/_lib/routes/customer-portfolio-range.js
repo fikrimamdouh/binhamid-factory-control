@@ -33,7 +33,7 @@ const STATUS_LABELS={settled:'صفّى الرصيد السابق',partial:'سد�
 async function paged(table,query,maxPages=30){
   const rows=[];
   for(let page=0;page<maxPages;page++){
-    const part=await select(table,`${query}${query?'&':''}limit=1000&offset=${page*1000}`).catch(()=>[]);
+    const part=await select(table,`${query}${query?'&':''}limit=1000&offset=${page*1000}`);
     rows.push(...(part||[]));
     if(!part||part.length<1000)break;
   }
@@ -76,7 +76,7 @@ export async function customerPortfolioRange(req,res){
     const [batchRows,openingRows,stateRows,cloudEmployees]=await Promise.all([
       paged('daily_report_batches',`status=eq.approved&report_date=lte.${encodeURIComponent(ceiling)}&select=id,report_date,original_name,committed_at&order=report_date.asc,committed_at.asc`,5),
       paged('customer_opening_balances','select=customer_code,customer_name,balance',10),
-      select('app_state','key=eq.primary&select=payload&limit=1').catch(()=>[]),
+      select('app_state','key=eq.primary&select=payload&limit=1'),
       paged('employees','active=eq.true&select=external_id,national_id,employee_no,full_name,phone,role,active&order=full_name.asc',5)
     ]);
     const batches=(batchRows||[]).filter(row=>isoDate(row.report_date)),batchDate=new Map(batches.map(row=>[String(row.id),isoDate(row.report_date)])),ids=batches.map(row=>String(row.id));
