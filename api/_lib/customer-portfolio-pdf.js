@@ -11,8 +11,8 @@ import {
 
 const norm=value=>String(value??'').trim().toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ًٌٍَُِّْـ]/g,'').replace(/[_-]+/g,' ').replace(/\s+/g,' ');
 const clean=value=>String(value??'').trim();
+const htmlEsc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const digits=value=>clean(value).replace(/\D/g,'');
-const riyadhDate=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Riyadh',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
 const icon=type=>type==='block'?'🧱':'🏗️';
 const ROLE_BY_TYPE={block:'مسؤول مبيعات البلوك',concrete:'مسؤول مبيعات الخرسانة'};
 const ROLE_ALIASES={
@@ -27,7 +27,7 @@ async function resolveReportDate(analysis,sourceFile){
   const direct=isoDate(analysis?.reportDate||analysis?.detectedDate||analysis?.summary?.reportDate);if(direct)return direct;
   const named=dateFromName(sourceFile);if(named)return named;
   try{const rows=await select('daily_report_batches',`original_name=eq.${encodeURIComponent(sourceFile)}&status=eq.approved&select=report_date,committed_at&order=committed_at.desc&limit=1`),approved=isoDate(rows?.[0]?.report_date);if(approved)return approved;}catch(error){console.warn('[customer portfolio report date]',{message:String(error?.message||'').slice(0,240)});}
-  return riyadhDate();
+  throw Object.assign(new Error('تعذر تحديد تاريخ التقرير المعتمد؛ تم منع إنشاء إقرار بتاريخ اليوم.'),{status:422,code:'PORTFOLIO_REPORT_DATE_REQUIRED'});
 }
 
 function roleMatchesValue(value,type){return ROLE_ALIASES[type]?.has(norm(value))||false;}
@@ -85,6 +85,22 @@ function directDailyCustomers(type,analysis={}){
   }
   return rows;
 }
+function invoiceRows(type,analysis={}){
+  return(analysis?.sales||[]).filter(row=>saleType(row)===type&&Number(row?.amount??row?.total??row?.total_amount??0)>0).map((row,index)=>({
+    invoice:clean(row?.invoice||row?.invoiceNo||row?.invoice_no)||`سطر ${row?.row||index+1}`,
+    customer:clean(row?.customer||row?.customerName||row?.customer_name||'عميل غير محدد'),
+    customerCode:clean(row?.customerCode||row?.customer_code),
+    item:clean(row?.item||row?.itemName||row?.item_name||'صنف غير محدد'),
+    quantity:Number(row?.quantity||0),
+    amount:Number(row?.amount??row?.total??row?.total_amount??0)
+  }));
+}
+function injectTelegramEvidence(document,{reportDate,sourceFile,invoices,storedReportDate,dateSource,sourceBatchId}){
+  const refs=[...new Set(invoices.map(row=>row.invoice).filter(Boolean))],shown=refs.slice(0,30),more=Math.max(0,refs.length-shown.length),corrected=isoDate(storedReportDate)&&isoDate(storedReportDate)!==reportDate;
+  const band=`<div data-telegram-portfolio-proof="1" style="border:1.4px solid #B4893A;background:#F5EDDF;border-radius:8px;padding:9px 12px;margin:0 0 12px;color:#14425F;direction:rtl;font:700 11px/1.65 Arial,Tahoma,sans-serif"><div style="display:flex;gap:14px;flex-wrap:wrap"><span>تاريخ التقرير: <b>${htmlEsc(reportDate)}</b></span><span>فواتير الدفعة: <b>${invoices.length}</b></span><span>المصدر: <b>${htmlEsc(sourceFile||'التقرير اليومي')}</b></span></div><div style="margin-top:4px;font-weight:500">أرقام الفواتير: ${shown.length?shown.map(htmlEsc).join('، '):'لا توجد'}${more?`، و${more} فاتورة أخرى`:''}</div>${corrected?`<div style="margin-top:4px;color:#8A2D20">تم تصحيح تاريخ السجل ${htmlEsc(storedReportDate)} إلى ${htmlEsc(reportDate)} من ملف Excel الأصلي.</div>`:`<div style="margin-top:4px;font-weight:500">مصدر التاريخ: ${dateSource==='database'?'سجل التقرير المعتمد':'ملف Excel الأصلي'}${sourceBatchId?` — مرجع الدفعة ${htmlEsc(String(sourceBatchId).slice(0,12))}`:''}</div>`}</div>`;
+  if(document.includes('<div class="page-body">'))return document.replace('<div class="page-body">',`<div class="page-body">${band}`);
+  return document.replace('</body>',`${band}</body>`);
+}
 function hasCurrentActivity(row){return Number(row?.currentSales||0)>0||Number(row?.currentApplied||0)>0||(Array.isArray(row?.invoices)&&row.invoices.length>0);}
 function canonicalCustomers(type,analysis,projection,state,rep,{dailyOnly=true}={}){
   const masterByCode=new Map(),masterByName=new Map();
@@ -124,7 +140,7 @@ export async function generateCustomerPortfolioPdfs(analysis={},sourceFile='dail
   for(const type of types){
     const rep=findRep(state.employees,type);
     if(!rep)throw Object.assign(new Error(`لا يوجد موظف نشط بدور ${ROLE_BY_TYPE[type]}؛ تم منع إصدار الإقرار باسم موظف غير صحيح.`),{status:409,code:`PORTFOLIO_${type.toUpperCase()}_REP_NOT_FOUND`});
-    const customers=canonicalCustomers(type,analysis,projection,state,rep,{dailyOnly}),documentRef=`BHF-${type.toUpperCase()}-${reportDate.replace(/-/g,'')}`;
+    const customers=canonicalCustomers(type,analysis,projection,state,rep,{dailyOnly}),invoices=invoiceRows(type,analysis),documentRef=`BHF-${type.toUpperCase()}-${reportDate.replace(/-/g,'')}-TG`;
     const rendered=renderCustomerPortfolioDeclaration({
       type,
       companyName:state.companyName,
@@ -141,9 +157,10 @@ export async function generateCustomerPortfolioPdfs(analysis={},sourceFile='dail
       logoUrl:`${baseUrl}assets/branding/binhamid-factory-logo.png`,
       baseUrl
     });
-    const pdf=await htmlToPdf(rendered.document,{filename:`portfolio-${type}-${reportDate}`,landscape:false});
+    const verifiedDocument=injectTelegramEvidence(rendered.document,{reportDate,sourceFile,invoices,storedReportDate:options?.storedReportDate,dateSource:options?.dateSource,sourceBatchId:options?.sourceBatchId});
+    const pdf=await htmlToPdf(verifiedDocument,{filename:`portfolio-${type}-${reportDate}`,landscape:false});
     const department=type==='block'?'البلوك':'الخرسانة';
-    reports.push({type,pdf,filename:`إقرار محفظة عملاء ${department} — ${reportDate}.pdf`,caption:`${icon(type)} إقرار محفظة عملاء ${department} — ${rep.name} — ${reportDate} — عملاء حركة اليوم: ${customers.length}`,templateVersion:CUSTOMER_PORTFOLIO_TEXT_VERSION,sourceFile,reportDate,customerCount:customers.length,employeeExternalId:clean(rep?.id||rep?.external_id),employeeNationalId:digits(rep?.nid||rep?.national_id)});
+    reports.push({type,pdf,filename:`إقرار محفظة عملاء ${department} — ${reportDate} — ${invoices.length} فاتورة.pdf`,caption:`${icon(type)} إقرار محفظة عملاء ${department} — ${rep.name} — ${reportDate} — ${invoices.length} فاتورة — ${customers.length} عميل — نسخة تيليجرام الجديدة`,templateVersion:CUSTOMER_PORTFOLIO_TEXT_VERSION,sourceFile,reportDate,customerCount:customers.length,invoiceCount:invoices.length,employeeExternalId:clean(rep?.id||rep?.external_id),employeeNationalId:digits(rep?.nid||rep?.national_id)});
   }
   return reports;
 }
