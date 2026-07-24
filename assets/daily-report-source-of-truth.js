@@ -1,7 +1,8 @@
 (function(){
   'use strict';
-  const VERSION='2026.07.17-daily-report-source-v3',TOKEN_KEY='binhamid_cloud_access_token';
-  let installed=false,activeContext=null;
+  const VERSION='2026.07.24-daily-report-source-v4',TOKEN_KEY='binhamid_cloud_access_token';
+  let installed=false,activeContext=null,modalWrapped=false;
+  const wrappedImports=new Set();
   const clean=value=>String(value??'').trim();
   const num=value=>{const parsed=Number(String(value??0).replace(/[٬,]/g,'').replace(/٫/g,'.'));return Number.isFinite(parsed)?parsed:0;};
   const norm=value=>clean(value).toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/ـ/g,'').replace(/\s+/g,' ');
@@ -11,6 +12,76 @@
   const keySale=row=>[row.invoice||row.clientOrder,row.customerCode,row.item||row.product,num(row.quantity).toFixed(3),num(row.amount).toFixed(2)].join('|');
   const keyCollection=row=>[row.treasuryCode,row.customerCode,row.receipt||row.no,num(row.amount).toFixed(2)].join('|');
   const unique=(rows,keyFn)=>{const seen=new Set();return(rows||[]).filter(row=>{const key=keyFn(row);if(seen.has(key))return false;seen.add(key);return true;});};
+
+  const IMPORT_FNS=[['opsImportDailySummary','summary'],['opsImportDailyMovement','movement']];
+
+  // ---------------------------------------------------------------------------
+  // حارس الفشل الصامت: يمنع الاستيراد المحلي قبل اكتمال طبقة الاعتماد السحابي.
+  // يُركَّب فورًا عند تحميل الملف، ولا ينتظر install().
+  // ---------------------------------------------------------------------------
+  function blockedImport(){
+    return async function(){
+      const message='طبقة الاعتماد السحابي لم تكتمل بعد. انتظر ثوانٍ وحدّث الصفحة ثم أعد المحاولة — لم تُرحّل أي حركة ولم يُعتمد أي تقرير.';
+      window.opsToast?.(message,'err');
+      console.error('[BinHamid]',VERSION,'استيراد مرفوض: طبقة الاعتماد السحابي غير جاهزة.');
+      throw Object.assign(new Error('DAILY_CLOUD_APPROVAL_NOT_READY'),{code:'DAILY_CLOUD_APPROVAL_NOT_READY'});
+    };
+  }
+
+  // المخزن الحقيقي لدوال الاستيراد. الحارس يعيد دالة رفض للمستهلكين،
+  // بينما wrapImports يقرأ القيمة الأصلية من هنا مباشرة.
+  const realImports=new Map();
+
+  function installEarlyGuard(){
+    for(const [name] of IMPORT_FNS){
+      realImports.set(name,window[name]);
+      try{
+        Object.defineProperty(window,name,{
+          configurable:true,
+          get(){
+            // بعد اكتمال التركيب تُعاد الدالة الملفوفة الحقيقية.
+            if(installed&&wrappedImports.has(name))return realImports.get(name);
+            // قبل اكتمال التركيب: يُرفض الاستيراد بصوت عالٍ بدل الحفظ المحلي الصامت.
+            if(!installed)return blockedImport();
+            return realImports.get(name);
+          },
+          set(value){realImports.set(name,value);}
+        });
+      }catch(error){
+        console.warn('[BinHamid] تعذر تركيب حارس الاستيراد لـ',name,error);
+      }
+    }
+  }
+
+  function bannerText(missing){
+    return'⚠️ الاعتماد السحابي غير مفعّل — لا تضغط «اعتماد». حدّث الصفحة. (المفقود: '+missing.join('، ')+')';
+  }
+
+  function showBanner(missing){
+    const existing=document.getElementById('bh-daily-guard-banner');
+    if(existing){existing.textContent=bannerText(missing);return;}
+    if(!document.body)return;
+    const el=document.createElement('div');
+    el.id='bh-daily-guard-banner';
+    el.setAttribute('role','alert');
+    el.style.cssText='position:fixed;top:0;left:0;right:0;z-index:2147483647;background:#b91c1c;color:#fff;padding:12px 16px;font:600 14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;text-align:center;direction:rtl;box-shadow:0 2px 8px rgba(0,0,0,.35)';
+    el.textContent=bannerText(missing);
+    document.body.appendChild(el);
+  }
+
+  function hideBanner(){
+    document.getElementById('bh-daily-guard-banner')?.remove();
+  }
+
+  function missingDependencies(){
+    const missing=[];
+    if(!window.BinHamidExistingDailyImportFix?.installed)missing.push('existing-daily-import-fix');
+    if(!window.BinHamidDailySummaryParser)missing.push('daily-summary-parser');
+    if(!window.XLSX)missing.push('XLSX');
+    if(typeof window.opsOpenModal!=='function')missing.push('opsOpenModal');
+    const pendingImports=IMPORT_FNS.filter(([name])=>!wrappedImports.has(name)&&typeof realImports.get(name)!=='function').map(([name])=>name);
+    return missing.concat(pendingImports);
+  }
 
   async function hashFile(file){const bytes=await file.arrayBuffer();const digest=await crypto.subtle.digest('SHA-256',bytes);return[...new Uint8Array(digest)].map(byte=>byte.toString(16).padStart(2,'0')).join('');}
   async function fileBase64(file){if(!file||file.size>2.4*1024*1024)return'';const bytes=new Uint8Array(await file.arrayBuffer());let binary='';for(let index=0;index<bytes.length;index+=0x8000)binary+=String.fromCharCode(...bytes.subarray(index,index+0x8000));return btoa(binary);}
@@ -64,9 +135,12 @@
     return committed;
   }
 
-  function install(){
-    if(installed||!window.BinHamidExistingDailyImportFix?.installed||!window.BinHamidDailySummaryParser||!window.XLSX||typeof window.opsOpenModal!=='function')return;
-    installed=true;
+  // ---------------------------------------------------------------------------
+  // لف نافذة الاعتماد. يُنفَّذ مرة واحدة فقط.
+  // ---------------------------------------------------------------------------
+  function wrapModal(){
+    if(modalWrapped||typeof window.opsOpenModal!=='function')return false;
+    modalWrapped=true;
     const baseOpen=window.opsOpenModal;
     window.opsOpenModal=function(title,html,onSave,label){
       const context=activeContext;activeContext=null;
@@ -85,25 +159,64 @@
       };
       return baseOpen.call(this,title,html,guardedSave,label);
     };
-    for(const [name,mode] of [['opsImportDailySummary','summary'],['opsImportDailyMovement','movement']]){
-      const original=window[name];if(typeof original!=='function')continue;
-      window[name]=async function(file){activeContext=await makeContext(file,mode);try{return await original.apply(this,arguments);}catch(error){activeContext=null;throw error;}};
-    }
-    window.BinHamidDailyReportSourceOfTruth={version:VERSION,installed:true};console.info('[BinHamid]',VERSION,'loaded');
+    return true;
   }
 
-let attempts=0;
-const timer=setInterval(()=>{
-  attempts++;
-  install();
-  if(installed){clearInterval(timer);return;}
-  if(attempts===120){  // بعد 30 ثانية
-    const missing=[];
-    if(!window.BinHamidExistingDailyImportFix?.installed)missing.push('existing-daily-import-fix');
-    if(!window.BinHamidDailySummaryParser)missing.push('daily-summary-parser');
-    if(!window.XLSX)missing.push('XLSX');
-    if(typeof window.opsOpenModal!=='function')missing.push('opsOpenModal');
-    console.error('[BinHamid] اعتماد سحابي غير مفعّل — ناقص:',missing);
-    showBanner(missing);
+  // ---------------------------------------------------------------------------
+  // لف دوال الاستيراد. تُلف كل دالة بمجرد توفرها، ولا تُتخطى نهائيًا.
+  // ترجع true فقط عندما تُلف كل الدوال المطلوبة.
+  // ---------------------------------------------------------------------------
+  function wrapImports(){
+    for(const [name,mode] of IMPORT_FNS){
+      if(wrappedImports.has(name))continue;
+      // القراءة من المخزن الحقيقي، لا من الـgetter الذي يعيد دالة الرفض.
+      const original=realImports.has(name)?realImports.get(name):window[name];
+      if(typeof original!=='function')continue;
+      const wrapped=async function(file){
+        activeContext=await makeContext(file,mode);
+        try{return await original.apply(this,arguments);}
+        catch(error){activeContext=null;throw error;}
+      };
+      Object.defineProperty(wrapped,'name',{value:`bhWrapped_${name}`,configurable:true});
+      realImports.set(name,wrapped);
+      wrappedImports.add(name);
+    }
+    return IMPORT_FNS.every(([name])=>wrappedImports.has(name));
   }
-},250);})();
+
+  function install(){
+    if(installed)return;
+    if(!window.BinHamidExistingDailyImportFix?.installed)return;
+    if(!window.BinHamidDailySummaryParser)return;
+    if(!window.XLSX)return;
+    wrapModal();
+    const importsReady=wrapImports();
+    // لا يُعلن اكتمال التركيب إلا بعد لف النافذة وكل دوال الاستيراد.
+    if(!modalWrapped||!importsReady)return;
+    installed=true;
+    hideBanner();
+    window.BinHamidDailyReportSourceOfTruth={version:VERSION,installed:true,wrapped:[...wrappedImports]};
+    console.info('[BinHamid]',VERSION,'loaded — طبقة الاعتماد السحابي مفعّلة.');
+  }
+
+  installEarlyGuard();
+
+  let attempts=0,warned=false;
+  const timer=setInterval(()=>{
+    attempts++;
+    install();
+    if(installed){clearInterval(timer);return;}
+    // تحذير مرئي بعد 30 ثانية — بلا استسلام: المحاولة مستمرة.
+    if(attempts>=120&&!warned){
+      warned=true;
+      const missing=missingDependencies();
+      console.error('[BinHamid]',VERSION,'الاعتماد السحابي غير مفعّل. المفقود:',missing);
+      showBanner(missing.length?missing:['غير محدد']);
+    }
+    // بعد 3 دقائق يُخفَّض معدل المحاولة لتقليل الحمل دون التوقف.
+    if(attempts===720){
+      clearInterval(timer);
+      const slow=setInterval(()=>{install();if(installed){clearInterval(slow);hideBanner();}},2000);
+    }
+  },250);
+})();
