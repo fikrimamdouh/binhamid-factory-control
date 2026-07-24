@@ -43,8 +43,8 @@ jobs:
             }
             throw new Error(`unterminated ${name}`);
           }
-          fs.writeFileSync('extracted/docCli.js',extractFunction('docCli'));
-          fs.writeFileSync('extracted/prCli.js',extractFunction('prCli'));
+          const names=['docCli','prCli','mast','tbar','sec','fv','fvRaw','cov','clause','att','exe','page','ref','money','esc','fmtG','today','clientPortfolioForEmployee'];
+          for(const name of names)fs.writeFileSync(`extracted/${name}.js`,extractFunction(name));
           const cssStart=source.indexOf('/* ═══════════════════════════════════════════════════════════\n   DOCUMENT SYSTEM');
           const cssEnd=source.indexOf('</style>',cssStart);
           if(cssStart<0||cssEnd<0)throw new Error('document CSS not found');
