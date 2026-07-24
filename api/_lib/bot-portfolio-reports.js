@@ -1,4 +1,4 @@
-import { select } from './supabase.js';
+import { downloadObject, select } from './supabase.js';
 import { sendMessage, sendDocumentBuffer } from './telegram.js';
 import { generateCustomerPortfolioPdfs } from './customer-portfolio-pdf.js';
 
@@ -64,6 +64,27 @@ function requestedTypes(identity,forcedTypes=[]){
   if(identity?.role==='concrete_sales')return['concrete'];
   return['block','concrete'];
 }
+function pointerPath(type,mode='daily'){return`portfolio-documents/latest-${mode}-${type}.json`;}
+async function readExactPointer(type,mode='daily'){
+  try{
+    const file=await downloadObject(pointerPath(type,mode)),pointer=JSON.parse(file.buffer.toString('utf8'));
+    if(pointer?.documentType!=='customer_portfolio'||pointer?.portfolioType!==type||!pointer?.pdfPath||Number(pointer?.customerCount||0)<=0)return null;
+    return pointer;
+  }catch(error){
+    const message=String(error?.message||'');
+    if(/404|not found|تعذر تنزيل المرفق/i.test(message))return null;
+    console.warn('[telegram exact portfolio pointer]',{type,mode,message:message.slice(0,220)});return null;
+  }
+}
+async function sendExactDailyPortfolio(chatId,type,reportDate){
+  const pointer=await readExactPointer(type,'daily');
+  if(!pointer||String(pointer.reportDate||pointer.periodTo||'')!==String(reportDate||''))return null;
+  try{
+    const file=await downloadObject(pointer.pdfPath),arabic=type==='block'?'البلوك':'الخرسانة';
+    await sendDocumentBuffer(chatId,file.buffer,pointer.filename||`إقرار محفظة عملاء ${arabic} — ${reportDate}.pdf`,file.contentType||'application/pdf',`📄 إقرار محفظة عملاء ${arabic} — نفس نسخة الطباعة الأصلية من الموقع — ${reportDate} — العملاء: ${pointer.customerCount}`);
+    return{type,pdf:file.buffer,filename:pointer.filename,pointer,exactWebsitePrint:true};
+  }catch(error){console.warn('[telegram exact portfolio PDF]',{type,message:String(error?.message||'').slice(0,250)});return null;}
+}
 
 export async function sendLatestPortfolioDeclarations(chatId,identity={},forcedTypes=[]){
   if(!identity?.active||!ALLOWED_ROLES.has(String(identity.role||''))){
@@ -71,19 +92,16 @@ export async function sendLatestPortfolioDeclarations(chatId,identity={},forcedT
   }
   const data=await latestApprovedReportWithSales();
   if(!data)return sendMessage(chatId,'لا يوجد تقرير يومي معتمد يحتوي مبيعات فعلية في قاعدة البيانات حتى الآن.');
-  const types=requestedTypes(identity,forcedTypes),date=data.batch.report_date;
-  await sendMessage(chatId,`جارٍ إعداد إقرارات محفظة العملاء من أحدث تقرير معتمد يحتوي مبيعات فعلية بتاريخ <b>${date}</b>. تم تجاوز أي تقرير أحدث فارغ.`);
+  const types=requestedTypes(identity,forcedTypes),date=data.batch.report_date,reports=[],missing=[];
+  await sendMessage(chatId,`جارٍ إرسال إقرارات محفظة العملاء من أحدث تقرير معتمد يحتوي مبيعات فعلية بتاريخ <b>${date}</b>. ستُستخدم نسخة طباعة الموقع الأصلية متى كانت محفوظة.`);
   try{
-    const reports=await generateCustomerPortfolioPdfs(
-      analysisFromCommitted(data),
-      data.batch.original_name||'التقرير اليومي',
-      types,
-      {reportDate:date,dailyOnly:true}
-    );
-    for(const report of reports){
-      await sendDocumentBuffer(chatId,report.pdf,report.filename,'application/pdf',report.caption);
+    for(const type of types){const exact=await sendExactDailyPortfolio(chatId,type,date);if(exact)reports.push(exact);else missing.push(type);}
+    if(missing.length){
+      const generated=await generateCustomerPortfolioPdfs(analysisFromCommitted(data),data.batch.original_name||'التقرير اليومي',missing,{reportDate:date,dailyOnly:true});
+      for(const report of generated){await sendDocumentBuffer(chatId,report.pdf,report.filename,'application/pdf',`${report.caption}\nتنبيه: لم تكن نسخة طباعة الموقع الأصلية محفوظة لهذا التقرير، فتم إنشاء نسخة خادمية بديلة.`);reports.push({...report,exactWebsitePrint:false});}
     }
-    await sendMessage(chatId,`تم إرسال ${reports.length} إقرار من التقرير المعتمد ذي المبيعات بتاريخ <b>${date}</b>.`);
+    const exactCount=reports.filter(report=>report.exactWebsitePrint).length;
+    await sendMessage(chatId,`تم إرسال ${reports.length} إقرار بتاريخ <b>${date}</b>. النسخ المطابقة حرفيًا لطباعة الموقع: <b>${exactCount}</b>.`);
     return reports;
   }catch(error){
     console.error('[telegram latest portfolio declarations]',{code:error?.code||null,status:Number(error?.status||error?.upstreamStatus||0),message:String(error?.message||'').slice(0,500)});
