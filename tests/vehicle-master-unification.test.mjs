@@ -44,7 +44,7 @@ test('legacy vehicle state and fuel costs share the canonical vehicle id',()=>{
 });
 
 test('vehicle renderer globals exist before legacy navigation starts',()=>{
-  assert.match(index,/src="about:blank" data-src="\/legacy\.html\?v=20260723-sales-role-link-1"/);
+  assert.match(index,/src="about:blank" data-src="\/legacy\.html\?v=20260723-boot-write-serialization-1"/);
   assert.match(index,/const vehiclePreflight=setInterval/);
   assert.match(index,/installVehicleGlobals\(frame\.contentWindow\);legacyStarted=true;frame\.src=frame\.dataset\.src/);
   assert.match(index,/typeof win\.bh4DieselExpected!=='function'/);
