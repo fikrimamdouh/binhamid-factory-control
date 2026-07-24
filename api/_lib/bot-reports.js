@@ -45,6 +45,7 @@ export function reportKeyboard(){
   return keyboard([
     [{text:'تقرير اليوم الكامل',callback_data:'report:daily'}],
     [{text:'تقرير البلوك PDF',callback_data:'report:block'},{text:'تقرير الخرسانة PDF',callback_data:'report:concrete'}],
+    [{text:'إقرارا محفظة البلوك والخرسانة',callback_data:'ent:portfolio_current'}],
     [{text:'آخر ملف بلوك Excel',callback_data:'report:block_file'},{text:'آخر ملف خرسانة Excel',callback_data:'report:concrete_file'}],
     [{text:'آخر ملف التقرير الكامل Excel',callback_data:'report:daily_file'}],
     [{text:'كل فواتير اليوم',callback_data:'report:invoices'},{text:'تحصيلات اليوم',callback_data:'report:collections'}],
@@ -119,6 +120,7 @@ function analytics(data,opening){
 function dailyDetailKeyboard(){
   return keyboard([
     [{text:'تقرير البلوك PDF',callback_data:'report:block'},{text:'تقرير الخرسانة PDF',callback_data:'report:concrete'}],
+    [{text:'إقرارا محفظة البلوك والخرسانة',callback_data:'ent:portfolio_current'}],
     [{text:'آخر ملف بلوك Excel',callback_data:'report:block_file'},{text:'آخر ملف خرسانة Excel',callback_data:'report:concrete_file'}],
     [{text:'آخر ملف التقرير الكامل Excel',callback_data:'report:daily_file'}],
     [{text:'كل الفواتير',callback_data:'report:invoices'},{text:'التحصيلات',callback_data:'report:collections'}],
