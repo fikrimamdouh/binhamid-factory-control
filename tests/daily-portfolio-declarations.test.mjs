@@ -14,14 +14,14 @@ test('loads automatic portfolio declarations before daily report source',()=>{
 });
 
 test('reuses the existing declaration and exact Telegram print path',()=>{
-  assert.match(asset,/\bprCli\s*\\\(/);
+  assert.ok(asset.includes("/\\bprCli\\s*\\(/"),'must locate the existing prCli print button');
   assert.match(asset,/bhSendPrintedButtonToTelegram/);
   assert.doesNotMatch(asset,/function\s+docCli\s*\(/,'must not duplicate or redesign the declaration document');
 });
 
 test('prefers a 10-digit residency employee over Telegram duplicates',()=>{
-  assert.match(asset,/\^\\d\{10\}\$/);
-  assert.match(asset,/\^TG\[-_:\]/i);
+  assert.ok(asset.includes('/^\\d{10}$/'),'must identify a 10-digit residency number');
+  assert.ok(asset.includes('/^TG[-_:]/i'),'must reject Telegram-only employee ids');
   assert.match(asset,/samePerson\(employee,configured\)/);
 });
 
