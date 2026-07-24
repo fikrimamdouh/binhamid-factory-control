@@ -26,6 +26,7 @@ test('portfolio range API is registered and protected',()=>{
   assert.match(route,/customer_opening_balances/);
   assert.match(route,/daily_report_sales_lines/);
   assert.match(route,/daily_report_cash_movements/);
+  assert.match(route,/latestActivityDate/);
 });
 
 test('period settlement allocates collections to old debt before current sales',()=>{
@@ -67,7 +68,8 @@ test('Telegram bot reuses exact stored website PDF before server fallback',()=>{
   assert.match(bot,/latest-daily-\$\{type\}\.json/);
   assert.match(bot,/sendExactDailyPortfolio/);
   assert.match(bot,/exactWebsitePrint:true/);
-  assert.ok(bot.indexOf('sendExactDailyPortfolio')<bot.indexOf('generateCustomerPortfolioPdfs'));
+  const exactCall=bot.indexOf('const exact=await sendExactDailyPortfolio'),fallbackCall=bot.indexOf('const generated=await generateCustomerPortfolioPdfs');
+  assert.ok(exactCall>=0&&fallbackCall>exactCall);
 });
 
 test('new assets load after exact capture and before range use',()=>{
