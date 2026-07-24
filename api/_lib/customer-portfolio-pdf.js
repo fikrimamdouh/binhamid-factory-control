@@ -51,14 +51,15 @@ function mergeEmployeeSources(legacyRows,cloudRows){
 
 async function loadAppState(){
   const[stateRows,cloudEmployees]=await Promise.all([
-    select('app_state','key=eq.primary&select=payload&limit=1').catch(()=>[]),
-    select('employees','active=eq.true&select=external_id,national_id,employee_no,full_name,phone,role&order=full_name.asc&limit=5000').catch(()=>[])
-  ]),legacy=stateRows?.[0]?.payload?.legacy||{};
+    select('app_state','key=eq.primary&select=payload&limit=1'),
+    select('employees','active=eq.true&select=external_id,national_id,employee_no,full_name,phone,role&order=full_name.asc&limit=5000')
+  ]),legacy=stateRows?.[0]?.payload?.legacy||{},cfg=legacy?.cfg||{};
   return{
-    companyName:legacy?.cfg?.name||'مصنع بن حامد للبلوك والخرسانة الجاهزة',
-    days:Number(legacy?.cfg?.days||3)||3,
-    cap:Number(legacy?.cfg?.cap||0)||0,
-    authorizedName:[legacy?.cfg?.auth,legacy?.cfg?.authT].filter(Boolean).join(' — '),
+    companyName:cfg.name||'مصنع بن حامد للبلوك والخرسانة الجاهزة',
+    company:{unifiedNumber:clean(cfg.uni),commercialRegistration:clean(cfg.cr),vatNumber:clean(cfg.vat),industrialLicense:clean(cfg.ind),address:clean(cfg.addr),phone:clean(cfg.tel),email:clean(cfg.mail)},
+    days:Number(cfg.days||3)||3,
+    cap:Number(cfg.cap||0)||0,
+    authorizedName:[cfg.auth,cfg.authT].filter(Boolean).join(' — '),
     employees:mergeEmployeeSources(legacy?.emp,cloudEmployees),
     clients:Array.isArray(legacy?.cli)?legacy.cli:[]
   };
@@ -128,6 +129,7 @@ export async function generateCustomerPortfolioPdfs(analysis={},sourceFile='dail
     const rendered=renderCustomerPortfolioDeclaration({
       type,
       companyName:state.companyName,
+      company:state.company,
       employee:{name:rep?.name||'',nationalId:digits(rep?.nid||rep?.national_id),role:ROLE_BY_TYPE[type],number:rep?.no||'',phone:rep?.tel||''},
       customers,
       days:state.days,
