@@ -56,13 +56,14 @@ function employeeRoleType(employee={}){
   if(role.includes('خرسان'))return'concrete';
   return'';
 }
+function preferredRole(currentRole,cloudRole){return employeeRoleType({role:currentRole})?currentRole:employeeRoleType({role:cloudRole})?cloudRole:(currentRole||cloudRole);}
 function mergeEmployees(legacyEmployees=[],cloudEmployees=[]){
-  const map=new Map();
-  for(const row of legacyEmployees||[]){const key=clean(row.id||row.external_id||row.nid||row.name);if(key)map.set(key,{...row,externalId:clean(row.id||row.external_id)});}
+  const map=new Map(),nationalIndex=new Map();
+  for(const row of legacyEmployees||[]){const key=clean(row.id||row.external_id||row.nid||row.name);if(!key)continue;const value={...row,externalId:clean(row.id||row.external_id)};map.set(key,value);if(clean(row.nid))nationalIndex.set(clean(row.nid),key);}
   for(const row of cloudEmployees||[]){
-    const key=clean(row.external_id||row.national_id||row.full_name);if(!key)continue;
+    const nationalId=clean(row.national_id),key=nationalIndex.get(nationalId)||clean(row.external_id||nationalId||row.full_name);if(!key)continue;
     const current=map.get(key)||{};
-    map.set(key,{...current,id:row.external_id||current.id,externalId:row.external_id||current.externalId,name:row.full_name||current.name,nid:row.national_id||current.nid,no:row.employee_no||current.no,tel:row.phone||current.tel,role:row.role||current.role,active:row.active!==false});
+    map.set(key,{...current,id:current.id||row.external_id,externalId:row.external_id||current.externalId,name:current.name||row.full_name,nid:current.nid||nationalId,no:current.no||row.employee_no,tel:current.tel||row.phone,role:preferredRole(current.role,row.role),active:row.active!==false});
   }
   return[...map.values()].filter(row=>row.active!==false&&row.act!==false&&employeeRoleType(row));
 }
@@ -71,11 +72,9 @@ export async function customerPortfolioRange(req,res){
   if(!method(req,res,['GET']))return;
   try{
     await requireCapability(req,'daily_report.view');
-    const today=new Date().toISOString().slice(0,10),to=isoDate(req.query?.to)||today,from=isoDate(req.query?.from)||to;
-    if(from>to)throw Object.assign(new Error('تاريخ بداية الفترة يجب ألا يتجاوز تاريخ النهاية.'),{status:400,code:'PORTFOLIO_RANGE_INVALID'});
-    const sector=validSector(clean(req.query?.sector)||'all'),employeeId=clean(req.query?.employee),statusFilter=clean(req.query?.status),search=norm(req.query?.search);
+    const today=new Date().toISOString().slice(0,10),requestedTo=isoDate(req.query?.to),requestedFrom=isoDate(req.query?.from),ceiling=requestedTo||today,sector=validSector(clean(req.query?.sector)||'all'),employeeId=clean(req.query?.employee),statusFilter=clean(req.query?.status),search=norm(req.query?.search);
     const [batchRows,openingRows,stateRows,cloudEmployees]=await Promise.all([
-      paged('daily_report_batches',`status=eq.approved&report_date=lte.${encodeURIComponent(to)}&select=id,report_date,original_name,committed_at&order=report_date.asc,committed_at.asc`,5),
+      paged('daily_report_batches',`status=eq.approved&report_date=lte.${encodeURIComponent(ceiling)}&select=id,report_date,original_name,committed_at&order=report_date.asc,committed_at.asc`,5),
       paged('customer_opening_balances','select=customer_code,customer_name,balance',10),
       select('app_state','key=eq.primary&select=payload&limit=1').catch(()=>[]),
       paged('employees','active=eq.true&select=external_id,national_id,employee_no,full_name,phone,role,active&order=full_name.asc',5)
@@ -85,6 +84,11 @@ export async function customerPortfolioRange(req,res){
       byBatchIds('daily_report_sales_lines',ids,'batch_id,source_row_no,invoice_no,sales_type,customer_code,customer_name,item_name,quantity,amount'),
       byBatchIds('daily_report_cash_movements',ids,'batch_id,source_row_no,account_code,account_name,debit,credit,is_customer_collection')
     ]);
+    const activeDates=new Set();
+    for(const sale of sales||[]){const date=batchDate.get(String(sale.batch_id));if(date&&number(sale.amount)!==0)activeDates.add(date);}
+    for(const movement of cash||[]){const date=batchDate.get(String(movement.batch_id)),customerCollection=movement.is_customer_collection===true||String(movement.is_customer_collection)==='true';if(date&&customerCollection&&collectionAmount(movement)!==0)activeDates.add(date);}
+    const latestActivityDate=[...activeDates].sort().at(-1)||batches.at(-1)?.report_date||'',to=requestedTo||latestActivityDate||today,from=requestedFrom||to;
+    if(from>to)throw Object.assign(new Error('تاريخ بداية الفترة يجب ألا يتجاوز تاريخ النهاية.'),{status:400,code:'PORTFOLIO_RANGE_INVALID'});
     const legacy=legacyState(stateRows?.[0]),clients=Array.isArray(legacy.cli)?legacy.cli:[],employees=mergeEmployees(legacy.emp,cloudEmployees),clientsByKey=new Map();
     for(const client of clients){clientsByKey.set(customerKey(client.code||client.cr||client.id,client.name),client);if(client.name)clientsByKey.set(`name:${norm(client.name)}`,client);}
     const rows=new Map();
@@ -94,18 +98,18 @@ export async function customerPortfolioRange(req,res){
     };
     for(const row of openingRows||[])get(row.customer_code,row.customer_name).baseOpening+=number(row.balance);
     for(const sale of sales||[]){
-      const date=batchDate.get(String(sale.batch_id));if(!date)continue;
+      const date=batchDate.get(String(sale.batch_id));if(!date||date>to)continue;
       const row=get(sale.customer_code,sale.customer_name),amount=number(sale.amount),type=salesType(sale);
       if(type)row.segment=row.segment&&row.segment!==type?'all':type;
       if(date<from)row.priorSales+=amount;
-      else if(date<=to){row.periodSales+=amount;row.invoiceCount++;if(date>row.lastSaleDate)row.lastSaleDate=date;}
+      else{row.periodSales+=amount;row.invoiceCount++;if(date>row.lastSaleDate)row.lastSaleDate=date;}
     }
     for(const movement of cash||[]){
       if(!(movement.is_customer_collection===true||String(movement.is_customer_collection)==='true'))continue;
-      const date=batchDate.get(String(movement.batch_id));if(!date)continue;
+      const date=batchDate.get(String(movement.batch_id));if(!date||date>to)continue;
       const row=get(movement.account_code,movement.account_name),amount=collectionAmount(movement);
       if(date<from)row.priorCollections+=amount;
-      else if(date<=to){row.periodCollections+=amount;row.collectionCount++;if(date>row.lastCollectionDate)row.lastCollectionDate=date;}
+      else{row.periodCollections+=amount;row.collectionCount++;if(date>row.lastCollectionDate)row.lastCollectionDate=date;}
     }
     const employee=employees.find(row=>clean(row.id||row.externalId)===employeeId)||null,employeeType=employeeRoleType(employee||{}),output=[];
     for(const row of rows.values()){
@@ -126,7 +130,7 @@ export async function customerPortfolioRange(req,res){
       output.push({...row,segment:effectiveSector||sector});
     }
     output.sort((a,b)=>b.closingBalance-a.closingBalance||a.customerName.localeCompare(b.customerName,'ar'));
-    const total=(field)=>output.reduce((sum,row)=>sum+number(row[field]),0),summary={customerCount:output.length,openingDebt:total('openingDebt'),sales:total('periodSales'),collections:total('periodCollections'),oldDebtPaid:total('oldDebtPaid'),oldDebtRemaining:total('oldDebtRemaining'),closingBalance:total('closingBalance'),advance:total('advance'),settledCount:output.filter(row=>row.status==='settled').length,partialCount:output.filter(row=>row.status==='partial').length,unpaidCount:output.filter(row=>row.status==='unpaid').length};
-    json(res,200,{ok:true,from,to,sector,employee:employee?{id:clean(employee.id||employee.externalId),name:employee.name,role:employee.role,nationalId:employee.nid||''}:null,employees:employees.map(row=>({id:clean(row.id||row.externalId),name:row.name,role:row.role,nationalId:row.nid||'',sector:employeeRoleType(row)})),statusLabels:STATUS_LABELS,allocationRule:'تُوجّه تحصيلات الفترة أولًا إلى الرصيد السابق، ثم إلى مبيعات الفترة، ثم تُعرض الزيادة كدفعة مقدمة.',summary,rows:output,latestReportDate:batches.at(-1)?.report_date||null});
+    const total=field=>output.reduce((sum,row)=>sum+number(row[field]),0),summary={customerCount:output.length,openingDebt:total('openingDebt'),sales:total('periodSales'),collections:total('periodCollections'),oldDebtPaid:total('oldDebtPaid'),oldDebtRemaining:total('oldDebtRemaining'),closingBalance:total('closingBalance'),advance:total('advance'),settledCount:output.filter(row=>row.status==='settled').length,partialCount:output.filter(row=>row.status==='partial').length,unpaidCount:output.filter(row=>row.status==='unpaid').length};
+    json(res,200,{ok:true,from,to,sector,employee:employee?{id:clean(employee.id||employee.externalId),name:employee.name,role:employee.role,nationalId:employee.nid||''}:null,employees:employees.map(row=>({id:clean(row.id||row.externalId),name:row.name,role:row.role,nationalId:row.nid||'',sector:employeeRoleType(row)})),statusLabels:STATUS_LABELS,allocationRule:'تُوجّه تحصيلات الفترة أولًا إلى الرصيد السابق، ثم إلى مبيعات الفترة، ثم تُعرض الزيادة كدفعة مقدمة.',summary,rows:output,latestActivityDate:latestActivityDate||null,latestReportDate:batches.at(-1)?.report_date||null});
   }catch(error){errorResponse(res,error);}
 }
