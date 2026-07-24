@@ -34,36 +34,78 @@
     return data;
   }
 
+  // تقدّم الرفع: نحفظ عدد الصفوف المرفوعة بنجاح مع بصمة مجموعة البيانات،
+  // كي تستأنف أي إعادة محاولة من حيث توقفت بدل إعادة رفع كل الصفوف من الصفر
+  // (كان الفشل الجزئي يعيد ٢٩٢٠ صفًا للأبد ويُجمّد الواجهة).
+  var PROGRESS_KEY='bh_opening_push_progress_v1';
+  var MAX_CONSECUTIVE_FAILURES=3;
+  function datasetSignature(rows){
+    // بصمة رخيصة تعتمد المحتوى (كود العميل + المبلغ) لا العدد فقط، كي لا تُستأنف
+    // مجموعة مختلفة بنفس العدد فتُتخطى صفوف تغيّرت. تغيّر أي صف يُبطل الاستئناف.
+    var h=0x811c9dc5;
+    for(var i=0;i<rows.length;i++){
+      var s=String(rows[i]&&rows[i].customerCode||'')+':'+String(rows[i]&&rows[i].amount||'');
+      for(var j=0;j<s.length;j++){h^=s.charCodeAt(j);h=(h*0x01000193)>>>0;}
+    }
+    return rows.length+'-'+h.toString(16);
+  }
+  function progressGet(sig){
+    try{var raw=localStorage.getItem(PROGRESS_KEY);if(raw){var p=JSON.parse(raw);if(p&&p.sig===sig&&isFinite(p.sent))return Math.max(0,p.sent|0);}}catch(_){/**/}
+    return 0;
+  }
+  function progressSet(sig,sent){try{localStorage.setItem(PROGRESS_KEY,JSON.stringify({sig:sig,sent:sent}));}catch(_){/**/}}
+  function progressClear(){try{localStorage.removeItem(PROGRESS_KEY);}catch(_){/**/}}
+
   async function pushAllChunks(reason){
     var all=localRows();
     if(!all.length)return{skipped:true};
-    var total=all.length,sent=0;
-    toastMsg('جاري رفع '+total+' رصيد افتتاحي على دفعات...');
-    for(var i=0;i<all.length;i+=CHUNK){
+    var total=all.length,sig=datasetSignature(all),start=progressGet(sig);
+    // التقدّم مكتمل لهذه المجموعة: لا نعيد رفع أي صف.
+    if(start>=total){localStorage.setItem(FLAG,'1');progressClear();return{sent:total,resumed:true};}
+    var sent=start;
+    toastMsg('جاري رفع '+(total-start)+' رصيد افتتاحي على دفعات...');
+    for(var i=start;i<all.length;i+=CHUNK){
       var slice=all.slice(i,i+CHUNK).map(function(row){return{
         customerCode:row.customerCode,customerName:row.customerName,clientId:row.clientId,
         amount:row.amount,previous:row.previous,debit:row.debit,credit:row.credit,
         cheques:row.cheques,difference:row.difference,date:row.date,sourceFile:row.sourceFile||reason||''
       };});
-      await api('/api/router?route=opening-balances',{method:'POST',body:JSON.stringify({rows:slice})});
+      try{
+        await api('/api/router?route=opening-balances',{method:'POST',body:JSON.stringify({rows:slice})});
+      }catch(error){
+        // نحفظ آخر تقدّم ناجح كي تستأنف المحاولة التالية من هنا لا من الصفر.
+        progressSet(sig,sent);
+        throw error;
+      }
       sent+=slice.length;
+      progressSet(sig,sent);
       if(sent<total)toastMsg('رفع الأرصدة: '+sent+' من '+total+'...');
     }
     localStorage.setItem(FLAG,'1');
+    progressClear();
     toastMsg('✅ اكتمل رفع '+total+' رصيد افتتاحي إلى السحابة.');
     return{sent:sent};
   }
-  var pushing=false;
+
+  var pushing=false,consecutiveFailures=0,aborted=false;
   function ensurePushed(){
-    if(pushing||localStorage.getItem(FLAG)==='1')return;
+    // قاطع الدائرة: بعد اكتمال الرفع (FLAG) أو بلوغ حد الفشل (aborted) لا نعيد المحاولة إطلاقًا.
+    if(pushing||aborted||localStorage.getItem(FLAG)==='1')return;
     if(!localRows().length)return;
     pushing=true;
-    pushAllChunks('مزامنة تلقائية').catch(function(error){toastMsg('تعذر رفع الأرصدة على دفعات: '+error.message,'err');}).finally(function(){pushing=false;});
+    pushAllChunks('مزامنة تلقائية').then(function(){consecutiveFailures=0;}).catch(function(error){
+      consecutiveFailures++;
+      if(consecutiveFailures>=MAX_CONSECUTIVE_FAILURES){
+        aborted=true;
+        console.error('[BinHamid] '+VERSION+' أُوقفت مزامنة الأرصدة بعد فشل متكرر:',error);
+        toastMsg('⛔ أُوقفت مزامنة الأرصدة الافتتاحية بعد '+consecutiveFailures+' محاولات فاشلة. التقدّم محفوظ ولم تُفقد بيانات — اضغط «إعادة رفع الأرصدة» أو حدّث الصفحة للاستئناف.','err');
+      }else{
+        toastMsg('تعذر رفع الأرصدة على دفعات (محاولة '+consecutiveFailures+' من '+MAX_CONSECUTIVE_FAILURES+'): '+error.message,'err');
+      }
+    }).finally(function(){pushing=false;});
   }
-  window.bhPushOpeningBalances=pushAllChunks;
-  // وحدة المزامنة السحابية تُحمَّل لاحقًا وتستبدل opsPersist، فنعيد التركيب
-  // دوريًا على النسخة الحالية أيًا كانت.
-  setInterval(hookPersist,2000);
+  // الاستدعاء اليدوي يُصفّر القاطع ويستأنف من آخر تقدّم محفوظ.
+  window.bhPushOpeningBalances=function(reason){aborted=false;consecutiveFailures=0;return pushAllChunks(reason);};
 
   // 1) بعد اعتماد ملف أرصدة جديد: الرفع على دفعات تلقائيًا.
   var originalPersist=window.opsPersist;
@@ -73,6 +115,7 @@
     window.opsPersist=async function(reason){
       var text=String(reason||'');
       if(/أرصدة افتتاحية/.test(text)){
+        aborted=false;consecutiveFailures=0; // استيراد صريح جديد يُعيد إغلاق القاطع
         try{await pushAllChunks(text);}catch(error){
           toastMsg('تعذر رفع الأرصدة على دفعات: '+error.message,'err');
           if(error.code==='OPENING_TABLE_MISSING')return inner.apply(this,arguments);
@@ -147,10 +190,16 @@
   if(localStorage.getItem(FLAG)==='1')freeSpace();
 
   guardPull();
-  var attempts=0;
-  (function waitAndHook(){
-    if(hookPersist()){console.log('[BinHamid] '+VERSION+' ready');return;}
-    if(++attempts>300)return;
-    setTimeout(waitAndHook,150);
+  // مُركِّب opsPersist: يلتقط ظهور الدالة بسرعة ثم أي استبدال لها أثناء التحميل،
+  // ويتوقف تلقائيًا بعد استقرار الربط — لا مؤقت دائم. يعتمد setTimeout لا setInterval
+  // كي لا يخضع لإدارة حارس الأداء (الذي يوقف المؤقتات المتكررة عند الخمول).
+  (function rehookLoop(state){
+    state=state||{ticks:0,stable:0};
+    var hooked=hookPersist();
+    var mine=typeof window.opsPersist==='function'&&window.opsPersist._bhOpb===true;
+    state.stable=(hooked&&mine)?state.stable+1:0;
+    // نتوقف بعد ثبات الربط ٢٠ دورة (~٥ث) أو بعد ٦٠٠ دورة كحد أقصى صارم (~٢٫٥ دقيقة).
+    if((mine&&state.stable>=20)||(++state.ticks>=600)){if(mine)console.log('[BinHamid] '+VERSION+' ready');return;}
+    setTimeout(function(){rehookLoop(state);},250);
   })();
 })();
