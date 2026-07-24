@@ -10,6 +10,7 @@ const range=read('assets/customer-portfolio-range.js');
 const capture=read('assets/telegram-pdf-declarations.js');
 const archive=read('api/_lib/routes/reports-telegram.js');
 const bot=read('api/_lib/bot-portfolio-reports.js');
+const bridge=read('assets/exact-portfolio-metadata-bridge.js');
 const index=read('index.html');
 
 for(const file of ['api/_lib/routes/customer-portfolio-range.js','api/_lib/routes/reports-telegram.js','api/_lib/bot-portfolio-reports.js','assets/customer-portfolio-range.js','assets/telegram-pdf-declarations.js','assets/exact-portfolio-metadata-bridge.js']){
@@ -63,6 +64,13 @@ test('exact print capture carries portfolio metadata to the server',()=>{
   assert.match(archive,/source:'website-exact-print'/);
 });
 
+test('manual exact print resolves latest actual activity date before stored local date',()=>{
+  assert.match(bridge,/route:'customer-portfolio\/range'/);
+  assert.match(bridge,/data\.latestActivityDate\|\|data\.to/);
+  const activity=bridge.indexOf('await latestActivityDate(kind,employee)'),stored=bridge.indexOf('iso(storedDate(employee,kind))');
+  assert.ok(activity>=0&&stored>activity);
+});
+
 test('Telegram bot reuses exact stored website PDF before server fallback',()=>{
   assert.match(bot,/downloadObject/);
   assert.match(bot,/function pointerPath\(type,mode='daily'\)/);
@@ -74,6 +82,6 @@ test('Telegram bot reuses exact stored website PDF before server fallback',()=>{
 });
 
 test('new assets load after exact capture and before range use',()=>{
-  const capturePos=index.indexOf('telegram-pdf-declarations.js?v=20260724-10'),bridgePos=index.indexOf('exact-portfolio-metadata-bridge.js?v=20260724-1'),dailyPos=index.indexOf('daily-portfolio-declarations.js?v=20260724-2'),rangePos=index.indexOf('customer-portfolio-range.js?v=20260724-1');
+  const capturePos=index.indexOf('telegram-pdf-declarations.js?v=20260724-10'),bridgePos=index.indexOf('exact-portfolio-metadata-bridge.js?v=20260724-2'),dailyPos=index.indexOf('daily-portfolio-declarations.js?v=20260724-2'),rangePos=index.indexOf('customer-portfolio-range.js?v=20260724-1');
   assert.ok(capturePos>=0&&bridgePos>capturePos&&dailyPos>bridgePos&&rangePos>dailyPos);
 });
