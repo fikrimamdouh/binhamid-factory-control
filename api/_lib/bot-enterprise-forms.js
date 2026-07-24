@@ -5,6 +5,7 @@ import { displayName, roleLabel } from './bot-profile.js';
 import { clearMaintenanceSession } from './bot-maintenance.js';
 import { SIMPLE_DEFS, optionsKeyboard, statusKeyboard } from './bot-enterprise-defs.js';
 import { canFinance, esc, getEnterpriseSession, logEnterpriseEvent, nextEnterpriseReference, numberFrom, setEnterpriseSession, STATUS_LABEL } from './bot-enterprise-store.js';
+import { sendLatestPortfolioDeclarations } from './bot-portfolio-reports.js';
 
 const ACTIVE_ROLES=new Set(['admin','manager','accountant','mechanic','block_sales','concrete_sales','collector','driver','employee','warehouse','fuel_operator','hr','procurement','quality']);
 const COLLECTION_ROLES=new Set(['admin','manager','accountant','collector','block_sales','concrete_sales']);
@@ -71,7 +72,7 @@ async function notifyManagementFeedback(details,message,identity){
   const chats=await managementFeedbackChats(message.chat.id);
   if(!chats.length)return{recipients:0,delivered:0,failed:0};
   const type=details.subtype==='management_problem'?'مشكلة':'اقتراح',employee=details.created_by_name||displayName(identity,message.from),role=roleLabel(identity?.role||'pending'),source=message.chat.title||'محادثة خاصة';
-  const text=`<b>${esc(type)} جديد من موظف</b>\n\nالمرجع: <b>${esc(details.reference_no)}</b>\nالموظف: <b>${esc(employee)}</b>\nالدور: <b>${esc(role)}</b>\nTelegram: <code>${esc(message.from.id)}</code>\nالمصدر: <b>${esc(source)}</b>${details.priority&&details.priority!=='normal'?`\nدرجة التأثير: <b>${esc(details.priority==='critical'?'حرجة':'تحتاج تدخل')}</b>`:''}\n\n<b>التفاصيل:</b>\n${esc(details.note||'').slice(0,2200)}\n\nاضغط «تم الاطلاع» ليصل للموظف إثبات باسمك ووقت الاطلاع.`;
+  const text=`<b>${esc(type)} جديد من موظف</b>\n\nالمرجع: <b>${esc(details.reference_no)}</b>\nالموظف: <b>${esc(employee)}</b>\nالدور: <b>${esc(role)}</b>\nTelegram: <code>${esc(message.from.id)}</code>\nالمصدر: <b>${esc(source)}</b>${details.priority&&details.priority!=='normal'?`\nدرجة التأثير: <b>${esc(details.priority==='critical'?'حرجة':'تحتاج تدخل')}</b>`:''}\n\n<b>التفاصيل:</b>\n${esc(details.note||'').slice(0,2200)}\n\nاضغط «تم الاطلاع» ليصل للموظف إثبات باسمك ووقت الاطلاع عند ضغطه «تم الاطلاع» أو تغيير الحالة.`;
   const sent=await Promise.allSettled(chats.map(chatId=>sendMessage(chatId,text,{...managementFeedbackKeyboard(details.reference_no),action_name:'management_feedback_received',action_payload:{reference_no:details.reference_no,subtype:details.subtype,created_by_user_id:details.created_by_user_id}})));
   const delivered=sent.filter(item=>item.status==='fulfilled').length,failed=sent.length-delivered;
   if(failed)console.warn('[telegram management feedback delivery]',{reference:details.reference_no,recipients:chats.length,delivered,failed});
@@ -121,6 +122,7 @@ function summaryLine(key,value){
   return `${labels[key]||key}: <b>${esc(shown)}</b>`;
 }
 export async function startEnterpriseForm(message,identity,action){
+  if(action==='portfolio_current')return sendLatestPortfolioDeclarations(message.chat.id,identity);
   const def=SIMPLE_DEFS[action];if(!def)return false;
   const denied=permission(identity,action,def);if(denied)return sendMessage(message.chat.id,denied);
   await setEnterpriseSession(message.chat.id,identity.external_id||message.from.id,`enterprise_form:${action}:0`,{action,data:{},startedAt:new Date().toISOString(),roleAtStart:identity.role});
