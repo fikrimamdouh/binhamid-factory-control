@@ -1,0 +1,57 @@
+name: Extract Portfolio Template
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/extract-portfolio-template.yml'
+      - 'tests/_extract-portfolio-template.test.mjs'
+  workflow_dispatch:
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+      - name: Extract exact renderer and document CSS
+        run: |
+          mkdir -p extracted
+          node <<'NODE'
+          const fs=require('fs');
+          const source=fs.readFileSync('legacy.html','utf8');
+          function extractFunction(name){
+            const marker=`function ${name}`,start=source.indexOf(marker);
+            if(start<0)throw new Error(`${marker} not found`);
+            const brace=source.indexOf('{',start);let depth=0,quote='',escaped=false,templateDepth=0;
+            for(let i=brace;i<source.length;i++){
+              const ch=source[i],next=source[i+1];
+              if(quote){
+                if(escaped){escaped=false;continue;}
+                if(ch==='\\'){escaped=true;continue;}
+                if(quote==='`'&&ch==='$'&&next==='{'){templateDepth++;i++;continue;}
+                if(quote==='`'&&templateDepth&&ch==='}'){templateDepth--;continue;}
+                if(ch===quote&&!templateDepth)quote='';
+                continue;
+              }
+              if(ch==='"'||ch==="'"||ch==='`'){quote=ch;continue;}
+              if(ch==='/'&&next==='/'){const nl=source.indexOf('\n',i);if(nl<0)break;i=nl;continue;}
+              if(ch==='/'&&next==='*'){const end=source.indexOf('*/',i+2);if(end<0)break;i=end+1;continue;}
+              if(ch==='{')depth++;
+              if(ch==='}'&&--depth===0)return source.slice(start,i+1);
+            }
+            throw new Error(`unterminated ${name}`);
+          }
+          fs.writeFileSync('extracted/docCli.js',extractFunction('docCli'));
+          fs.writeFileSync('extracted/prCli.js',extractFunction('prCli'));
+          const cssStart=source.indexOf('/* ═══════════════════════════════════════════════════════════\n   DOCUMENT SYSTEM');
+          const cssEnd=source.indexOf('</style>',cssStart);
+          if(cssStart<0||cssEnd<0)throw new Error('document CSS not found');
+          fs.writeFileSync('extracted/document.css',source.slice(cssStart,cssEnd));
+          NODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: exact-portfolio-template
+          path: extracted/
+          retention-days: 1
