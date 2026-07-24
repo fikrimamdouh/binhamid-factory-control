@@ -6,12 +6,14 @@ const read=path=>readFileSync(new URL(`../${path}`,import.meta.url),'utf8');
 
 test('Telegram exact-print capture cancels stale work instead of blocking the next document',()=>{
   const source=read('assets/telegram-pdf-declarations.js');
-  assert.match(source,/v9-exact-sheet-wrapper/);
+  assert.match(source,/v10-exact-metadata/);
   assert.match(source,/if\(captureRequest\)settle\(captureRequest,'reject'/);
   assert.match(source,/requestAnimationFrame\(function\(\)\{requestAnimationFrame/);
   assert.match(source,/زر الطباعة لم يُنشئ ورقة أو معاينة صالحة/);
   assert.doesNotMatch(source,/يوجد مستند آخر قيد التجهيز/);
   assert.match(source,/sending\.has\(key\)/);
+  assert.match(source,/bhSetNextPrintMetadata/);
+  assert.match(source,/metadata:snapshot\.metadata\|\|null/);
 });
 
 test('revision conflict recovery preserves a recovery backup and replaces local state automatically',()=>{
@@ -38,5 +40,6 @@ test('boot cache keys point to repaired synchronization and PDF modules',()=>{
   const index=read('index.html');
   assert.match(index,/state-load-performance\.js\?v=20260722-3/);
   assert.match(index,/sync-integrity-guard\.js\?v=20260723-6/);
-  assert.match(index,/telegram-pdf-declarations\.js\?v=20260723-9/);
+  assert.match(index,/telegram-pdf-declarations\.js\?v=20260724-10/);
+  assert.match(index,/exact-portfolio-metadata-bridge\.js\?v=20260724-2/);
 });

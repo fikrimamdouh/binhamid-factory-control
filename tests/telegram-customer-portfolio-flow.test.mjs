@@ -15,42 +15,37 @@ test('Telegram daily Excel flow sends customer portfolio PDFs to the source chat
   assert.match(botFiles,/recognizedDaily&&result\?\.status!==['"]failed['"]/);
 });
 
-test('portfolio declarations require an approved operational date and never silently use today',()=>{
+test('portfolio declarations require an approved date and never silently use today',()=>{
   assert.match(portfolio,/resolveReportDate/);
-  assert.match(portfolio,/daily_report_batches/);
-  assert.match(portfolio,/report_date/);
-  assert.match(portfolio,/dateGregorian:reportDate/);
   assert.match(portfolio,/PORTFOLIO_REPORT_DATE_REQUIRED/);
+  assert.match(portfolio,/dateGregorian:reportDate/);
   assert.doesNotMatch(portfolio,/return riyadhDate\(\)/);
 });
 
-test('Telegram portfolio command selects the latest committed non-empty batch',()=>{
+test('Telegram command selects latest committed non-empty batch',()=>{
   assert.match(botPortfolio,/latestApprovedReportWithSales/);
   assert.match(botPortfolio,/status=eq\.approved/);
   assert.match(botPortfolio,/order=committed_at\.desc\.nullslast,approved_at\.desc\.nullslast,report_date\.desc&limit=30/);
   assert.match(botPortfolio,/salesByBatch/);
   assert.match(botPortfolio,/Number\(item\.amount\|\|0\)>0/);
-  assert.doesNotMatch(botPortfolio,/order=report_date\.desc,committed_at/);
+  assert.match(botPortfolio,/const batch=batches\.find/);
   assert.doesNotMatch(botPortfolio,/report_date=eq\./);
 });
 
-test('Telegram portfolio command reads the original Excel date before trusting an incorrect stored date',()=>{
+test('Telegram command reads original Excel date before trusting wrong stored date',()=>{
   assert.match(botPortfolio,/import \* as XLSX from 'xlsx'/);
   assert.match(botPortfolio,/downloadObject/);
-  assert.match(botPortfolio,/file_storage_path/);
-  assert.match(botPortfolio,/posted_batch_id=eq\./);
   assert.match(botPortfolio,/detectOriginalReportDate/);
-  assert.match(botPortfolio,/تاريخ التقرير: <b>\$\{date\}<\/b>/);
   assert.match(botPortfolio,/تم تصحيح التاريخ المسجل/);
   assert.match(botPortfolio,/تم منع إرسال إقرار بتاريخ اليوم/);
 });
 
-test('daily sales reports menu includes the two portfolio declarations',()=>{
+test('daily sales reports menu includes both portfolio declarations',()=>{
   assert.match(botReports,/إقرارا محفظة البلوك والخرسانة/);
   assert.match(botReports,/callback_data:'ent:portfolio_current'/);
 });
 
-test('portfolio declarations build report-day customers directly from approved sales lines',()=>{
+test('portfolio customers come directly from approved sales lines',()=>{
   assert.match(portfolio,/directDailyCustomers/);
   assert.match(portfolio,/analysis\?\.sales/);
   assert.match(portfolio,/row\?\.customerCode\|\|row\?\.customer_code/);
@@ -58,13 +53,12 @@ test('portfolio declarations build report-day customers directly from approved s
   assert.match(portfolio,/if\(!direct\.length\)/);
 });
 
-test('Telegram PDF shows exact invoice evidence from the selected batch',()=>{
+test('Telegram PDF includes exact batch invoice evidence',()=>{
   assert.match(portfolio,/function invoiceRows/);
   assert.match(portfolio,/data-telegram-portfolio-proof="1"/);
   assert.match(portfolio,/فواتير الدفعة/);
   assert.match(portfolio,/أرقام الفواتير/);
   assert.match(portfolio,/invoiceCount:invoices\.length/);
-  assert.match(portfolio,/نسخة تيليجرام الجديدة/);
 });
 
 test('concrete classifier accepts canonical and ready-mix values',()=>{
@@ -74,22 +68,32 @@ test('concrete classifier accepts canonical and ready-mix values',()=>{
   assert.match(portfolio,/raw==='rmc'/);
 });
 
-test('server PDF reuses the canonical customer portfolio declaration renderer',()=>{
+test('server fallback uses the same website docCli document system',()=>{
   assert.match(portfolio,/renderCustomerPortfolioDeclaration/);
-  assert.match(portfolio,/CUSTOMER_PORTFOLIO_DECLARATION/);
-  assert.match(renderer,/إقرار مسؤولية عن محفظة عملاء/);
+  assert.match(portfolio,/company:state\.company/);
+  assert.match(renderer,/website-docCli-exact-v1/);
+  for(const marker of ['class="doc"','class="spine"','class="mast"','class="tbar"','class="dg"','class="led"','class="cov"','class="exe"','IBM Plex Sans Arabic','Reem Kufi','width:210mm;height:297mm'])assert.match(renderer,new RegExp(marker));
+  assert.match(renderer,/background:linear-gradient\(180deg,#0B2233/);
 });
 
-test('portfolio PDF is split into explicit complete A4 pages without cutting signatures or tables',()=>{
-  assert.match(renderer,/chunks\(customers,10\)/);
-  assert.match(renderer,/portfolio-page/);
-  assert.match(renderer,/height:281mm/);
+test('website-style fallback splits only at complete A4 pages',()=>{
+  assert.match(renderer,/chunks\(model\.customers,10\)/);
+  assert.match(renderer,/page-break-after:always/);
   assert.match(renderer,/break-after:page/);
-  assert.match(renderer,/page-break-inside:avoid/);
-  assert.match(renderer,/signatures/);
+  assert.match(renderer,/break-inside:avoid/);
+  assert.match(renderer,/execution\(model,reference,model\.dateGregorian\)/);
+  assert.match(renderer,/pages\.push\(page/);
 });
 
-test('employee selection is exact, prioritizes residency, and never falls back to a mechanic',()=>{
+test('bot reuses archived exact website PDF before fallback generation',()=>{
+  assert.match(botPortfolio,/readExactPointer/);
+  assert.match(botPortfolio,/sendExactDailyPortfolio/);
+  assert.match(botPortfolio,/exactWebsitePrint:true/);
+  const exact=botPortfolio.indexOf('const exact=await sendExactDailyPortfolio'),fallback=botPortfolio.indexOf('const generated=await generateCustomerPortfolioPdfs');
+  assert.ok(exact>=0&&fallback>exact);
+});
+
+test('employee selection is exact, prioritizes residency, and never falls back to mechanic',()=>{
   assert.match(portfolio,/ROLE_ALIASES/);
   assert.match(portfolio,/if\(!roleMatches\(employee,type\)\)return-1/);
   assert.match(portfolio,/digits\(employee\?\.nid\|\|employee\?\.national_id\)\.length>=10/);

@@ -29,42 +29,22 @@ function dateFromValue(value){
   match=text.match(/\b(\d{1,2})[./_-](\d{1,2})[./_-](20\d{2})\b/);
   if(match)return isoDateParts(match[3],match[2],match[1]);
   match=text.match(/\b(\d{1,2})\s+([أإا]?[^\s\d]{3,10})\s+(20\d{2})\b/);
-  if(match){
-    const normalized=match[2].replace(/^ا/,'أ'),month=ARABIC_MONTHS.get(match[2])||ARABIC_MONTHS.get(normalized);
-    if(month)return isoDateParts(match[3],month,match[1]);
-  }
+  if(match){const normalized=match[2].replace(/^ا/,'أ'),month=ARABIC_MONTHS.get(match[2])||ARABIC_MONTHS.get(normalized);if(month)return isoDateParts(match[3],month,match[1]);}
   return'';
 }
-function committedDate(batch){
-  const parsed=new Date(batch?.committed_at||batch?.approved_at||'');
-  return Number.isNaN(parsed.getTime())?'':new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Riyadh',year:'numeric',month:'2-digit',day:'2-digit'}).format(parsed);
-}
-function dateDistanceDays(left,right){
-  const a=new Date(`${left}T12:00:00Z`),b=new Date(`${right}T12:00:00Z`);
-  return Number.isNaN(a.getTime())||Number.isNaN(b.getTime())?9999:Math.round((a-b)/86400000);
-}
+function committedDate(batch){const parsed=new Date(batch?.committed_at||batch?.approved_at||'');return Number.isNaN(parsed.getTime())?'':new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Riyadh',year:'numeric',month:'2-digit',day:'2-digit'}).format(parsed);}
+function dateDistanceDays(left,right){const a=new Date(`${left}T12:00:00Z`),b=new Date(`${right}T12:00:00Z`);return Number.isNaN(a.getTime())||Number.isNaN(b.getTime())?9999:Math.round((a-b)/86400000);}
 async function originalPath(batch){
-  const direct=clean(batch?.file_storage_path||batch?.file_path||batch?.storage_path);
-  if(direct)return direct;
+  const direct=clean(batch?.file_storage_path||batch?.file_path||batch?.storage_path);if(direct)return direct;
   const id=clean(batch?.id);if(!id)return'';
   const linked=await select('imports',`posted_batch_id=eq.${encodeURIComponent(id)}&select=file_path,original_name,created_at&order=created_at.desc&limit=1`).catch(()=>[]);
   return clean(linked?.[0]?.file_path);
 }
 async function detectOriginalReportDate(batch){
-  const key=clean(batch?.id)||clean(batch?.file_hash)||clean(batch?.original_name);
-  const cached=DATE_CACHE.get(key);if(cached&&Date.now()-cached.at<300000)return cached.value;
+  const key=clean(batch?.id)||clean(batch?.file_hash)||clean(batch?.original_name),cached=DATE_CACHE.get(key);if(cached&&Date.now()-cached.at<300000)return cached.value;
   const candidates=[];
-  const add=(value,score,source)=>{
-    const date=dateFromValue(value);if(!date)return;
-    const commit=committedDate(batch),distance=commit?dateDistanceDays(commit,date):9999;
-    let adjusted=score;
-    if(commit&&distance>=0&&distance<=45)adjusted+=20;
-    if(commit&&distance<0)adjusted-=80;
-    candidates.push({date,score:adjusted,source});
-  };
-  add(batch?.preview_summary?.reportDate,150,'preview');
-  add(batch?.summary?.reportDate,140,'summary');
-  add(batch?.original_name,85,'filename');
+  const add=(value,score,source)=>{const date=dateFromValue(value);if(!date)return;const commit=committedDate(batch),distance=commit?dateDistanceDays(commit,date):9999;let adjusted=score;if(commit&&distance>=0&&distance<=45)adjusted+=20;if(commit&&distance<0)adjusted-=80;candidates.push({date,score:adjusted,source});};
+  add(batch?.preview_summary?.reportDate,150,'preview');add(batch?.summary?.reportDate,140,'summary');add(batch?.original_name,85,'filename');
   try{
     const path=await originalPath(batch);
     if(path){
@@ -72,125 +52,54 @@ async function detectOriginalReportDate(batch){
       for(const sheetName of workbook.SheetNames.slice(0,20)){
         const rows=XLSX.utils.sheet_to_json(workbook.Sheets[sheetName],{header:1,defval:'',raw:true,blankrows:false});
         for(let rowIndex=0;rowIndex<Math.min(rows.length,400);rowIndex++){
-          const row=Array.isArray(rows[rowIndex])?rows[rowIndex].slice(0,50):[],rowLabel=westernDigits(row.map(clean).join(' '));
-          const exactLabel=/تاريخ\s*(?:التقرير|الحركه|الحركة|التشغيل|اليوم)|report\s*date|operating\s*date/i.test(rowLabel);
-          const genericLabel=/\bتاريخ\b|\bdate\b/i.test(rowLabel);
+          const row=Array.isArray(rows[rowIndex])?rows[rowIndex].slice(0,50):[],rowLabel=westernDigits(row.map(clean).join(' ')),exactLabel=/تاريخ\s*(?:التقرير|الحركه|الحركة|التشغيل|اليوم)|report\s*date|operating\s*date/i.test(rowLabel),genericLabel=/\bتاريخ\b|\bdate\b/i.test(rowLabel);
           for(let cellIndex=0;cellIndex<row.length;cellIndex++){
             const value=row[cellIndex],date=dateFromValue(value);if(!date)continue;
-            const nearby=westernDigits([row[cellIndex-2],row[cellIndex-1],row[cellIndex+1],row[cellIndex+2]].map(clean).join(' '));
-            const nearbyExact=/تاريخ\s*(?:التقرير|الحركه|الحركة|التشغيل|اليوم)|report\s*date|operating\s*date/i.test(nearby);
+            const nearby=westernDigits([row[cellIndex-2],row[cellIndex-1],row[cellIndex+1],row[cellIndex+2]].map(clean).join(' ')),nearbyExact=/تاريخ\s*(?:التقرير|الحركه|الحركة|التشغيل|اليوم)|report\s*date|operating\s*date/i.test(nearby);
             add(date,nearbyExact?180:exactLabel?160:genericLabel?95:25,`workbook:${sheetName}:${rowIndex+1}:${cellIndex+1}`);
           }
         }
       }
     }
-  }catch(error){
-    console.warn('[telegram portfolio workbook date]',{batchId:batch?.id||null,message:String(error?.message||'').slice(0,300)});
-  }
-  candidates.sort((a,b)=>b.score-a.score||b.date.localeCompare(a.date));
-  const value=candidates[0]?.score>=40?candidates[0]:null;
-  DATE_CACHE.set(key,{at:Date.now(),value});
-  return value;
+  }catch(error){console.warn('[telegram portfolio workbook date]',{batchId:batch?.id||null,message:String(error?.message||'').slice(0,300)});}
+  candidates.sort((a,b)=>b.score-a.score||b.date.localeCompare(a.date));const value=candidates[0]?.score>=40?candidates[0]:null;DATE_CACHE.set(key,{at:Date.now(),value});return value;
 }
 
 function analysisFromCommitted(data){
-  const sales=(data.sales||[]).map(row=>({
-    row:row.source_row_no,
-    invoice:row.invoice_no,
-    kind:row.sales_type==='block'?'بلوك':'خرسانة',
-    customerCode:row.customer_code,
-    customer:row.customer_name,
-    item:row.item_name,
-    quantity:Number(row.quantity||0),
-    amount:Number(row.amount||0)
-  }));
-  const collections=(data.cash||[])
-    .filter(row=>row.is_customer_collection===true||String(row.is_customer_collection)==='true')
-    .map(row=>({
-      row:row.source_row_no,
-      customerCode:row.account_code,
-      customer:row.account_name,
-      amount:collectionAmount(row),
-      treasuryCode:row.treasury_code,
-      treasuryName:row.treasury_name
-    }));
+  const sales=(data.sales||[]).map(row=>({row:row.source_row_no,invoice:row.invoice_no,kind:row.sales_type==='block'?'بلوك':'خرسانة',customerCode:row.customer_code,customer:row.customer_name,item:row.item_name,quantity:Number(row.quantity||0),amount:Number(row.amount||0)}));
+  const collections=(data.cash||[]).filter(row=>row.is_customer_collection===true||String(row.is_customer_collection)==='true').map(row=>({row:row.source_row_no,customerCode:row.account_code,customer:row.account_name,amount:collectionAmount(row),treasuryCode:row.treasury_code,treasuryName:row.treasury_name}));
   return{currentBatch:true,reportDate:data.reportDate,sales,collections};
 }
-
 async function latestApprovedReportWithSales(){
-  const batches=await select(
-    'daily_report_batches',
-    'status=eq.approved&select=*&order=committed_at.desc.nullslast,approved_at.desc.nullslast,report_date.desc&limit=30'
-  ).catch(()=>[]);
+  const batches=await select('daily_report_batches','status=eq.approved&select=*&order=committed_at.desc.nullslast,approved_at.desc.nullslast,report_date.desc&limit=30').catch(()=>[]);
   if(!batches?.length)return null;
-  const ids=batches.map(row=>clean(row.id)).filter(Boolean);
-  if(!ids.length)return null;
-  const sales=await select(
-    'daily_report_sales_lines',
-    `batch_id=in.(${ids.join(',')})&select=batch_id,source_row_no,invoice_no,sales_type,customer_code,customer_name,item_name,quantity,amount&order=source_row_no.asc&limit=10000`
-  ).catch(()=>[]);
-  const salesByBatch=new Map();
-  for(const row of sales||[]){
-    const key=clean(row.batch_id);
-    if(!salesByBatch.has(key))salesByBatch.set(key,[]);
-    salesByBatch.get(key).push(row);
-  }
-  const batch=batches.find(row=>(salesByBatch.get(clean(row.id))||[]).some(item=>Number(item.amount||0)>0));
-  if(!batch)return null;
-  const id=encodeURIComponent(clean(batch.id));
-  const cash=await select(
-    'daily_report_cash_movements',
-    `batch_id=eq.${id}&select=source_row_no,treasury_code,treasury_name,debit,credit,account_name,account_code,is_customer_collection&order=source_row_no.asc&limit=3000`
-  ).catch(()=>[]);
-  const detected=await detectOriginalReportDate(batch),storedReportDate=dateFromValue(batch.report_date);
-  return{
-    batch,
-    sales:salesByBatch.get(clean(batch.id))||[],
-    cash:cash||[],
-    reportDate:detected?.date||storedReportDate,
-    storedReportDate,
-    dateSource:detected?.source||'database'
-  };
+  const ids=batches.map(row=>clean(row.id)).filter(Boolean);if(!ids.length)return null;
+  const sales=await select('daily_report_sales_lines',`batch_id=in.(${ids.join(',')})&select=batch_id,source_row_no,invoice_no,sales_type,customer_code,customer_name,item_name,quantity,amount&order=source_row_no.asc&limit=10000`).catch(()=>[]),salesByBatch=new Map();
+  for(const row of sales||[]){const key=clean(row.batch_id);if(!salesByBatch.has(key))salesByBatch.set(key,[]);salesByBatch.get(key).push(row);}
+  const batch=batches.find(row=>(salesByBatch.get(clean(row.id))||[]).some(item=>Number(item.amount||0)>0));if(!batch)return null;
+  const id=encodeURIComponent(clean(batch.id)),cash=await select('daily_report_cash_movements',`batch_id=eq.${id}&select=source_row_no,treasury_code,treasury_name,debit,credit,account_name,account_code,is_customer_collection&order=source_row_no.asc&limit=3000`).catch(()=>[]),detected=await detectOriginalReportDate(batch),storedReportDate=dateFromValue(batch.report_date);
+  return{batch,sales:salesByBatch.get(clean(batch.id))||[],cash:cash||[],reportDate:detected?.date||storedReportDate,storedReportDate,dateSource:detected?.source||'database'};
 }
-
-function requestedTypes(identity,forcedTypes=[]){
-  const requested=[...new Set((Array.isArray(forcedTypes)?forcedTypes:[forcedTypes]).filter(type=>type==='block'||type==='concrete'))];
-  if(requested.length)return requested;
-  if(identity?.role==='block_sales')return['block'];
-  if(identity?.role==='concrete_sales')return['concrete'];
-  return['block','concrete'];
+function requestedTypes(identity,forcedTypes=[]){const requested=[...new Set((Array.isArray(forcedTypes)?forcedTypes:[forcedTypes]).filter(type=>type==='block'||type==='concrete'))];if(requested.length)return requested;if(identity?.role==='block_sales')return['block'];if(identity?.role==='concrete_sales')return['concrete'];return['block','concrete'];}
+function pointerPath(type,mode='daily'){return`portfolio-documents/latest-${mode}-${type}.json`;}
+async function readExactPointer(type,mode='daily'){
+  try{const file=await downloadObject(pointerPath(type,mode)),pointer=JSON.parse(file.buffer.toString('utf8'));if(pointer?.documentType!=='customer_portfolio'||pointer?.portfolioType!==type||!pointer?.pdfPath||Number(pointer?.customerCount||0)<=0)return null;return pointer;}
+  catch(error){const message=String(error?.message||'');if(/404|not found|تعذر تنزيل المرفق/i.test(message))return null;console.warn('[telegram exact portfolio pointer]',{type,mode,message:message.slice(0,220)});return null;}
+}
+async function sendExactDailyPortfolio(chatId,type,reportDate){
+  const pointer=await readExactPointer(type,'daily');if(!pointer||String(pointer.reportDate||pointer.periodTo||'')!==String(reportDate||''))return null;
+  try{const file=await downloadObject(pointer.pdfPath),arabic=type==='block'?'البلوك':'الخرسانة';await sendDocumentBuffer(chatId,file.buffer,pointer.filename||`إقرار محفظة عملاء ${arabic} — ${reportDate}.pdf`,file.contentType||'application/pdf',`📄 إقرار محفظة عملاء ${arabic} — نفس نسخة الطباعة الأصلية من الموقع — ${reportDate} — العملاء: ${pointer.customerCount}`);return{type,pdf:file.buffer,filename:pointer.filename,pointer,exactWebsitePrint:true};}
+  catch(error){console.warn('[telegram exact portfolio PDF]',{type,message:String(error?.message||'').slice(0,250)});return null;}
 }
 
 export async function sendLatestPortfolioDeclarations(chatId,identity={},forcedTypes=[]){
-  if(!identity?.active||!ALLOWED_ROLES.has(String(identity.role||''))){
-    return sendMessage(chatId,'إقرارات محفظة العملاء متاحة للإدارة والمحاسب ومسؤولي مبيعات البلوك والخرسانة فقط.');
-  }
-  const data=await latestApprovedReportWithSales();
-  if(!data)return sendMessage(chatId,'لا يوجد تقرير يومي معتمد يحتوي مبيعات فعلية في قاعدة البيانات حتى الآن.');
-  if(!data.reportDate)return sendMessage(chatId,'تعذر تحديد تاريخ التقرير من قاعدة البيانات أو ملف Excel الأصلي؛ تم منع إرسال إقرار بتاريخ اليوم.');
-  const types=requestedTypes(identity,forcedTypes),date=data.reportDate,invoiceCount=data.sales.filter(row=>Number(row.amount||0)>0).length;
-  const corrected=data.storedReportDate&&data.storedReportDate!==date;
-  await sendMessage(chatId,[
-    '<b>إعداد إقرار محفظة العملاء — نسخة الخادم الجديدة</b>',
-    `الملف: <b>${clean(data.batch.original_name)||'التقرير اليومي'}</b>`,
-    `تاريخ التقرير: <b>${date}</b>`,
-    `الفواتير المعتمدة: <b>${invoiceCount}</b>`,
-    corrected?`تم تصحيح التاريخ المسجل <s>${data.storedReportDate}</s> إلى <b>${date}</b> بعد قراءة ملف Excel الأصلي.`:`مصدر التاريخ: <b>${data.dateSource==='database'?'سجل التقرير المعتمد':'ملف Excel الأصلي'}</b>.`
-  ].join('\n'));
+  if(!identity?.active||!ALLOWED_ROLES.has(String(identity.role||'')))return sendMessage(chatId,'إقرارات محفظة العملاء متاحة للإدارة والمحاسب ومسؤولي مبيعات البلوك والخرسانة فقط.');
+  const data=await latestApprovedReportWithSales();if(!data)return sendMessage(chatId,'لا يوجد تقرير يومي معتمد يحتوي مبيعات فعلية في قاعدة البيانات حتى الآن.');if(!data.reportDate)return sendMessage(chatId,'تعذر تحديد تاريخ التقرير من قاعدة البيانات أو ملف Excel الأصلي؛ تم منع إرسال إقرار بتاريخ اليوم.');
+  const types=requestedTypes(identity,forcedTypes),date=data.reportDate,invoiceCount=data.sales.filter(row=>Number(row.amount||0)>0).length,corrected=data.storedReportDate&&data.storedReportDate!==date,reports=[],missing=[];
+  await sendMessage(chatId,['<b>إعداد إقرار محفظة العملاء</b>',`الملف: <b>${clean(data.batch.original_name)||'التقرير اليومي'}</b>`,`تاريخ التقرير: <b>${date}</b>`,`الفواتير المعتمدة: <b>${invoiceCount}</b>`,corrected?`تم تصحيح التاريخ المسجل <s>${data.storedReportDate}</s> إلى <b>${date}</b> بعد قراءة ملف Excel الأصلي.`:`مصدر التاريخ: <b>${data.dateSource==='database'?'سجل التقرير المعتمد':'ملف Excel الأصلي'}</b>.`].join('\n'));
   try{
-    const reports=await generateCustomerPortfolioPdfs(
-      analysisFromCommitted(data),
-      data.batch.original_name||'التقرير اليومي',
-      types,
-      {reportDate:date,dailyOnly:true,sourceBatchId:data.batch.id,storedReportDate:data.storedReportDate,dateSource:data.dateSource}
-    );
-    for(const report of reports){
-      await sendDocumentBuffer(chatId,report.pdf,report.filename,'application/pdf',report.caption);
-    }
-    await sendMessage(chatId,`تم إرسال ${reports.length} إقرار من نفس دفعة التقرير: <b>${invoiceCount}</b> فاتورة بتاريخ <b>${date}</b>.`);
-    return reports;
-  }catch(error){
-    console.error('[telegram latest portfolio declarations]',{code:error?.code||null,status:Number(error?.status||error?.upstreamStatus||0),message:String(error?.message||'').slice(0,500)});
-    return sendMessage(chatId,`تعذر إنشاء إقرارات محفظة العملاء مؤقتًا. السبب: ${String(error?.message||'تعذر إنشاء PDF').slice(0,300)}`);
-  }
+    for(const type of types){const exact=await sendExactDailyPortfolio(chatId,type,date);if(exact)reports.push(exact);else missing.push(type);}
+    if(missing.length){const generated=await generateCustomerPortfolioPdfs(analysisFromCommitted(data),data.batch.original_name||'التقرير اليومي',missing,{reportDate:date,dailyOnly:true,sourceBatchId:data.batch.id,storedReportDate:data.storedReportDate,dateSource:data.dateSource});for(const report of generated){await sendDocumentBuffer(chatId,report.pdf,report.filename,'application/pdf',`${report.caption}\nنسخة خادمية احتياطية بنفس تصميم طباعة الموقع؛ لم تكن نسخة الموقع المؤرشفة متاحة.`);reports.push({...report,exactWebsitePrint:false});}}
+    const exactCount=reports.filter(report=>report.exactWebsitePrint).length;await sendMessage(chatId,`تم إرسال ${reports.length} إقرار من نفس دفعة التقرير: <b>${invoiceCount}</b> فاتورة بتاريخ <b>${date}</b>. النسخ المؤرشفة المطابقة حرفيًا لطباعة الموقع: <b>${exactCount}</b>.`);return reports;
+  }catch(error){console.error('[telegram latest portfolio declarations]',{code:error?.code||null,status:Number(error?.status||error?.upstreamStatus||0),message:String(error?.message||'').slice(0,500)});return sendMessage(chatId,`تعذر إنشاء إقرارات محفظة العملاء مؤقتًا. السبب: ${String(error?.message||'تعذر إنشاء PDF').slice(0,300)}`);}
 }
