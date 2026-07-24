@@ -92,5 +92,18 @@
     window.BinHamidDailyReportSourceOfTruth={version:VERSION,installed:true};console.info('[BinHamid]',VERSION,'loaded');
   }
 
-  const timer=setInterval(()=>{install();if(installed)clearInterval(timer);},250);setTimeout(()=>clearInterval(timer),25000);
-})();
+let attempts=0;
+const timer=setInterval(()=>{
+  attempts++;
+  install();
+  if(installed){clearInterval(timer);return;}
+  if(attempts===120){  // بعد 30 ثانية
+    const missing=[];
+    if(!window.BinHamidExistingDailyImportFix?.installed)missing.push('existing-daily-import-fix');
+    if(!window.BinHamidDailySummaryParser)missing.push('daily-summary-parser');
+    if(!window.XLSX)missing.push('XLSX');
+    if(typeof window.opsOpenModal!=='function')missing.push('opsOpenModal');
+    console.error('[BinHamid] اعتماد سحابي غير مفعّل — ناقص:',missing);
+    showBanner(missing);
+  }
+},250);})();
