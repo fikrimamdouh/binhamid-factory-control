@@ -5,6 +5,7 @@ import fs from 'node:fs';
 const botFiles=fs.readFileSync(new URL('../api/_lib/bot-files.js',import.meta.url),'utf8');
 const portfolio=fs.readFileSync(new URL('../api/_lib/customer-portfolio-pdf.js',import.meta.url),'utf8');
 const botPortfolio=fs.readFileSync(new URL('../api/_lib/bot-portfolio-reports.js',import.meta.url),'utf8');
+const botReports=fs.readFileSync(new URL('../api/_lib/bot-reports.js',import.meta.url),'utf8');
 const renderer=fs.readFileSync(new URL('../shared/customer-portfolio-declaration.js',import.meta.url),'utf8');
 
 test('Telegram daily Excel flow sends customer portfolio PDFs to the source chat',()=>{
@@ -21,11 +22,19 @@ test('portfolio declarations use the approved report date instead of browser dat
   assert.match(portfolio,/dateGregorian:reportDate/);
 });
 
-test('Telegram portfolio command selects the newest approved report date, not today or last approval click',()=>{
+test('Telegram portfolio command skips newer empty approved batches',()=>{
+  assert.match(botPortfolio,/latestApprovedReportWithSales/);
   assert.match(botPortfolio,/status=eq\.approved/);
-  assert.match(botPortfolio,/order=report_date\.desc,committed_at\.desc\.nullslast,approved_at\.desc\.nullslast/);
-  assert.match(botPortfolio,/لا يعتمد الإقرار على تاريخ اليوم/);
+  assert.match(botPortfolio,/order=report_date\.desc,committed_at\.desc\.nullslast,approved_at\.desc\.nullslast&limit=30/);
+  assert.match(botPortfolio,/salesByBatch/);
+  assert.match(botPortfolio,/Number\(item\.amount\|\|0\)>0/);
+  assert.match(botPortfolio,/تم تجاوز أي تقرير أحدث فارغ/);
   assert.doesNotMatch(botPortfolio,/report_date=eq\./);
+});
+
+test('daily sales reports menu includes the two portfolio declarations',()=>{
+  assert.match(botReports,/إقرارا محفظة البلوك والخرسانة/);
+  assert.match(botReports,/callback_data:'ent:portfolio_current'/);
 });
 
 test('portfolio declarations build report-day customers directly from approved sales lines',()=>{
@@ -47,6 +56,15 @@ test('server PDF reuses the canonical customer portfolio declaration renderer',(
   assert.match(portfolio,/renderCustomerPortfolioDeclaration/);
   assert.match(portfolio,/CUSTOMER_PORTFOLIO_DECLARATION/);
   assert.match(renderer,/إقرار مسؤولية عن محفظة عملاء/);
+});
+
+test('portfolio PDF is split into explicit complete A4 pages without cutting signatures or tables',()=>{
+  assert.match(renderer,/chunks\(customers,10\)/);
+  assert.match(renderer,/portfolio-page/);
+  assert.match(renderer,/height:281mm/);
+  assert.match(renderer,/break-after:page/);
+  assert.match(renderer,/page-break-inside:avoid/);
+  assert.match(renderer,/signatures/);
 });
 
 test('employee selection is exact, prioritizes residency, and never falls back to a mechanic',()=>{
