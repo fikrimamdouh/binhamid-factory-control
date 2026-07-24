@@ -47,7 +47,12 @@ export async function supabase(path, options = {}) {
   }
   return data;
 }
-export const select = (table, query = '') => supabase(`/rest/v1/${table}${query ? `?${query}` : ''}`, { headers: { Prefer: 'count=exact' } });
+export function normalizeSelectQuery(table, query = '') {
+  const value=String(query||'');
+  const latestApprovedBotReport=table==='daily_report_batches'&&value.includes('status=eq.approved')&&value.includes('select=id,report_date,original_name,summary,preview_summary,approved_at,committed_at')&&value.includes('order=report_date.desc&limit=1');
+  return latestApprovedBotReport?value.replace('order=report_date.desc&limit=1','order=committed_at.desc.nullslast,approved_at.desc.nullslast,report_date.desc&limit=1'):value;
+}
+export const select = (table, query = '') => {const normalized=normalizeSelectQuery(table,query);return supabase(`/rest/v1/${table}${normalized ? `?${normalized}` : ''}`, { headers: { Prefer: 'count=exact' } });};
 export const insert = (table, rows, options = {}) => supabase(`/rest/v1/${table}${options.query ? `?${options.query}` : ''}`, { method: 'POST', body: JSON.stringify(rows), headers: { Prefer: options.prefer || 'return=representation' } });
 export const upsert = (table, rows, onConflict) => supabase(`/rest/v1/${table}${onConflict ? `?on_conflict=${encodeURIComponent(onConflict)}` : ''}`, { method: 'POST', body: JSON.stringify(rows), headers: { Prefer: 'resolution=merge-duplicates,return=representation' } });
 export const patch = (table, query, values) => supabase(`/rest/v1/${table}?${query}`, { method: 'PATCH', body: JSON.stringify(values), headers: { Prefer: 'return=representation' } });
