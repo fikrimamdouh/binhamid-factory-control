@@ -106,3 +106,18 @@ test('employee selection is exact, prioritizes residency, and never falls back t
   assert.match(portfolio,/تم منع إصدار الإقرار باسم موظف غير صحيح/);
   assert.match(portfolio,/role:ROLE_BY_TYPE\[type\]/);
 });
+
+test('priced declaration keeps the signature block on its own page so it is never clipped',async()=>{
+  const { renderCustomerPortfolioDeclaration }=await import('../shared/customer-portfolio-declaration.js');
+  const customers=Array.from({length:8},(_,index)=>({name:`عميل ${index}`,code:`C${index}`,phone:'050',creditLimit:5000,paymentDays:3,sales:1000,paid:400,outstanding:600,quantity:12,item:'خرسانة'}));
+  const priced=renderCustomerPortfolioDeclaration({type:'concrete',companyName:'بن حامد',employee:{name:'خالد عبد الله',nationalId:'2414111530'},customers,days:3,dateGregorian:'2026-07-23'});
+  // صفحة الوثيقة ارتفاعها ثابت مع overflow:hidden، فإدراج صندوق الذمة مع الالتزامات كان
+  // يدفع خانة التوقيع خارج الصفحة فتُقصّ. الآن للتوقيع صفحته المستقلة.
+  assert.match(priced.document,/إقرار الذمة والتوقيع/);
+  assert.match(priced.document,/المندوب المُقِر/);
+  // وثيقة الموقع (بلا أرقام) تبقى بلا صفحة إضافية كما كانت.
+  const plain=renderCustomerPortfolioDeclaration({type:'concrete',companyName:'بن حامد',employee:{name:'خالد عبد الله'},customers:customers.map(({sales,paid,outstanding,quantity,item,...rest})=>rest),days:3,dateGregorian:'2026-07-23'});
+  assert.doesNotMatch(plain.document,/إقرار الذمة والتوقيع/);
+  assert.match(plain.document,/المندوب المُقِر/);
+  assert.ok(priced.model.pageCount>plain.model.pageCount);
+});
