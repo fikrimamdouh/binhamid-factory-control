@@ -1,8 +1,8 @@
 import { select } from './supabase.js';
-import { sendMessage, sendDocumentBuffer, keyboard } from './telegram.js';
+import { sendMessage, keyboard } from './telegram.js';
 import { esc, norm, setEnterpriseSession, getEnterpriseSession } from './bot-enterprise-store.js';
 import { botModuleAllowed } from './bot-menu-permissions.js';
-import { generateCustomerPortfolioPdfs } from './customer-portfolio-pdf.js';
+import { sendLatestPortfolioDeclarations } from './bot-portfolio-reports.js';
 
 const PAGE_SIZE=8;
 const EMPLOYEE_ROLES=new Set(['admin','manager','accountant','hr']);
@@ -112,19 +112,17 @@ export async function sendCurrentPortfolioPdfs(message,identity,requestedType=''
   if(!allowed.includes(requestedType)){await sendMessage(message.chat.id,'هذا الإقرار غير متاح لدورك الحالي.');return true;}
   const key=`${message.chat.id}:${identityKey(identity)||message.from?.id||'user'}`;
   if(portfolioJobs.has(key)){await sendMessage(message.chat.id,'يوجد إقرار قيد الإنشاء لحسابك. لن يتم إنشاء طلب مكرر.');return true;}
-  const job=(async()=>{
-    await sendMessage(message.chat.id,`جارٍ إنشاء ${portfolioLabel(requestedType)} من البيانات السحابية الحالية.`);
-    try{
-      const reports=await generateCustomerPortfolioPdfs({},'telegram-current-portfolio',[requestedType]),report=reports[0];
-      if(!report)throw new Error('لم يتم إنشاء ملف الإقرار المطلوب.');
-      await sendDocumentBuffer(message.chat.id,report.pdf,report.filename,'application/pdf',report.caption);
-      await sendMessage(message.chat.id,`تم إرسال ${portfolioLabel(requestedType)} من الأرصدة والربط الحاليين.`);
-    }catch(error){
+  // الإقرار يُبنى من آخر تقرير يومي معتمد يحتوي مبيعات فعلية، مع تفضيل إرسال نسخة
+  // الطباعة المؤرشفة من الموقع حرفيًا ثم التوليد الخادمي بنفس التصميم عند غيابها.
+  // الاستدعاء السابق كان يمرر اسم ملف وهمي لا يطابق أي دفعة معتمدة في
+  // daily_report_batches، فيفشل resolveReportDate دائمًا بـ«تعذر تحديد تاريخ التقرير المعتمد».
+  const job=sendLatestPortfolioDeclarations(message.chat.id,identity,[requestedType])
+    .catch(error=>{
       console.error('[telegram current portfolio]',error);
       const reason=error?.code==='PDF_RATE_LIMITED'?'خدمة PDF ظلت مشغولة بعد الانتظار وإعادة المحاولة تلقائيًا.':String(error?.message||'تعذر إنشاء PDF');
-      await sendMessage(message.chat.id,`تعذر إنشاء الإقرار.\nالسبب: ${esc(reason.slice(0,280))}`);
-    }
-  })().finally(()=>portfolioJobs.delete(key));
+      return sendMessage(message.chat.id,`تعذر إنشاء ${portfolioLabel(requestedType)}.\nالسبب: ${esc(reason.slice(0,280))}`);
+    })
+    .finally(()=>portfolioJobs.delete(key));
   portfolioJobs.set(key,job);await job;return true;
 }
 

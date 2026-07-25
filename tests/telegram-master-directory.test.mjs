@@ -50,7 +50,10 @@ test('portfolio command opens separate block and concrete choices',()=>{
 });
 
 test('each Telegram request generates only the selected portfolio PDF',()=>{
-  assert.match(directory,/generateCustomerPortfolioPdfs\(\{\},'telegram-current-portfolio',\[requestedType\]\)/);
+  // الزر يبني الإقرار من آخر تقرير معتمد عبر المسار الموحّد، لا من اسم ملف وهمي
+  // ('telegram-current-portfolio') كان يجعل resolveReportDate يفشل دائمًا.
+  assert.match(directory,/sendLatestPortfolioDeclarations\(message\.chat\.id,identity,\[requestedType\]\)/);
+  assert.doesNotMatch(directory,/telegram-current-portfolio/);
   assert.match(directory,/يوجد إقرار قيد الإنشاء لحسابك/);
   assert.match(directory,/portfolioJobs/);
   assert.match(portfolio,/requestedTypes=\['block','concrete'\]/);
