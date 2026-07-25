@@ -59,9 +59,22 @@ function injectTelegramEvidence(document,{reportDate,sourceFile,invoices,storedR
   return document.includes('<div class="sec')?document.replace('<div class="sec',`${band}<div class="sec`):document.replace('</body>',`${band}</body>`);
 }
 function hasCurrentActivity(row){return Number(row?.currentSales||0)>0||Number(row?.currentApplied||0)>0||(Array.isArray(row?.invoices)&&row.invoices.length>0);}
+// حركة كل عميل من إسقاط التقرير: قيمة المشتريات والمسدَّد خلال الفترة، والمتبقي هو
+// كامل الرصيد غير المسدَّد (شاملًا ما سبق) لأنه ما يبقى فعلًا في ذمة المندوب.
+// مفاتيح العملاء فقط — لا علاقة لها بمطابقة الموظفين التي تبقى بالهوية والمعرّف حصرًا.
+function ledgerIndex(type,projection){
+  const byCustomerCode=new Map(),byCustomerName=new Map();
+  for(const row of projection?.departments?.[type]?.rows||[]){
+    const entry={sales:Number(row.currentSales||0),paid:Number(row.currentApplied||0),outstanding:Number(row.closingBalance||0)};
+    const code=customerKey(row.code||row.customerCode),name=customerKey(row.name||row.customerName);
+    if(code&&!byCustomerCode.has(code))byCustomerCode.set(code,entry);
+    if(name&&!byCustomerName.has(name))byCustomerName.set(name,entry);
+  }
+  return{byCustomerCode,byCustomerName};
+}
 function canonicalCustomers(type,analysis,projection,state,rep,{dailyOnly=true}={}){
-  const masterByCode=new Map(),masterByName=new Map();for(const client of state.clients){if(client?.code||client?.cr||client?.id)masterByCode.set(customerKey(client.code||client.cr||client.id),client);if(client?.name)masterByName.set(customerKey(client.name),client);}const selected=new Map(),linkedRepIds=repIds(rep);
-  const add=(client,source={})=>{const name=clean(client?.name||source?.name||source?.customerName),code=clean(client?.code||client?.cr||source?.code||source?.customerCode),key=customerKey(client?.id||code||name);if(!key||selected.has(key))return;selected.set(key,{name:name||code||'عميل غير مسمى',segment:type==='block'?'بلوك':'خرسانة',registry:clean(client?.cr||client?.nationalId||client?.registry||code),code,phone:clean(client?.tel||client?.phone),creditLimit:Number(client?.cap??state.cap??0)||0,paymentDays:Number(client?.days??state.days??3)||state.days});};
+  const masterByCode=new Map(),masterByName=new Map();for(const client of state.clients){if(client?.code||client?.cr||client?.id)masterByCode.set(customerKey(client.code||client.cr||client.id),client);if(client?.name)masterByName.set(customerKey(client.name),client);}const selected=new Map(),linkedRepIds=repIds(rep),ledger=ledgerIndex(type,projection);
+  const add=(client,source={})=>{const name=clean(client?.name||source?.name||source?.customerName),code=clean(client?.code||client?.cr||source?.code||source?.customerCode),key=customerKey(client?.id||code||name);if(!key||selected.has(key))return;const money=ledger.byCustomerCode.get(customerKey(code))||ledger.byCustomerName.get(customerKey(name))||{sales:0,paid:0,outstanding:0};selected.set(key,{name:name||code||'عميل غير مسمى',segment:type==='block'?'بلوك':'خرسانة',registry:clean(client?.cr||client?.nationalId||client?.registry||code),code,phone:clean(client?.tel||client?.phone),creditLimit:Number(client?.cap??state.cap??0)||0,paymentDays:Number(client?.days??state.days??3)||state.days,sales:money.sales,paid:money.paid,outstanding:money.outstanding});};
   if(!dailyOnly)for(const client of state.clients){const assigned=linkedRepIds.has(clean(client?.rep))||(Array.isArray(client?.repIds)&&client.repIds.some(id=>linkedRepIds.has(clean(id)))),segment=norm(client?.seg||'');if(assigned&&(!segment||segment.includes(type==='block'?'بلوك':'خرسان')||segment.includes('الاثنين')))add(client);}
   const direct=directDailyCustomers(type,analysis);for(const row of direct){const master=masterByCode.get(customerKey(row.customerCode))||masterByName.get(customerKey(row.customerName));add(master||{},row);}if(!direct.length){const projected=projection?.departments?.[type]?.rows||[];for(const row of projected){if(dailyOnly&&!hasCurrentActivity(row))continue;const master=masterByCode.get(customerKey(row.code||row.customerCode))||masterByName.get(customerKey(row.name||row.customerName));add(master||{},row);}}
   return[...selected.values()].sort((a,b)=>a.name.localeCompare(b.name,'ar'));

@@ -98,8 +98,17 @@ export async function sendLatestPortfolioDeclarations(chatId,identity={},forcedT
   const types=requestedTypes(identity,forcedTypes),date=data.reportDate,invoiceCount=data.sales.filter(row=>Number(row.amount||0)>0).length,corrected=data.storedReportDate&&data.storedReportDate!==date,reports=[],missing=[];
   await sendMessage(chatId,['<b>إعداد إقرار محفظة العملاء</b>',`الملف: <b>${clean(data.batch.original_name)||'التقرير اليومي'}</b>`,`تاريخ التقرير: <b>${date}</b>`,`الفواتير المعتمدة: <b>${invoiceCount}</b>`,corrected?`تم تصحيح التاريخ المسجل <s>${data.storedReportDate}</s> إلى <b>${date}</b> بعد قراءة ملف Excel الأصلي.`:`مصدر التاريخ: <b>${data.dateSource==='database'?'سجل التقرير المعتمد':'ملف Excel الأصلي'}</b>.`].join('\n'));
   try{
-    for(const type of types){const exact=await sendExactDailyPortfolio(chatId,type,date);if(exact)reports.push(exact);else missing.push(type);}
-    if(missing.length){const generated=await generateCustomerPortfolioPdfs(analysisFromCommitted(data),data.batch.original_name||'التقرير اليومي',missing,{reportDate:date,dailyOnly:true,sourceBatchId:data.batch.id,storedReportDate:data.storedReportDate,dateSource:data.dateSource});for(const report of generated){await sendDocumentBuffer(chatId,report.pdf,report.filename,'application/pdf',`${report.caption}\nنسخة خادمية احتياطية بنفس تصميم طباعة الموقع؛ لم تكن نسخة الموقع المؤرشفة متاحة.`);reports.push({...report,exactWebsitePrint:false});}}
+    // الإقرار صار يحمل حركة كل عميل (قيمة المشتريات/المسدَّد/المتبقي) وإجمالي ما في ذمة
+    // المندوب ليوقّع عليه، وهذه الأرقام غير موجودة في نسخة الموقع المؤرشفة. لذلك تُقدَّم
+    // النسخة المولَّدة بنفس تصميم الموقع، وتبقى النسخة المؤرشفة احتياطًا عند تعذّر التوليد.
+    try{
+      const generated=await generateCustomerPortfolioPdfs(analysisFromCommitted(data),data.batch.original_name||'التقرير اليومي',types,{reportDate:date,dailyOnly:true,sourceBatchId:data.batch.id,storedReportDate:data.storedReportDate,dateSource:data.dateSource});
+      for(const report of generated){await sendDocumentBuffer(chatId,report.pdf,report.filename,'application/pdf',report.caption);reports.push({...report,exactWebsitePrint:false});}
+    }catch(generationError){
+      console.error('[telegram portfolio generation]',{message:String(generationError?.message||'').slice(0,300)});
+      for(const type of types){const exact=await sendExactDailyPortfolio(chatId,type,date);if(exact)reports.push(exact);else missing.push(type);}
+      if(!reports.length)throw generationError;
+    }
     const exactCount=reports.filter(report=>report.exactWebsitePrint).length;await sendMessage(chatId,`تم إرسال ${reports.length} إقرار من نفس دفعة التقرير: <b>${invoiceCount}</b> فاتورة بتاريخ <b>${date}</b>. النسخ المؤرشفة المطابقة حرفيًا لطباعة الموقع: <b>${exactCount}</b>.`);return reports;
   }catch(error){console.error('[telegram latest portfolio declarations]',{code:error?.code||null,status:Number(error?.status||error?.upstreamStatus||0),message:String(error?.message||'').slice(0,500)});return sendMessage(chatId,`تعذر إنشاء إقرارات محفظة العملاء مؤقتًا. السبب: ${String(error?.message||'تعذر إنشاء PDF').slice(0,300)}`);}
 }

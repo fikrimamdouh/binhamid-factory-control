@@ -85,12 +85,14 @@ test('website-style fallback splits only at complete A4 pages',()=>{
   assert.match(renderer,/pages\.push\(page/);
 });
 
-test('bot reuses archived exact website PDF before fallback generation',()=>{
+test('bot generates the priced declaration first and keeps the archived print as fallback',()=>{
   assert.match(botPortfolio,/readExactPointer/);
   assert.match(botPortfolio,/sendExactDailyPortfolio/);
   assert.match(botPortfolio,/exactWebsitePrint:true/);
-  const exact=botPortfolio.indexOf('const exact=await sendExactDailyPortfolio'),fallback=botPortfolio.indexOf('const generated=await generateCustomerPortfolioPdfs');
-  assert.ok(exact>=0&&fallback>exact);
+  // الأرقام (المشتريات/المسدَّد/المتبقي) وإجمالي ذمة المندوب لا توجد في نسخة الموقع
+  // المؤرشفة، لذلك يُولَّد الإقرار المسعَّر أولًا وتبقى النسخة المؤرشفة احتياطًا.
+  const generated=botPortfolio.indexOf('const generated=await generateCustomerPortfolioPdfs'),exact=botPortfolio.indexOf('const exact=await sendExactDailyPortfolio');
+  assert.ok(generated>=0&&exact>generated);
 });
 
 test('employee selection is exact, prioritizes residency, and never falls back to mechanic',()=>{
