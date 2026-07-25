@@ -49,7 +49,7 @@ function isoDate(year,month,day){
 }
 
 function dateCandidate(value){
-  if(value instanceof Date&&!Number.isNaN(value.getTime()))return `${value.getFullYear()}-${String(value.getMonth()+1).padStart(2,'0')}-${String(value.getDate()).padStart(2,'0')}`;
+  if(value instanceof Date&&!Number.isNaN(value.getTime()))return`${value.getFullYear()}-${String(value.getMonth()+1).padStart(2,'0')}-${String(value.getDate()).padStart(2,'0')}`;
   const text=westernDigits(value).trim();
   let match=text.match(/(20\d{2})[.\/_-](\d{1,2})[.\/_-](\d{1,2})/);if(match)return isoDate(match[1],match[2],match[3]);
   match=text.match(/(\d{1,2})[.\/_-](\d{1,2})[.\/_-](20\d{2})/);if(match)return isoDate(match[3],match[2],match[1]);
@@ -76,6 +76,25 @@ function resolveReportDate(req,workbook,name){
   const fromName=dateCandidate(name);if(fromName)return fromName;
   const modified=dateCandidate(req.headers?.['x-erp-file-date']);if(modified)return modified;
   throw Object.assign(new Error('تعذر تحديد تاريخ التقرير. ضع التاريخ داخل اسم الملف أو في خانة تاريخ التقرير داخل Excel.'),{status:422,code:'ERP_REPORT_DATE_REQUIRED'});
+}
+
+export function dailyParserEvidence(analysis={}){
+  const counts={
+    sales:Number(analysis?.sales?.length||0),
+    collections:Number(analysis?.collections?.length||0),
+    finishedGoods:Number(analysis?.finishedGoods?.length||0),
+    rawMaterials:Number(analysis?.rawMaterials?.length||0)
+  };
+  return{recognized:Object.values(counts).some(value=>value>0),counts};
+}
+
+function resolveDailyReportType(req,workbook,name,analysis){
+  const classified=classifyFile(name,'finance',workbook.SheetNames,analysis.contentText),requested=clean(req.headers?.['x-erp-report-type'],40),evidence=dailyParserEvidence(analysis);
+  if(DAILY_TYPES.has(classified))return{reportType:classified,classified,requested,evidence};
+  if(evidence.recognized)return{reportType:DAILY_TYPES.has(requested)?requested:'daily_movement',classified,requested,evidence};
+  const sheets=(workbook.SheetNames||[]).join('، ')||'لا توجد أوراق';
+  const counts=evidence.counts;
+  throw Object.assign(new Error(`الملف لا يطابق تنسيق التقرير اليومي المعتمد في مصنع بن حامد. نتيجة القارئ: مبيعات ${counts.sales}، تحصيلات ${counts.collections}، منتجات تامة ${counts.finishedGoods}، خامات ${counts.rawMaterials}. الأوراق: ${sheets}`),{status:422,code:'ERP_SYNC_NOT_DAILY_REPORT'});
 }
 
 function payloadFromAnalysis(analysis,reportDate,importId){
@@ -112,8 +131,7 @@ export default async function handler(req,res){
     if(buffer.length>config.maxImportFileBytes)throw Object.assign(new Error('حجم ملف التقرير يتجاوز الحد المسموح'),{status:413,code:'ERP_SYNC_FILE_TOO_LARGE'});
     if(buffer[0]!==0x50||buffer[1]!==0x4b)throw Object.assign(new Error('الملف ليس XLSX صالحًا'),{status:415,code:'ERP_SYNC_XLSX_REQUIRED'});
 
-    const originalName=decodedFilename(req),hash=sha256(buffer),workbook=XLSX.read(buffer,{type:'buffer',cellDates:true}),analysis=parseDailyWorkbook(workbook,XLSX),reportType=classifyFile(originalName,'finance',workbook.SheetNames,analysis.contentText);
-    if(!DAILY_TYPES.has(reportType))throw Object.assign(new Error('الملف لا يطابق تنسيق التقرير اليومي المعتمد في مصنع بن حامد'),{status:422,code:'ERP_SYNC_NOT_DAILY_REPORT'});
+    const originalName=decodedFilename(req),hash=sha256(buffer),workbook=XLSX.read(buffer,{type:'buffer',cellDates:true}),analysis=parseDailyWorkbook(workbook,XLSX),classification=resolveDailyReportType(req,workbook,originalName,analysis),reportType=classification.reportType;
     const reportDate=resolveReportDate(req,workbook,originalName),existing=(await select('imports',`file_hash=eq.${hash}&select=id,status,original_name,report_type,file_path,file_hash,summary&limit=1`))?.[0]||null;
     if(existing&&['posted','approved'].includes(existing.status)){
       await notifyOwner(`<b>مزامنة تقرير ERP</b>\nالملف موجود ومرحّل سابقًا، ولم تُكرر أي حركة.\nالتاريخ: <b>${reportDate}</b>\nالملف: <b>${originalName}</b>`);
@@ -122,7 +140,7 @@ export default async function handler(req,res){
 
     const storagePath=existing?.file_path||`erp-folder/${reportDate}/${hash.slice(0,16)}-${safeFile(originalName)}`;
     if(!existing?.file_path)await uploadObject(storagePath,buffer,'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    const summary={sheetNames:workbook.SheetNames,daily:analysis.summary,source:{kind:'erp-folder',receivedAt:new Date().toISOString()}};
+    const summary={sheetNames:workbook.SheetNames,daily:analysis.summary,source:{kind:'erp-folder',receivedAt:new Date().toISOString(),classification}};
     let imp=existing;
     if(!imp){
       const rows=await insert('imports',[{source:'erp-folder',department:'finance',report_type:reportType,status:'ready',original_name:originalName,mime_type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',file_path:storagePath,file_hash:hash,row_count:analysis.rowCount,error_count:0,warning_count:0,summary,last_error_code:null,last_error_message:null}]);
