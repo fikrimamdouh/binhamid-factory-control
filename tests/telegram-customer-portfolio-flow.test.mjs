@@ -36,7 +36,9 @@ test('Telegram command reads original Excel date before trusting wrong stored da
   assert.match(botPortfolio,/import \* as XLSX from 'xlsx'/);
   assert.match(botPortfolio,/downloadObject/);
   assert.match(botPortfolio,/detectOriginalReportDate/);
-  assert.match(botPortfolio,/تم تصحيح التاريخ المسجل/);
+  // التاريخ المقروء من ملف Excel الأصلي يسبق التاريخ المخزّن دائمًا. الحارس على المنطق
+  // نفسه لا على نص الرسالة، لأن الشروح التقنية أُزيلت من رسائل البوت.
+  assert.match(botPortfolio,/reportDate:detected\?\.date\|\|storedReportDate/);
   assert.match(botPortfolio,/تم منع إرسال إقرار بتاريخ اليوم/);
 });
 

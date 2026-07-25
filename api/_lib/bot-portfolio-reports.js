@@ -88,7 +88,7 @@ async function readExactPointer(type,mode='daily'){
 }
 async function sendExactDailyPortfolio(chatId,type,reportDate){
   const pointer=await readExactPointer(type,'daily');if(!pointer||String(pointer.reportDate||pointer.periodTo||'')!==String(reportDate||''))return null;
-  try{const file=await downloadObject(pointer.pdfPath),arabic=type==='block'?'البلوك':'الخرسانة';await sendDocumentBuffer(chatId,file.buffer,pointer.filename||`إقرار محفظة عملاء ${arabic} — ${reportDate}.pdf`,file.contentType||'application/pdf',`📄 إقرار محفظة عملاء ${arabic} — نفس نسخة الطباعة الأصلية من الموقع — ${reportDate} — العملاء: ${pointer.customerCount}`);return{type,pdf:file.buffer,filename:pointer.filename,pointer,exactWebsitePrint:true};}
+  try{const file=await downloadObject(pointer.pdfPath),arabic=type==='block'?'البلوك':'الخرسانة';await sendDocumentBuffer(chatId,file.buffer,pointer.filename||`إقرار محفظة عملاء ${arabic} — ${reportDate}.pdf`,file.contentType||'application/pdf',`إقرار محفظة عملاء ${arabic} — ${reportDate}`);return{type,pdf:file.buffer,filename:pointer.filename,pointer,exactWebsitePrint:true};}
   catch(error){console.warn('[telegram exact portfolio PDF]',{type,message:String(error?.message||'').slice(0,250)});return null;}
 }
 
@@ -96,7 +96,7 @@ export async function sendLatestPortfolioDeclarations(chatId,identity={},forcedT
   if(!identity?.active||!ALLOWED_ROLES.has(String(identity.role||'')))return sendMessage(chatId,'إقرارات محفظة العملاء متاحة للإدارة والمحاسب ومسؤولي مبيعات البلوك والخرسانة فقط.');
   const data=await latestApprovedReportWithSales();if(!data)return sendMessage(chatId,'لا يوجد تقرير يومي معتمد يحتوي مبيعات فعلية في قاعدة البيانات حتى الآن.');if(!data.reportDate)return sendMessage(chatId,'تعذر تحديد تاريخ التقرير من قاعدة البيانات أو ملف Excel الأصلي؛ تم منع إرسال إقرار بتاريخ اليوم.');
   const types=requestedTypes(identity,forcedTypes),date=data.reportDate,invoiceCount=data.sales.filter(row=>Number(row.amount||0)>0).length,corrected=data.storedReportDate&&data.storedReportDate!==date,reports=[],missing=[];
-  await sendMessage(chatId,['<b>إعداد إقرار محفظة العملاء</b>',`الملف: <b>${clean(data.batch.original_name)||'التقرير اليومي'}</b>`,`تاريخ التقرير: <b>${date}</b>`,`الفواتير المعتمدة: <b>${invoiceCount}</b>`,corrected?`تم تصحيح التاريخ المسجل <s>${data.storedReportDate}</s> إلى <b>${date}</b> بعد قراءة ملف Excel الأصلي.`:`مصدر التاريخ: <b>${data.dateSource==='database'?'سجل التقرير المعتمد':'ملف Excel الأصلي'}</b>.`].join('\n'));
+  await sendMessage(chatId,['<b>إقرار محفظة العملاء</b>',`تاريخ التقرير: <b>${date}</b>`,`عدد الفواتير: <b>${invoiceCount}</b>`].join('\n'));
   try{
     // الإقرار صار يحمل حركة كل عميل (قيمة المشتريات/المسدَّد/المتبقي) وإجمالي ما في ذمة
     // المندوب ليوقّع عليه، وهذه الأرقام غير موجودة في نسخة الموقع المؤرشفة. لذلك تُقدَّم
@@ -109,6 +109,6 @@ export async function sendLatestPortfolioDeclarations(chatId,identity={},forcedT
       for(const type of types){const exact=await sendExactDailyPortfolio(chatId,type,date);if(exact)reports.push(exact);else missing.push(type);}
       if(!reports.length)throw generationError;
     }
-    const exactCount=reports.filter(report=>report.exactWebsitePrint).length;await sendMessage(chatId,`تم إرسال ${reports.length} إقرار من نفس دفعة التقرير: <b>${invoiceCount}</b> فاتورة بتاريخ <b>${date}</b>. النسخ المؤرشفة المطابقة حرفيًا لطباعة الموقع: <b>${exactCount}</b>.`);return reports;
+    await sendMessage(chatId,`تم إرسال ${reports.length} إقرار بتاريخ <b>${date}</b>.`);return reports;
   }catch(error){console.error('[telegram latest portfolio declarations]',{code:error?.code||null,status:Number(error?.status||error?.upstreamStatus||0),message:String(error?.message||'').slice(0,500)});return sendMessage(chatId,`تعذر إنشاء إقرارات محفظة العملاء مؤقتًا. السبب: ${String(error?.message||'تعذر إنشاء PDF').slice(0,300)}`);}
 }
