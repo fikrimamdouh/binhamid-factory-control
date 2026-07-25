@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 test('ERP folder sync is isolated, authenticated, idempotent and uses the canonical daily report commit',async()=>{
-  const source=await readFile(new URL('../api/erp/daily-report.js',import.meta.url),'utf8');
+  const routePath=['..','api','erp','daily-report.js'].join('/');
+  const source=await readFile(new URL(routePath,import.meta.url),'utf8');
   assert.match(source,/X-ERP|x-erp-sync-token/i);
   assert.match(source,/sha256\(buffer\)/);
   assert.match(source,/file_hash=eq\.\$\{hash\}/);
