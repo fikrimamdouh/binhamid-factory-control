@@ -45,14 +45,18 @@ test('portfolio command opens separate block and concrete choices',()=>{
   assert.match(directory,/portfolio_concrete/);
   assert.match(directory,/🧱 إقرار البلوك/);
   assert.match(directory,/🏗️ إقرار الخرسانة/);
-  assert.match(directory,/كل إقرار يُنشأ ويرسل منفصلًا/);
+  // القائمة صارت ثلاثة خيارات: الإقرار الكامل، والمديونين فقط، وكشف الحساب المستقل.
+  assert.match(directory,/portfolio_due_block/);
+  assert.match(directory,/portfolio_statement_block/);
+  assert.match(directory,/كشف الحساب تقرير مستقل لا يُوقَّع/);
   assert.match(enterprise,/📑 إقرار محفظة العملاء/);
 });
 
 test('each Telegram request generates only the selected portfolio PDF',()=>{
   // الزر يبني الإقرار من آخر تقرير معتمد عبر المسار الموحّد، لا من اسم ملف وهمي
   // ('telegram-current-portfolio') كان يجعل resolveReportDate يفشل دائمًا.
-  assert.match(directory,/sendLatestPortfolioDeclarations\(message\.chat\.id,identity,\[requestedType\]\)/);
+  assert.match(directory,/sendLatestPortfolioDeclarations\(message\.chat\.id,identity,\[requestedType\],\{dueOnly\}\)/);
+  assert.match(directory,/sendPortfolioStatements\(message\.chat\.id,identity,\[requestedType\]\)/);
   assert.doesNotMatch(directory,/telegram-current-portfolio/);
   assert.match(directory,/يوجد إقرار قيد الإنشاء لحسابك/);
   assert.match(directory,/portfolioJobs/);

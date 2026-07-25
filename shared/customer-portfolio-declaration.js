@@ -57,14 +57,15 @@ function employeeSection(model,sector,totalCredit){const e=model.employee||{},da
 // العملاء. أي مُستدعٍ لا يمرّرها (طباعة الموقع الحالية) يحصل على الوثيقة كما هي حرفيًا
 // بلا أعمدة إضافية ولا أصفار مضللة. بنود الإقرار ونصوصه لا تتغير في الحالتين.
 const amount=value=>Number(value||0);
+const qty=value=>{const n=Number(value||0);return n?n.toLocaleString('en-US',{maximumFractionDigits:3}):'—';};
 const hasLedgerAmounts=customers=>(customers||[]).some(row=>amount(row?.sales)||amount(row?.paid)||amount(row?.outstanding));
 function ledgerSection(rows,offset,model,sector,totalCredit,finalChunk,number='٢',title='كشف العملاء المُسندين'){
   const days=Number(model.days||3)||3,showAmounts=hasLedgerAmounts(model.customers);
   const head=showAmounts
-    ?`<th style="width:7mm">م</th><th>اسم العميل / المنشأة</th><th style="width:12mm">القطاع</th><th style="width:19mm">السجل / الهوية</th><th style="width:19mm">الجوال</th><th style="width:19mm">سقف الائتمان</th><th style="width:13mm">مهلة السداد</th><th style="width:19mm">قيمة المشتريات</th><th style="width:17mm">المسدَّد</th><th style="width:19mm">المتبقي</th>`
+    ?`<th style="width:7mm">م</th><th>اسم العميل / المنشأة</th><th style="width:20mm">الصنف</th><th style="width:15mm">الكمية</th><th style="width:18mm">الجوال</th><th style="width:18mm">سقف الائتمان</th><th style="width:13mm">مهلة السداد</th><th style="width:19mm">قيمة المشتريات</th><th style="width:17mm">المسدَّد</th><th style="width:19mm">المتبقي</th>`
     :`<th style="width:7mm">م</th><th>اسم العميل / المنشأة</th><th style="width:16mm">القطاع</th><th style="width:24mm">السجل / الهوية</th><th style="width:22mm">الجوال</th><th style="width:24mm">سقف الائتمان</th><th style="width:18mm">مهلة السداد</th>`;
   const bodyRows=rows.length
-    ?rows.map((row,index)=>`<tr><td class="idx">${String(offset+index+1).padStart(2,'0')}</td><td class="nm">${esc(row.name)}</td><td>${esc(row.segment||sector)}</td><td class="mono">${esc(row.registry||row.code||'—')}</td><td class="mono">${esc(row.phone||'—')}</td><td class="num">${money(row.creditLimit||0)}</td><td class="mono">${Number(row.paymentDays||days)} يوم</td>${showAmounts?`<td class="num">${money(amount(row.sales))}</td><td class="num">${money(amount(row.paid))}</td><td class="num">${money(amount(row.outstanding))}</td>`:''}</tr>`).join('')
+    ?rows.map((row,index)=>`<tr><td class="idx">${String(offset+index+1).padStart(2,'0')}</td><td class="nm">${esc(row.name)}</td><td>${esc(showAmounts?(row.item||'—'):(row.segment||sector))}</td><td class="mono">${showAmounts?esc(qty(row.quantity)):esc(row.registry||row.code||'—')}</td><td class="mono">${esc(row.phone||'—')}</td><td class="num">${money(row.creditLimit||0)}</td><td class="mono">${Number(row.paymentDays||days)} يوم</td>${showAmounts?`<td class="num">${money(amount(row.sales))}</td><td class="num">${money(amount(row.paid))}</td><td class="num">${money(amount(row.outstanding))}</td>`:''}</tr>`).join('')
     :`<tr><td colspan="${showAmounts?10:7}" class="none">لا يوجد عملاء مُسندون في تاريخ إصدار هذه الوثيقة</td></tr>`;
   const sums=(model.customers||[]).reduce((out,row)=>{out.sales+=amount(row.sales);out.paid+=amount(row.paid);out.outstanding+=amount(row.outstanding);return out;},{sales:0,paid:0,outstanding:0});
   const foot=finalChunk&&model.customers.length

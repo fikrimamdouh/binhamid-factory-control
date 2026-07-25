@@ -2,7 +2,7 @@ import { select } from './supabase.js';
 import { sendMessage, keyboard } from './telegram.js';
 import { esc, norm, setEnterpriseSession, getEnterpriseSession } from './bot-enterprise-store.js';
 import { botModuleAllowed } from './bot-menu-permissions.js';
-import { sendLatestPortfolioDeclarations } from './bot-portfolio-reports.js';
+import { sendLatestPortfolioDeclarations, sendPortfolioStatements } from './bot-portfolio-reports.js';
 
 const PAGE_SIZE=8;
 const EMPLOYEE_ROLES=new Set(['admin','manager','accountant','hr']);
@@ -100,12 +100,14 @@ function portfolioTypesForRole(role){if(role==='block_sales')return['block'];if(
 async function showPortfolioMenu(message,identity){
   if(!await moduleAccess(identity,'portfolio')){await sendMessage(message.chat.id,'ليست لديك صلاحية إصدار إقرارات محفظة العملاء.');return true;}
   const types=portfolioTypesForRole(String(identity.role||'')),buttons=[];
-  if(types.includes('block'))buttons.push({text:'🧱 إقرار البلوك',callback_data:'ent:portfolio_block'});
-  if(types.includes('concrete'))buttons.push({text:'🏗️ إقرار الخرسانة',callback_data:'ent:portfolio_concrete'});
-  await sendMessage(message.chat.id,'<b>إقرارات محفظة العملاء</b>\nاختر القطاع المطلوب. كل إقرار يُنشأ ويرسل منفصلًا.',keyboard(buttons.map(button=>[button])));return true;
+  if(types.includes('block'))buttons.push([{text:'🧱 إقرار البلوك',callback_data:'ent:portfolio_block'},{text:'💰 بلوك — المديونين',callback_data:'ent:portfolio_due_block'}]);
+  if(types.includes('concrete'))buttons.push([{text:'🏗️ إقرار الخرسانة',callback_data:'ent:portfolio_concrete'},{text:'💰 خرسانة — المديونين',callback_data:'ent:portfolio_due_concrete'}]);
+  if(types.includes('block'))buttons.push([{text:'📊 كشف حساب عملاء البلوك',callback_data:'ent:portfolio_statement_block'}]);
+  if(types.includes('concrete'))buttons.push([{text:'📊 كشف حساب عملاء الخرسانة',callback_data:'ent:portfolio_statement_concrete'}]);
+  await sendMessage(message.chat.id,'<b>محفظة العملاء</b>\nالإقرار يشمل كل العملاء، و«المديونين» يقصره على من عليه رصيد. كشف الحساب تقرير مستقل لا يُوقَّع.',keyboard(buttons));return true;
 }
 
-export async function sendCurrentPortfolioPdfs(message,identity,requestedType=''){
+export async function sendCurrentPortfolioPdfs(message,identity,requestedType='',{dueOnly=false,statement=false}={}){
   if(!requestedType)return showPortfolioMenu(message,identity);
   if(!await moduleAccess(identity,'portfolio')){await sendMessage(message.chat.id,'ليست لديك صلاحية إصدار إقرارات محفظة العملاء.');return true;}
   const allowed=portfolioTypesForRole(String(identity.role||''));
@@ -116,7 +118,7 @@ export async function sendCurrentPortfolioPdfs(message,identity,requestedType=''
   // الطباعة المؤرشفة من الموقع حرفيًا ثم التوليد الخادمي بنفس التصميم عند غيابها.
   // الاستدعاء السابق كان يمرر اسم ملف وهمي لا يطابق أي دفعة معتمدة في
   // daily_report_batches، فيفشل resolveReportDate دائمًا بـ«تعذر تحديد تاريخ التقرير المعتمد».
-  const job=sendLatestPortfolioDeclarations(message.chat.id,identity,[requestedType])
+  const job=(statement?sendPortfolioStatements(message.chat.id,identity,[requestedType]):sendLatestPortfolioDeclarations(message.chat.id,identity,[requestedType],{dueOnly}))
     .catch(error=>{
       console.error('[telegram current portfolio]',error);
       const reason=error?.code==='PDF_RATE_LIMITED'?'خدمة PDF ظلت مشغولة بعد الانتظار وإعادة المحاولة تلقائيًا.':String(error?.message||'تعذر إنشاء PDF');
@@ -149,6 +151,10 @@ export async function handleMasterDirectoryCallback(message,from,identity,value)
   if(text==='portfolio_current')return showPortfolioMenu(message,identity);
   if(text==='portfolio_block')return sendCurrentPortfolioPdfs(message,identity,'block');
   if(text==='portfolio_concrete')return sendCurrentPortfolioPdfs(message,identity,'concrete');
+  if(text==='portfolio_due_block')return sendCurrentPortfolioPdfs(message,identity,'block',{dueOnly:true});
+  if(text==='portfolio_due_concrete')return sendCurrentPortfolioPdfs(message,identity,'concrete',{dueOnly:true});
+  if(text==='portfolio_statement_block')return sendCurrentPortfolioPdfs(message,identity,'block',{statement:true});
+  if(text==='portfolio_statement_concrete')return sendCurrentPortfolioPdfs(message,identity,'concrete',{statement:true});
   if(text==='hr_employee_directory')return renderDirectory(message,identity,'employee');
   if(text==='fuel_vehicle_directory')return renderDirectory(message,identity,'vehicle');
   if(text==='hr_employee_search')return startLookup(message,identity,'employee');

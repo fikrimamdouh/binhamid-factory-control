@@ -1,7 +1,8 @@
 import * as XLSX from 'xlsx';
 import { downloadObject, select } from './supabase.js';
 import { sendMessage, sendDocumentBuffer } from './telegram.js';
-import { generateCustomerPortfolioPdfs } from './customer-portfolio-pdf.js';
+import { generateCustomerPortfolioPdfs, collectPortfolioRows } from './customer-portfolio-pdf.js';
+import { buildPortfolioStatementPdf } from './portfolio-statement-pdf.js';
 
 const ALLOWED_ROLES=new Set(['admin','manager','accountant','block_sales','concrete_sales']);
 const collectionAmount=row=>Math.max(Number(row?.debit||0),Number(row?.credit||0));
@@ -92,7 +93,7 @@ async function sendExactDailyPortfolio(chatId,type,reportDate){
   catch(error){console.warn('[telegram exact portfolio PDF]',{type,message:String(error?.message||'').slice(0,250)});return null;}
 }
 
-export async function sendLatestPortfolioDeclarations(chatId,identity={},forcedTypes=[]){
+export async function sendLatestPortfolioDeclarations(chatId,identity={},forcedTypes=[],{dueOnly=false}={}){
   if(!identity?.active||!ALLOWED_ROLES.has(String(identity.role||'')))return sendMessage(chatId,'إقرارات محفظة العملاء متاحة للإدارة والمحاسب ومسؤولي مبيعات البلوك والخرسانة فقط.');
   const data=await latestApprovedReportWithSales();if(!data)return sendMessage(chatId,'لا يوجد تقرير يومي معتمد يحتوي مبيعات فعلية في قاعدة البيانات حتى الآن.');if(!data.reportDate)return sendMessage(chatId,'تعذر تحديد تاريخ التقرير من قاعدة البيانات أو ملف Excel الأصلي؛ تم منع إرسال إقرار بتاريخ اليوم.');
   const types=requestedTypes(identity,forcedTypes),date=data.reportDate,invoiceCount=data.sales.filter(row=>Number(row.amount||0)>0).length,corrected=data.storedReportDate&&data.storedReportDate!==date,reports=[],missing=[];
@@ -102,7 +103,7 @@ export async function sendLatestPortfolioDeclarations(chatId,identity={},forcedT
     // المندوب ليوقّع عليه، وهذه الأرقام غير موجودة في نسخة الموقع المؤرشفة. لذلك تُقدَّم
     // النسخة المولَّدة بنفس تصميم الموقع، وتبقى النسخة المؤرشفة احتياطًا عند تعذّر التوليد.
     try{
-      const generated=await generateCustomerPortfolioPdfs(analysisFromCommitted(data),data.batch.original_name||'التقرير اليومي',types,{reportDate:date,dailyOnly:true,sourceBatchId:data.batch.id,storedReportDate:data.storedReportDate,dateSource:data.dateSource});
+      const generated=await generateCustomerPortfolioPdfs(analysisFromCommitted(data),data.batch.original_name||'التقرير اليومي',types,{reportDate:date,dailyOnly:true,dueOnly,sourceBatchId:data.batch.id,storedReportDate:data.storedReportDate,dateSource:data.dateSource});
       for(const report of generated){await sendDocumentBuffer(chatId,report.pdf,report.filename,'application/pdf',report.caption);reports.push({...report,exactWebsitePrint:false});}
     }catch(generationError){
       console.error('[telegram portfolio generation]',{message:String(generationError?.message||'').slice(0,300)});
@@ -111,4 +112,23 @@ export async function sendLatestPortfolioDeclarations(chatId,identity={},forcedT
     }
     await sendMessage(chatId,`تم إرسال ${reports.length} إقرار بتاريخ <b>${date}</b>.`);return reports;
   }catch(error){console.error('[telegram latest portfolio declarations]',{code:error?.code||null,status:Number(error?.status||error?.upstreamStatus||0),message:String(error?.message||'').slice(0,500)});return sendMessage(chatId,`تعذر إنشاء إقرارات محفظة العملاء مؤقتًا. السبب: ${String(error?.message||'تعذر إنشاء PDF').slice(0,300)}`);}
+}
+
+// كشف حساب المحفظة: كل عملاء المندوب بأرقامهم، مستقل عن الإقرار ولا يُوقَّع.
+export async function sendPortfolioStatements(chatId,identity={},forcedTypes=[]){
+  if(!identity?.active||!ALLOWED_ROLES.has(String(identity.role||'')))return sendMessage(chatId,'كشف حساب العملاء متاح للإدارة والمحاسب ومسؤولي مبيعات البلوك والخرسانة فقط.');
+  const data=await latestApprovedReportWithSales();if(!data)return sendMessage(chatId,'لا يوجد تقرير يومي معتمد يحتوي مبيعات فعلية حتى الآن.');
+  if(!data.reportDate)return sendMessage(chatId,'تعذر تحديد تاريخ التقرير؛ تم منع إصدار كشف بتاريخ اليوم.');
+  const types=requestedTypes(identity,forcedTypes),date=data.reportDate;
+  try{
+    const sets=await collectPortfolioRows(analysisFromCommitted(data),data.batch.original_name||'التقرير اليومي',types,{reportDate:date,dailyOnly:true});
+    for(const set of sets){
+      const report=await buildPortfolioStatementPdf({...set,documentRef:`BHF-STMT-${set.type.toUpperCase()}-${date.replace(/-/g,'')}`});
+      await sendDocumentBuffer(chatId,report.pdf,report.filename,'application/pdf',`كشف حساب عملاء ${report.department} — ${date} — ${report.count} عميل — عليهم رصيد: ${report.due}`);
+    }
+    return sendMessage(chatId,`تم إرسال ${sets.length} كشف حساب بتاريخ <b>${date}</b>.`);
+  }catch(error){
+    console.error('[telegram portfolio statement]',{message:String(error?.message||'').slice(0,300)});
+    return sendMessage(chatId,`تعذر إنشاء كشف الحساب. السبب: ${String(error?.message||'خطأ غير متوقع').slice(0,280)}`);
+  }
 }
