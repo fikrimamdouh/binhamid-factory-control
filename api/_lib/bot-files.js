@@ -32,6 +32,10 @@ const DAILY_APPROVE_CAPABILITY='daily_report.approve';
 export function dailyReportApprovalDecision(recognizedDaily,status,canApprove){const ready=Boolean(recognizedDaily&&status==='ready');return{shouldPost:ready&&Boolean(canApprove),waitingApproval:ready&&!canApprove};}
 async function identityCanApproveDailyReport(identity){
   if(!identity?.active||!identity?.user_id)return false;
+  // مالك النظام المُعرَّف في TELEGRAM_OWNER_ID يعتمد ما يرفعه مباشرةً دون انتظار مُعتمِد
+  // آخر، فهو صاحب الصلاحية العليا. تبقى شروط صحة الملف والتحقق والتكرار كما هي.
+  const owner=String(config.telegramOwnerId||'').trim();
+  if(owner&&(String(identity.external_id||'').trim()===owner||String(identity.user_id||'').trim()===owner))return true;
   const role=String(identity.role||'pending'),userId=String(identity.user_id);
   const[roleRows,userRows]=await Promise.all([select('role_capabilities',`role=eq.${encodeURIComponent(role)}&select=capability,allowed&limit=500`).catch(()=>[]),select('user_capabilities',`app_user_id=eq.${encodeURIComponent(userId)}&select=capability,allowed&limit=500`).catch(()=>[])]);
   return capabilityAllowed(role,DAILY_APPROVE_CAPABILITY,roleRows,userRows);

@@ -56,3 +56,14 @@ test('unauthorized Telegram daily sender stays pending and approvers are notifie
   assert.match(files,/بانتظار الاعتماد/);
   assert.match(files,/لم تُرحّل أي مبيعات أو تحصيلات/);
 });
+
+test('configured Telegram owner approves the daily report it uploads without waiting for another approver',async()=>{
+  const source=await readFile(new URL('../api/_lib/bot-files.js',import.meta.url),'utf8');
+  // اعتماد المالك مباشرةً: يقارن هوية المرسل بـ TELEGRAM_OWNER_ID قبل فحص أدوار الصلاحيات.
+  assert.match(source,/const owner=String\(config\.telegramOwnerId\|\|''\)\.trim\(\)/);
+  assert.match(source,/String\(identity\.external_id\|\|''\)\.trim\(\)===owner\|\|String\(identity\.user_id\|\|''\)\.trim\(\)===owner/);
+  // يظل الترحيل مشروطًا بأن الملف تقرير يومي صالح ومقروء (status==='ready').
+  assert.match(source,/const ready=Boolean\(recognizedDaily&&status==='ready'\)/);
+  // ولا يُتخطى فحص التكرار ولا تُرحّل نسخة ثانية.
+  assert.match(source,/idempotencyKey:`telegram-daily:/);
+});
