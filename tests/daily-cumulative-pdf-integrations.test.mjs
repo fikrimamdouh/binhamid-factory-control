@@ -26,15 +26,15 @@ function projection(){
   });
 }
 
-test('current collections settle newer invoices before older balances',()=>{
+test('current invoices are first, while historical invoices retain FIFO order',()=>{
   const data=projection(),blockA=data.departments.block.rows.find(row=>row.code==='A'),concreteA=data.departments.concrete.rows.find(row=>row.code==='A');
   assert.equal(blockA.openingBalance,80);
   assert.equal(blockA.currentSales,0);
-  assert.equal(blockA.currentApplied,0);
-  assert.equal(blockA.closingBalance,80);
+  assert.equal(blockA.currentApplied,80);
+  assert.equal(blockA.closingBalance,0);
   assert.equal(concreteA.openingBalance,150);
-  assert.equal(concreteA.currentApplied,100);
-  assert.equal(concreteA.closingBalance,50);
+  assert.equal(concreteA.currentApplied,20);
+  assert.equal(concreteA.closingBalance,130);
 });
 
 test('daily report includes old customers, new customers, current sales and projected closing balances',()=>{
