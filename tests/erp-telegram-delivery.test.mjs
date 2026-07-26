@@ -20,7 +20,7 @@ test('ERP concrete sales keep their department across parser variants',()=>{
 test('a concrete sale and collection update the concrete projection',()=>{
   const projection=projectCumulativeDailyReport({
     reportDate:'2026-07-25',
-    dailySales:[{invoice:'18123',kind:'خرسانه جاهزة',customerCode:'13063',customer:'عميل الخرسانة',item:'خرسانة 20 سم',quantity:10,amount:1800}],
+    dailySales:[{invoice:'18123',kind:'خرسانه جاهزة',customerCode:'13063',customer:'عميل الخرسانة',item:'خرسانة 20 سم',quantity:10,total_amount:1800}],
     dailyCollections:[{customerCode:'13063',customer:'عميل الخرسانة',amount:800}]
   });
   assert.equal(projection.departments.concrete.rows.length,1);
@@ -55,5 +55,7 @@ test('portfolio daily customers include projected payment-only activity and PDFs
   assert.doesNotMatch(portfolio,/if\(!direct\.length\)/);
   assert.match(portfolio,/currentCollections/);
   assert.match(dailyPdf,/currentBatch:options\?\.currentBatch===true/);
-  assert.match(route,/sendErpSuccessDelivery\(\{analysis,sourceFile:originalName,reportDate,posting\}\)/);
+  assert.match(route,/prepareErpSuccessDelivery\(\{analysis,sourceFile:originalName,reportDate\}\)/);
+  assert.match(route,/posting\?\.duplicate/);
+  assert.match(route,/prepared:preparedTelegram/);
 });
