@@ -24,7 +24,7 @@ export function cumulativeSaleType(row={}){
   return'other';
 }
 function dailySale(row,index,reportDate){
-  const total=Math.max(0,n(row.amount));
+  const total=Math.max(0,n(row.amount??row.total??row.total_amount));
   return{id:`daily:${index}`,customerCode:String(row.customerCode||row.customer_code||''),customerName:String(row.customer||row.customerName||row.customer_name||'عميل غير مسمى'),type:cumulativeSaleType(row),item:String(row.item||row.itemName||row.item_name||''),quantity:n(row.quantity),total,paid:0,outstanding:total,openingOutstanding:0,date:reportDate,current:true,invoice:String(row.invoice||row.invoiceNo||row.invoice_no||index+1)};
 }
 function storedSale(row){
