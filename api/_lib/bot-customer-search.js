@@ -11,10 +11,14 @@ const decisionLabel={normal:'طبيعي',watch:'مراجعة قبل زيادة �
 const salesTypeLabel={block:'بلوك',concrete:'خرسانة'};
 
 function invoiceLine(row){const type=salesTypeLabel[row.sales_type]||row.sales_type||'';return `• ${esc(String(row.delivery_date||row.created_at||'').slice(0,10)||'بدون تاريخ')} | <b>${esc(row.reference_no||'فاتورة')}</b> | ${esc(type)}\n  مدين ${money(row.total)} | مسدد ${money(row.paid)} | متبقي ${money(row.outstanding)}`;}
-function collectionLine(row){const allocated=Number(row.allocated_amount??(Number(row.amount||0)-Number(row.unallocated||0)))||0,unallocated=Number((row.unallocated??row.unallocated_amount)||0)||0;return `• ${esc(String(row.occurred_at||row.created_at||'').slice(0,10)||'بدون تاريخ')} | <b>${esc(row.reference_no||'تحصيل')}</b>\n  سداد ${money(row.amount)} | على الفواتير الجديدة ${money(allocated)}${unallocated?` | بعد الجديد ${money(unallocated)} يُخصم من الرصيد القديم`:''}`;}
+function collectionLine(row){const allocated=Number(row.allocated_amount??(Number(row.amount||0)-Number(row.unallocated||0)))||0,unallocated=Number((row.unallocated??row.unallocated_amount)||0)||0;return `• ${esc(String(row.occurred_at||row.created_at||'').slice(0,10)||'بدون تاريخ')} | <b>${esc(row.reference_no||'تحصيل')}</b>\n  سداد ${money(row.amount)} | على الفواتير الجديدة ${money(allocated)}${unallocated?` | المتبقي ${money(unallocated)} يخصم من الرصيد القديم ثم يتحول لدفعة مقدمة إذا زاد`:''}`;}
+function consume(pool,amount){const used=Math.min(Math.max(0,pool),Math.max(0,amount));return{used,pool:pool-used,amount:amount-used};}
 function debtAllocation(row){
-  const oldDebt=Math.max(0,Number(row.openingBalance||0)),newSales=Math.max(0,Number(row.grossSales||0)),paidNew=Math.min(newSales,Math.max(0,Number(row.paidApplied||0))),afterNew=Math.max(0,Number(row.unallocatedCredit||0)),paidOld=Math.min(oldDebt,afterNew),advance=Math.max(0,afterNew-paidOld),remainingNew=Math.max(0,newSales-paidNew),remainingOld=Math.max(0,oldDebt-paidOld);
-  return{oldDebt,newSales,paidNew,paidOld,advance,remainingNew,remainingOld,totalPaid:Number(row.collections||0)};
+  const oldDebt=Math.max(0,Number(row.openingBalance||0)),openingCredit=Math.max(0,-Number(row.openingBalance||0)),newSales=Math.max(0,Number(row.grossSales||0)),paidRecorded=Math.min(newSales,Math.max(0,Number(row.paidApplied||0)));
+  let remainingNew=Math.max(0,newSales-paidRecorded),remainingOld=oldDebt,creditPool=openingCredit+Math.max(0,Number(row.unallocatedCredit||0)),paidNew=paidRecorded,paidOld=0;
+  let step=consume(creditPool,remainingNew);creditPool=step.pool;remainingNew=step.amount;paidNew+=step.used;
+  step=consume(creditPool,remainingOld);creditPool=step.pool;remainingOld=step.amount;paidOld+=step.used;
+  return{oldDebt,newSales,paidNew,paidOld,advance:creditPool,remainingNew,remainingOld,totalPaid:Number(row.collections||0)};
 }
 function compactButtonName(value){let text=String(value||'عميل').trim()||'عميل';while(Buffer.byteLength(text,'utf8')>58)text=text.slice(0,-1);return text;}
 
