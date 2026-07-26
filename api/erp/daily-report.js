@@ -4,11 +4,9 @@ import { config } from '../_lib/config.js';
 import { classifyFile, sha256 } from '../_lib/domain.js';
 import { errorResponse, json, method } from '../_lib/http.js';
 import { parseDailyWorkbook } from '../_lib/daily-summary-parser.js';
-import { generateCumulativeDailyPdfs } from '../_lib/daily-cumulative-pdf.js';
-import { generateCustomerPortfolioPdfs } from '../_lib/customer-portfolio-pdf.js';
 import { commitDailyReportFromTelegram } from '../_lib/routes/daily-report.js';
 import { insert, patch, select, uploadObject } from '../_lib/supabase.js';
-import { sendDocumentBuffer, sendMessage } from '../_lib/telegram.js';
+import { erpSaleType, sendErpDuplicateNotice, sendErpFailureNotice, sendErpSuccessDelivery } from '../_lib/erp-telegram-delivery.js';
 
 const SYNC_TOKEN_SHA256='b4ba6180ffc5d0ce658168f76b3362b69b7e930b998e8304fa6afe68da8289a0';
 const DAILY_TYPES=new Set(['daily_movement','block_daily_movement','concrete_daily_movement']);
@@ -103,23 +101,10 @@ function payloadFromAnalysis(analysis,reportDate,importId){
     ...(analysis.rawMaterials||[]).map((row,index)=>({sourceRowNo:row.row||index+1,inventoryType:'raw_material',itemCode:row.itemCode,itemName:row.itemName,unit:row.unit,opening:row.opening,received:row.received,issued:row.issued,closing:row.closing}))
   ];
   return{
-    sales:(analysis.sales||[]).map((row,index)=>({sourceRowNo:row.row||index+1,invoiceNo:row.invoice,salesType:row.kind==='بلوك'?'block':row.kind==='خرسانة'?'concrete':'',customerCode:row.customerCode,customerName:row.customer,item:row.item,quantity:row.quantity,amount:row.amount,paymentTerms:null})),
+    sales:(analysis.sales||[]).map((row,index)=>({sourceRowNo:row.row||index+1,invoiceNo:row.invoice,salesType:erpSaleType(row),customerCode:row.customerCode,customerName:row.customer,item:row.item,quantity:row.quantity,amount:row.amount,paymentTerms:null})),
     cashMovements:(analysis.collections||[]).map((row,index)=>({sourceRowNo:row.row||index+1,treasuryCode:row.treasuryCode,treasuryName:row.treasuryName,debit:row.amount,credit:0,accountName:row.customer,accountCode:row.customerCode,movementType:'استلام عميل',voucherNo:`ERP-${String(importId||'file').slice(0,12)}-${row.row||index+1}`,movementDate:reportDate,isCustomerCollection:true})),
     treasuries:[],inventory,summary:{totalSales:analysis.summary?.salesTotal||0}
   };
-}
-
-async function notifyOwner(text){
-  if(!config.telegramOwnerId)return false;
-  try{await sendMessage(String(config.telegramOwnerId),text);return true;}catch(error){console.warn('[erp folder telegram notify]',{status:Number(error?.status||0),message:String(error?.message||'').slice(0,300)});return false;}
-}
-
-async function sendTelegramReports(analysis,name){
-  if(!config.telegramOwnerId)return{enabled:false,sent:0,errors:['TELEGRAM_OWNER_ID غير مضبوط']};
-  const chatId=String(config.telegramOwnerId),errors=[];let sent=0;
-  try{const reports=await generateCumulativeDailyPdfs(analysis,name);for(const report of reports){await sendDocumentBuffer(chatId,report.pdf,report.filename,'application/pdf',report.caption);sent++;}}catch(error){errors.push(`daily:${String(error?.message||error).slice(0,250)}`);}
-  try{const portfolios=await generateCustomerPortfolioPdfs(analysis,name);for(const report of portfolios){await sendDocumentBuffer(chatId,report.pdf,report.filename,'application/pdf',report.caption);sent++;}}catch(error){errors.push(`portfolio:${String(error?.message||error).slice(0,250)}`);}
-  return{enabled:true,sent,errors};
 }
 
 export default async function handler(req,res){
@@ -134,8 +119,8 @@ export default async function handler(req,res){
     const originalName=decodedFilename(req),hash=sha256(buffer),workbook=XLSX.read(buffer,{type:'buffer',cellDates:true}),analysis=parseDailyWorkbook(workbook,XLSX),classification=resolveDailyReportType(req,workbook,originalName,analysis),reportType=classification.reportType;
     const reportDate=resolveReportDate(req,workbook,originalName),existing=(await select('imports',`file_hash=eq.${hash}&select=id,status,original_name,report_type,file_path,file_hash,summary&limit=1`))?.[0]||null;
     if(existing&&['posted','approved'].includes(existing.status)){
-      await notifyOwner(`<b>مزامنة تقرير ERP</b>\nالملف موجود ومرحّل سابقًا، ولم تُكرر أي حركة.\nالتاريخ: <b>${reportDate}</b>\nالملف: <b>${originalName}</b>`);
-      return json(res,200,{ok:true,duplicate:true,reportDate,fileHash:hash,importId:existing.id,status:existing.status,summary:existing.summary?.daily||existing.summary||analysis.summary});
+      const telegram=await sendErpDuplicateNotice({reportDate,sourceFile:originalName}).catch(error=>({errors:[String(error?.message||error)]}));
+      return json(res,200,{ok:true,duplicate:true,reportDate,fileHash:hash,importId:existing.id,status:existing.status,summary:existing.summary?.daily||existing.summary||analysis.summary,telegram});
     }
 
     const storagePath=existing?.file_path||`erp-folder/${reportDate}/${hash.slice(0,16)}-${safeFile(originalName)}`;
@@ -154,11 +139,10 @@ export default async function handler(req,res){
     const posting=await commitDailyReportFromTelegram({reportDate,originalName,fileHash:hash,contentHash:hash,idempotencyKey:`erp-folder:${reportDate}:${hash}`,importId:imp.id,payload:payloadFromAnalysis(analysis,reportDate,imp.id)},'erp-folder-sync');
     if(!posting?.ok){
       const errors=(posting?.errors||[]).slice(0,5),reason=errors.map((item,index)=>`${index+1}. ${clean(item?.message||item?.code,300)}`).join('\n')||'فشل تحقق التقرير على الخادم.';
-      await notifyOwner(`<b>فشل مزامنة تقرير ERP</b>\nلم تُرحّل أي حركة.\nالتاريخ: <b>${reportDate}</b>\nالملف: <b>${originalName}</b>\n${reason}`);
-      return json(res,422,{ok:false,duplicate:false,reportDate,fileHash:hash,importId:imp.id,storagePath,summary:analysis.summary,posting});
+      const telegram=await sendErpFailureNotice({reportDate,sourceFile:originalName,reason}).catch(error=>({errors:[String(error?.message||error)]}));
+      return json(res,422,{ok:false,duplicate:false,reportDate,fileHash:hash,importId:imp.id,storagePath,summary:analysis.summary,posting,telegram});
     }
-    const summaryText=`<b>مزامنة تقرير ERP</b>\n${posting?.duplicate?'الملف مرحّل سابقًا ولم تُكرر أي حركة.':'تم ترحيل التقرير تلقائيًا بنجاح.'}\nالتاريخ: <b>${reportDate}</b>\nالملف: <b>${originalName}</b>\nالفواتير: <b>${analysis.summary.invoiceCount}</b>\nالمبيعات: <b>${analysis.summary.salesTotal} ر.س</b>\nالتحصيلات: <b>${analysis.summary.collectionTotal} ر.س</b>\nصفوف المخزون: <b>${(analysis.finishedGoods?.length||0)+(analysis.rawMaterials?.length||0)}</b>`;
-    const notified=await notifyOwner(summaryText),shouldSendReports=String(req.headers?.['x-erp-send-reports']??'1')!=='0',telegramReports=shouldSendReports&&!posting?.duplicate?await sendTelegramReports(analysis,originalName):{enabled:shouldSendReports,sent:0,errors:[]};
-    return json(res,200,{ok:Boolean(posting?.ok),duplicate:Boolean(posting?.duplicate),reportDate,fileHash:hash,importId:imp.id,storagePath,summary:analysis.summary,posting,telegram:{notified,reports:telegramReports}});
+    const shouldSendReports=String(req.headers?.['x-erp-send-reports']??'1')!=='0',telegram=shouldSendReports?await sendErpSuccessDelivery({analysis,sourceFile:originalName,reportDate,posting}).catch(error=>({errors:[String(error?.message||error)]})):{disabled:true};
+    return json(res,200,{ok:Boolean(posting?.ok),duplicate:Boolean(posting?.duplicate),reportDate,fileHash:hash,importId:imp.id,storagePath,summary:analysis.summary,posting,telegram});
   }catch(error){errorResponse(res,error);}
 }
