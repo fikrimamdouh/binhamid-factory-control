@@ -73,7 +73,7 @@ export function cumulativeDepartmentHtml({type,data,sourceFile,reportDate,latest
     .empty{border:1px dashed #aebbc0;padding:5px;color:#60737c;border-radius:5px;text-align:center;margin:3px 0}.footer{margin-top:5px;color:#60737c;font-size:6.5px;border-top:1px solid #e1e7e9;padding-top:3px}
   </style></head><body>
     <header class="header"><div class="badge">${icon(type)}</div><div><h1>${esc(title(type))} التراكمي</h1><div class="sub">مصنع بن حامد للبلوك والخرسانة الجاهزة — تقرير تراكمي</div></div></header>
-    <div class="meta">الملف اليومي: <b>${esc(sourceFile)}</b> | تاريخ الحركة: <b>${esc(reportDate)}</b> | آخر تقرير معتمد سابقًا: <b>${esc(latestApprovedDate||'لا يوجد')}</b> | الإنشاء: ${esc(new Date().toLocaleString('ar-SA',{timeZone:'Asia/Riyadh'}))}</div>
+    <div class="meta"><b>الملف المصدر:</b> ${esc(sourceFile)} | <b>تاريخ الحركة:</b> ${esc(reportDate)} | <b>آخر تقرير معتمد سابقًا:</b> ${esc(latestApprovedDate||'لا يوجد')} | <b>الإنشاء:</b> ${esc(new Date().toLocaleString('ar-SA',{timeZone:'Asia/Riyadh'}))}</div>
     <div class="notice"><strong>مسودة تراكميّة قبل الاعتماد.</strong> الرصيد المتوقع = الرصيد السابق + مبيعات اليوم − التحصيل الموزع. يُوزّع التحصيل وفق FIFO (الأقدم أولًا). الحركة الحالية تصبح نهائية بعد اعتماد التقرير من البرنامج.</div>
     <div class="summary">${summaryLine}</div>
     <div class="cards">${cards.map(([label,value])=>`<div class="card"><span>${label}</span><strong>${value}</strong></div>`).join('')}</div>
@@ -84,10 +84,10 @@ export function cumulativeDepartmentHtml({type,data,sourceFile,reportDate,latest
   </body></html>`;
 }
 
-export async function generateCumulativeDailyPdfs(analysis={},sourceFile='daily-report.xlsx',requestedTypes=['block','concrete'],reportDateOverride=''){
+export async function generateCumulativeDailyPdfs(analysis={},sourceFile='daily-report.xlsx',requestedTypes=['block','concrete'],reportDateOverride='',options={}){
   const types=[...new Set((Array.isArray(requestedTypes)?requestedTypes:[requestedTypes]).filter(type=>VALID_TYPES.has(type)))];
   if(!types.length)throw Object.assign(new Error('حدد تقرير البلوك أو تقرير الخرسانة.'),{status:400,code:'DAILY_REPORT_TYPE_REQUIRED'});
-  const reportDate=/^\d{4}-\d{2}-\d{2}$/.test(String(reportDateOverride||''))?String(reportDateOverride):riyadhDate(),projection=await loadProjectedCumulativeDailyReport(analysis,reportDate);
+  const reportDate=/^\d{4}-\d{2}-\d{2}$/.test(String(reportDateOverride||''))?String(reportDateOverride):riyadhDate(),projection=await loadProjectedCumulativeDailyReport(analysis,reportDate,{currentBatch:options?.currentBatch===true});
   return Promise.all(types.map(async type=>{
     const html=cumulativeDepartmentHtml({type,data:projection.departments[type],sourceFile,reportDate,latestApprovedDate:projection.latestApprovedDate,finishedGoods:analysis?.finishedGoods,rawMaterials:analysis?.rawMaterials});
     const pdf=await htmlToPdf(html,{filename:title(type),landscape:true});
