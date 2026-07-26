@@ -6,7 +6,7 @@ import { errorResponse, json, method } from '../_lib/http.js';
 import { parseDailyWorkbook } from '../_lib/daily-summary-parser.js';
 import { commitDailyReportFromTelegram } from '../_lib/routes/daily-report.js';
 import { insert, patch, select, uploadObject } from '../_lib/supabase.js';
-import { erpSaleType, sendErpDuplicateNotice, sendErpFailureNotice, sendErpSuccessDelivery } from '../_lib/erp-telegram-delivery.js';
+import { erpSaleType, prepareErpSuccessDelivery, sendErpDuplicateNotice, sendErpFailureNotice, sendErpSuccessDelivery } from '../_lib/erp-telegram-delivery.js';
 
 const SYNC_TOKEN_SHA256='b4ba6180ffc5d0ce658168f76b3362b69b7e930b998e8304fa6afe68da8289a0';
 const DAILY_TYPES=new Set(['daily_movement','block_daily_movement','concrete_daily_movement']);
@@ -136,13 +136,17 @@ export default async function handler(req,res){
     }
     if(!imp?.id)throw Object.assign(new Error('تعذر تسجيل ملف ERP في مركز الوارد'),{status:502,code:'ERP_SYNC_IMPORT_REGISTER_FAILED'});
 
+    const shouldSendReports=String(req.headers?.['x-erp-send-reports']??'1')!=='0',preparedTelegram=shouldSendReports?await prepareErpSuccessDelivery({analysis,sourceFile:originalName,reportDate}).catch(error=>({recipients:[],collections:[],reports:[],errors:[String(error?.message||error)]})):null;
     const posting=await commitDailyReportFromTelegram({reportDate,originalName,fileHash:hash,contentHash:hash,idempotencyKey:`erp-folder:${reportDate}:${hash}`,importId:imp.id,payload:payloadFromAnalysis(analysis,reportDate,imp.id)},'erp-folder-sync');
     if(!posting?.ok){
       const errors=(posting?.errors||[]).slice(0,5),reason=errors.map((item,index)=>`${index+1}. ${clean(item?.message||item?.code,300)}`).join('\n')||'فشل تحقق التقرير على الخادم.';
       const telegram=await sendErpFailureNotice({reportDate,sourceFile:originalName,reason}).catch(error=>({errors:[String(error?.message||error)]}));
       return json(res,422,{ok:false,duplicate:false,reportDate,fileHash:hash,importId:imp.id,storagePath,summary:analysis.summary,posting,telegram});
     }
-    const shouldSendReports=String(req.headers?.['x-erp-send-reports']??'1')!=='0',telegram=shouldSendReports?await sendErpSuccessDelivery({analysis,sourceFile:originalName,reportDate,posting}).catch(error=>({errors:[String(error?.message||error)]})):{disabled:true};
+    let telegram;
+    if(posting?.duplicate)telegram=await sendErpDuplicateNotice({reportDate,sourceFile:originalName}).catch(error=>({errors:[String(error?.message||error)]}));
+    else if(shouldSendReports)telegram=await sendErpSuccessDelivery({analysis,sourceFile:originalName,reportDate,posting,prepared:preparedTelegram}).catch(error=>({errors:[String(error?.message||error)]}));
+    else telegram={disabled:true};
     return json(res,200,{ok:Boolean(posting?.ok),duplicate:Boolean(posting?.duplicate),reportDate,fileHash:hash,importId:imp.id,storagePath,summary:analysis.summary,posting,telegram});
   }catch(error){errorResponse(res,error);}
 }
