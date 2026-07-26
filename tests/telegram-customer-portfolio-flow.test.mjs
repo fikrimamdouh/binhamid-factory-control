@@ -47,12 +47,14 @@ test('daily sales reports menu includes both portfolio declarations',()=>{
   assert.match(botReports,/callback_data:'ent:portfolio_current'/);
 });
 
-test('portfolio customers come directly from approved sales lines',()=>{
+test('portfolio customers include approved sales and payment-only projected activity',()=>{
   assert.match(portfolio,/directDailyCustomers/);
   assert.match(portfolio,/analysis\?\.sales/);
   assert.match(portfolio,/row\?\.customerCode\|\|row\?\.customer_code/);
   assert.match(portfolio,/saleType\(row\)!==type/);
-  assert.match(portfolio,/if\(!direct\.length\)/);
+  assert.match(portfolio,/const projected=projection\?\.departments\?\.\[type\]\?\.rows/);
+  assert.match(portfolio,/currentCollections/);
+  assert.doesNotMatch(portfolio,/if\(!direct\.length\)/);
 });
 
 test('Telegram PDF includes exact batch invoice evidence',()=>{
