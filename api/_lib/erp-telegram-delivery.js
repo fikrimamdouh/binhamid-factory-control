@@ -11,98 +11,17 @@ const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&
 const norm=value=>clean(value,3000).toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ًٌٍَُِّْـ]/g,'').replace(/[_-]+/g,' ').replace(/\s+/g,' ');
 const money=value=>`${Number(value||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})} ر.س`;
 const customerKey=(code,name)=>{const normalized=norm(code);return normalized?`code:${normalized}`:`name:${norm(name)||'unknown'}`;};
+const compactButtonName=value=>{let text=clean(value,120)||'عميل';while(Buffer.byteLength(text,'utf8')>58)text=text.slice(0,-1);return text;};
 
-export function erpSaleType(row={}){
-  const text=[row.salesType,row.sales_type,row.kind,row.type,row.segment,row.item,row.itemName,row.item_name,row.product].map(norm).filter(Boolean).join(' ');
-  if(/بلوك|بلك|block/.test(text))return'block';
-  if(/خرسان|concrete|ready\s*mix|readymix|rmc/.test(text))return'concrete';
-  return'';
-}
-
-export function erpTelegramRecipients(ownerId=config.telegramOwnerId,managerId=MANAGER_TELEGRAM_ID){
-  return[...new Set([ownerId,managerId].map(value=>String(value||'').trim()).filter(Boolean))];
-}
-
-function projectionIndex(projection={}){
-  const map=new Map();
-  for(const type of ['block','concrete'])for(const row of projection?.departments?.[type]?.rows||[]){
-    const key=customerKey(row.code||row.customerCode,row.name||row.customerName),entry=map.get(key)||{blockApplied:0,concreteApplied:0,blockSales:0,concreteSales:0,closing:0};
-    entry[`${type}Applied`]+=Number(row.currentApplied||0);
-    entry[`${type}Sales`]+=Number(row.currentSales||0);
-    entry.closing+=Number(row.closingBalance||0);
-    map.set(key,entry);
-  }
-  return map;
-}
-
-export function buildCollectionDeliveryRows(analysis={},projection={}){
-  const allocations=projectionIndex(projection),grouped=new Map();
-  for(const row of analysis?.collections||[]){
-    const code=clean(row.customerCode||row.accountCode),name=clean(row.customer||row.customerName||row.accountName)||code||'عميل غير محدد',key=customerKey(code,name),entry=grouped.get(key)||{key,code,name,amount:0,treasuries:new Set()};
-    entry.amount+=Number(row.amount??row.debit??row.credit??0);
-    const treasury=[clean(row.treasuryCode),clean(row.treasuryName)].filter(Boolean).join(' — ');if(treasury)entry.treasuries.add(treasury);
-    grouped.set(key,entry);
-  }
-  return[...grouped.values()].map(row=>{
-    const allocation=allocations.get(row.key)||{},blockApplied=Number(allocation.blockApplied||0),concreteApplied=Number(allocation.concreteApplied||0),unallocated=Math.max(0,row.amount-blockApplied-concreteApplied);
-    return{...row,treasuries:[...row.treasuries],blockApplied,concreteApplied,unallocated,linked:Boolean(allocations.has(row.key)),closing:Number(allocation.closing||0)};
-  }).sort((a,b)=>b.amount-a.amount||a.name.localeCompare(b.name,'ar'));
-}
-
-async function saveCustomerChoices(chatId,rows,reportDate){
-  if(String(chatId).startsWith('-')||!rows.length)return false;
-  const choices=rows.map((row,index)=>({code:row.code,name:row.name,balance:row.closing,index}));
-  await insert('bot_sessions',[{channel:'telegram',chat_id:String(chatId),external_user_id:String(chatId),state:'enterprise_customer_choose',context:{query:`سداد العملاء ${reportDate}`,choices,startedAt:new Date().toISOString()},updated_at:new Date().toISOString()}],{query:'on_conflict=channel,chat_id,external_user_id',prefer:'resolution=merge-duplicates,return=representation'});
-  return true;
-}
-
-function collectionText(rows,sourceFile,reportDate,page,pages,offset=0){
-  const total=rows.reduce((sum,row)=>sum+row.amount,0),linked=rows.filter(row=>row.linked).length,body=rows.map((row,index)=>{
-    const allocation=[row.blockApplied>0?`بلوك ${money(row.blockApplied)}`:'',row.concreteApplied>0?`خرسانة ${money(row.concreteApplied)}`:'',row.unallocated>0?`غير موزع ${money(row.unallocated)}`:''].filter(Boolean).join(' | ')||'لم يُوزع على فاتورة مفتوحة';
-    return `<b>${offset+index+1}. ${esc(row.name)}</b>\nرقم العميل: <code>${esc(row.code||'غير مسجل')}</code>\nالسداد: <b>${money(row.amount)}</b>\nالتوزيع: ${allocation}\nالخزينة: ${esc(row.treasuries.join('، ')||'غير محددة')}${row.linked?'':'\n⚠️ لم تتم مطابقة العميل مع رصيد محفظة قائم'}`;
-  }).join('\n\n');
-  return `<b>تقرير سداد العملاء</b>\n━━━━━━━━━━━━━━\nالملف: <b>${esc(sourceFile)}</b>\nتاريخ الحركة: <b>${esc(reportDate)}</b>\nالصفحة: <b>${page}/${pages}</b>\nإجمالي الصفحة: <b>${money(total)}</b>\nعملاء مرتبطون بالمحفظة: <b>${linked}/${rows.length}</b>\n━━━━━━━━━━━━━━\n\n${body}`;
-}
-
-async function sendCollections(chatId,rows,sourceFile,reportDate,errors){
-  if(!rows.length)return{sent:0,customers:0,linked:0};
-  try{await saveCustomerChoices(chatId,rows,reportDate);}catch(error){errors.push(`collection-session:${chatId}:${clean(error?.message||error,180)}`);}
-  const pageSize=6,pages=Math.ceil(rows.length/pageSize);let sent=0;
-  for(let page=0;page<pages;page++){
-    const offset=page*pageSize,part=rows.slice(offset,(page+1)*pageSize),buttons=String(chatId).startsWith('-')?[]:part.map((row,index)=>[{text:`كشف ${row.name} — ${row.code||'بدون رقم'}`.slice(0,64),callback_data:`ent:customer_pick|${offset+index}`}]);
-    try{await sendMessage(chatId,collectionText(part,sourceFile,reportDate,page+1,pages,offset),buttons.length?keyboard(buttons):{});sent++;}catch(error){errors.push(`collections:${chatId}:${clean(error?.message||error,180)}`);}
-  }
-  return{sent,customers:rows.length,linked:rows.filter(row=>row.linked).length};
-}
-
-async function sendTextToRecipients(recipients,text,errors,label){
-  let sent=0;for(const chatId of recipients){try{await sendMessage(chatId,text);sent++;}catch(error){errors.push(`${label}:${chatId}:${clean(error?.message||error,180)}`);}}return sent;
-}
-
-export async function sendErpDuplicateNotice({reportDate,sourceFile}){
-  const recipients=erpTelegramRecipients(),errors=[],text=`<b>مزامنة تقرير ERP</b>\nالملف موجود ومرحّل سابقًا، ولم تُكرر أي حركة.\nالتاريخ: <b>${esc(reportDate)}</b>\nالملف: <b>${esc(sourceFile)}</b>`;
-  return{recipients,sent:await sendTextToRecipients(recipients,text,errors,'duplicate'),errors};
-}
-
-export async function sendErpFailureNotice({reportDate,sourceFile,reason}){
-  const recipients=erpTelegramRecipients(),errors=[],text=`<b>فشل مزامنة تقرير ERP</b>\nلم تُرحّل أي حركة.\nالتاريخ: <b>${esc(reportDate)}</b>\nالملف: <b>${esc(sourceFile)}</b>\n${esc(reason)}`;
-  return{recipients,sent:await sendTextToRecipients(recipients,text,errors,'failure'),errors};
-}
-
-export async function prepareErpSuccessDelivery({analysis={},sourceFile='daily-report.xlsx',reportDate}){
-  const recipients=erpTelegramRecipients(),errors=[];let projection={},reports=[];
-  try{projection=await loadProjectedCumulativeDailyReport(analysis,reportDate,{currentBatch:true});}catch(error){errors.push(`projection:${clean(error?.message||error,180)}`);}
-  const collections=buildCollectionDeliveryRows(analysis,projection);
-  try{reports.push(...await generateCumulativeDailyPdfs(analysis,sourceFile,['block','concrete'],reportDate,{currentBatch:true}));}catch(error){errors.push(`daily-reports:${clean(error?.message||error,220)}`);}
-  try{reports.push(...await generateCustomerPortfolioPdfs(analysis,sourceFile,['block','concrete'],{reportDate,dailyOnly:true}));}catch(error){errors.push(`portfolio-reports:${clean(error?.message||error,220)}`);}
-  return{recipients,collections,reports,errors,preparedAt:new Date().toISOString()};
-}
-
-export async function sendErpSuccessDelivery({analysis={},sourceFile='daily-report.xlsx',reportDate,posting={},prepared=null}){
-  const bundle=prepared?.recipients?prepared:await prepareErpSuccessDelivery({analysis,sourceFile,reportDate}),recipients=bundle.recipients,errors=[...(bundle.errors||[])],summary=analysis.summary||{},text=`<b>تم ترحيل تقرير ERP بنجاح</b>\n━━━━━━━━━━━━━━\nالتاريخ: <b>${esc(reportDate)}</b>\nالملف: <b>${esc(sourceFile)}</b>\nالفواتير: <b>${Number(summary.invoiceCount||0)}</b>\nمبيعات البلوك: <b>${money(summary.blockSales)}</b>\nمبيعات الخرسانة: <b>${money(summary.concreteSales)}</b>\nإجمالي المبيعات: <b>${money(summary.salesTotal)}</b>\nالتحصيلات: <b>${money(summary.collectionTotal)}</b>\nصفوف المخزون: <b>${Number(summary.finishedGoodsCount||0)+Number(summary.rawMaterialsCount||0)}</b>${posting?.duplicate?'\nالترحيل كان موجودًا سابقًا ولم تتكرر الحركة.':''}`;
-  const summarySent=await sendTextToRecipients(recipients,text,errors,'summary'),collectionResults=[];
-  for(const chatId of recipients)collectionResults.push(await sendCollections(chatId,bundle.collections||[],sourceFile,reportDate,errors));
-  let documentsSent=0;
-  for(const chatId of recipients)for(const report of bundle.reports||[]){try{await sendDocumentBuffer(chatId,report.pdf,report.filename,'application/pdf',report.caption);documentsSent++;}catch(error){errors.push(`document:${chatId}:${report.type||report.filename}:${clean(error?.message||error,180)}`);}}
-  return{recipients,summarySent,documentsGenerated:(bundle.reports||[]).length,documentsSent,collectionResults,preparedAt:bundle.preparedAt,errors};
-}
+export function erpSaleType(row={}){const text=[row.salesType,row.sales_type,row.kind,row.type,row.segment,row.item,row.itemName,row.item_name,row.product].map(norm).filter(Boolean).join(' ');if(/بلوك|بلك|block/.test(text))return'block';if(/خرسان|concrete|ready\s*mix|readymix|rmc/.test(text))return'concrete';return'';}
+export function erpTelegramRecipients(ownerId=config.telegramOwnerId,managerId=MANAGER_TELEGRAM_ID){return[...new Set([ownerId,managerId].map(value=>String(value||'').trim()).filter(Boolean))];}
+function projectionIndex(projection={}){const map=new Map();for(const type of ['block','concrete'])for(const row of projection?.departments?.[type]?.rows||[]){const key=customerKey(row.code||row.customerCode,row.name||row.customerName),entry=map.get(key)||{blockApplied:0,concreteApplied:0,appliedToNew:0,appliedToOld:0,closing:0};entry[`${type}Applied`]+=Number(row.currentApplied||0);entry.appliedToNew+=Number(row.currentAppliedToNew||0);entry.appliedToOld+=Number(row.currentAppliedToOld||0);entry.closing+=Number(row.closingBalance||0);map.set(key,entry);}return map;}
+export function buildCollectionDeliveryRows(analysis={},projection={}){const allocations=projectionIndex(projection),grouped=new Map();for(const row of analysis?.collections||[]){const code=clean(row.customerCode||row.accountCode),name=clean(row.customer||row.customerName||row.accountName)||code||'عميل غير محدد',key=customerKey(code,name),entry=grouped.get(key)||{key,code,name,amount:0,treasuries:new Set()};entry.amount+=Number(row.amount??row.debit??row.credit??0);const treasury=[clean(row.treasuryCode),clean(row.treasuryName)].filter(Boolean).join(' — ');if(treasury)entry.treasuries.add(treasury);grouped.set(key,entry);}return[...grouped.values()].map(row=>{const allocation=allocations.get(row.key)||{},blockApplied=Number(allocation.blockApplied||0),concreteApplied=Number(allocation.concreteApplied||0),appliedToNew=Number(allocation.appliedToNew||0),appliedToOld=Number(allocation.appliedToOld||0),outsideInvoices=Math.max(0,row.amount-appliedToNew-appliedToOld);return{...row,treasuries:[...row.treasuries],blockApplied,concreteApplied,appliedToNew,appliedToOld,outsideInvoices,unallocated:outsideInvoices,linked:Boolean(allocations.has(row.key)),closing:Number(allocation.closing||0)};}).sort((a,b)=>b.amount-a.amount||a.name.localeCompare(b.name,'ar'));}
+async function saveCustomerChoices(chatId,rows,reportDate){if(String(chatId).startsWith('-')||!rows.length)return false;const choices=rows.map((row,index)=>({code:row.code,name:row.name,balance:row.closing,index}));await insert('bot_sessions',[{channel:'telegram',chat_id:String(chatId),external_user_id:String(chatId),state:'enterprise_customer_choose',context:{query:`سداد العملاء ${reportDate}`,choices,startedAt:new Date().toISOString()},updated_at:new Date().toISOString()}],{query:'on_conflict=channel,chat_id,external_user_id',prefer:'resolution=merge-duplicates,return=representation'});return true;}
+function collectionText(rows,sourceFile,reportDate,page,pages,offset=0){const total=rows.reduce((sum,row)=>sum+row.amount,0),linked=rows.filter(row=>row.linked).length,body=rows.map((row,index)=>{const department=[row.blockApplied>0?`بلوك ${money(row.blockApplied)}`:'',row.concreteApplied>0?`خرسانة ${money(row.concreteApplied)}`:''].filter(Boolean).join(' | ')||'لا يوجد توزيع قطاعي';const outside=row.outsideInvoices>0?`\nخارج الفواتير المسجلة: <b>${money(row.outsideInvoices)}</b> — يُخصم من الرصيد الافتتاحي القديم، وما يزيد يصبح دفعة مقدمة.`:'';return `<b>${offset+index+1}. ${esc(row.name)}</b>\nرقم العميل: <code>${esc(row.code||'غير مسجل')}</code>\nالسداد: <b>${money(row.amount)}</b>\nعلى فواتير التقرير الجديدة: <b>${money(row.appliedToNew)}</b>\nعلى الفواتير السابقة: <b>${money(row.appliedToOld)}</b>${outside}\nتوزيع القطاع: ${department}\nالخزينة: ${esc(row.treasuries.join('، ')||'غير محددة')}${row.linked?'':'\nلم تتم مطابقة العميل مع فاتورة مفتوحة؛ راجع كشف الحساب.'}`;}).join('\n\n');return `<b>تقرير سداد العملاء</b>\n━━━━━━━━━━━━━━\nالملف: <b>${esc(sourceFile)}</b>\nتاريخ الحركة: <b>${esc(reportDate)}</b>\nالصفحة: <b>${page}/${pages}</b>\nإجمالي الصفحة: <b>${money(total)}</b>\nعملاء مرتبطون بالحسابات: <b>${linked}/${rows.length}</b>\n━━━━━━━━━━━━━━\n\n${body}`;}
+async function sendCollections(chatId,rows,sourceFile,reportDate,errors){if(!rows.length)return{sent:0,customers:0,linked:0};try{await saveCustomerChoices(chatId,rows,reportDate);}catch(error){errors.push(`collection-session:${chatId}:${clean(error?.message||error,180)}`);}const pageSize=6,pages=Math.ceil(rows.length/pageSize);let sent=0;for(let page=0;page<pages;page++){const offset=page*pageSize,part=rows.slice(offset,(page+1)*pageSize),buttons=String(chatId).startsWith('-')?[]:part.map((row,index)=>[{text:compactButtonName(row.name),callback_data:`ent:customer_pick|${offset+index}`}]);try{await sendMessage(chatId,collectionText(part,sourceFile,reportDate,page+1,pages,offset),buttons.length?keyboard(buttons):{});sent++;}catch(error){errors.push(`collections:${chatId}:${clean(error?.message||error,180)}`);}}return{sent,customers:rows.length,linked:rows.filter(row=>row.linked).length};}
+async function sendTextToRecipients(recipients,text,errors,label){let sent=0;for(const chatId of recipients){try{await sendMessage(chatId,text);sent++;}catch(error){errors.push(`${label}:${chatId}:${clean(error?.message||error,180)}`);}}return sent;}
+export async function sendErpDuplicateNotice({reportDate,sourceFile}){const recipients=erpTelegramRecipients(),errors=[],text=`<b>مزامنة تقرير ERP</b>\nالملف موجود ومرحّل سابقًا، ولم تُكرر أي حركة.\nالتاريخ: <b>${esc(reportDate)}</b>\nالملف: <b>${esc(sourceFile)}</b>`;return{recipients,sent:await sendTextToRecipients(recipients,text,errors,'duplicate'),errors};}
+export async function sendErpFailureNotice({reportDate,sourceFile,reason}){const recipients=erpTelegramRecipients(),errors=[],text=`<b>فشل مزامنة تقرير ERP</b>\nلم تُرحّل أي حركة.\nالتاريخ: <b>${esc(reportDate)}</b>\nالملف: <b>${esc(sourceFile)}</b>\n${esc(reason)}`;return{recipients,sent:await sendTextToRecipients(recipients,text,errors,'failure'),errors};}
+export async function prepareErpSuccessDelivery({analysis={},sourceFile='daily-report.xlsx',reportDate}){const recipients=erpTelegramRecipients(),errors=[];let projection={},reports=[];try{projection=await loadProjectedCumulativeDailyReport(analysis,reportDate,{currentBatch:true});}catch(error){errors.push(`projection:${clean(error?.message||error,180)}`);}const collections=buildCollectionDeliveryRows(analysis,projection);try{reports.push(...await generateCumulativeDailyPdfs(analysis,sourceFile,['block','concrete'],reportDate,{currentBatch:true}));}catch(error){errors.push(`daily-reports:${clean(error?.message||error,220)}`);}try{reports.push(...await generateCustomerPortfolioPdfs(analysis,sourceFile,['block','concrete'],{reportDate,dailyOnly:false,dueOnly:true,currentBatch:true}));}catch(error){errors.push(`portfolio-reports:${clean(error?.message||error,220)}`);}return{recipients,collections,reports,errors,preparedAt:new Date().toISOString()};}
+export async function sendErpSuccessDelivery({analysis={},sourceFile='daily-report.xlsx',reportDate,posting={},prepared=null}){const bundle=prepared?.recipients?prepared:await prepareErpSuccessDelivery({analysis,sourceFile,reportDate}),recipients=bundle.recipients,errors=[...(bundle.errors||[])],summary=analysis.summary||{},text=`<b>تم ترحيل تقرير ERP بنجاح</b>\n━━━━━━━━━━━━━━\nالتاريخ: <b>${esc(reportDate)}</b>\nالملف: <b>${esc(sourceFile)}</b>\nالفواتير: <b>${Number(summary.invoiceCount||0)}</b>\nمبيعات البلوك: <b>${money(summary.blockSales)}</b>\nمبيعات الخرسانة: <b>${money(summary.concreteSales)}</b>\nإجمالي المبيعات: <b>${money(summary.salesTotal)}</b>\nالتحصيلات: <b>${money(summary.collectionTotal)}</b>\nصفوف المخزون: <b>${Number(summary.finishedGoodsCount||0)+Number(summary.rawMaterialsCount||0)}</b>${posting?.duplicate?'\nالترحيل كان موجودًا سابقًا ولم تتكرر الحركة.':''}`;const summarySent=await sendTextToRecipients(recipients,text,errors,'summary'),collectionResults=[];for(const chatId of recipients)collectionResults.push(await sendCollections(chatId,bundle.collections||[],sourceFile,reportDate,errors));let documentsSent=0;for(const chatId of recipients)for(const report of bundle.reports||[]){try{await sendDocumentBuffer(chatId,report.pdf,report.filename,'application/pdf',report.caption);documentsSent++;}catch(error){errors.push(`document:${chatId}:${report.type||report.filename}:${clean(error?.message||error,180)}`);}}return{recipients,summarySent,documentsGenerated:(bundle.reports||[]).length,documentsSent,collectionResults,preparedAt:bundle.preparedAt,errors};}
