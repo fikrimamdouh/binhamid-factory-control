@@ -39,7 +39,7 @@ export function buildCollectionDeliveryRows(analysis={},projection={}){
   const allocations=projectionIndex(projection),grouped=new Map();
   for(const row of analysis?.collections||[]){
     const code=clean(row.customerCode||row.accountCode),name=clean(row.customer||row.customerName||row.accountName)||code||'عميل غير محدد',key=customerKey(code,name),entry=grouped.get(key)||{key,code,name,amount:0,treasuries:new Set()};
-    entry.amount+=Number(row.amount||row.debit||row.credit||0);
+    entry.amount+=Number(row.amount??row.debit??row.credit??0);
     const treasury=[clean(row.treasuryCode),clean(row.treasuryName)].filter(Boolean).join(' — ');if(treasury)entry.treasuries.add(treasury);
     grouped.set(key,entry);
   }
@@ -56,21 +56,21 @@ async function saveCustomerChoices(chatId,rows,reportDate){
   return true;
 }
 
-function collectionText(rows,sourceFile,reportDate,page,pages){
+function collectionText(rows,sourceFile,reportDate,page,pages,offset=0){
   const total=rows.reduce((sum,row)=>sum+row.amount,0),linked=rows.filter(row=>row.linked).length,body=rows.map((row,index)=>{
     const allocation=[row.blockApplied>0?`بلوك ${money(row.blockApplied)}`:'',row.concreteApplied>0?`خرسانة ${money(row.concreteApplied)}`:'',row.unallocated>0?`غير موزع ${money(row.unallocated)}`:''].filter(Boolean).join(' | ')||'لم يُوزع على فاتورة مفتوحة';
-    return `<b>${index+1}. ${esc(row.name)}</b>\nرقم العميل: <code>${esc(row.code||'غير مسجل')}</code>\nالسداد: <b>${money(row.amount)}</b>\nالتوزيع: ${allocation}\nالخزينة: ${esc(row.treasuries.join('، ')||'غير محددة')}${row.linked?'':'\n⚠️ لم تتم مطابقة العميل مع رصيد محفظة قائم'}`;
+    return `<b>${offset+index+1}. ${esc(row.name)}</b>\nرقم العميل: <code>${esc(row.code||'غير مسجل')}</code>\nالسداد: <b>${money(row.amount)}</b>\nالتوزيع: ${allocation}\nالخزينة: ${esc(row.treasuries.join('، ')||'غير محددة')}${row.linked?'':'\n⚠️ لم تتم مطابقة العميل مع رصيد محفظة قائم'}`;
   }).join('\n\n');
   return `<b>تقرير سداد العملاء</b>\n━━━━━━━━━━━━━━\nالملف: <b>${esc(sourceFile)}</b>\nتاريخ الحركة: <b>${esc(reportDate)}</b>\nالصفحة: <b>${page}/${pages}</b>\nإجمالي الصفحة: <b>${money(total)}</b>\nعملاء مرتبطون بالمحفظة: <b>${linked}/${rows.length}</b>\n━━━━━━━━━━━━━━\n\n${body}`;
 }
 
-async function sendCollections(chatId,analysis,sourceFile,reportDate,projection,errors){
-  const rows=buildCollectionDeliveryRows(analysis,projection);if(!rows.length)return{sent:0,customers:0,linked:0};
+async function sendCollections(chatId,rows,sourceFile,reportDate,errors){
+  if(!rows.length)return{sent:0,customers:0,linked:0};
   try{await saveCustomerChoices(chatId,rows,reportDate);}catch(error){errors.push(`collection-session:${chatId}:${clean(error?.message||error,180)}`);}
   const pageSize=6,pages=Math.ceil(rows.length/pageSize);let sent=0;
   for(let page=0;page<pages;page++){
-    const part=rows.slice(page*pageSize,(page+1)*pageSize),buttons=String(chatId).startsWith('-')?[]:part.map(row=>{const index=rows.indexOf(row);return[{text:`كشف ${row.name} — ${row.code||'بدون رقم'}`.slice(0,64),callback_data:`ent:customer_pick|${index}`}];});
-    try{await sendMessage(chatId,collectionText(part,sourceFile,reportDate,page+1,pages),buttons.length?keyboard(buttons):{});sent++;}catch(error){errors.push(`collections:${chatId}:${clean(error?.message||error,180)}`);}
+    const offset=page*pageSize,part=rows.slice(offset,(page+1)*pageSize),buttons=String(chatId).startsWith('-')?[]:part.map((row,index)=>[{text:`كشف ${row.name} — ${row.code||'بدون رقم'}`.slice(0,64),callback_data:`ent:customer_pick|${offset+index}`}]);
+    try{await sendMessage(chatId,collectionText(part,sourceFile,reportDate,page+1,pages,offset),buttons.length?keyboard(buttons):{});sent++;}catch(error){errors.push(`collections:${chatId}:${clean(error?.message||error,180)}`);}
   }
   return{sent,customers:rows.length,linked:rows.filter(row=>row.linked).length};
 }
@@ -89,15 +89,20 @@ export async function sendErpFailureNotice({reportDate,sourceFile,reason}){
   return{recipients,sent:await sendTextToRecipients(recipients,text,errors,'failure'),errors};
 }
 
-export async function sendErpSuccessDelivery({analysis={},sourceFile='daily-report.xlsx',reportDate,posting={}}){
-  const recipients=erpTelegramRecipients(),errors=[],summary=analysis.summary||{},text=`<b>تم ترحيل تقرير ERP بنجاح</b>\n━━━━━━━━━━━━━━\nالتاريخ: <b>${esc(reportDate)}</b>\nالملف: <b>${esc(sourceFile)}</b>\nالفواتير: <b>${Number(summary.invoiceCount||0)}</b>\nمبيعات البلوك: <b>${money(summary.blockSales)}</b>\nمبيعات الخرسانة: <b>${money(summary.concreteSales)}</b>\nإجمالي المبيعات: <b>${money(summary.salesTotal)}</b>\nالتحصيلات: <b>${money(summary.collectionTotal)}</b>\nصفوف المخزون: <b>${Number(summary.finishedGoodsCount||0)+Number(summary.rawMaterialsCount||0)}</b>${posting?.duplicate?'\nالترحيل كان موجودًا سابقًا ولم تتكرر الحركة.':''}`;
-  const summarySent=await sendTextToRecipients(recipients,text,errors,'summary');
-  let projection={};try{projection=await loadProjectedCumulativeDailyReport(analysis,reportDate,{currentBatch:true});}catch(error){errors.push(`projection:${clean(error?.message||error,180)}`);}
-  const collectionResults=[];for(const chatId of recipients)collectionResults.push(await sendCollections(chatId,analysis,sourceFile,reportDate,projection,errors));
-  let reports=[];
+export async function prepareErpSuccessDelivery({analysis={},sourceFile='daily-report.xlsx',reportDate}){
+  const recipients=erpTelegramRecipients(),errors=[];let projection={},reports=[];
+  try{projection=await loadProjectedCumulativeDailyReport(analysis,reportDate,{currentBatch:true});}catch(error){errors.push(`projection:${clean(error?.message||error,180)}`);}
+  const collections=buildCollectionDeliveryRows(analysis,projection);
   try{reports.push(...await generateCumulativeDailyPdfs(analysis,sourceFile,['block','concrete'],reportDate,{currentBatch:true}));}catch(error){errors.push(`daily-reports:${clean(error?.message||error,220)}`);}
   try{reports.push(...await generateCustomerPortfolioPdfs(analysis,sourceFile,['block','concrete'],{reportDate,dailyOnly:true}));}catch(error){errors.push(`portfolio-reports:${clean(error?.message||error,220)}`);}
+  return{recipients,collections,reports,errors,preparedAt:new Date().toISOString()};
+}
+
+export async function sendErpSuccessDelivery({analysis={},sourceFile='daily-report.xlsx',reportDate,posting={},prepared=null}){
+  const bundle=prepared?.recipients?prepared:await prepareErpSuccessDelivery({analysis,sourceFile,reportDate}),recipients=bundle.recipients,errors=[...(bundle.errors||[])],summary=analysis.summary||{},text=`<b>تم ترحيل تقرير ERP بنجاح</b>\n━━━━━━━━━━━━━━\nالتاريخ: <b>${esc(reportDate)}</b>\nالملف: <b>${esc(sourceFile)}</b>\nالفواتير: <b>${Number(summary.invoiceCount||0)}</b>\nمبيعات البلوك: <b>${money(summary.blockSales)}</b>\nمبيعات الخرسانة: <b>${money(summary.concreteSales)}</b>\nإجمالي المبيعات: <b>${money(summary.salesTotal)}</b>\nالتحصيلات: <b>${money(summary.collectionTotal)}</b>\nصفوف المخزون: <b>${Number(summary.finishedGoodsCount||0)+Number(summary.rawMaterialsCount||0)}</b>${posting?.duplicate?'\nالترحيل كان موجودًا سابقًا ولم تتكرر الحركة.':''}`;
+  const summarySent=await sendTextToRecipients(recipients,text,errors,'summary'),collectionResults=[];
+  for(const chatId of recipients)collectionResults.push(await sendCollections(chatId,bundle.collections||[],sourceFile,reportDate,errors));
   let documentsSent=0;
-  for(const chatId of recipients)for(const report of reports){try{await sendDocumentBuffer(chatId,report.pdf,report.filename,'application/pdf',report.caption);documentsSent++;}catch(error){errors.push(`document:${chatId}:${report.type||report.filename}:${clean(error?.message||error,180)}`);}}
-  return{recipients,summarySent,documentsGenerated:reports.length,documentsSent,collectionResults,errors};
+  for(const chatId of recipients)for(const report of bundle.reports||[]){try{await sendDocumentBuffer(chatId,report.pdf,report.filename,'application/pdf',report.caption);documentsSent++;}catch(error){errors.push(`document:${chatId}:${report.type||report.filename}:${clean(error?.message||error,180)}`);}}
+  return{recipients,summarySent,documentsGenerated:(bundle.reports||[]).length,documentsSent,collectionResults,preparedAt:bundle.preparedAt,errors};
 }
