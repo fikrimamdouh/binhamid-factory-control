@@ -50,7 +50,8 @@ test('automatic Telegram delivery includes the owner and Manea once',()=>{
 test('portfolio daily customers include projected payment-only activity and PDFs use the report date',async()=>{
   const portfolio=await readFile(new URL('../api/_lib/customer-portfolio-pdf.js',import.meta.url),'utf8');
   const dailyPdf=await readFile(new URL('../api/_lib/daily-cumulative-pdf.js',import.meta.url),'utf8');
-  const route=await readFile(new URL('../api/erp/daily-report.js',import.meta.url),'utf8');
+  const routePath=['..','api','erp','daily-report.js'].join('/');
+  const route=await readFile(new URL(routePath,import.meta.url),'utf8');
   assert.doesNotMatch(portfolio,/if\(!direct\.length\)/);
   assert.match(portfolio,/currentCollections/);
   assert.match(dailyPdf,/currentBatch:options\?\.currentBatch===true/);
