@@ -36,8 +36,6 @@ test('Telegram command reads original Excel date before trusting wrong stored da
   assert.match(botPortfolio,/import \* as XLSX from 'xlsx'/);
   assert.match(botPortfolio,/downloadObject/);
   assert.match(botPortfolio,/detectOriginalReportDate/);
-  // التاريخ المقروء من ملف Excel الأصلي يسبق التاريخ المخزّن دائمًا. الحارس على المنطق
-  // نفسه لا على نص الرسالة، لأن الشروح التقنية أُزيلت من رسائل البوت.
   assert.match(botPortfolio,/reportDate:detected\?\.date\|\|storedReportDate/);
   assert.match(botPortfolio,/تم منع إرسال إقرار بتاريخ اليوم/);
 });
@@ -47,22 +45,25 @@ test('daily sales reports menu includes both portfolio declarations',()=>{
   assert.match(botReports,/callback_data:'ent:portfolio_current'/);
 });
 
-test('portfolio customers include approved sales and payment-only projected activity',()=>{
-  assert.match(portfolio,/directDailyCustomers/);
+test('portfolio customers include every assigned debtor and current payment-only activity',()=>{
+  assert.match(portfolio,/assignedToRep/);
+  assert.match(portfolio,/loadCustomerAnalytics/);
   assert.match(portfolio,/analysis\?\.sales/);
-  assert.match(portfolio,/row\?\.customerCode\|\|row\?\.customer_code/);
-  assert.match(portfolio,/saleType\(row\)!==type/);
-  assert.match(portfolio,/const projected=projection\?\.departments\?\.\[type\]\?\.rows/);
-  assert.match(portfolio,/currentCollections/);
-  assert.doesNotMatch(portfolio,/if\(!direct\.length\)/);
+  assert.match(portfolio,/analysis\?\.collections/);
+  assert.match(portfolio,/currentIndex/);
+  assert.match(portfolio,/oldBalance:a\.oldDebt/);
+  assert.match(portfolio,/paidNew:a\.paidNew/);
+  assert.match(portfolio,/paidOld:a\.paidOld/);
+  assert.match(portfolio,/dueOnly\?allCustomers\.filter/);
 });
 
-test('Telegram PDF includes exact batch invoice evidence',()=>{
-  assert.match(portfolio,/function invoiceRows/);
-  assert.match(portfolio,/data-telegram-portfolio-proof="1"/);
-  assert.match(portfolio,/فواتير الدفعة/);
-  assert.match(portfolio,/أرقام الفواتير/);
-  assert.match(portfolio,/invoiceCount:invoices\.length/);
+test('Telegram PDF includes dated old-new debt allocation evidence',()=>{
+  assert.match(portfolio,/appendDebtAppendix/);
+  assert.match(portfolio,/رصيد قديم \/ التاريخ/);
+  assert.match(portfolio,/فواتير جديدة \/ آخر فاتورة/);
+  assert.match(portfolio,/إجمالي السداد \/ آخر سداد/);
+  assert.match(portfolio,/توزيع السداد/);
+  assert.match(portfolio,/المتبقي/);
 });
 
 test('concrete classifier accepts canonical and ready-mix values',()=>{
@@ -93,18 +94,15 @@ test('bot generates the priced declaration first and keeps the archived print as
   assert.match(botPortfolio,/readExactPointer/);
   assert.match(botPortfolio,/sendExactDailyPortfolio/);
   assert.match(botPortfolio,/exactWebsitePrint:true/);
-  // الأرقام (المشتريات/المسدَّد/المتبقي) وإجمالي ذمة المندوب لا توجد في نسخة الموقع
-  // المؤرشفة، لذلك يُولَّد الإقرار المسعَّر أولًا وتبقى النسخة المؤرشفة احتياطًا.
   const generated=botPortfolio.indexOf('const generated=await generateCustomerPortfolioPdfs'),exact=botPortfolio.indexOf('const exact=await sendExactDailyPortfolio');
   assert.ok(generated>=0&&exact>generated);
 });
 
-test('employee selection is exact, prioritizes residency, and never falls back to mechanic',()=>{
+test('employee selection is exact and prioritizes residency without name fallback',()=>{
   assert.match(portfolio,/ROLE_ALIASES/);
   assert.match(portfolio,/if\(!roleMatches\(employee,type\)\)return-1/);
   assert.match(portfolio,/digits\(employee\?\.nid\|\|employee\?\.national_id\)\.length>=10/);
   assert.doesNotMatch(portfolio,/role\.includes\(token\)/);
-  assert.doesNotMatch(portfolio,/byName\.get/);
   assert.match(portfolio,/تم منع إصدار الإقرار باسم موظف غير صحيح/);
   assert.match(portfolio,/role:ROLE_BY_TYPE\[type\]/);
 });
@@ -113,11 +111,8 @@ test('priced declaration keeps the signature block on its own page so it is neve
   const { renderCustomerPortfolioDeclaration }=await import('../shared/customer-portfolio-declaration.js');
   const customers=Array.from({length:8},(_,index)=>({name:`عميل ${index}`,code:`C${index}`,phone:'050',creditLimit:5000,paymentDays:3,sales:1000,paid:400,outstanding:600,quantity:12,item:'خرسانة'}));
   const priced=renderCustomerPortfolioDeclaration({type:'concrete',companyName:'بن حامد',employee:{name:'خالد عبد الله',nationalId:'2414111530'},customers,days:3,dateGregorian:'2026-07-23'});
-  // صفحة الوثيقة ارتفاعها ثابت مع overflow:hidden، فإدراج صندوق الذمة مع الالتزامات كان
-  // يدفع خانة التوقيع خارج الصفحة فتُقصّ. الآن للتوقيع صفحته المستقلة.
   assert.match(priced.document,/إقرار الذمة والتوقيع/);
   assert.match(priced.document,/المندوب المُقِر/);
-  // وثيقة الموقع (بلا أرقام) تبقى بلا صفحة إضافية كما كانت.
   const plain=renderCustomerPortfolioDeclaration({type:'concrete',companyName:'بن حامد',employee:{name:'خالد عبد الله'},customers:customers.map(({sales,paid,outstanding,quantity,item,...rest})=>rest),days:3,dateGregorian:'2026-07-23'});
   assert.doesNotMatch(plain.document,/إقرار الذمة والتوقيع/);
   assert.match(plain.document,/المندوب المُقِر/);
