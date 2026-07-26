@@ -17,14 +17,19 @@ async function pagedSelect(table,query,maxPages=50){
 }
 
 function customerKey(code,name){const c=norm(code);return c?`code:${c}`:`name:${norm(name)||'unknown'}`;}
-function saleType(row){const raw=String(row?.sales_type||row?.kind||'').toLowerCase();if(raw==='block'||raw==='بلوك')return'block';if(raw==='concrete'||raw==='خرسانة'||raw==='خرسانه')return'concrete';return'other';}
+export function cumulativeSaleType(row={}){
+  const raw=[row.sales_type,row.salesType,row.kind,row.type,row.segment,row.item,row.itemName,row.item_name,row.product].map(norm).filter(Boolean).join(' ');
+  if(/بلوك|بلك|block/.test(raw))return'block';
+  if(/خرسان|concrete|ready\s*mix|readymix|rmc/.test(raw))return'concrete';
+  return'other';
+}
 function dailySale(row,index,reportDate){
   const total=Math.max(0,n(row.amount));
-  return{id:`daily:${index}`,customerCode:String(row.customerCode||''),customerName:String(row.customer||'عميل غير مسمى'),type:saleType(row),item:String(row.item||''),quantity:n(row.quantity),total,paid:0,outstanding:total,openingOutstanding:0,date:reportDate,current:true,invoice:String(row.invoice||index+1)};
+  return{id:`daily:${index}`,customerCode:String(row.customerCode||row.customer_code||''),customerName:String(row.customer||row.customerName||row.customer_name||'عميل غير مسمى'),type:cumulativeSaleType(row),item:String(row.item||row.itemName||row.item_name||''),quantity:n(row.quantity),total,paid:0,outstanding:total,openingOutstanding:0,date:reportDate,current:true,invoice:String(row.invoice||row.invoiceNo||row.invoice_no||index+1)};
 }
 function storedSale(row){
   const total=Math.max(0,n(row.total_amount)),paid=Math.min(total,Math.max(0,n(row.paid_amount))),outstanding=Math.max(0,total-paid);
-  return{id:String(row.reference_no||row.id||''),customerCode:String(row.customer_external_id||''),customerName:String(row.customer_name||'عميل غير مسمى'),type:saleType(row),item:String(row.item||''),quantity:n(row.quantity),total,paid,outstanding,openingOutstanding:outstanding,date:date(row.delivery_date||row.created_at),current:false,invoice:String(row.reference_no||'')};
+  return{id:String(row.reference_no||row.id||''),customerCode:String(row.customer_external_id||''),customerName:String(row.customer_name||'عميل غير مسمى'),type:cumulativeSaleType(row),item:String(row.item||''),quantity:n(row.quantity),total,paid,outstanding,openingOutstanding:outstanding,date:date(row.delivery_date||row.created_at),current:false,invoice:String(row.reference_no||'')};
 }
 function blankCustomer(key,code,name){return{key,code:String(code||''),name:String(name||code||'عميل غير مسمى'),invoices:[],currentCollections:0,currentUnallocated:0,applied:{block:0,concrete:0,other:0}};}
 
@@ -34,7 +39,7 @@ export function projectCumulativeDailyReport({storedSales=[],dailySales=[],daily
   for(const row of storedSales||[]){if(closed.has(String(row.status||'')))continue;const sale=storedSale(row);if(sale.type==='other')continue;get(sale.customerCode,sale.customerName).invoices.push(sale);}
   for(const [index,row] of (dailySales||[]).entries()){const sale=dailySale(row,index,reportDate);if(sale.type==='other'||sale.total<=0)continue;get(sale.customerCode,sale.customerName).invoices.push(sale);}
   for(const row of dailyCollections||[]){
-    const customer=get(row.customerCode,row.customer),amount=Math.max(0,n(row.amount));customer.currentCollections+=amount;
+    const customer=get(row.customerCode||row.accountCode,row.customer||row.customerName||row.accountName),amount=Math.max(0,n(row.amount||row.debit||row.credit));customer.currentCollections+=amount;
     let remaining=amount;
     const open=customer.invoices.filter(invoice=>invoice.outstanding>0).sort((a,b)=>String(a.date).localeCompare(String(b.date))||Number(a.current)-Number(b.current)||String(a.id).localeCompare(String(b.id)));
     for(const invoice of open){if(remaining<=0)break;const applied=Math.min(remaining,invoice.outstanding);invoice.outstanding-=applied;invoice.paid+=applied;remaining-=applied;customer.applied[invoice.type]=(customer.applied[invoice.type]||0)+applied;}
