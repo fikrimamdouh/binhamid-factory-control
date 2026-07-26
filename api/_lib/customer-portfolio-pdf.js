@@ -44,6 +44,11 @@ async function resolveReportDate(analysis,sourceFile){
   if(approved)return approved;
   throw Object.assign(new Error('تعذر تحديد تاريخ التقرير المعتمد؛ تم منع إنشاء إقرار بتاريخ اليوم.'),{status:422,code:'PORTFOLIO_REPORT_DATE_REQUIRED'});
 }
+async function reportAlreadyCommitted(sourceFile,reportDate){
+  if(!sourceFile||!reportDate)return false;
+  const rows=await select('daily_report_batches',`original_name=eq.${encodeURIComponent(sourceFile)}&report_date=eq.${encodeURIComponent(reportDate)}&status=eq.approved&select=id&limit=1`).catch(()=>[]);
+  return Boolean(rows?.[0]?.id);
+}
 
 function roleMatchesValue(value,type){return ROLE_ALIASES[type]?.has(norm(value))||false;}
 function roleMatches(employee,type){return[employee?.declarationRole,employee?.role,employee?.job,employee?.position].some(value=>roleMatchesValue(value,type));}
@@ -184,7 +189,9 @@ function canonicalCustomers(type,analysis,state,rep,analyticsRows,{dailyOnly=fal
 export async function generateCustomerPortfolioPdfs(analysis={},sourceFile='daily-report.xlsx',requestedTypes=['block','concrete'],options={}){
   const types=[...new Set((Array.isArray(requestedTypes)?requestedTypes:[requestedTypes]).map(clean).filter(type=>VALID_TYPES.has(type)))];
   if(!types.length)throw Object.assign(new Error('حدد إقرار البلوك أو إقرار الخرسانة.'),{status:400,code:'PORTFOLIO_TYPE_REQUIRED'});
-  const reportDate=isoDate(options?.reportDate)||await resolveReportDate(analysis,sourceFile),dailyOnly=options?.dailyOnly===true,dueOnly=options?.dueOnly!==false,currentBatch=options?.currentBatch===true||(options?.currentBatch!==false&&!options?.sourceBatchId),state=await loadAppState(),baseUrl=`${publicBase()}/`,reports=[];
+  const reportDate=isoDate(options?.reportDate)||await resolveReportDate(analysis,sourceFile),dailyOnly=options?.dailyOnly===true,dueOnly=options?.dueOnly!==false;
+  const currentBatch=options?.currentBatch===true?true:options?.currentBatch===false||options?.sourceBatchId?false:!(await reportAlreadyCommitted(sourceFile,reportDate));
+  const state=await loadAppState(),baseUrl=`${publicBase()}/`,reports=[];
   for(const type of types){
     const rep=findRep(state.employees,type);if(!rep)throw Object.assign(new Error(`لا يوجد موظف نشط بدور ${ROLE_BY_TYPE[type]}؛ تم منع إصدار الإقرار باسم موظف غير صحيح.`),{status:409,code:`PORTFOLIO_${type.toUpperCase()}_REP_NOT_FOUND`});
     const analytics=await loadCustomerAnalytics({active:true,role:ANALYTICS_ROLE[type]}),allCustomers=canonicalCustomers(type,analysis,state,rep,analytics?.rows||[],{dailyOnly,currentBatch,reportDate}),customers=dueOnly?allCustomers.filter(row=>Number(row.outstanding||0)>0):allCustomers,documentRef=`BHF-${type.toUpperCase()}-${reportDate.replace(/-/g,'')}-TG`,logoUrl=`${baseUrl}assets/branding/binhamid-factory-logo.png`,rendered=renderCustomerPortfolioDeclaration({type,companyName:state.companyName,company:state.company,employee:{name:rep?.name||'',nationalId:digits(rep?.nid||rep?.national_id),role:ROLE_BY_TYPE[type],number:rep?.no||'',phone:rep?.tel||''},customers,days:state.days,defaultCreditLimit:state.cap,declarationText:CUSTOMER_PORTFOLIO_DECLARATION,extraText:CUSTOMER_PORTFOLIO_EXTRA,ackText:DECLARATION_ACK,authorizedName:state.authorizedName,documentRef,dateGregorian:reportDate,logoUrl,baseUrl}),document=appendDebtAppendix(rendered.document,{customers,employee:rep,type,reportDate,sourceFile,logoUrl}),pdf=await htmlToPdf(document,{filename:`portfolio-${type}-${reportDate}`,landscape:false}),department=type==='block'?'البلوك':'الخرسانة';
