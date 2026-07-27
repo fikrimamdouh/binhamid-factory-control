@@ -31,12 +31,6 @@ const ALERT_LABEL={
   balance_mismatch:'الرصيد المحسوب لا يطابق معادلة الرصيد السابق والحركة الحالية.'
 };
 
-export function saleTypeOf(row={}){
-  const raw=[row.salesType,row.sales_type,row.kind,row.type,row.segment,row.item,row.itemName,row.item_name,row.product].map(normalizeCustomerValue).filter(Boolean).join(' ');
-  if(/بلوك|بلك|block/.test(raw))return'block';
-  if(/خرسان|concrete|ready\s*mix|readymix|rmc/.test(raw))return'concrete';
-  return'';
-}
 function explicitSaleType(row={}){
   const raw=[row.salesType,row.sales_type,row.kind,row.type,row.segment].map(normalizeCustomerValue).filter(Boolean).join(' ');
   if(/بلوك|بلك|block/.test(raw))return'block';
@@ -49,15 +43,25 @@ function itemSaleType(row={}){
   if(/خرسان|concrete|ready\s*mix|readymix|rmc/.test(raw))return'concrete';
   return'';
 }
+export function saleTypeOf(row={}){return explicitSaleType(row)||itemSaleType(row);}
 
 function createActivity(code,name){return{code:String(code||''),name:String(name||code||'عميل غير محدد'),sales:0,collections:0,lastSale:'',lastCollection:'',items:new Set(),invoices:[],collectionRows:[],alerts:new Set()};}
 function chooseDate(value,fallback=''){const text=String(value||fallback||'').slice(0,10);return /^\d{4}-\d{2}-\d{2}$/.test(text)?text:String(fallback||'').slice(0,10);}
 export function buildReportActivityIndex(analysis={},type='',reportDate=''){
-  const byCustomerCode=new Map(),byCustomerName=new Map(),invoiceKeys=new Set(),collectionKeys=new Set();
+  const byCustomerCode=new Map(),byCustomerName=new Map(),ambiguousNames=new Set(),invoiceKeys=new Set(),collectionKeys=new Set();
   const resolve=(code,name)=>{
-    const codeNorm=normalizeCustomerValue(code),nameNorm=normalizeCustomerValue(name),existing=(codeNorm&&byCustomerCode.get(codeNorm))||(nameNorm&&byCustomerName.get(nameNorm));
+    const codeNorm=normalizeCustomerValue(code),nameNorm=normalizeCustomerValue(name);let existing=codeNorm?byCustomerCode.get(codeNorm):(!ambiguousNames.has(nameNorm)?byCustomerName.get(nameNorm):null);
+    if(codeNorm&&!existing&&nameNorm&&!ambiguousNames.has(nameNorm)){
+      const named=byCustomerName.get(nameNorm);if(named&&normalizeCustomerValue(named.code)===codeNorm)existing=named;
+    }
     const row=existing||createActivity(code,name);
-    if(codeNorm)byCustomerCode.set(codeNorm,row);if(nameNorm)byCustomerName.set(nameNorm,row);
+    if(codeNorm)byCustomerCode.set(codeNorm,row);
+    if(nameNorm){
+      const named=byCustomerName.get(nameNorm),namedCode=normalizeCustomerValue(named?.code),rowCode=normalizeCustomerValue(row.code);
+      if(!named&&!ambiguousNames.has(nameNorm))byCustomerName.set(nameNorm,row);
+      else if(named!==row&&namedCode&&rowCode&&namedCode!==rowCode){byCustomerName.delete(nameNorm);ambiguousNames.add(nameNorm);}
+      else if(!codeNorm&&!ambiguousNames.has(nameNorm))byCustomerName.set(nameNorm,row);
+    }
     return row;
   };
   for(const [index,row] of (analysis?.sales||[]).entries()){
