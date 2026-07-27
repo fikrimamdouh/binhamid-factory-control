@@ -62,10 +62,10 @@ async function callGemini(model,prompt,timeoutMs,grounded){
 const TOTAL_BUDGET_MS=32000;
 const ATTEMPT_MS=14000;
 
-export async function researchProductMarketFree(query,{city='نجران'}={}){
+export async function researchProductMarketFree(query,{city='نجران',budgetMs=TOTAL_BUDGET_MS}={}){
   const product=validateFreeQuery(query);
   if(!config.geminiKey)throw Object.assign(new Error('بحث الأسعار المجاني غير مفعّل. اضبط GEMINI_API_KEY في Vercel.'),{status:503,code:'FREE_PRODUCT_RESEARCH_NOT_CONFIGURED'});
-  const prompt=buildPrompt(product,city),deadline=Date.now()+TOTAL_BUDGET_MS;
+  const prompt=buildPrompt(product,city),deadline=Date.now()+Math.max(6000,Math.min(TOTAL_BUDGET_MS,Number(budgetMs)||TOTAL_BUDGET_MS));
   let text='',lastError=null,searched=false;
   for(const model of MODELS){
     // البحث المؤسَّس أولًا للحصول على أسعار حقيقية؛ فإن رفض الحساب الأداة نُعيد

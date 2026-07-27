@@ -9,16 +9,22 @@ import { config } from './config.js';
 // يُفضَّل المزوّد المجاني (Gemini) عند توفره حتى لا يتوقف بحث الأسعار على مفتاح
 // مدفوع، ويُستخدم OpenAI بديلًا. فشل المجاني لا يُنهي العملية بل يُجرَّب الآخر.
 async function researchPrices(query,city){
+  // الهدف استمرارية الخدمة: يُجرَّب المزوّد المُهيَّأ الأساسي أولًا، وإن تعثّر
+  // (حصة، انقطاع، مهلة) ينتقل للآخر بدل توقف البحث. ميزانية مشتركة تمنع تجاوز
+  // حد التنفيذ (60ث) الذي كان يقتل الدالة قبل أن ترد.
+  const DEADLINE=Date.now()+45000;
   const providers=[];
-  if(config.geminiKey)providers.push(['gemini',()=>researchProductMarketFree(query,{city})]);
   if(config.openaiKey)providers.push(['openai',()=>researchProductMarket(query,{city})]);
-  if(!providers.length)throw Object.assign(new Error('بحث الأسعار غير مفعّل. اضبط GEMINI_API_KEY المجاني أو OPENAI_API_KEY.'),{status:503,code:'PRICE_RESEARCH_NOT_CONFIGURED'});
+  if(config.geminiKey)providers.push(['gemini',remaining=>researchProductMarketFree(query,{city,budgetMs:remaining})]);
+  if(!providers.length)throw Object.assign(new Error('بحث الأسعار غير مفعّل. اضبط OPENAI_API_KEY أو GEMINI_API_KEY.'),{status:503,code:'PRICE_RESEARCH_NOT_CONFIGURED'});
   let lastError=null;
   for(const[name,run]of providers){
-    try{return await run();}
+    const remaining=DEADLINE-Date.now();
+    if(remaining<6000)break;
+    try{return await run(remaining);}
     catch(error){lastError=error;console.warn('[price research provider]',{provider:name,message:String(error?.message||'').slice(0,200)});}
   }
-  throw lastError;
+  throw lastError||Object.assign(new Error('تعذر بحث الأسعار الآن.'),{status:502,code:'PRICE_RESEARCH_FAILED'});
 }
 
 const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));

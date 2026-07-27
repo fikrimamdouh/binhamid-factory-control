@@ -124,8 +124,12 @@ test('price research prefers the free provider and falls back without dying', as
   const free = await read('api/_lib/product-market-research-free.js');
   const configSource = await read('api/_lib/config.js');
   // المجاني أولًا حتى لا يتوقف البحث على مفتاح مدفوع، والمدفوع بديل عند فشله.
-  assert.match(assistant, /if\(config\.geminiKey\)providers\.push\(\['gemini'/);
+  // المفتاح المُهيَّأ العامل أولًا والآخر احتياطي — الهدف ألّا تتوقف الخدمة.
   assert.match(assistant, /if\(config\.openaiKey\)providers\.push\(\['openai'/);
+  assert.match(assistant, /if\(config\.geminiKey\)providers\.push\(\['gemini'/);
+  assert.ok(assistant.indexOf("providers.push(['openai'") < assistant.indexOf("providers.push(['gemini'"));
+  assert.match(assistant, /const DEADLINE=Date\.now\(\)\+45000/);
+  assert.match(assistant, /if\(remaining<6000\)break/);
   assert.match(assistant, /for\(const\[name,run\]of providers\)/);
   assert.match(configSource, /geminiKey:text\('GEMINI_API_KEY'\)/);
   // البحث المجاني مؤسَّس على بحث Google، ويعيد المحاولة بلا أداة إن رُفضت.
@@ -169,7 +173,7 @@ test('free price search fits the function budget and never passes off unsearched
   const free = await read('api/_lib/product-market-research-free.js');
   // 4 محاولات × 20ث كانت تتجاوز حد Vercel (60ث) فتُقتل الدالة قبل الرد.
   assert.match(free, /TOTAL_BUDGET_MS=32000/);
-  assert.match(free, /deadline=Date\.now\(\)\+TOTAL_BUDGET_MS/);
+  assert.match(free, /deadline=Date\.now\(\)\+Math\.max\(6000,Math\.min\(TOTAL_BUDGET_MS/);
   assert.match(free, /if\(remaining<3000\)break/);
   // بلا بحث فعلي تكون الأرقام من ذاكرة النموذج؛ عرضها كأسعار سوق تضليل شرائي.
   assert.match(free, /const trusted=searched\?offers:\[\]/);
