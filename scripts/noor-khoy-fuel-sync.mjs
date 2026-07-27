@@ -171,6 +171,18 @@ async function uploadVehicleBalance(summary){
   if(!response.ok||!data?.ok)throw new Error(`Vehicle balance delivery failed (${response.status}): ${compact(data?.error||text).slice(0,500)}`);return{...data,capturedAt};
 }
 async function vehicleTables(page){return page.evaluate(()=>Array.from(document.querySelectorAll('table')).map(table=>({headers:Array.from(table.querySelectorAll('thead th')).map(cell=>cell.innerText),rows:Array.from(table.querySelectorAll('tbody tr')).map(row=>Array.from(row.querySelectorAll('td')).map(cell=>cell.innerText))})));}
+async function vehiclePageSnapshot(page){return page.evaluate(()=>({
+  url:location.href,
+  tables:Array.from(document.querySelectorAll('table')).map(table=>({
+    headers:Array.from(table.querySelectorAll('thead th')).map(cell=>cell.innerText),
+    rows:Array.from(table.querySelectorAll('tbody tr')).map(row=>({
+      cells:Array.from(row.querySelectorAll('td')).map(cell=>cell.innerText),
+      links:Array.from(row.querySelectorAll('a')).map(link=>({text:link.innerText,href:link.href,title:link.getAttribute('title'),className:link.className})),
+      controls:Array.from(row.querySelectorAll('button,input[type="button"],input[type="submit"]')).map(control=>({text:control.innerText||control.value,onclick:control.getAttribute('onclick'),title:control.getAttribute('title'),className:control.className}))
+    }))
+  })),
+  links:Array.from(document.querySelectorAll('a')).map(link=>({text:link.innerText,href:link.href,title:link.getAttribute('title')})).filter(link=>/account|statement|fuel|رصيد|كشف/i.test(`${link.text} ${link.href} ${link.title}`))
+}));}
 
 async function main(){
   required(username,'NOOR_KHOY_USERNAME');required(password,'NOOR_KHOY_PASSWORD');await fs.mkdir(artifacts,{recursive:true});
@@ -185,7 +197,7 @@ async function main(){
     if(syncMode==='vehicle-balance-report'){
       await ensureLogin(page);await page.goto(VEHICLES_URL,{waitUntil:'domcontentloaded',timeout:60000});await page.waitForLoadState('networkidle',{timeout:30000}).catch(()=>null);await page.waitForTimeout(1200);
       if(/\/login/i.test(page.url())||await visible(page.locator('input[type="password"]')))throw new Error('Noor Khoy vehicles page requires a new login.');
-      const tables=await vehicleTables(page);await fs.writeFile(path.join(artifacts,'vehicle-balance-tables.json'),JSON.stringify(tables,null,2));
+      const snapshot=await vehiclePageSnapshot(page),tables=snapshot.tables.map(table=>({headers:table.headers,rows:table.rows.map(row=>row.cells)}));await fs.writeFile(path.join(artifacts,'vehicle-balance-tables.json'),JSON.stringify(tables,null,2));await fs.writeFile(path.join(artifacts,'vehicle-balance-page.json'),JSON.stringify(snapshot,null,2));
       const summary=vehicleBalanceSummary(tables);await fs.writeFile(path.join(artifacts,'vehicle-balances.json'),JSON.stringify(summary,null,2));
       const delivery=await uploadVehicleBalance(summary);console.log(JSON.stringify({ok:true,mode:syncMode,total:summary.total,vehicleCount:summary.rows.length,balanceHeader:summary.header,delivery},null,2));return;
     }
