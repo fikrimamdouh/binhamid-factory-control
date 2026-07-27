@@ -35,13 +35,13 @@ export function fuelReportHtml({report,sourceFile,reportDate,category='all'}){
 
 function rowsForCategory(rows,category){return category==='all'?rows:rows.filter(row=>row.category===category);}
 export async function generateFuelReportPdf(workbook,xlsx,sourceFile='fuel-report.xlsx',options={}){
-  const parsed=parseFuelWorkbook(workbook,xlsx),category=options.category||'all',rows=rowsForCategory(parsed.rows,category),report=buildFuelControlReport(rows),reportDate=options.reportDate||riyadhDate(),meta=CATEGORY[category]||CATEGORY.all;
+  const parsed=parseFuelWorkbook(workbook,xlsx),sourceRows=Array.isArray(options.rows)?options.rows:parsed.rows,category=options.category||'all',rows=rowsForCategory(sourceRows,category),report=buildFuelControlReport(rows),reportDate=options.reportDate||riyadhDate(),meta=CATEGORY[category]||CATEGORY.all;
   const html=fuelReportHtml({report,sourceFile,reportDate,category});
   const pdf=await htmlToPdf(html,{filename:`${meta.slug}-report-${reportDate}`,landscape:true});
   return{pdf,filename:`${meta.slug}-report-${reportDate}.pdf`,caption:`⛽ ${meta.title} — ${report.totals.plateCount} لوحة، ${report.totals.warn+report.totals.danger} ملاحظة`,report,rowCount:rows.length,parsedRowCount:parsed.rowCount,category};
 }
 export async function generateFuelReportPdfs(workbook,xlsx,sourceFile='fuel-report.xlsx',options={}){
-  const parsed=parseFuelWorkbook(workbook,xlsx),categories=['diesel','petrol','other'].filter(category=>parsed.rows.some(row=>row.category===category));
-  if(!categories.length)return[await generateFuelReportPdf(workbook,xlsx,sourceFile,{...options,category:'all'})];
-  const reports=[];for(const category of categories)reports.push(await generateFuelReportPdf(workbook,xlsx,sourceFile,{...options,category}));return reports;
+  const parsed=parseFuelWorkbook(workbook,xlsx),sourceRows=Array.isArray(options.rows)?options.rows:parsed.rows,categories=['diesel','petrol','other'].filter(category=>sourceRows.some(row=>row.category===category));
+  if(!categories.length)return[];
+  const reports=[];for(const category of categories)reports.push(await generateFuelReportPdf(workbook,xlsx,sourceFile,{...options,rows:sourceRows,category}));return reports;
 }
