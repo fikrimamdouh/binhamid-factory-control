@@ -98,5 +98,5 @@ test('portfolio includes classifications, totals, aging and fixed snapshots',asy
   assert.match(portfolio,/أعمار المديونية/);
   assert.match(portfolio,/persistPortfolioReportSnapshot/);
   assert.match(portfolio,/portfolio-snapshots/);
-  assert.match(portfolio,/portfolio-settlement-v2/);
+  assert.match(portfolio,/portfolio-settlement-v3-cross-sector/);
 });
