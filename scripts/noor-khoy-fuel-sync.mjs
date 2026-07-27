@@ -183,6 +183,15 @@ async function vehiclePageSnapshot(page){return page.evaluate(()=>({
   })),
   links:Array.from(document.querySelectorAll('a')).map(link=>({text:link.innerText,href:link.href,title:link.getAttribute('title')})).filter(link=>/account|statement|fuel|رصيد|كشف/i.test(`${link.text} ${link.href} ${link.title}`))
 }));}
+async function dieselVehicleStatementSnapshots(page,snapshot){
+  const rows=snapshot.tables.flatMap(table=>table.rows||[]).filter(row=>/diesel/i.test(compact(row.cells?.[9]))),statements=[];
+  for(const row of rows){
+    const href=row.links?.find(link=>/\/vehicle_bills\//i.test(link.href||''))?.href;if(!href)continue;
+    await page.goto(href,{waitUntil:'domcontentloaded',timeout:60000});await page.waitForLoadState('networkidle',{timeout:30000}).catch(()=>null);await page.waitForTimeout(400);
+    statements.push({vehicle:compact(row.cells?.[0]),fuelType:compact(row.cells?.[9]),url:page.url(),tables:await vehicleTables(page),text:(await page.locator('body').innerText().catch(()=>'' )).slice(0,12000)});
+  }
+  return statements;
+}
 
 async function main(){
   required(username,'NOOR_KHOY_USERNAME');required(password,'NOOR_KHOY_PASSWORD');await fs.mkdir(artifacts,{recursive:true});
@@ -197,7 +206,7 @@ async function main(){
     if(syncMode==='vehicle-balance-report'){
       await ensureLogin(page);await page.goto(VEHICLES_URL,{waitUntil:'domcontentloaded',timeout:60000});await page.waitForLoadState('networkidle',{timeout:30000}).catch(()=>null);await page.waitForTimeout(1200);
       if(/\/login/i.test(page.url())||await visible(page.locator('input[type="password"]')))throw new Error('Noor Khoy vehicles page requires a new login.');
-      const snapshot=await vehiclePageSnapshot(page),tables=snapshot.tables.map(table=>({headers:table.headers,rows:table.rows.map(row=>row.cells)}));await fs.writeFile(path.join(artifacts,'vehicle-balance-tables.json'),JSON.stringify(tables,null,2));await fs.writeFile(path.join(artifacts,'vehicle-balance-page.json'),JSON.stringify(snapshot,null,2));
+      const snapshot=await vehiclePageSnapshot(page),tables=snapshot.tables.map(table=>({headers:table.headers,rows:table.rows.map(row=>row.cells)}));await fs.writeFile(path.join(artifacts,'vehicle-balance-tables.json'),JSON.stringify(tables,null,2));await fs.writeFile(path.join(artifacts,'vehicle-balance-page.json'),JSON.stringify(snapshot,null,2));const statements=await dieselVehicleStatementSnapshots(page,snapshot);await fs.writeFile(path.join(artifacts,'diesel-vehicle-account-statements.json'),JSON.stringify(statements,null,2));
       const summary=vehicleBalanceSummary(tables);await fs.writeFile(path.join(artifacts,'vehicle-balances.json'),JSON.stringify(summary,null,2));
       const delivery=await uploadVehicleBalance(summary);console.log(JSON.stringify({ok:true,mode:syncMode,total:summary.total,vehicleCount:summary.rows.length,balanceHeader:summary.header,delivery},null,2));return;
     }
