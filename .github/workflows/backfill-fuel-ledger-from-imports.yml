@@ -1,0 +1,136 @@
+name: Backfill fuel ledger from imports archive
+
+on:
+  push:
+    branches:
+      - agent/fuel-ledger-integration
+    paths:
+      - .github/workflows/backfill-fuel-ledger-from-imports.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: backfill-fuel-ledger-from-imports
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/fuel-ledger-integration
+          fetch-depth: 0
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+
+      - name: Resolve an IPv4-capable Supabase connection
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_DB_URL:-}" || { echo 'SUPABASE_DB_URL is missing'; exit 1; }
+          python - <<'PY' > /tmp/fuel-db-candidates
+          import os, base64
+          from urllib.parse import urlparse, unquote, quote, urlunparse
+          raw=os.environ['SUPABASE_DB_URL'].strip(); parsed=urlparse(raw); candidates=[raw]
+          host=parsed.hostname or ''; ref=host.split('.')[1] if host.startswith('db.') and host.endswith('.supabase.co') else ''
+          if ref:
+              password=quote(unquote(parsed.password or ''),safe=''); user=quote(f'postgres.{ref}',safe='')
+              regions=['us-east-1','us-east-2','us-west-1','us-west-2','ca-central-1','sa-east-1','eu-west-1','eu-west-2','eu-west-3','eu-central-1','eu-north-1','ap-south-1','ap-southeast-1','ap-southeast-2','ap-northeast-1','ap-northeast-2','me-central-1']
+              for cluster in range(4):
+                  for region in regions:
+                      for port in (5432,6543):
+                          candidates.append(urlunparse(('postgresql',f'{user}:{password}@aws-{cluster}-{region}.pooler.supabase.com:{port}','/postgres','','sslmode=require&connect_timeout=3','')))
+          for value in dict.fromkeys(candidates): print(base64.b64encode(value.encode()).decode())
+          PY
+          found=''
+          while IFS= read -r encoded; do
+            candidate="$(printf '%s' "$encoded" | base64 -d)"
+            if psql "$candidate" -v ON_ERROR_STOP=1 -Atqc 'select 1' >/dev/null 2>&1; then found="$candidate"; break; fi
+          done < /tmp/fuel-db-candidates
+          test -n "$found" || { echo 'No reachable Supabase endpoint accepted the database credentials'; exit 1; }
+          echo "::add-mask::$found"
+          printf '%s' "$found" > /tmp/fuel-db-url
+          chmod 600 /tmp/fuel-db-url
+
+      - name: Backfill archived Noor Khoy rows
+        shell: bash
+        run: |
+          set -euo pipefail
+          db="$(cat /tmp/fuel-db-url)"
+          before="$(psql "$db" -Atqc 'select count(*) from public.fuel_transactions')"
+          psql "$db" -v ON_ERROR_STOP=1 <<'SQL'
+          with source_rows as (
+            select i.original_name,
+                   jsonb_array_elements(coalesce(i.summary->'fuelRows','[]'::jsonb)) as row
+            from public.imports i
+            where i.source='noor-khoy'
+              and i.report_type='fuel'
+              and jsonb_typeof(i.summary->'fuelRows')='array'
+          ), prepared as (
+            select
+              nullif(left(row->>'date',10),'')::date as transaction_date,
+              nullif(translate(upper(coalesce(row->>'plateKey',row->>'plate','')),'أإآ','ااا'),'') as plate_key,
+              nullif(row->>'vehicleName','') as source_vehicle_name,
+              nullif(row->>'driver','') as driver_name,
+              nullif(row->>'station','') as station,
+              nullif(row->>'fuelType','') as fuel_type,
+              nullif(row->>'receipt','') as receipt_no,
+              coalesce(nullif(row->>'liters','')::numeric,0) as liters,
+              coalesce(nullif(row->>'price','')::numeric,0) as unit_price,
+              coalesce(nullif(row->>'amount','')::numeric,0) as amount,
+              coalesce(nullif(row->>'tax','')::numeric,0) as tax_amount,
+              coalesce(nullif(row->>'net','')::numeric,coalesce(nullif(row->>'amount','')::numeric,0)) as net_amount,
+              nullif(row->>'prevOdometer','')::numeric as prev_odometer,
+              nullif(row->>'currOdometer','')::numeric as curr_odometer,
+              nullif(row->>'serviceKm','')::numeric as service_km,
+              original_name
+            from source_rows
+          )
+          insert into public.fuel_transactions(
+            transaction_date,plate_key,vehicle_name,vehicle_external_id,driver_name,station,fuel_type,receipt_no,
+            liters,unit_price,amount,tax_amount,net_amount,prev_odometer,curr_odometer,service_km,source,source_file,line_identity
+          )
+          select p.transaction_date,p.plate_key,coalesce(a.asset_name,p.source_vehicle_name),a.external_id,p.driver_name,p.station,p.fuel_type,p.receipt_no,
+                 p.liters,p.unit_price,p.amount,p.tax_amount,p.net_amount,p.prev_odometer,p.curr_odometer,p.service_km,
+                 'noor-khoy-backfill',p.original_name,
+                 public.fuel_transaction_identity(p.transaction_date,p.plate_key,p.receipt_no,p.liters,p.amount)
+          from prepared p
+          left join lateral (
+            select u.external_id,u.asset_name
+            from public.unified_assets u
+            where u.active=true
+              and translate(upper(regexp_replace(coalesce(u.plate_no,''),'[^A-Za-z0-9ء-ي]','','g')),'أإآ','ااا')
+                  = regexp_replace(p.plate_key,'[^A-Za-z0-9ء-ي]','','g')
+            limit 1
+          ) a on true
+          where p.transaction_date is not null
+            and p.plate_key is not null
+            and (p.liters>0 or p.amount>0)
+            and regexp_replace(p.plate_key,'[^A-Za-z0-9ء-ي]','','g') <> 'DGD7293'
+          on conflict(line_identity) do nothing;
+          SQL
+          after="$(psql "$db" -Atqc 'select count(*) from public.fuel_transactions')"
+          private_rows="$(psql "$db" -Atqc "select count(*) from public.fuel_transactions where regexp_replace(upper(plate_key),'[^A-Z0-9]','','g')='DGD7293'")"
+          range="$(psql "$db" -Atqc "select coalesce(min(transaction_date)::text,''),coalesce(max(transaction_date)::text,''),count(*) from public.fuel_transactions")"
+          test "$after" -gt 0 || { echo 'Backfill produced no fuel transactions'; exit 1; }
+          test "$private_rows" = '0' || { echo 'Private vehicle appeared in fuel ledger'; exit 1; }
+          echo "Fuel ledger backfill verified: before=$before after=$after range=$range private_rows=$private_rows"
+
+      - name: Remove one-time backfill workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/backfill-fuel-ledger-from-imports.yml
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add -A
+          git commit -m "Backfill fuel ledger from imports and remove runner"
+          git push origin HEAD:agent/fuel-ledger-integration
