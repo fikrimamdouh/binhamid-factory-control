@@ -11,11 +11,14 @@ const REPOSITORY='fikrimamdouh/binhamid-factory-control';
 const OIDC_ISSUER='https://token.actions.githubusercontent.com';
 const OIDC_AUDIENCE='binhamid-fuel-sync';
 const MIME='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+const PRIVATE_PLATE_KEY='DGD7293';
 let jwksCache={expires:0,keys:[]};
 const clean=(value,max=1000)=>String(value??'').replace(/\s+/g,' ').trim().slice(0,max);
 const safeFile=value=>{let name=clean(value,240).replace(/[^A-Za-z0-9._-]/g,'_').replace(/_+/g,'_').replace(/^_+|_+$/g,'');if(!name||name.startsWith('.'))name='fuel-report.xlsx';return name.slice(0,140);};
 const riyadhDate=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Riyadh',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
 const encoded=value=>encodeURIComponent(String(value??''));
+const compactKey=value=>String(value??'').toUpperCase().replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[^A-Z0-9\u0600-\u06FF]/g,'');
+const privateFuelRow=row=>compactKey(row?.plateKey||row?.plate)===PRIVATE_PLATE_KEY||(/فكري\s*ممدوح|fikri\s*mamdouh/i.test(`${row?.driver||''} ${row?.vehicleName||''}`)&&/renault/i.test(String(row?.vehicleName||'')));
 
 async function rawBody(req,limit){
   if(Buffer.isBuffer(req.body))return req.body;
@@ -87,14 +90,20 @@ async function mergeIntoState(rows,context){
 }
 function totals(rows){
   const byCategory={};for(const row of rows){const key=category(row);byCategory[key]??={rows:0,liters:0,amount:0};byCategory[key].rows++;byCategory[key].liters+=Number(row.liters||0);byCategory[key].amount+=Number(row.amount||0);}
+  for(const value of Object.values(byCategory)){value.liters=Number(value.liters.toFixed(3));value.amount=Number(value.amount.toFixed(2));}
   return{rows:rows.length,liters:Number(rows.reduce((sum,row)=>sum+Number(row.liters||0),0).toFixed(3)),amount:Number(rows.reduce((sum,row)=>sum+Number(row.amount||0),0).toFixed(2)),categories:byCategory};
 }
-async function telegramDelivery({workbook,sourceFile,reportDate,summary,duplicate}){
+function categorySummary(summary){
+  const names={diesel:'الديزل',petrol:'البنزين',other:'أنواع أخرى'};
+  return Object.entries(summary.categories||{}).filter(([,value])=>Number(value.rows||0)>0).map(([key,value])=>`${names[key]||key}: <b>${value.rows}</b> حركة، <b>${value.liters}</b> لتر، <b>${value.amount} ر.س</b>`).join('\n');
+}
+async function telegramDelivery({workbook,rows,sourceFile,reportDate,summary,duplicate}){
   if(!config.telegramOwnerId||!config.telegramToken)return{disabled:true};
-  const prefix=duplicate?'وصل ملف الوقود مرة أخرى دون تسجيل حركة مكررة.':'تم استيراد تقرير الوقود اليومي تلقائيًا.';
-  await sendMessage(config.telegramOwnerId,`${prefix}\nالتاريخ: <b>${reportDate}</b>\nالصفوف: <b>${summary.rows}</b>\nاللترات: <b>${summary.liters}</b>\nالمبلغ: <b>${summary.amount} ر.س</b>\nالملف: <b>${clean(sourceFile,150)}</b>`).catch(()=>null);
+  const prefix=duplicate?`إقرار الوقود بتاريخ <b>${reportDate}</b> مرفوع مسبقًا، ولم تتكرر الحركات.`:`تم رفع إقرار الوقود بتاريخ <b>${reportDate}</b>.`;
+  const detail=categorySummary(summary);
+  await sendMessage(config.telegramOwnerId,`${prefix}\nإجمالي الحركات: <b>${summary.rows}</b>\nإجمالي اللترات: <b>${summary.liters}</b>\nإجمالي المبلغ: <b>${summary.amount} ر.س</b>${detail?`\n\n${detail}`:''}\nالملف: <b>${clean(sourceFile,150)}</b>`).catch(()=>null);
   if(duplicate)return{duplicate:true};
-  try{const reports=await generateFuelReportPdfs(workbook,XLSX,sourceFile,{reportDate});for(const report of reports)await sendDocumentBuffer(config.telegramOwnerId,report.pdf,report.filename,'application/pdf',report.caption);return{reports:reports.map(item=>item.filename)};}catch(error){return{reports:[],error:clean(error?.message,300)};}
+  try{const reports=await generateFuelReportPdfs(workbook,XLSX,sourceFile,{reportDate,rows});for(const report of reports)await sendDocumentBuffer(config.telegramOwnerId,report.pdf,report.filename,'application/pdf',report.caption);return{reports:reports.map(item=>item.filename)};}catch(error){return{reports:[],error:clean(error?.message,300)};}
 }
 
 export async function fuelDailyReport(req,res){
@@ -104,21 +113,22 @@ export async function fuelDailyReport(req,res){
     if(!buffer.length)throw Object.assign(new Error('ملف الوقود غير موجود'),{status:400,code:'FUEL_SYNC_FILE_REQUIRED'});
     let workbook;try{workbook=XLSX.read(buffer,{type:'buffer',cellDates:true});}catch{throw Object.assign(new Error('الملف ليس Excel صالحًا'),{status:415,code:'FUEL_SYNC_EXCEL_REQUIRED'});}
     const parsed=parseFuelWorkbook(workbook,XLSX);if(!parsed.rowCount)throw Object.assign(new Error('لم يتم العثور على حركات وقود قابلة للقراءة داخل الملف'),{status:422,code:'FUEL_SYNC_NO_ROWS'});
-    const originalName=filename(req),hash=crypto.createHash('sha256').update(buffer).digest('hex'),date=reportDate(req,parsed.rows),summary=totals(parsed.rows);
+    const operationalRows=parsed.rows.filter(row=>!privateFuelRow(row));
+    const originalName=filename(req),hash=crypto.createHash('sha256').update(buffer).digest('hex'),date=reportDate(req,parsed.rows),summary=totals(operationalRows),sourceSummary=totals(parsed.rows);
     const existing=(await select('imports',`file_hash=eq.${hash}&select=id,status,file_path,summary&limit=1`))?.[0]||null;
     if(existing&&['posted','approved'].includes(existing.status)){
-      const telegram=await telegramDelivery({workbook,sourceFile:originalName,reportDate:date,summary,duplicate:true});
+      const telegram=await telegramDelivery({workbook,rows:operationalRows,sourceFile:originalName,reportDate:date,summary,duplicate:true});
       return json(res,200,{ok:true,duplicate:true,reportDate:date,fileHash:hash,importId:existing.id,storedRows:0,summary,telegram});
     }
     const storagePath=existing?.file_path||`noor-khoy-fuel/${date}/${hash.slice(0,16)}-${safeFile(originalName)}`;
     if(!existing?.file_path)await uploadObject(storagePath,buffer,MIME);
-    const state=await mergeIntoState(parsed.rows,{hash,sourceFile:originalName,reportDate:date});
-    const importSummary={fuel:summary,state,source:{kind:'noor-khoy',receivedAt:new Date().toISOString(),identity:identity.kind,sheets:workbook.SheetNames}};
+    const state=await mergeIntoState(operationalRows,{hash,sourceFile:originalName,reportDate:date});
+    const importSummary={fuel:summary,sourceFuel:sourceSummary,state,source:{kind:'noor-khoy',receivedAt:new Date().toISOString(),identity:identity.kind,sheets:workbook.SheetNames}};
     let imp=existing;
-    if(!imp){const result=await insert('imports',[{source:'noor-khoy',department:'operations',report_type:'fuel',status:'approved',original_name:originalName,mime_type:MIME,file_path:storagePath,file_hash:hash,row_count:parsed.rowCount,error_count:0,warning_count:0,summary:importSummary,last_error_code:null,last_error_message:null}]);imp=result?.[0];}
-    else{const result=await patch('imports',`id=eq.${encoded(imp.id)}`,{status:'approved',file_path:storagePath,row_count:parsed.rowCount,summary:importSummary,last_error_code:null,last_error_message:null});imp=result?.[0]||imp;}
+    if(!imp){const result=await insert('imports',[{source:'noor-khoy',department:'operations',report_type:'fuel',status:'approved',original_name:originalName,mime_type:MIME,file_path:storagePath,file_hash:hash,row_count:operationalRows.length,error_count:0,warning_count:0,summary:importSummary,last_error_code:null,last_error_message:null}]);imp=result?.[0];}
+    else{const result=await patch('imports',`id=eq.${encoded(imp.id)}`,{status:'approved',file_path:storagePath,row_count:operationalRows.length,summary:importSummary,last_error_code:null,last_error_message:null});imp=result?.[0]||imp;}
     if(!imp?.id)throw Object.assign(new Error('تعذر تسجيل تقرير الوقود في مركز الوارد'),{status:502,code:'FUEL_SYNC_IMPORT_REGISTER_FAILED'});
-    const telegram=await telegramDelivery({workbook,sourceFile:originalName,reportDate:date,summary,duplicate:false});
+    const telegram=await telegramDelivery({workbook,rows:operationalRows,sourceFile:originalName,reportDate:date,summary,duplicate:false});
     return json(res,200,{ok:true,duplicate:Boolean(state.duplicate),reportDate:date,fileHash:hash,importId:imp.id,storagePath,storedRows:Number(state.stored||0),summary,telegram});
   }catch(error){errorResponse(res,error);}
 }
