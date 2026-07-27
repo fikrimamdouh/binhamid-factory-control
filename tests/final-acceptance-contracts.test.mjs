@@ -32,7 +32,7 @@ test('accounting acceptance stays schema 24 while persistent master advances pro
   assert.match(accountingPreflight,/targetVersion=24/);
   assert.match(accountingVerify,/targetVersion=24/);
   for(const marker of ['appUsersNickname','employeesNickname','userInvitationsNickname','nicknameSyncTrigger'])assert.match(accountingVerify,new RegExp(marker));
-  for(const marker of ['025_customer_opening_balances_table.sql','026_persistent_employee_asset_identity_link.sql',"ISOLATED_MIGRATION_TARGET: '26'",'$(seq $((current_version + 1)) 26)','EXPECTED_SCHEMA_VERSION=26','persistent-master-migration-verify.mjs','production-db-readiness.mjs'])assert.ok(masterMigrations.includes(marker),`missing ${marker}`);
+  for(const marker of ['025_customer_opening_balances_table.sql','026_persistent_employee_asset_identity_link.sql',"ISOLATED_MIGRATION_TARGET: '26'",'$(seq $((current_version + 1)) 26)','EXPECTED_SCHEMA_VERSION="$(node -e','persistent-master-migration-verify.mjs','production-db-readiness.mjs'])assert.ok(masterMigrations.includes(marker),`missing ${marker}`);
   assert.match(masterPreflight,/targetVersion=26/);
   assert.match(masterVerify,/targetVersion=26/);
   for(const marker of ['masterImportRuns','employeeAssetDirectory','identityDuplicateControl','identityGuard','assetVehicleSync'])assert.match(masterVerify,new RegExp(marker));
