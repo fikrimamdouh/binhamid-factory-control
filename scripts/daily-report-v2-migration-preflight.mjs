@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 
 const databaseUrl=String(process.env.SUPABASE_DB_URL||'').trim();
 const resultPath=String(process.env.DAILY_REPORT_V2_PREFLIGHT_PATH||'daily-report-v2-preflight.json');
-const targetVersion=30;
+const targetVersion=31;
 const save=value=>writeFileSync(resultPath,`${JSON.stringify(value,null,2)}\n`,{mode:0o600});
 const fail=(code,reason,extra={})=>{save({ok:false,code,reason,...extra});console.error(`[daily-report-v2-preflight] ${code}: ${reason}`);process.exit(1);};
 const query=sql=>{
@@ -40,7 +40,7 @@ const state=JSON.parse(query(`select json_build_object(
     'journalLines',(select count(*) from public.journal_entry_lines))
 )::text;`));
 const currentVersion=Number(state.currentVersion||0);
-if(currentVersion<28||currentVersion>targetVersion)fail('SCHEMA_VERSION_OUT_OF_RANGE','Production schema must be between version 28 and 30 before this migration.',{currentVersion,targetVersion});
+if(currentVersion<28||currentVersion>targetVersion)fail('SCHEMA_VERSION_OUT_OF_RANGE','Production schema must be between version 28 and 31 before this migration.',{currentVersion,targetVersion});
 const missing=Object.entries(state.dependencies||{}).filter(([,value])=>!value).map(([name])=>name);
 if(missing.length)fail('BASE_SCHEMA_INCOMPLETE','Required daily-report or accounting objects are missing.',{currentVersion,missing});
 
