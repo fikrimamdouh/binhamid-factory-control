@@ -83,7 +83,7 @@ test('bot prefers the fixed financial snapshot and generates only missing depart
 test('load order has one print owner followed by metadata, range owner, and analysis',()=>{
   const capturePos=index.indexOf('telegram-pdf-declarations.js?v=20260724-10');
   const bridgePos=index.indexOf('exact-portfolio-metadata-bridge.js?v=20260724-2');
-  const controlPos=index.indexOf('customer-portfolio-range-control.js?v=20260724-1');
+  const controlPos=index.indexOf('customer-portfolio-range-control.js?v=20260727-fifo-sector-1');
   const analysisPos=index.indexOf('customer-portfolio-range-analysis.js?v=20260724-1');
   const retiredPos=index.indexOf('daily-portfolio-declarations.js?v=20260724-2');
   assert.ok(capturePos>=0&&bridgePos>capturePos&&controlPos>bridgePos&&analysisPos>controlPos&&retiredPos>analysisPos);
