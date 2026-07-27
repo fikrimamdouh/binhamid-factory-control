@@ -11,11 +11,11 @@ on:
         required: false
         type: string
       start_date:
-        description: Optional backfill start date (YYYY-MM-DD)
+        description: Optional period start date (YYYY-MM-DD)
         required: false
         type: string
       end_date:
-        description: Optional backfill end date (YYYY-MM-DD); defaults to previous Riyadh day
+        description: Optional period end date (YYYY-MM-DD)
         required: false
         type: string
   schedule:
@@ -27,13 +27,13 @@ permissions:
 
 concurrency:
   group: noor-khoy-daily-fuel-sync
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   sync:
     if: github.event_name != 'push' || contains(github.event.head_commit.message, '[fuel-initial-backfill]')
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 20
     env:
       NOOR_KHOY_USERNAME: ${{ secrets.NOOR_KHOY_USERNAME }}
       NOOR_KHOY_PASSWORD: ${{ secrets.NOOR_KHOY_PASSWORD }}
@@ -45,6 +45,9 @@ jobs:
       REPORT_START_DATE: ${{ github.event_name == 'push' && '2026-07-01' || inputs.start_date }}
       REPORT_END_DATE: ${{ github.event_name == 'push' && '2026-07-26' || inputs.end_date }}
       FUEL_REPORT_DATE_OFFSET_DAYS: '-1'
+      FUEL_SEND_BALANCE: 'true'
+      FUEL_NOTIFY: 'true'
+      FUEL_SYNC_ARTIFACT_DIR: artifacts/noor-khoy-fuel
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -57,38 +60,14 @@ jobs:
         run: |
           npm install --no-save --no-package-lock playwright@1.55.0
           npx playwright install --with-deps chromium
-      - name: Download and upload fuel reports
+      - name: Download and upload fuel report
         id: fuel_import
         continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p artifacts/noor-khoy-fuel
-          : > artifacts/noor-khoy-fuel/execution.log
-          if [[ -n "${REPORT_START_DATE:-}" ]]; then
-            start="${REPORT_START_DATE}"
-            end="${REPORT_END_DATE:-$(TZ=Asia/Riyadh date -d 'yesterday' +%F)}"
-            date -d "$start" +%F >/dev/null
-            date -d "$end" +%F >/dev/null
-            if [[ "$start" > "$end" ]]; then
-              echo "start_date must not be after end_date" | tee -a artifacts/noor-khoy-fuel/execution.log >&2
-              exit 2
-            fi
-            current="$start"
-            while [[ "$current" < "$end" || "$current" == "$end" ]]; do
-              final_day=false
-              [[ "$current" == "$end" ]] && final_day=true
-              echo "Importing Noor Khoy fuel report for $current" | tee -a artifacts/noor-khoy-fuel/execution.log
-              REPORT_DATE="$current" \
-              FUEL_SEND_BALANCE="$final_day" \
-              FUEL_NOTIFY="$final_day" \
-              FUEL_SYNC_ARTIFACT_DIR="artifacts/noor-khoy-fuel/$current" \
-              node scripts/noor-khoy-fuel-sync.mjs 2>&1 | tee -a artifacts/noor-khoy-fuel/execution.log
-              current="$(date -I -d "$current + 1 day")"
-            done
-          else
-            FUEL_SEND_BALANCE=true FUEL_NOTIFY=true node scripts/noor-khoy-fuel-sync.mjs 2>&1 | tee -a artifacts/noor-khoy-fuel/execution.log
-          fi
+          node scripts/noor-khoy-fuel-sync.mjs 2>&1 | tee artifacts/noor-khoy-fuel/execution.log
       - name: Publish execution status
         if: always()
         shell: bash
@@ -100,19 +79,16 @@ jobs:
           python - <<'PY'
           import json, os, pathlib, datetime
           root=pathlib.Path('artifacts/noor-khoy-fuel')
-          failures=sorted(root.glob('*/failure-context.json'))
-          responses=sorted(root.glob('*/upload-response.json'))
           diagnostics=[]
-          for p in failures[-3:]:
+          for p in sorted(root.glob('failure-context.json')):
               try: diagnostics.append({'file':str(p),'data':json.loads(p.read_text(encoding='utf-8'))})
               except Exception as e: diagnostics.append({'file':str(p),'error':str(e)})
           uploads=[]
-          for p in responses[-30:]:
+          for p in sorted(root.glob('upload-response.json')):
               try: uploads.append({'file':str(p),'data':json.loads(p.read_text(encoding='utf-8'))})
               except Exception as e: uploads.append({'file':str(p),'error':str(e)})
-          log=''
           lp=root/'execution.log'
-          if lp.exists(): log='\n'.join(lp.read_text(encoding='utf-8',errors='replace').splitlines()[-150:])
+          log='\n'.join(lp.read_text(encoding='utf-8',errors='replace').splitlines()[-200:]) if lp.exists() else ''
           payload={'outcome':os.environ.get('IMPORT_OUTCOME','unknown'),'run_id':os.environ.get('GITHUB_RUN_ID'),'run_attempt':os.environ.get('GITHUB_RUN_ATTEMPT'),'commit':os.environ.get('GITHUB_SHA'),'updated_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'diagnostics':diagnostics,'uploads':uploads,'log_tail':log}
           pathlib.Path('.github/fuel-sync-status/latest.json').write_text(json.dumps(payload,ensure_ascii=False,indent=2),encoding='utf-8')
           PY
@@ -124,7 +100,7 @@ jobs:
             git pull --rebase origin main
             git push origin HEAD:main
           fi
-      - name: Keep diagnostic artifacts
+      - name: Keep fuel workbook and diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
