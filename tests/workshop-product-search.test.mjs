@@ -164,3 +164,15 @@ test('a quote request notifies management naming the requesting department', asy
   assert.match(source, /urgent\?'🚨':'🛒'/);
   assert.match(source, /لم يُبلَّغ أحد بعد/);
 });
+
+test('free price search fits the function budget and never passes off unsearched numbers', async () => {
+  const free = await read('api/_lib/product-market-research-free.js');
+  // 4 محاولات × 20ث كانت تتجاوز حد Vercel (60ث) فتُقتل الدالة قبل الرد.
+  assert.match(free, /TOTAL_BUDGET_MS=32000/);
+  assert.match(free, /deadline=Date\.now\(\)\+TOTAL_BUDGET_MS/);
+  assert.match(free, /if\(remaining<3000\)break/);
+  // بلا بحث فعلي تكون الأرقام من ذاكرة النموذج؛ عرضها كأسعار سوق تضليل شرائي.
+  assert.match(free, /const trusted=searched\?offers:\[\]/);
+  assert.match(free, /لم تُرصد أسعار منشورة موثوقة/);
+  assert.match(free, /grounded:searched/);
+});

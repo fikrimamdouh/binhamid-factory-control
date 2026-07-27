@@ -57,19 +57,26 @@ async function callGemini(model,prompt,timeoutMs,grounded){
   return(data?.candidates?.[0]?.content?.parts||[]).map(part=>part.text||'').join('\n').trim();
 }
 
+// حد التنفيذ على Vercel 60 ثانية. أربع محاولات × 20ث كانت تتجاوزه فتُقتل الدالة
+// قبل أن ترد على المستخدم؛ لذلك ميزانية كلية صارمة تترك مجالًا للمزوّد البديل.
+const TOTAL_BUDGET_MS=32000;
+const ATTEMPT_MS=14000;
+
 export async function researchProductMarketFree(query,{city='نجران'}={}){
   const product=validateFreeQuery(query);
   if(!config.geminiKey)throw Object.assign(new Error('بحث الأسعار المجاني غير مفعّل. اضبط GEMINI_API_KEY في Vercel.'),{status:503,code:'FREE_PRODUCT_RESEARCH_NOT_CONFIGURED'});
-  const prompt=buildPrompt(product,city);
-  let text='',lastError=null;
+  const prompt=buildPrompt(product,city),deadline=Date.now()+TOTAL_BUDGET_MS;
+  let text='',lastError=null,searched=false;
   for(const model of MODELS){
-    // المحاولة الأولى مع بحث Google للحصول على أسعار حقيقية، فإن رفض الحساب الأداة
-    // نُعيد بلا أداة بدل الفشل الكامل.
+    // البحث المؤسَّس أولًا للحصول على أسعار حقيقية؛ فإن رفض الحساب الأداة نُعيد
+    // بلا بحث، لكن نُعلّم النتيجة بأنها غير مؤسَّسة فلا تُعرض كأسعار مرصودة.
     for(const grounded of [true,false]){
-      try{text=await callGemini(model,prompt,20000,grounded);if(text)break;}
-      catch(error){lastError=error;if(error?.name==='TimeoutError')break;}
+      const remaining=deadline-Date.now();
+      if(remaining<3000)break;
+      try{text=await callGemini(model,prompt,Math.min(ATTEMPT_MS,remaining),grounded);if(text){searched=grounded;break;}}
+      catch(error){lastError=error;if(error?.name==='TimeoutError'&&Date.now()>=deadline)break;}
     }
-    if(text)break;
+    if(text||Date.now()>=deadline)break;
   }
   if(!text)throw lastError||Object.assign(new Error('تعذر بحث الأسعار المجاني الآن.'),{status:502,code:'FREE_PRODUCT_RESEARCH_EMPTY'});
   const parsed=parseJson(text)||{};
@@ -79,6 +86,14 @@ export async function researchProductMarketFree(query,{city='نجران'}={}){
     price_sar:num(offer?.price_sar),
     unit_basis:String(offer?.unit_basis||'').slice(0,60)
   })).filter(offer=>offer.price_sar>0);
-  const priceLevel=buildFastPriceLevel(offers);
-  return{product,text:renderFree(parsed,offers,priceLevel),priceLevel,sources:[],searchedAt:new Date().toISOString(),provider:'gemini-free'};
+  // بلا بحث فعلي تكون الأرقام من ذاكرة النموذج، وعرضها كأسعار سوق تضليل مباشر
+  // قد يُبنى عليه قرار شراء — لذلك تُطرح ويُقال ذلك صراحةً.
+  const trusted=searched?offers:[];
+  const priceLevel=buildFastPriceLevel(trusted);
+  const rendered=searched
+    ?renderFree(parsed,trusted,priceLevel)
+    :[parsed?.identification?`تعريف الصنف: ${parsed.identification}`:'',
+      'تعذّر الوصول إلى بحث المتاجر الآن، فلم تُرصد أسعار منشورة موثوقة.',
+      'اطلب عرض سعر من الموردين أدناه للحصول على السعر الفعلي.'].filter(Boolean).join('\n');
+  return{product,text:rendered,priceLevel,grounded:searched,sources:[],searchedAt:new Date().toISOString(),provider:'gemini-free'};
 }
