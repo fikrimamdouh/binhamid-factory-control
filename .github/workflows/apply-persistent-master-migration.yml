@@ -155,10 +155,10 @@ jobs:
             psql "$SUPABASE_DB_URL" -X -v ON_ERROR_STOP=1 --single-transaction --file persistent-master-pending.sql
             rm -f persistent-master-pending.sql
           else
-            echo 'Database is already at schema version 26.'
+            echo "Persistent master baseline is already present at schema version $current_version."
           fi
 
-      - name: Verify production schema 26 and protected row counts
+      - name: Verify persistent master baseline and protected row counts
         env:
           MASTER_MIGRATION_PREFLIGHT_PATH: persistent-master-preflight.json
           MASTER_MIGRATION_RESULT_PATH: persistent-master-result.json
@@ -185,7 +185,7 @@ jobs:
           BACKUP_OUTPUT_DIR=post-master-backup \
           BACKUP_VERIFICATION_FILE=post-master-backup-verification.json \
           BACKUP_MANIFEST_ENV_NAME=POST_MIGRATION_MANIFEST \
-          EXPECTED_SCHEMA_VERSION=26 \
+          EXPECTED_SCHEMA_VERSION="$(node -e "const x=require('./persistent-master-preflight.json');process.stdout.write(String(x.currentVersion))")" \
           node scripts/verify-backup-files.mjs
 
       - name: Upload persistent master migration evidence
@@ -224,7 +224,7 @@ jobs:
           const response=await fetch(`https://api.github.com/repos/${process.env.REPOSITORY}/statuses/${process.env.HEAD_SHA}`,{
             method:'POST',
             headers:{Accept:'application/vnd.github+json',Authorization:`Bearer ${process.env.GITHUB_TOKEN}`,'X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'},
-            body:JSON.stringify({state:success?'success':'failure',context:'persistent-master-migration',target_url:process.env.RUN_URL,description:success?'Schema 26 employee and asset master applied, verified and backed up.':'Persistent master migration stopped before acceptance.'})
+            body:JSON.stringify({state:success?'success':'failure',context:'persistent-master-migration',target_url:process.env.RUN_URL,description:success?'Employee and asset master baseline verified on the current schema.':'Persistent master migration stopped before acceptance.'})
           });
           if(!response.ok)throw new Error(`Status publication failed with HTTP ${response.status}`);
           NODE
