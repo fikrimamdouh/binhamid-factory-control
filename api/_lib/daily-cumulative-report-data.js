@@ -19,9 +19,9 @@ export function projectCumulativeDailyReport({storedSales=[],dailySales=[],daily
   for(const [index,row] of (dailySales||[]).entries()){const sale=dailySale(row,index,reportDate);if(sale.type==='other'||sale.total<=0)continue;get(sale.customerCode,sale.customerName).invoices.push(sale);}
   for(const row of dailyCollections||[]){
     const customer=get(row.customerCode||row.accountCode,row.customer||row.customerName||row.accountName),amount=Math.max(0,n(row.amount??row.debit??row.credit));customer.currentCollections+=amount;let remaining=amount;
-    // سياسة المصنع: فواتير التقرير الجديدة أولًا، ثم الفواتير السابقة بالأقدم أولًا،
-    // ثم يبقى الفائض ليُخصم من الرصيد الافتتاحي أو يُرحّل كدفعة مقدمة.
-    const open=customer.invoices.filter(invoice=>invoice.outstanding>0).sort((a,b)=>Number(b.current)-Number(a.current)||String(a.date).localeCompare(String(b.date))||String(a.id).localeCompare(String(b.id)));
+    // نفس سياسة دفتر العملاء في قاعدة البيانات: الأقدم أولًا، ثم فواتير
+    // التقرير الحالية، وبعدها يبقى الفائض دفعة مقدمة.
+    const open=customer.invoices.filter(invoice=>invoice.outstanding>0).sort((a,b)=>Number(a.current)-Number(b.current)||String(a.date).localeCompare(String(b.date))||String(a.id).localeCompare(String(b.id)));
     for(const invoice of open){
       if(remaining<=0)break;
       const applied=Math.min(remaining,invoice.outstanding);invoice.outstanding-=applied;invoice.paid+=applied;remaining-=applied;
