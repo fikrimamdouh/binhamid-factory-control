@@ -89,3 +89,13 @@ test('image reading reports brand and equipment and asks for what is missing', a
   assert.match(assistant, /🚜 المعدة/);
   assert.match(assistant, /لنتائج أدق/);
 });
+
+test('brand matching covers the fleet makes and never fires on lookalike words', async () => {
+  const { brandSearchTerm } = await import('../api/_lib/bot-procurement.js');
+  for (const [text, expected] of [['قطع سكانيا', /Scania/], ['شاحنة مرسيدس اكتروس', /Mercedes/],
+    ['شيول دوسان', /Doosan/], ['مضخة بوتزمايستر', /Putzmeister/], ['محرك كمنز', /Cummins/],
+    ['قلاب هينو', /Hino/], ['شاحنات مان', /MAN/]]) assert.match(brandSearchTerm(text), expected);
+  // «مان» و«كيس» تظهران داخل كلمات شائعة، فمطابقتهما الحرة كانت ستُفسد كل بحث.
+  for (const text of ['رولمان بلي 6205', 'عثمان للتجارة', 'كيسة اسمنت', 'فلتر زيت'])
+    assert.equal(brandSearchTerm(text), '', `false brand match on: ${text}`);
+});

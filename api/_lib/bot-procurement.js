@@ -125,7 +125,32 @@ const BRAND_TERMS=[
   [/هوو|هاو|howo/,'Howo هوو'],
   [/ليبهر|liebherr/,'Liebherr ليبهر'],
   [/مرسيدس|اكتروس|mercedes|actros/,'Mercedes مرسيدس'],
-  [/دايو|daewoo/,'Daewoo دايو']
+  [/دايو|daewoo/,'Daewoo دايو'],
+  [/سكانيا|scania/,'Scania سكانيا'],
+  [/ايفيكو|إيفيكو|iveco/,'Iveco ايفيكو'],
+  [/رينو|رينول|renault/,'Renault رينو'],
+  [/\bdaf\b|داف\b/,'DAF داف'],
+  [/ايسوزو|إيسوزو|isuzu/,'Isuzu ايسوزو'],
+  [/هينو|hino/,'Hino هينو'],
+  [/ميتسوبيشي|فوزو|fuso|mitsubishi/,'Mitsubishi Fuso ميتسوبيشي'],
+  [/كاماز|kamaz/,'Kamaz كاماز'],
+  [/فوتون|foton/,'Foton فوتون'],
+  [/اكس سي ام جي|xcmg/,'XCMG'],
+  [/زوملايون|zoomlion/,'Zoomlion'],
+  [/ليوقونق|ليوجونج|liugong/,'LiuGong'],
+  [/لونكينج|lonking/,'Lonking'],
+  [/بوتزمايستر|putzmeister/,'Putzmeister بوتزمايستر'],
+  [/شفينغ|شوينغ|schwing/,'Schwing شفينغ'],
+  [/بوبكات|bobcat/,'Bobcat بوبكات'],
+  [/كاتربلر انجن|كمنز|كامنز|cummins/,'Cummins كمنز'],
+  [/بيركنز|بركنز|perkins/,'Perkins بيركنز'],
+  [/دويتز|deutz/,'Deutz دويتز'],
+  [/ويتشاي|weichai/,'Weichai ويتشاي'],
+  // «مان» و«نيوهولاند» و«كيس» مقيّدة بحدود كلمة لأن «مان» تظهر داخل «رولمان»
+  // و«عثمان»، فمطابقتها الحرة تُفسد البحث بالكامل.
+  [/(?:^|\s)مان(?:\s|$)|\bman\s*(?:diesel|truck)|شاحنات مان/,'MAN مان'],
+  [/نيو هولاند|نيوهولاند|new holland/,'New Holland'],
+  [/(?:^|\s)كيس(?:\s|$)|\bcase\s*(?:construction|ih)\b/,'Case كيس']
 ];
 function matchTerm(value,table){for(const[re,term]of table)if(re.test(value))return term;return'';}
 export function equipmentSearchTerm(query){return matchTerm(normalize(query),EQUIPMENT_TERMS);}
