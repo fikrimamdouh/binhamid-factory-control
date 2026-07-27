@@ -185,7 +185,8 @@ async function main(){
     if(syncMode==='vehicle-balance-report'){
       await ensureLogin(page);await page.goto(VEHICLES_URL,{waitUntil:'domcontentloaded',timeout:60000});await page.waitForLoadState('networkidle',{timeout:30000}).catch(()=>null);await page.waitForTimeout(1200);
       if(/\/login/i.test(page.url())||await visible(page.locator('input[type="password"]')))throw new Error('Noor Khoy vehicles page requires a new login.');
-      const summary=vehicleBalanceSummary(await vehicleTables(page));await fs.writeFile(path.join(artifacts,'vehicle-balances.json'),JSON.stringify(summary,null,2));
+      const tables=await vehicleTables(page);await fs.writeFile(path.join(artifacts,'vehicle-balance-tables.json'),JSON.stringify(tables,null,2));
+      const summary=vehicleBalanceSummary(tables);await fs.writeFile(path.join(artifacts,'vehicle-balances.json'),JSON.stringify(summary,null,2));
       const delivery=await uploadVehicleBalance(summary);console.log(JSON.stringify({ok:true,mode:syncMode,total:summary.total,vehicleCount:summary.rows.length,balanceHeader:summary.header,delivery},null,2));return;
     }
     await ensureLogin(page);let accountBalance=null,balanceCapturedAt='';
