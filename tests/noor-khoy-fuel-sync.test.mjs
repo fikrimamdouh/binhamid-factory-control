@@ -28,17 +28,21 @@ test('workflow runs daily and supports an ordered historical date range',()=>{
   assert.match(workflow,/FUEL_SEND_BALANCE="\$final_day"/);
   assert.match(workflow,/FUEL_NOTIFY="\$final_day"/);
   assert.match(workflow,/FUEL_REPORT_DATE_OFFSET_DAYS:\s*'-1'/);
+  assert.match(workflow,/fuel-sync-status\/latest\.json/);
 });
 
-test('browser sync survives the post-login landing redirect and attaches the current treasury balance only to the latest closed report day',()=>{
+test('browser sync locks export to the real fuel report and attaches the current treasury balance only to the latest closed report day',()=>{
   const script=read('scripts/noor-khoy-fuel-sync.mjs');
   assert.match(script,/DASHBOARD_URL/);
   assert.match(script,/extractDieselBalance/);
   assert.match(script,/balanceCandidates/);
   assert.match(script,/waitForURL/);
   assert.match(script,/openReportPage/);
-  assert.match(script,/reportPageReady/);
+  assert.match(script,/fuelPageHasControls/);
+  assert.match(script,/assertFuelReportPage/);
   assert.match(script,/All Funding/);
+  assert.match(script,/\/companies\/fuels/);
+  assert.match(script,/import\|استيراد\|رفع/);
   assert.match(script,/failure-context\.json/);
   assert.match(script,/latestClosedDate=shiftedRiyadhDate\(-1\)/);
   assert.match(script,/attachBalance=sendBalance&&reportDate===latestClosedDate/);
@@ -55,7 +59,7 @@ test('browser sync survives the post-login landing redirect and attaches the cur
 });
 
 test('server stores the station treasury as the report-day closing balance and keeps the private Renault out silently',()=>{
-  const route=read('api/_lib/routes/fuel-sync.js'),pdf=read('api/_lib/fuel-report-pdf.js'),router=read('api/router.js'),vercel=read('vercel.json');
+  const route=read('api/_lib/routes/fuel-sync.js'),pdf=read('api/_lib/fuel-report-pdf.js'),router=read('api/router.js'),vercel=read('vercel.json'),http=read('api/_lib/http.js');
   assert.match(route,/token\.actions\.githubusercontent\.com/);
   assert.match(route,/PRIVATE_PLATE_KEY='DGD7293'/);
   assert.match(route,/operationalRows=parsed\.rows\.filter\(row=>!privateFuelRow\(row\)\)/);
@@ -69,12 +73,14 @@ test('server stores the station treasury as the report-day closing balance and k
   assert.match(route,/notify\?await telegramDelivery/);
   assert.match(route,/رصيد خزنة المحطة المتبقي بنهاية يوم/);
   assert.match(route,/mergeIntoState\(operationalRows/);
+  assert.match(route,/FUEL_SYNC_UPSTREAM_FAILED/);
   assert.doesNotMatch(route,/تم استبعاد|تم تجاهل|مستبعدة/);
   assert.match(pdf,/رصيد خزنة المحطة بنهاية اليوم/);
   assert.match(pdf,/category==='diesel'/);
   assert.match(route,/uploadObject/);
   assert.match(route,/insert\('imports'/);
   assert.match(route,/revision=eq\./);
+  assert.match(http,/FUEL_SYNC_UPSTREAM_FAILED/);
   assert.match(router,/'fuel\/daily-report':fuelDailyReport/);
   assert.match(vercel,/api\/fuel\/daily-report/);
 });
