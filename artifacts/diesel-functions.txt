@@ -1,0 +1,164 @@
+=== FUNCTION NAMES ===
+opsFuelStats
+opsFuelForm
+opsFuelExcludedIdentity
+opsFuelIsoDateTime
+opsFuelEmployeeByName
+opsFuelPlateKey
+opsFuelGroupKey
+opsFuelDisplayPlate
+opsFuelDisplayDriver
+opsFuelDisplayVehicle
+opsFuelMasterPlan
+opsFuelEnsureMasters
+opsFuelRowKey
+opsFuelRecordExcluded
+opsDieselRows
+opsFuelUnitPrice
+opsFuelDistance
+opsDieselConsecutiveRuns
+opsDieselControlData
+opsDieselVehicleSummary
+opsDieselBounds
+opsDieselReportForm
+opsDieselAlertStatus
+opsDieselConsecutiveHtml
+
+=== opsFuelStats ===
+function opsFuelStats(vehicleId){
+  const L=OPS.fuel.filter(x=>!vehicleId||x.vehicleId===vehicleId).slice().sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+  let km=0,liters=0,cost=0,eff=null;
+  L.forEach(x=>{liters+=Number(x.liters||0);cost+=Number(x.cost||0);});
+  if(L.length>1){km=Math.max(0,Number(L.at(-1).odometer||0)-Number(L[0].odometer||0));if(liters>0)eff=km/liters;}
+  return {liters,cost,km,eff};
+}
+
+=== opsFuelForm ===
+function opsFuelForm(){if(!D.veh.length){opsToast('أضف المركبات أولًا','err');return;}opsOpenModal('تسجيل تعبئة وقود',`<div class="ops-form-grid"><div><label class="ops-required">المركبة</label><select name="vehicleId" required>${opsSelect(opsVehicles(),'','— اختر —')}</select></div><div><label>السائق</label><select name="employeeId">${opsSelect(opsEmployees(true),'','— اختر —')}</select></div><div><label class="ops-required">التاريخ والوقت</label><input type="datetime-local" name="date" value="${opsNowLocal()}" required></div><div><label>نوع الوقود</label><select name="fuelType"><option>Diesel</option><option>petrol 91</option><option>petrol 95</option></select></div><div><label class="ops-required">قراءة العداد</label><input type="number" step="any" name="odometer" required></div><div><label class="ops-required">اللترات</label><input type="number" step="any" min="0.01" name="liters" required></div><div><label class="ops-required">التكلفة</label><input type="number" step="any" min="0" name="cost" required></div><div><label>محطة الوقود</label><input name="station"></div><div><label>رقم الإيصال</label><input name="receipt"></div><div class="full"><label>صورة الإيصال</label><input type="file" name="files" multiple accept="image/*,.pdf"></div></div>`,async fd=>{const files=await opsSaveFiles(fd.getAll('files'));const f={id:opsUid('ful'),no:opsNextNo('FUL'),vehicleId:opsFd(fd,'vehicleId'),employeeId:opsFd(fd,'employeeId'),date:opsFd(fd,'date'),fuelType:opsFd(fd,'fuelType'),odometer:Number(opsFd(fd,'odometer')),liters:Number(opsFd(fd,'liters')),cost:Number(opsFd(fd,'cost')),station:opsFd(fd,'station'),receipt:opsFd(fd,'receipt'),attachments:files,createdAt:new Date().toISOString()};const prev=OPS.fuel.filter(x=>x.vehicleId===f.vehicleId&&Number(x.odometer)>0).sort((a,b)=>Number(b.odometer)-Number(a.odometer))[0];if(prev&&f.odometer<prev.odometer)throw new Error('قراءة العداد أقل من آخر تعبئة مسجلة');OPS.fuel.unshift(f);opsAddMovementRecord('FUEL',{date:f.date,employeeId:f.employeeId,entityKind:'vehicle',entityId:f.vehicleId,quantity:f.liters,unit:'لتر',amount:f.cost,reference:f.receipt||f.no,notes:`${f.fuelType} — ${f.station||''}`,module:'fuel',moduleId:f.id,attachments:files});await opsPersist('تعبئة وقود '+f.no);},'اعتماد التعبئة');}
+
+=== opsFuelExcludedIdentity ===
+function opsFuelExcludedIdentity(vehicleName,driverName){
+  const vehicleOk=opsNormArabic(vehicleName).includes(opsNormArabic(OPS_INTERNAL_FUEL_CONTROL.excludedVehicle));
+  const driverOk=opsNormArabic(driverName).includes(opsNormArabic(OPS_INTERNAL_FUEL_CONTROL.excludedDriver));
+  return vehicleOk&&driverOk;
+}
+
+=== opsFuelIsoDateTime ===
+function opsFuelIsoDateTime(value){
+  if(value instanceof Date&&!Number.isNaN(value.getTime()))return value.toISOString().slice(0,19);
+  if(typeof value==='number'&&typeof XLSX!=='undefined'&&XLSX.SSF?.parse_date_code){const d=XLSX.SSF.parse_date_code(value);if(d)return `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}T${String(d.H||0).padStart(2,'0')}:${String(d.M||0).padStart(2,'0')}:${String(d.S||0).padStart(2,'0')}`;}
+  const s=String(value||'').trim(),iso=s.match(/^(20\d{2})[-\/]([01]?\d)[-\/]([0-3]?\d)(?:[ T]([0-2]?\d):([0-5]?\d)(?::([0-5]?\d))?)?/);if(iso)return `${iso[1]}-${String(iso[2]).padStart(2,'0')}-${String(iso[3]).padStart(2,'0')}T${String(iso[4]||0).padStart(2,'0')}:${String(iso[5]||0).padStart(2,'0')}:${String(iso[6]||0).padStart(2,'0')}`;
+  const dmy=s.match(/^([0-3]?\d)[-\/]([01]?\d)[-\/](20\d{2})(?:[ T]([0-2]?\d):([0-5]?\d)(?::([0-5]?\d))?)?/);if(dmy)return `${dmy[3]}-${String(dmy[2]).padStart(2,'0')}-${String(dmy[1]).padStart(2,'0')}T${String(dmy[4]||0).padStart(2,'0')}:${String(dmy[5]||0).padStart(2,'0')}:${String(dmy[6]||0).padStart(2,'0')}`;return '';
+}
+
+=== opsFuelEmployeeByName ===
+function opsFuelEmployeeByName(name){const n=opsNormArabic(name);return (D.emp||[]).find(e=>opsNormArabic(e.name)===n)||null;}
+
+=== opsFuelPlateKey ===
+function opsFuelPlateKey(value){const p=opsPlateFingerprint(value);return p.clean||p.digits||opsNormArabic(value);}
+
+=== opsFuelGroupKey ===
+function opsFuelGroupKey(f){return opsFuelPlateKey(f?.plateRaw||opsVeh(f?.vehicleId)?.plate||'')||f?.vehicleId||'unknown';}
+
+=== opsFuelDisplayPlate ===
+function opsFuelDisplayPlate(f){return String(f?.plateRaw||opsVeh(f?.vehicleId)?.plate||'—').trim();}
+
+=== opsFuelDisplayDriver ===
+function opsFuelDisplayDriver(f){return String(f?.driverName||opsEmp(f?.employeeId)?.name||'—').trim();}
+
+=== opsFuelDisplayVehicle ===
+function opsFuelDisplayVehicle(f){const v=opsVeh(f?.vehicleId)||{};return String(f?.vehicleNameRaw||[v.type,v.make].filter(Boolean).join(' ')||'—').trim();}
+
+=== opsFuelMasterPlan ===
+function opsFuelMasterPlan(rows){
+  const vehicles=new Map(),drivers=new Map();
+  (rows||[]).forEach(x=>{
+    const plate=String(x.plate||'').trim(),plateKey=opsFuelPlateKey(plate),driver=String(x.driver||'').trim(),driverKey=opsNormArabic(driver),match=x.match||opsMatchVehicleByPlate(plate);
+    if(plateKey&&!vehicles.has(plateKey))vehicles.set(plateKey,{plateKey,plate,vehicleName:String(x.vehicleName||'').trim(),driver,match});
+    if(driverKey&&!drivers.has(driverKey))drivers.set(driverKey,{driverKey,name:driver,employee:opsFuelEmployeeByName(driver)});
+  });
+  const vehicleRows=[...vehicles.values()],driverRows=[...drivers.values()];
+  return {vehicles:vehicleRows,drivers:driverRows,matchedVehicles:vehicleRows.filter(x=>x.match?.vehicle),missingVehicles:vehicleRows.filter(x=>!x.match?.vehicle),matchedDrivers:driverRows.filter(x=>x.employee),missingDrivers:driverRows.filter(x=>!x.employee)};
+}
+
+=== opsFuelEnsureMasters ===
+function opsFuelEnsureMasters(rows){
+  /* سجل الأصول والموظفين هو المرجع الوحيد. تقرير الديزل لا ينشئ سجلات رئيسية جديدة. */
+  const plan=opsFuelMasterPlan(rows),employeeMap=new Map(),vehicleMap=new Map();
+  plan.drivers.forEach(x=>{if(x.employee)employeeMap.set(x.driverKey,x.employee);});
+  plan.vehicles.forEach(x=>{const vehicle=x.match?.vehicle||opsMatchVehicleByPlate(x.plate).vehicle;if(vehicle)vehicleMap.set(x.plateKey,vehicle);});
+  return {plan,employeeMap,vehicleMap,addedEmployees:[],addedVehicles:[]};
+}
+
+=== opsFuelRowKey ===
+function opsFuelRowKey(x){return `fuel|${x.receipt}|${String(x.date).slice(0,19)}|${opsPlateFingerprint(x.plate).clean}|${x.liters}|${x.amount}`;}
+
+=== opsFuelRecordExcluded ===
+function opsFuelRecordExcluded(f){return opsFuelExcludedIdentity(f.vehicleNameRaw||opsVeh(f.vehicleId)?.make||'',f.driverName||opsEmp(f.employeeId)?.name||'');}
+
+=== opsDieselRows ===
+function opsDieselRows(from,to,vehicleId){return OPS.fuel.filter(f=>{const d=String(f.date||'').slice(0,10),type=String(f.fuelType||'Diesel');return(!from||d>=from)&&(!to||d<=to)&&(!vehicleId||f.vehicleId===vehicleId)&&/diesel|ديزل/i.test(type)&&!opsFuelRecordExcluded(f);}).sort((a,b)=>String(a.date).localeCompare(String(b.date)));}
+
+=== opsFuelUnitPrice ===
+function opsFuelUnitPrice(f){const liters=Number(f.liters||0);return Number(f.pricePerLiter||0)||(liters>0?Number(f.cost||0)/liters:0);}
+
+=== opsFuelDistance ===
+function opsFuelDistance(f){const current=Number(f.odometer||0),previous=Number(f.previousOdometer||0),service=Number(f.serviceKm||0);return current>previous&&previous>0?current-previous:service>0?service:0;}
+
+=== opsDieselConsecutiveRuns ===
+function opsDieselConsecutiveRuns(rows){
+  const groups=new Map(),dayNumber=s=>{const [y,m,d]=String(s||'').slice(0,10).split('-').map(Number);return y&&m&&d?Math.floor(Date.UTC(y,m-1,d)/86400000):NaN;};
+  (rows||[]).forEach(f=>{const key=opsFuelGroupKey(f),date=String(f.date||'').slice(0,10);if(!date)return;if(!groups.has(key))groups.set(key,{key,plate:opsFuelDisplayPlate(f),vehicle:opsFuelDisplayVehicle(f),driver:opsFuelDisplayDriver(f),days:new Map()});const g=groups.get(key),x=g.days.get(date)||{date,fills:0,liters:0};x.fills++;x.liters+=Number(f.liters||0);g.days.set(date,x);});
+  const runs=[];
+  groups.forEach(g=>{const days=[...g.days.values()].sort((a,b)=>a.date.localeCompare(b.date));let run=[];const flush=()=>{if(run.length>=2)runs.push({key:g.key,plate:g.plate,vehicle:g.vehicle,driver:g.driver,dates:run.map(x=>x.date),days:run.length,fills:run.reduce((s,x)=>s+x.fills,0),liters:run.reduce((s,x)=>s+x.liters,0),from:run[0].date,to:run.at(-1).date});run=[];};days.forEach(x=>{if(!run.length||dayNumber(x.date)-dayNumber(run.at(-1).date)===1)run.push(x);else{flush();run=[x];}});flush();});
+  return runs.sort((a,b)=>b.days-a.days||a.plate.localeCompare(b.plate,'ar'));
+}
+
+=== opsDieselControlData ===
+function opsDieselControlData(rows){
+  const priceVariance=OPS_INTERNAL_FUEL_CONTROL.priceVariancePct,volumeVariance=OPS_INTERNAL_FUEL_CONTROL.volumeVariancePct,rapidHours=OPS_INTERNAL_FUEL_CONTROL.rapidRefillHours;
+  const ordered=rows.slice().sort((a,b)=>String(a.date).localeCompare(String(b.date))),prices=ordered.map(opsFuelUnitPrice).filter(x=>x>0),medianPrice=opsMedian(prices),byVehicleLiters=new Map(),receiptMap=new Map(),alerts=[];
+  ordered.forEach(f=>{const key=opsFuelGroupKey(f);if(!byVehicleLiters.has(key))byVehicleLiters.set(key,[]);byVehicleLiters.get(key).push(Number(f.liters||0));const receipt=opsNormArabic(f.receipt||'');if(receipt){if(!receiptMap.has(receipt))receiptMap.set(receipt,[]);receiptMap.get(receipt).push(f);}});
+  const vehicleMedians=new Map([...byVehicleLiters].map(([k,v])=>[k,opsMedian(v)])),previousByVehicle=new Map(),add=(f,level,check,detail)=>alerts.push({fuelId:f.id,level,check,detail,date:f.date,plate:opsFuelDisplayPlate(f),receipt:f.receipt||f.no||'—'});
+  ordered.forEach(f=>{
+    const key=opsFuelGroupKey(f),liters=Number(f.liters||0),cost=Number(f.cost||0),price=opsFuelUnitPrice(f),current=Number(f.odometer||0),previousOdo=Number(f.previousOdometer||0),receipt=opsNormArabic(f.receipt||''),previous=previousByVehicle.get(key);
+    if(receipt&&(receiptMap.get(receipt)?.length||0)>1)add(f,'danger','إيصال مكرر',`رقم الإيصال مستخدم في ${receiptMap.get(receipt).length} تعبئات`);
+    if(!receipt)add(f,'warn','إيصال غير مسجل','لا يوجد رقم إيصال يمكن المطابقة عليه');
+    if(!String(f.station||'').trim())add(f,'info','المحطة غير مسجلة','استكمال اسم محطة الوقود');
+    if(!String(opsFuelDisplayDriver(f)).trim())add(f,'info','السائق غير مسجل','استكمال اسم السائق أو ربطه بالموظفين');
+    if(current>0&&previousOdo>0&&current<=previousOdo)add(f,'danger','قراءة عداد غير منطقية',`السابق ${opsNum(previousOdo)} والحالي ${opsNum(current)}`);
+    else if(current<=0)add(f,'info','العداد غير مسجل','لا يمكن حساب كفاءة الاستهلاك لهذه التعبئة');
+    if(previous){const hours=(new Date(f.date).getTime()-new Date(previous.date).getTime())/3600000;if(Number.isFinite(hours)&&hours>=0&&hours<=rapidHours)add(f,'warn','تعبئة متقاربة',`الفاصل عن التعبئة السابقة ${hours.toFixed(1)} ساعة`);}
+    const medianLiters=vehicleMedians.get(key)||0,vehicleCount=byVehicleLiters.get(key)?.length||0;if(vehicleCount>=3&&medianLiters>0&&liters>medianLiters*(1+volumeVariance/100))add(f,'warn','كمية أعلى من المعتاد',`${opsNum(liters)} لتر مقابل وسيط ${opsNum(medianLiters)} لتر للمركبة`);
+    if(prices.length>=3&&medianPrice>0&&price>0&&Math.abs(price-medianPrice)/medianPrice*100>priceVariance)add(f,'warn','سعر لتر مختلف',`${opsMoney(price)} ر.س مقابل وسيط ${opsMoney(medianPrice)} ر.س`);
+    if(liters<=0||cost<=0)add(f,'danger','قيمة تعبئة غير صالحة',`اللترات ${opsNum(liters)} والتكلفة ${opsMoney(cost)}`);
+    previousByVehicle.set(key,f);
+  });
+  const rank={danger:0,warn:1,info:2};alerts.sort((a,b)=>(rank[a.level]-rank[b.level])||String(a.date).localeCompare(String(b.date)));
+  const byFuel=new Map();alerts.forEach(a=>{if(!byFuel.has(a.fuelId))byFuel.set(a.fuelId,[]);byFuel.get(a.fuelId).push(a);});
+  return {alerts,byFuel,consecutiveRuns:opsDieselConsecutiveRuns(rows),medianPrice,priceVariance,volumeVariance,rapidHours,danger:alerts.filter(x=>x.level==='danger').length,warn:alerts.filter(x=>x.level==='warn').length,info:alerts.filter(x=>x.level==='info').length};
+}
+
+=== opsDieselVehicleSummary ===
+function opsDieselVehicleSummary(rows,control){
+  const map=new Map(),totalLiters=rows.reduce((s,f)=>s+Number(f.liters||0),0);
+  rows.forEach(f=>{const key=opsFuelGroupKey(f),driver=opsFuelDisplayDriver(f),r=map.get(key)||{key,vehicleId:f.vehicleId,plate:opsFuelDisplayPlate(f),vehicle:`${opsFuelDisplayVehicle(f)}${driver&&driver!=='—'?' — السائق: '+driver:''}`,driver,fills:0,liters:0,amount:0,distance:0,alerts:0};r.fills++;r.liters+=Number(f.liters||0);r.amount+=Number(f.cost||0);r.distance+=opsFuelDistance(f);r.alerts+=(control?.byFuel.get(f.id)?.length||0);map.set(key,r);});
+  return [...map.values()].map(r=>({...r,avgFill:r.fills?r.liters/r.fills:0,avgPrice:r.liters?r.amount/r.liters:0,kmPerLiter:r.liters&&r.distance?r.distance/r.liters:0,costPerKm:r.distance?r.amount/r.distance:0,share:totalLiters?r.liters/totalLiters*100:0})).sort((a,b)=>b.liters-a.liters);
+}
+
+=== opsDieselBounds ===
+function opsDieselBounds(){const dates=OPS.fuel.filter(f=>/diesel|ديزل/i.test(String(f.fuelType||'Diesel'))&&!opsFuelRecordExcluded(f)).map(f=>String(f.date||'').slice(0,10)).filter(Boolean).sort();return {from:dates[0]||opsMonthStart(),to:dates.at(-1)||opsToday()};}
+
+=== opsDieselReportForm ===
+function opsDieselReportForm(){const b=opsDieselBounds();opsOpenModal('تقرير الرقابة على الديزل',`<div class="ops-note">اختر الفترة والمركبة. يعرض التقرير الاستهلاك والتكلفة والتنبيهات التي تحتاج مراجعة.</div><div class="ops-form-grid"><div><label class="ops-required">من تاريخ</label><input type="date" name="from" value="${b.from}" required></div><div><label class="ops-required">إلى تاريخ</label><input type="date" name="to" value="${b.to}" required></div><div class="full"><label>المركبة</label><select name="vehicleId">${opsSelect(opsVehicles(),'','كل المركبات')}</select></div></div>`,fd=>{const from=opsFd(fd,'from'),to=opsFd(fd,'to'),vehicleId=opsFd(fd,'vehicleId');if(from>to)throw new Error('تاريخ البداية يجب أن يسبق تاريخ النهاية');setTimeout(()=>opsShowDieselReport(from,to,vehicleId),80);},'عرض التقرير');}
+
+=== opsDieselAlertStatus ===
+function opsDieselAlertStatus(alerts){if(!alerts?.length)return '<span class="ops-status">سليم</span>';const cls=alerts.some(x=>x.level==='danger')?'bad':alerts.some(x=>x.level==='warn')?'warn':'info';return `<span class="ops-status ${cls}">${alerts.length} ملاحظة</span>`;}
+
+=== opsDieselConsecutiveHtml ===
+function opsDieselConsecutiveHtml(runs,printMode){
+  const title=printMode?'<h2 style="font-size:12pt;margin:0 0 3mm">مركبات عُبئت في أيام متتالية</h2>':'<h3 style="margin-top:12px">مركبات عُبئت في أيام متتالية</h3>';
+  if(!runs?.length)return `${title}<div class="${printMode?'':'ops-note'}" style="${printMode?'border:1px solid #9bb7aa;background:#f1f8f4;padding:3mm;margin-bottom:5mm':''}">لا توجد مركبة عُبئت في يومين متتاليين أو أكثر داخل الفترة.</div>`;
+  const table=`<table class="${printMode?'':'ops-table'}" style="${printMode?'margin-bottom:5mm':''}"><thead><tr><th>اللوحة</th><th>المركبة / السائق</th><th>عدد الأيام</th><th>من — إلى</th><th>الأيام المتتالية</th><th>التعبئات</th><th>اللترات</th></tr></thead><tbody>${runs.map(r=>`<tr><td><b>${opsEsc(r.plate)}</b></td><td>${opsEsc(r.vehicle)}<br>${opsEsc(r.driver)}</td><td>${r.days} أيام</td><td>${opsFmtDate(r.from)} — ${opsFmtDate(r.to)}</td><td>${r.dates.slice(0,12).map(opsFmtDate).join('، ')}${r.dates.length>12?' …':''}</td><td>${r.fills}</td><td>${opsNum(r.liters)}</td></tr>`).join('')}</tbody></table>`;
+  return `${title}${printMode?table:`<div class="ops-table-wrap">${table}</div>`}`;
+}
