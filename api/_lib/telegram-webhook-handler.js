@@ -15,6 +15,7 @@ import { handleMechanicTextCommand, continueMechanicSession, startMechanicAction
 import { sendExecutiveWorkshopStatus } from './bot-workshop-dashboard.js';
 import { handleSalesTextCommand, continueSalesSession, startSalesAction, confirmSalesOrder, cancelSalesDraft, showSalesMenu } from './bot-sales-accounting-guard.js';
 import { startGuidedSales, continueGuidedSales, handleGuidedSalesCallback } from './bot-sales-guided.js';
+import { handleFuelTextCommand, handleFuelCallback, showFuelMenu } from './bot-fuel-reports.js';
 import { handleProcurementTextCommand, continueProcurementSession, handleProcurementCallback, showProcurementMenu } from './bot-procurement.js';
 import { handleEnterpriseTextCommand, continueEnterpriseSession, handleEnterpriseCallback, showRoleHome } from './bot-enterprise.js';
 import { handleInvitationStart } from './bot-invitations.js';
@@ -91,6 +92,7 @@ async function handleText(message,group,identity,text,voicePath='',stored=null){
   }
   if(await handleEnterpriseTextCommand(message,identity,raw))return;
   if(await handleInsightCommand(message,identity,raw))return;
+  if(await handleFuelTextCommand(message,identity,raw))return;
   if(await handleProcurementTextCommand(message,identity,raw))return;
   if(await handleSalesTextCommand(message,identity,raw))return;
   const mechanicActions=[
@@ -153,6 +155,7 @@ async function handleCallback(update){
     return startSalesAction({...message,from:query.from},identity,value);
   }
   if(['gs_item','gs_qty','gs_price','gs_date','gs_pay'].includes(action))return handleGuidedSalesCallback(message,query.from,identity,action,value);
+  if(action==='fuel')return handleFuelCallback(message,identity,value);
   if(['proc','supplier_city','supplier_rfq','rfq_qty','rfq_urgency'].includes(action))return handleProcurementCallback(message,query.from,identity,action,value);
   if(action==='sales_confirm')return confirmSalesOrder({...message,from:query.from},value,identity);
   if(action==='sales_cancel')return cancelSalesDraft({...message,from:query.from},identity);

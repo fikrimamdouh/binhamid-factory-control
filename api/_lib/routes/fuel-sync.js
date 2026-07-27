@@ -5,6 +5,7 @@ import { errorResponse, json, method } from '../http.js';
 import { parseFuelWorkbook } from '../fuel-summary-parser.js';
 import { generateFuelReportPdfs } from '../fuel-report-pdf.js';
 import { insert, patch, remove, select, uploadObject } from '../supabase.js';
+import { storeFuelRows, storeFailureReason } from '../fuel-analytics.js';
 import { sendDocumentBuffer, sendMessage } from '../telegram.js';
 
 const REPOSITORY='fikrimamdouh/binhamid-factory-control',OIDC_ISSUER='https://token.actions.githubusercontent.com',OIDC_AUDIENCE='binhamid-fuel-sync',MIME='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',PRIVATE_PLATE_KEY='DGD7293',FACTORY_MANAGER_CHAT_ID='6870312376';
@@ -48,6 +49,15 @@ async function telegramDelivery({workbook,rows,sourceFile,reportDate,period,summ
     return{duplicate,reports:reports.map(item=>item.filename),recipients:recipients.length,messageFailures:messageResults.filter(result=>result.status==='rejected').length,documentFailures:documentResults.filter(result=>!result.ok).length};
   }catch(error){return{duplicate,reports:[],recipients:recipients.length,messageFailures:messageResults.filter(result=>result.status==='rejected').length,error:clean(error?.message,300)};}
 }
+// الصفوف تُحفظ أيضًا في fuel_transactions المفهرس. سجل imports يحتفظ بها كـJSON
+// داخل summary، وهو صالح للأرشيف لا للاستعلام: لا يجيب «كم سحبت هذه المركبة من
+// أول الشهر حتى أمس» دون مسح كل الملفات. الفشل هنا لا يُسقط المزامنة لكنه يُبلَّغ
+// في الاستجابة بدل أن يُبتلع.
+async function persistFuelLedger(rows,sourceFile){
+  try{return await storeFuelRows(rows,{sourceFile,source:'noor-khoy'});}
+  catch(error){const reason=storeFailureReason(error);console.warn('[fuel ledger]',{reason,message:clean(error?.message,200)});return{stored:0,skipped:0,failed:rows.length,reason};}
+}
+
 async function cleanupInvalidJulyImports(period){if(period.start!=='2026-07-01'||period.end!=='2026-07-26')return{removed:0,skipped:true};const removed=await remove('imports',`id=in.(${INVALID_JULY_IMPORT_IDS.join(',')})`);return{removed:Array.isArray(removed)?removed.length:0,ids:INVALID_JULY_IMPORT_IDS};}
 async function findExisting(period,hash){const periodQuery=`source=eq.noor-khoy&report_type=eq.fuel&summary->period->>start=eq.${period.start}&summary->period->>end=eq.${period.end}&select=id,status,file_path,summary&limit=1`;const byPeriod=(await select('imports',periodQuery))?.[0];if(byPeriod)return byPeriod;return(await select('imports',`file_hash=eq.${hash}&select=id,status,file_path,summary&limit=1`))?.[0]||null;}
 
@@ -65,14 +75,16 @@ export async function fuelDailyReport(req,res){
     const registrySummary={fuel:summary,sourceFuel:sourceSummary,fuelRows:storedRows(operationalRows),accountBalance,balanceDate,balanceCapturedAt,period,storage:{kind:'imports_registry',originalFile:storagePath},source:{kind:'noor-khoy',reportDate:date,receivedAt:new Date().toISOString(),identity:identity.kind,sheets:workbook.SheetNames}};
     if(existing&&['posted','approved'].includes(existing.status)){
       await runStage('import_update','تعذر تحديث سجل الوقود الموجود',()=>patch('imports',`id=eq.${encoded(existing.id)}`,{summary:{...(existing.summary||{}),...registrySummary},row_count:operationalRows.length,file_path:storagePath,file_hash:hash,original_name:originalName}));
+      const ledger=await persistFuelLedger(operationalRows,originalName);
       const telegram=notify?await telegramDelivery({workbook,rows:operationalRows,sourceFile:originalName,reportDate:date,period,summary,accountBalance,duplicate:true}):{skipped:true};
-      return json(res,200,{ok:true,duplicate:true,period,reportDate:date,accountBalance,balanceDate,balanceCapturedAt,fileHash:hash,importId:existing.id,storagePath,storedRows:operationalRows.length,summary,cleanup,storage:'imports_registry',telegram});
+      return json(res,200,{ok:true,duplicate:true,ledger,period,reportDate:date,accountBalance,balanceDate,balanceCapturedAt,fileHash:hash,importId:existing.id,storagePath,storedRows:operationalRows.length,summary,cleanup,storage:'imports_registry',telegram});
     }
     let imp=existing;
     if(!imp){const result=await runStage('import_insert','تعذر تسجيل ملف الوقود في مركز الوارد',()=>insert('imports',[{source:'noor-khoy',department:'operations',report_type:'fuel',status:'approved',original_name:originalName,mime_type:MIME,file_path:storagePath,file_hash:hash,row_count:operationalRows.length,error_count:0,warning_count:0,summary:registrySummary,last_error_code:null,last_error_message:null}]));imp=result?.[0];}
     else{const result=await runStage('import_update','تعذر تحديث ملف الوقود في مركز الوارد',()=>patch('imports',`id=eq.${encoded(imp.id)}`,{status:'approved',original_name:originalName,file_path:storagePath,file_hash:hash,row_count:operationalRows.length,summary:registrySummary,last_error_code:null,last_error_message:null}));imp=result?.[0]||imp;}
     if(!imp?.id)throw Object.assign(new Error('تعذر تسجيل تقرير الوقود في مركز الوارد'),{status:502,code:'FUEL_SYNC_IMPORT_REGISTER_FAILED'});
+    const ledger=await persistFuelLedger(operationalRows,originalName);
     const telegram=notify?await telegramDelivery({workbook,rows:operationalRows,sourceFile:originalName,reportDate:date,period,summary,accountBalance,duplicate:false}):{skipped:true};
-    return json(res,200,{ok:true,duplicate:false,period,reportDate:date,accountBalance,balanceDate,balanceCapturedAt,fileHash:hash,importId:imp.id,storagePath,storedRows:operationalRows.length,summary,cleanup,storage:'imports_registry',telegram});
+    return json(res,200,{ok:true,duplicate:false,ledger,period,reportDate:date,accountBalance,balanceDate,balanceCapturedAt,fileHash:hash,importId:imp.id,storagePath,storedRows:operationalRows.length,summary,cleanup,storage:'imports_registry',telegram});
   }catch(error){errorResponse(res,error);}
 }

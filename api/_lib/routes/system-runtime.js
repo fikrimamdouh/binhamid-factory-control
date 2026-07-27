@@ -3,13 +3,13 @@ import { readiness,validateEnvironment } from '../config.js';
 import { json,method,errorResponse } from '../http.js';
 import { select } from '../supabase.js';
 
-export const LATEST_REQUIRED_VERSION=27;
+export const LATEST_REQUIRED_VERSION=28;
 
 export const DATABASE_TABLES=[
   'app_users','user_invitations','user_channels','telegram_groups','telegram_messages','employees','vehicles','customers','bot_sessions','maintenance_orders','approvals','audit_log','work_sites','employee_assignments','attendance_events','driver_events','operational_records','sales_orders','sales_order_updates','inventory_items','inventory_movements','purchase_requests','supplier_quotes','collection_events','quality_cases','operational_tasks','notification_outbox','finance_events','hr_requests','employee_daily_reports','operation_status_history','document_registry','migration_history','daily_report_batches','daily_report_sales_lines','daily_report_cash_movements','daily_report_treasury_balances','daily_report_inventory_snapshots','daily_report_import_attempts','cost_ledger','sales_payment_allocations','fifo_rebuild_runs',
   'cost_centers','cost_periods','cost_calculation_runs','cost_allocation_rules','asset_cost_center_assignments','employee_cost_assignments','indirect_cost_allocations','operational_alerts','role_capabilities','user_capabilities','backup_runs','token_rotation_registry','gps_provider_events',
   'financial_periods','financial_period_events','credit_override_requests','unified_assets','asset_source_links','compliance_documents','custody_accounts','custody_transactions','restore_test_runs','handover_acceptance_runs','handover_signoffs',
-  'chart_of_accounts','journal_entries','journal_entry_lines','telegram_update_receipts','master_data_import_runs'
+  'chart_of_accounts','journal_entries','journal_entry_lines','telegram_update_receipts','master_data_import_runs','fuel_transactions'
 ];
 export const DATABASE_VIEWS=['daily_attendance_summary','driver_daily_summary','factory_daily_margin','cost_unit_monthly_report','control_credit_exposure','control_expiring_documents','control_open_custodies','control_asset_duplicates','general_ledger','trial_balance','accounting_integrity_report','employee_asset_directory','control_employee_identity_duplicates'];
 export const DATABASE_COLUMN_CHECKS={
@@ -50,7 +50,7 @@ export async function collectDatabaseReadiness(){
 
 export async function databaseReadiness(req,res){
   if(!method(req,res,['GET']))return;
-  try{await requireCapability(req,'system.diagnostics');const database=await collectDatabaseReadiness(),environment=validateEnvironment('runtime');json(res,200,{ok:database.ready,...database,environment:{ready:environment.ready,missingRequired:environment.missingRequired,checks:environment.checks.map(({name,configured,required,description})=>({name,configured,required,description}))},nextStep:database.ready?'قاعدة البيانات متوافقة مع Migration 027.':'شغّل migrations المفقودة بالترتيب ثم أعد الفحص.'});}catch(error){errorResponse(res,error);}
+  try{await requireCapability(req,'system.diagnostics');const database=await collectDatabaseReadiness(),environment=validateEnvironment('runtime');json(res,200,{ok:database.ready,...database,environment:{ready:environment.ready,missingRequired:environment.missingRequired,checks:environment.checks.map(({name,configured,required,description})=>({name,configured,required,description}))},nextStep:database.ready?'قاعدة البيانات متوافقة مع Migration 028.':'شغّل migrations المفقودة بالترتيب ثم أعد الفحص.'});}catch(error){errorResponse(res,error);}
 }
 
 export async function status(req,res){

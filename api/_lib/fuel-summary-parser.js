@@ -14,8 +14,12 @@ const headerIndex=(row,aliases)=>{
   for(let index=0;index<normalized.length;index++)if(terms.some(term=>normalized[index].includes(term)))return index;
   return -1;
 };
-const plateKey=value=>westernDigits(String(value||'')).toUpperCase().replace(/[^A-Z0-9\u0600-\u06FF]/g,'');
-const fuelCategory=value=>{
+// صور الهمزة تُوحَّد: تقرير المحطة يكتب اللوحة نفسها مرة «أرس» ومرة «ارس»، وبدون
+// التوحيد تنقسم المركبة الواحدة إلى مركبتين وينقسم استهلاكها معها فيبدو كل نصف طبيعيًا.
+// مُصدَّرة لأن تحليلات الوقود تطابق بها سجل الأصول بالمفتاح نفسه.
+const foldArabic=value=>String(value||'').replace(/[أإآٱ]/g,'ا').replace(/ى/g,'ي').replace(/ؤ/g,'و').replace(/ئ/g,'ي').replace(/ة/g,'ه').replace(/[ً-ْـ]/g,'');
+export const plateKey=value=>foldArabic(westernDigits(String(value||''))).toUpperCase().replace(/[^A-Z0-9\u0600-\u06FF]/g,'');
+export const fuelCategory=value=>{
   const text=norm(value);
   if(/بنزين|petrol|gasoline|91|95/.test(text))return'petrol';
   if(/ديزل|diesel|solar/.test(text))return'diesel';

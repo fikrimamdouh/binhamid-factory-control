@@ -77,7 +77,7 @@ test('sync conflict and Telegram WebApp validation remain server-side',async()=>
 
 test('readiness requires schema 26 and reports accounting, governance, reset and persistent master gaps',async()=>{
   const readiness=await read('api/_lib/routes/system-runtime.js');
-  assert.match(readiness,/LATEST_REQUIRED_VERSION=27/);
+  assert.match(readiness,/LATEST_REQUIRED_VERSION=28/);
   for(const marker of ['missingTables','missingColumns','missingMigrations','migration_history.sequence','collectDatabaseReadiness','financial_periods','credit_override_requests','unified_assets','compliance_documents','handover_acceptance_runs','control_asset_duplicates','credit_override_id','chart_of_accounts','journal_entries','journal_entry_lines','general_ledger','trial_balance','accounting_integrity_report','telegram_update_receipts','user_invitations','nickname','master_data_import_runs','employee_asset_directory','control_employee_identity_duplicates','national_id','persistentEmployeeMaster','telegramIdentityAutoLink'])assert.match(readiness,new RegExp(marker));
   assert.doesNotMatch(readiness,/ready:\s*true,\s*schemaVersion/);
 });
