@@ -16,45 +16,54 @@ test('fuel parser classifies diesel and petrol without dropping either',()=>{
   assert.equal(parsed.categories.petrol,1);
 });
 
-test('workflow runs in the Riyadh morning for the previous day and uses secrets',()=>{
+test('workflow runs daily and supports an ordered historical date range',()=>{
   const workflow=read('.github/workflows/noor-khoy-fuel-sync.yml');
   assert.match(workflow,/id-token:\s*write/);
   assert.match(workflow,/secrets\.NOOR_KHOY_USERNAME/);
   assert.match(workflow,/secrets\.NOOR_KHOY_PASSWORD/);
   assert.match(workflow,/cron:\s*'0 5 \* \* \*'/);
+  assert.match(workflow,/start_date:/);
+  assert.match(workflow,/end_date:/);
+  assert.match(workflow,/while \[\[ "\$current" < "\$end" \|\| "\$current" == "\$end" \]\]/);
+  assert.match(workflow,/FUEL_SEND_BALANCE="\$final_day"/);
+  assert.match(workflow,/FUEL_NOTIFY="\$final_day"/);
   assert.match(workflow,/FUEL_REPORT_DATE_OFFSET_DAYS:\s*'-1'/);
 });
 
-test('browser sync reads the dashboard balance before downloading and uploading Excel',()=>{
+test('browser sync separates current dashboard balance from historical report dates',()=>{
   const script=read('scripts/noor-khoy-fuel-sync.mjs');
   assert.match(script,/DASHBOARD_URL/);
   assert.match(script,/extractDieselBalance/);
   assert.match(script,/balanceCandidates/);
+  assert.match(script,/FUEL_SEND_BALANCE/);
+  assert.match(script,/FUEL_NOTIFY/);
   assert.match(script,/x-fuel-account-balance/);
+  assert.match(script,/x-fuel-balance-captured-at/);
+  assert.match(script,/x-fuel-notify/);
   assert.match(script,/companies\/fuels\?fueltype=all/);
-  assert.match(script,/shiftedRiyadhDate/);
   assert.match(script,/setReportDate/);
   assert.match(script,/waitForEvent\('download'/);
   assert.match(script,/parseFuelWorkbook/);
   assert.match(script,/ACTIONS_ID_TOKEN_REQUEST_URL/);
 });
 
-test('server stores balance history, reports it, and keeps the private Renault out silently',()=>{
+test('server stores balance by capture time, mutes backfill, and keeps the private Renault out silently',()=>{
   const route=read('api/_lib/routes/fuel-sync.js'),pdf=read('api/_lib/fuel-report-pdf.js'),router=read('api/router.js'),vercel=read('vercel.json');
   assert.match(route,/token\.actions\.githubusercontent\.com/);
   assert.match(route,/PRIVATE_PLATE_KEY='DGD7293'/);
   assert.match(route,/operationalRows=parsed\.rows\.filter\(row=>!privateFuelRow\(row\)\)/);
-  assert.match(route,/requestBalance/);
+  assert.match(route,/requestBalanceCapturedAt/);
+  assert.match(route,/requestNotify/);
+  assert.match(route,/balanceDate=balanceValid\?riyadhDate\(context\.balanceCapturedAt\)/);
   assert.match(route,/fuelAccountBalance/);
   assert.match(route,/fuelBalances/);
+  assert.match(route,/notify\?await telegramDelivery/);
+  assert.match(route,/\{skipped:true\}/);
   assert.match(route,/متبقي في رصيد الديزل/);
-  assert.match(route,/accountBalance/);
   assert.match(route,/mergeIntoState\(operationalRows/);
-  assert.match(route,/rows:operationalRows/);
   assert.doesNotMatch(route,/تم استبعاد|تم تجاهل|مستبعدة/);
   assert.match(pdf,/متبقي في الرصيد/);
   assert.match(pdf,/category==='diesel'/);
-  assert.match(pdf,/options\.accountBalance/);
   assert.match(route,/uploadObject/);
   assert.match(route,/insert\('imports'/);
   assert.match(route,/revision=eq\./);
