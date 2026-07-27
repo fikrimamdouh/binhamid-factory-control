@@ -4,6 +4,8 @@ import fs from 'node:fs';
 
 const botFiles=fs.readFileSync(new URL('../api/_lib/bot-files.js',import.meta.url),'utf8');
 const portfolio=fs.readFileSync(new URL('../api/_lib/customer-portfolio-pdf.js',import.meta.url),'utf8');
+const portfolioBatch=fs.readFileSync(new URL('../api/_lib/customer-portfolio-batch.js',import.meta.url),'utf8');
+const portfolioSnapshot=fs.readFileSync(new URL('../api/_lib/customer-portfolio-snapshot.js',import.meta.url),'utf8');
 const portfolioDocument=fs.readFileSync(new URL('../api/_lib/customer-portfolio-document.js',import.meta.url),'utf8');
 const settlement=fs.readFileSync(new URL('../api/_lib/customer-settlement.js',import.meta.url),'utf8');
 const botPortfolio=fs.readFileSync(new URL('../api/_lib/bot-portfolio-reports.js',import.meta.url),'utf8');
@@ -97,8 +99,13 @@ test('bot prefers fixed historical snapshot then generates only missing departme
   assert.match(botPortfolio,/readExactPointer/);
   assert.match(botPortfolio,/snapshotVersion!=='portfolio-settlement-v2'/);
   assert.match(botPortfolio,/const needsGeneration=\[\]/);
+  assert.match(botPortfolio,/generateAvailablePortfolioPdfs/);
   assert.match(botPortfolio,/persistPortfolioReportSnapshot/);
-  const exact=botPortfolio.indexOf('const exact=await sendExactDailyPortfolio'),generated=botPortfolio.indexOf('const generated=await generateCustomerPortfolioPdfs');
+  assert.match(portfolioBatch,/for\(const type of types\)/);
+  assert.match(portfolioBatch,/missingTypes\.push\(type\)/);
+  assert.match(portfolioSnapshot,/existingSnapshot/);
+  assert.match(portfolioSnapshot,/if\(existing\)return\{\.\.\.existing,reused:true\}/);
+  const exact=botPortfolio.indexOf('const exact=await sendExactDailyPortfolio'),generated=botPortfolio.indexOf('const generated=await generateAvailablePortfolioPdfs');
   assert.ok(exact>=0&&generated>exact);
 });
 
