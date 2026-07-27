@@ -43,12 +43,12 @@ function vehicleBalanceSummary(tables=[]){
   for(const table of tables){
     const headers=(table.headers||[]).map(normalizedHeader),balanceIndex=headers.findIndex(isVehicleBalanceHeader);if(balanceIndex<0)continue;
     const vehicleIndex=headers.findIndex(header=>/(?:vehicle|plate|car|truck|مركبة|السيارة|اللوحة)/i.test(header)),rows=[];
-    for(const cells of table.rows||[]){const amount=moneyNumber(cells?.[balanceIndex]),vehicle=compact(cells?.[vehicleIndex>=0?vehicleIndex:0]);if(amount===null||!vehicle)continue;rows.push({vehicle,amount});}
+    for(const cells of table.rows||[]){const amount=moneyNumber(cells?.[balanceIndex]),vehicle=compact(cells?.[vehicleIndex>=0?vehicleIndex:0]);if(amount===null||amount<=0||!vehicle)continue;rows.push({vehicle,amount});}
     if(rows.length)candidates.push({rows,header:compact((table.headers||[])[balanceIndex])});
   }
-  candidates.sort((a,b)=>b.rows.length-a.rows.length);const winner=candidates[0];
-  if(!winner)throw new Error('لم يتم العثور على جدول مركبات يحتوي عمود رصيد صريحًا.');
-  return{rows:winner.rows,header:winner.header,total:Number(winner.rows.reduce((sum,row)=>sum+row.amount,0).toFixed(2))};
+  const rows=candidates.flatMap(candidate=>candidate.rows),headers=[...new Set(candidates.map(candidate=>candidate.header).filter(Boolean))];
+  if(!rows.length)throw new Error('لم يتم العثور على رصيد ديزل غير مستخدم موجب في صفحات المركبات.');
+  return{rows,header:headers.join(' / '),total:Number(rows.reduce((sum,row)=>sum+row.amount,0).toFixed(2))};
 }
 function isFuelReportUrl(value){try{return /\/companies\/fuels\/?$/i.test(new URL(value).pathname);}catch{return false;}}
 function reportUrl(fromDate,toDate,exportExcel=false){
