@@ -3,6 +3,29 @@ import { sendMessage, keyboard } from './telegram.js';
 import { displayName } from './bot-profile.js';
 import { clearMaintenanceSession } from './bot-maintenance.js';
 import { canUseProductAssistant, continueProductAssistant, handleProductTextCommand, startProductAssistant, startProductImageAssistant } from './bot-product-assistant.js';
+import { warmAck, RULE } from './bot-format.js';
+
+// رقم قابل للاتصال بضغطة واحدة: تليجرام يدعم روابط tel، فيُحوَّل الرقم المحلي
+// (05xxxxxxxx) إلى الصيغة الدولية بدل نسخه يدويًا من مربع نص.
+function callable(phone){
+  const raw=String(phone||'').replace(/[^\d+]/g,'');
+  if(!raw)return'';
+  if(raw.startsWith('+'))return raw;
+  if(raw.startsWith('00'))return`+${raw.slice(2)}`;
+  if(raw.startsWith('05')&&raw.length===10)return`+966${raw.slice(1)}`;
+  if(raw.startsWith('9665'))return`+${raw}`;
+  return raw;
+}
+// شارة جودة المطابقة: تُغني عن سطر «نوع النتيجة» النصي في كل بطاقة.
+const MATCH_BADGE=[['🎯','مطابق للقطعة'],['🔧','محل متخصص'],['🏬','قطع غيار عام']];
+function supplierCard(place,index){
+  // matchRank=0 هو أفضل مطابقة، فاستخدام || هنا يقلبها إلى «عام» — لذلك ??.
+  const[icon,label]=MATCH_BADGE[Math.min(Math.max(Number(place.matchRank??2),0),2)]||MATCH_BADGE[2];
+  const tel=callable(place.phone);
+  const phoneLine=tel?`   📞 <a href="tel:${esc(tel)}">${esc(place.phone)}</a>`:'   📞 <i>غير منشور</i>';
+  const stars=place.rating?` ⭐ ${place.rating}${place.reviews?` (${place.reviews})`:''}`:'';
+  return[`${index}. ${icon} <b>${esc(place.name)}</b>${stars}`,phoneLine,place.address?`   📍 ${esc(place.address)}`:null,`   <i>${label}</i>`].filter(Boolean).join('\n');
+}
 
 const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const now=()=>new Date().toISOString();
@@ -25,13 +48,13 @@ async function setSession(chatId,userId,state,context={}){
 async function currentSession(chatId,userId){return(await select('bot_sessions',`channel=eq.telegram&chat_id=eq.${encodeURIComponent(String(chatId))}&external_user_id=eq.${encodeURIComponent(String(userId))}&select=*&limit=1`))?.[0]||null;}
 
 export function procurementMenu(){return keyboard([
-  [{text:'بحث قطعة ومورد',callback_data:'proc:product'},{text:'البحث بصورة القطعة',callback_data:'proc:product_image'}],
-  [{text:'بحث دليل الموردين',callback_data:'proc:search'},{text:'طلب عرض سعر',callback_data:'proc:rfq'}],
-  [{text:'طلبات الأسعار المفتوحة',callback_data:'proc:open'}]
+  [{text:'🔍 بحث قطعة ومورد',callback_data:'proc:product'},{text:'📷 البحث بصورة',callback_data:'proc:product_image'}],
+  [{text:'🏪 دليل الموردين',callback_data:'proc:search'},{text:'📝 طلب عرض سعر',callback_data:'proc:rfq'}],
+  [{text:'📂 طلبات الأسعار المفتوحة',callback_data:'proc:open'}]
 ]);}
 export async function showProcurementMenu(message,identity){
   if(!canUse(identity?.role))return sendMessage(message.chat.id,'بحث قطع الغيار والموردين متاح للمشتريات والمخزن والورشة والإدارة والمحاسب.');
-  return sendMessage(message.chat.id,'اختر العملية. نتائج البحث تظهر داخل البوت فقط: اسم المورد، رقم الاتصال والعنوان. يبدأ البحث بالقطعة نفسها ثم يتوسع تلقائيًا إلى المحلات المتخصصة ومحلات قطع الغيار العامة.',procurementMenu());
+  return sendMessage(message.chat.id,[`${warmAck(identity)}`,'🛒 <b>المشتريات والموردون</b>',RULE,'اختر العملية. النتائج داخل البوت فقط: اسم المورد ورقم الاتصال والعنوان.','<i>يبدأ البحث بالقطعة نفسها ثم يتوسع تلقائيًا للمحلات المتخصصة والعامة.</i>'].join('\n'),procurementMenu());
 }
 
 function cityKeyboard(){return keyboard([
@@ -139,15 +162,19 @@ async function sendSupplierResults(message,identity,query,city){
   if(!places.length)return sendMessage(message.chat.id,'لم يعثر دليل الأعمال على محلات في هذه المدينة حتى بعد توسيع البحث إلى محلات قطع الغيار العامة. جرّب «كل السعودية» أو مدينة قريبة.',keyboard([[{text:'بحث في كل السعودية',callback_data:'supplier_city:saudi'},{text:'بحث في مدينة أخرى',callback_data:'supplier_city:other'}]]));
   const chunks=[];for(let i=0;i<places.length;i+=6)chunks.push(places.slice(i,i+6));
   for(let chunkIndex=0;chunkIndex<chunks.length;chunkIndex++){
-    const chunk=chunks[chunkIndex],buttons=[];let text=`<b>نتائج الموردين — ${chunkIndex+1}/${chunks.length}</b>\nالقطعة: <b>${esc(query)}</b>\nالنطاق: <b>${esc(city)}</b>\nإجمالي المحلات: <b>${places.length}</b>${expanded?'\nتم توسيع البحث تلقائيًا إلى المحلات المتخصصة ومحلات قطع الغيار العامة؛ توفر القطعة يتأكد بالاتصال.':''}\n\n`;
-    chunk.forEach((place,localIndex)=>{
-      const index=chunkIndex*6+localIndex+1;
-      const matchLabel=place.matchRank===0?'نتيجة مرتبطة بالقطعة':place.matchRank===1?'محل متخصص محتمل':'محل قطع غيار عام';
-      text+=`${index}. <b>${esc(place.name)}</b>\nنوع النتيجة: ${esc(matchLabel)}\nرقم الاتصال: ${place.phone?`<code>${esc(place.phone)}</code>`:'غير منشور'}\nالعنوان: ${esc(place.address||'غير متاح')}${place.rating?`\nالتقييم: ${place.rating} (${place.reviews})`:''}\nتوفر القطعة المطلوبة: <b>يتأكد بالاتصال</b>\nالسعر: <b>يتأكد بالاتصال</b>\n\n`;
-    });
-    if(chunkIndex===chunks.length-1)buttons.push([{text:'إنشاء طلب عرض سعر',callback_data:'supplier_rfq:start'},{text:'بحث عن قطعة أخرى',callback_data:'proc:product'}],[{text:'بحث في مدينة أخرى',callback_data:'supplier_city:other'},{text:'كل السعودية',callback_data:'supplier_city:saudi'}]);
-    text+='اضغط مطولًا على رقم الاتصال داخل المربع لنسخه. ظهور المحل لا يعني أن القطعة متوفرة؛ يجب الاتصال والتأكد.';
-    await sendMessage(message.chat.id,text.slice(0,3900),keyboard(buttons));
+    const chunk=chunks[chunkIndex],buttons=[],last=chunkIndex===chunks.length-1;
+    const header=[
+      chunkIndex===0?warmAck(identity):null,
+      `🔍 <b>موردو: ${esc(query)}</b>`,
+      `📍 ${esc(city)} · <b>${places.length}</b> محل${chunks.length>1?` · صفحة ${chunkIndex+1}/${chunks.length}`:''}`,
+      expanded&&chunkIndex===0?'<i>وُسّع البحث تلقائيًا للمحلات المتخصصة والعامة.</i>':null,
+      RULE
+    ].filter(Boolean).join('\n');
+    const cards=chunk.map((place,localIndex)=>supplierCard(place,chunkIndex*6+localIndex+1)).join('\n\n');
+    // التنبيه يُذكر مرة واحدة في آخر صفحة بدل تكراره تحت كل مورد.
+    const footer=last?`\n${RULE}\n<i>اضغط الرقم للاتصال. التوفر والسعر يتأكدان بالاتصال.</i>`:'';
+    if(last)buttons.push([{text:'📝 طلب عرض سعر',callback_data:'supplier_rfq:start'},{text:'🔍 قطعة أخرى',callback_data:'proc:product'}],[{text:'🏙️ مدينة أخرى',callback_data:'supplier_city:other'},{text:'🇸🇦 كل السعودية',callback_data:'supplier_city:saudi'}]);
+    await sendMessage(message.chat.id,`${header}\n${cards}${footer}`.slice(0,3900),keyboard(buttons));
   }
   return places;
 }

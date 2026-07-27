@@ -32,10 +32,12 @@ test('bearing search expands from exact item to specialist and general parts sho
 
 test('supplier results contain copyable phone numbers and no external links',async()=>{
   const source=await read('api/_lib/bot-procurement.js');
-  assert.match(source,/<code>\$\{esc\(place\.phone\)\}<\/code>/);
-  assert.match(source,/اضغط مطولًا على رقم الاتصال داخل المربع لنسخه/);
-  assert.match(source,/السعر: <b>يتأكد بالاتصال<\/b>/);
-  assert.match(source,/توفر القطعة المطلوبة: <b>يتأكد بالاتصال<\/b>/);
+  // الرقم صار قابلًا للاتصال بضغطة عبر رابط tel بدل نسخه يدويًا من مربع نص،
+  // وتنبيه «التوفر والسعر يتأكدان بالاتصال» يُذكر مرة واحدة بدل تكراره تحت كل مورد.
+  assert.match(source,/href="tel:\$\{esc\(tel\)\}"/);
+  assert.match(source,/function callable\(phone\)/);
+  assert.match(source,/التوفر والسعر يتأكدان بالاتصال/);
+  assert.doesNotMatch(source,/توفر القطعة المطلوبة: <b>يتأكد بالاتصال<\/b>/);
   assert.doesNotMatch(source,/googleMapsUri/);
   assert.doesNotMatch(source,/websiteUri/);
   assert.doesNotMatch(source,/url:place\./);
@@ -47,8 +49,10 @@ test('supplier directory searches fallback scopes in parallel within Vercel budg
   const source=await read('api/_lib/bot-procurement.js');
   assert.match(source,/Promise\.allSettled/);
   assert.match(source,/AbortSignal\.timeout\(9000\)/);
-  assert.match(source,/محل متخصص محتمل/);
-  assert.match(source,/محل قطع غيار عام/);
+  // تسميات درجة المطابقة صارت شارات مختصرة بأيقونة بدل جملة نصية تحت كل نتيجة.
+  assert.match(source,/محل متخصص/);
+  assert.match(source,/قطع غيار عام/);
+  assert.match(source,/مطابق للقطعة/);
   assert.match(source,/كل السعودية/);
   assert.match(source,/return \{places:usable\.slice\(0,18\),searchQueries,expanded/);
 });

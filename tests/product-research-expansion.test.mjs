@@ -47,7 +47,7 @@ test('supplier directory broadens exact product lookup without external URL fiel
   assert.match(source,/pageSize:20/);
   assert.match(source,/AbortSignal\.timeout\(9000\)/);
   assert.match(source,/usable\.slice\(0,18\)/);
-  assert.match(source,/<code>\$\{esc\(place\.phone\)\}<\/code>/);
+  assert.match(source,/href="tel:\$\{esc\(tel\)\}"/);
   assert.match(source,/محلات رولمان بلي ومحامل وسيور صناعية/);
   assert.match(source,/محلات قطع غيار صناعية وسيارات وشاحنات ومعدات ثقيلة/);
   assert.doesNotMatch(source,/nextPageToken/);
