@@ -1,9 +1,6 @@
 name: Noor Khoy daily fuel sync
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
     inputs:
       report_date:
@@ -28,7 +25,7 @@ on:
     - cron: '0 16 * * *'
 
 permissions:
-  contents: write
+  contents: read
   id-token: write
 
 concurrency:
@@ -37,7 +34,7 @@ concurrency:
 
 jobs:
   sync:
-    if: (github.event_name != 'push' || contains(github.event.head_commit.message, '[fuel-initial-backfill]')) && github.event.schedule != '0 16 * * *' && !(github.event_name == 'workflow_dispatch' && inputs.run_vehicle_balance)
+    if: github.event.schedule != '0 16 * * *' && !(github.event_name == 'workflow_dispatch' && inputs.run_vehicle_balance)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -48,11 +45,11 @@ jobs:
       NOOR_KHOY_REPORT_URL: https://www.norkhoysa.com/companies/fuels?fueltype=all
       BINHAMID_FUEL_UPLOAD_URL: https://binhamid-factory-control.vercel.app/api/fuel/daily-report
       REPORT_DATE: ${{ inputs.report_date }}
-      REPORT_START_DATE: ${{ github.event_name == 'push' && '2026-07-01' || inputs.start_date }}
-      REPORT_END_DATE: ${{ github.event_name == 'push' && '2026-07-26' || inputs.end_date }}
+      REPORT_START_DATE: ${{ inputs.start_date }}
+      REPORT_END_DATE: ${{ inputs.end_date }}
       FUEL_REPORT_DATE_OFFSET_DAYS: '-1'
       FUEL_SEND_BALANCE: 'true'
-      FUEL_NOTIFY: ${{ github.event_name == 'push' && 'false' || 'true' }}
+      FUEL_NOTIFY: 'true'
       FUEL_SYNC_ARTIFACT_DIR: artifacts/noor-khoy-fuel
     steps:
       - uses: actions/checkout@v4
@@ -74,38 +71,19 @@ jobs:
           set -euo pipefail
           mkdir -p artifacts/noor-khoy-fuel
           node scripts/noor-khoy-fuel-sync.mjs 2>&1 | tee artifacts/noor-khoy-fuel/execution.log
-      - name: Publish execution status
+      - name: Write execution summary
         if: always()
         shell: bash
         env:
           IMPORT_OUTCOME: ${{ steps.fuel_import.outcome }}
         run: |
-          set -euo pipefail
-          mkdir -p .github/fuel-sync-status
-          python - <<'PY'
-          import json, os, pathlib, datetime
-          root=pathlib.Path('artifacts/noor-khoy-fuel')
-          diagnostics=[]
-          for p in sorted(root.glob('failure-context.json')):
-              try: diagnostics.append({'file':str(p),'data':json.loads(p.read_text(encoding='utf-8'))})
-              except Exception as e: diagnostics.append({'file':str(p),'error':str(e)})
-          uploads=[]
-          for p in sorted(root.glob('upload-response.json')):
-              try: uploads.append({'file':str(p),'data':json.loads(p.read_text(encoding='utf-8'))})
-              except Exception as e: uploads.append({'file':str(p),'error':str(e)})
-          lp=root/'execution.log'
-          log='\n'.join(lp.read_text(encoding='utf-8',errors='replace').splitlines()[-200:]) if lp.exists() else ''
-          payload={'outcome':os.environ.get('IMPORT_OUTCOME','unknown'),'run_id':os.environ.get('GITHUB_RUN_ID'),'run_attempt':os.environ.get('GITHUB_RUN_ATTEMPT'),'commit':os.environ.get('GITHUB_SHA'),'updated_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'diagnostics':diagnostics,'uploads':uploads,'log_tail':log}
-          pathlib.Path('.github/fuel-sync-status/latest.json').write_text(json.dumps(payload,ensure_ascii=False,indent=2),encoding='utf-8')
-          PY
-          git config user.name github-actions
-          git config user.email github-actions@github.com
-          git add .github/fuel-sync-status/latest.json
-          if ! git diff --cached --quiet; then
-            git commit -m "chore: record fuel sync status [skip ci]"
-            git pull --rebase origin main
-            git push origin HEAD:main
-          fi
+          {
+            echo "## Noor Khoy fuel sync"
+            echo
+            echo "- Outcome: ${IMPORT_OUTCOME}"
+            echo "- Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "- Commit: ${GITHUB_SHA}"
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Keep fuel workbook and diagnostics
         if: always()
         uses: actions/upload-artifact@v4
