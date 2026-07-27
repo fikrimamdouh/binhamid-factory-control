@@ -27,6 +27,22 @@ const sql=`select json_build_object(
     where b.status='approved'
   ) report_rows
 ),
+'dailyCollections',(
+  select coalesce(json_agg(json_build_object(
+    'reportDate',b.report_date,
+    'sourceRowNo',c.source_row_no,
+    'treasuryCode',c.treasury_code,
+    'accountCode',c.account_code,
+    'debit',c.debit,
+    'credit',c.credit,
+    'voucherNo',c.voucher_no,
+    'movementDate',c.movement_date_text,
+    'lineIdentity',c.line_identity
+  ) order by b.report_date,c.source_row_no,c.id),'[]'::json)
+  from daily_report_batches b
+  join daily_report_cash_movements c on c.batch_id=b.id
+  where b.status='approved' and c.is_customer_collection=true
+),
 'checks',json_build_object(
 'invalidSalesBalances',(select count(*) from sales_orders where coalesce(paid_amount,0)<0 or coalesce(paid_amount,0)>coalesce(total_amount,0)+0.01),
 'orphanSalesCustomers',(select count(*) from sales_orders s where nullif(trim(s.customer_external_id),'') is not null and not exists(select 1 from customers c where c.external_id=s.customer_external_id or c.customer_code=s.customer_external_id)),
