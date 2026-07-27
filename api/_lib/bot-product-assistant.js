@@ -52,7 +52,23 @@ export async function handleProductImage(message,identity,buffer,mimeType='image
   const query=String(identified.query||identified.identification||identified.codes||'').trim();
   if(query.length<2){await sendMessage(message.chat.id,'لم أستطع استخراج اسم أو رقم كافٍ من الصورة. أرسل صورة أوضح للملصق أو اكتب رقم القطعة.');return true;}
   await setSession(message.chat.id,identity.external_id||message.from.id,'supplier_search_city',{query,startedAt:now(),source:'product_image',identification:identified.identification,codes:identified.codes});
-  return sendMessage(message.chat.id,`<b>نتيجة قراءة الصورة</b>\nالقطعة: <b>${esc(identified.identification)}</b>\nالأكواد: ${copyable(identified.codes||'لم يظهر رقم كامل')}\nدرجة الثقة: <b>${esc(confidence)}</b>\nعبارة البحث: <code>${esc(query)}</code>\n\nاختر المدينة لعرض الموردين وأرقام الاتصال داخل البوت:`,supplierCityKeyboard());
+  // نعرض الماركة والمعدة صراحةً — فهما ما يحدد جودة النتائج — ونطلبهما إن غابتا
+  // بدل إرسال المستخدم إلى بحث عام لا يفيده في الشراء.
+  const missing=[!identified.brand?'الماركة':null,!identified.equipment?'نوع المعدة':null].filter(Boolean);
+  const body=[
+    '📷 <b>قراءة الصورة</b>',
+    '━━━━━━━━━━━━━━━',
+    `🔩 القطعة: <b>${esc(identified.identification)}</b>`,
+    identified.brand?`🏷️ الماركة: <b>${esc(identified.brand)}</b>`:null,
+    identified.equipment?`🚜 المعدة: <b>${esc(identified.equipment)}</b>`:null,
+    `🔢 الأكواد: ${copyable(identified.codes||'لم يظهر رقم كامل')}`,
+    `📊 الثقة: <b>${esc(confidence)}</b>`,
+    '━━━━━━━━━━━━━━━',
+    missing.length
+      ?`✍️ اكتب <b>${esc(missing.join(' و'))}</b> لنتائج أدق (مثال: «شيول فولفو») — أو اختر المدينة مباشرة:`
+      :'اختر مدينة البحث:'
+  ].filter(Boolean).join('\n');
+  return sendMessage(message.chat.id,body,supplierCityKeyboard());
 }
 
 export async function continueProductAssistant(message,identity,session,text){

@@ -98,14 +98,52 @@ function categorySearchTerm(query){
   return'محلات قطع غيار صناعية وسيارات وشاحنات ومعدات ثقيلة';
 }
 
+// المعدة والماركة هما مفتاح نتائج قابلة للشراء: البحث عن «فلتر» يعطي محلات عامة،
+// أما «فلتر شيول فولفو» فيصل لوكلاء المعدة نفسها. نوسّع بالمرادف العربي والإنجليزي
+// لأن الدليل يفهرس المحلات بالاسمين معًا.
+const EQUIPMENT_TERMS=[
+  [/شيول|شوفل|لودر|loader/,'شيول لودر wheel loader معدات ثقيلة'],
+  [/حفار|حفارة|بوكلين|excavator/,'حفار excavator معدات ثقيلة'],
+  [/خلاطه|خلاطة|خلاطات|mixer/,'خلاطة خرسانة concrete mixer'],
+  [/مضخه خرسان|مضخة خرسان|بمب|concrete pump/,'مضخة خرسانة concrete pump'],
+  [/قلاب|قلابات|تريلا|شاحنه|شاحنة|tipper|truck/,'شاحنات وقلابات truck spare parts'],
+  [/كساره|كسارة|crusher/,'كسارة crusher معدات'],
+  [/بلدوزر|دوزر|bulldozer/,'بلدوزر bulldozer معدات ثقيلة'],
+  [/رافعه|رافعة|ونش|crane/,'رافعة ونش crane'],
+  [/جريدر|grader/,'جريدر grader معدات ثقيلة'],
+  [/كومبريسر|كمبروسر|compressor/,'كمبروسر هواء compressor']
+];
+const BRAND_TERMS=[
+  [/كتربلر|كاتربيلر|كاتر بلر|caterpillar|\bcat\b/,'Caterpillar كاتربيلر'],
+  [/فولفو|volvo/,'Volvo فولفو'],
+  [/كوماتسو|komatsu/,'Komatsu كوماتسو'],
+  [/هيونداي|هونداي|hyundai/,'Hyundai هيونداي'],
+  [/دوسان|doosan/,'Doosan دوسان'],
+  [/جي سي بي|jcb/,'JCB'],
+  [/ساني|sany/,'SANY ساني'],
+  [/شاكمان|shacman/,'Shacman شاكمان'],
+  [/هوو|هاو|howo/,'Howo هوو'],
+  [/ليبهر|liebherr/,'Liebherr ليبهر'],
+  [/مرسيدس|اكتروس|mercedes|actros/,'Mercedes مرسيدس'],
+  [/دايو|daewoo/,'Daewoo دايو']
+];
+function matchTerm(value,table){for(const[re,term]of table)if(re.test(value))return term;return'';}
+export function equipmentSearchTerm(query){return matchTerm(normalize(query),EQUIPMENT_TERMS);}
+export function brandSearchTerm(query){return matchTerm(normalize(query),BRAND_TERMS);}
+
 export function supplierSearchQueries(query,city){
   const location=city==='كل السعودية'?'السعودية':`${city} السعودية`;
-  const category=categorySearchTerm(query);
+  const category=categorySearchTerm(query),equipment=equipmentSearchTerm(query),brand=brandSearchTerm(query);
+  // الترتيب مقصود: الأدق أولًا (الماركة + المعدة) ثم الأوسع، لأن رتبة المطابقة
+  // تُحدَّد من ترتيب الاستعلام الذي أعاد النتيجة.
   return [...new Set([
     `${query} ${location}`,
+    brand&&equipment?`قطع غيار ${equipment} ${brand} ${location}`:'',
+    brand?`وكيل قطع غيار ${brand} ${location}`:'',
+    equipment?`قطع غيار ${equipment} ${location}`:'',
     `${category} ${location}`,
     `محلات قطع غيار صناعية وسيارات وشاحنات ومعدات ثقيلة ${location}`
-  ])];
+  ].filter(Boolean))];
 }
 
 async function searchPlacesText(textQuery,apiKey,matchRank){
@@ -188,6 +226,14 @@ export async function continueProcurementSession(message,identity,session,text){
     if(t.length<2){await sendMessage(message.chat.id,'اكتب رقم قطعة أو اسمًا أوضح.');return true;}
     await setSession(message.chat.id,userId,'supplier_search_city',{query:t,startedAt:now()});
     await sendMessage(message.chat.id,'اختر مدينة البحث:',cityKeyboard());return true;
+  }
+  // أثناء انتظار المدينة يستطيع المستخدم كتابة الماركة أو نوع المعدة لتدقيق البحث
+  // (مثال: «شيول فولفو»)، فتُدمج مع القطعة بدل تجاهل ما كتبه.
+  if(session.state==='supplier_search_city'){
+    if(t.length<2){await sendMessage(message.chat.id,'اكتب الماركة أو نوع المعدة، أو اختر المدينة من الأزرار.');return true;}
+    const merged=`${context.query||''} ${t}`.trim().slice(0,260);
+    await setSession(message.chat.id,userId,'supplier_search_city',{...context,query:merged,startedAt:now()});
+    await sendMessage(message.chat.id,`🔍 <b>${esc(merged)}</b>\n${RULE}\nاختر مدينة البحث:`,cityKeyboard());return true;
   }
   if(session.state==='supplier_search_custom_city'){
     if(t.length<2){await sendMessage(message.chat.id,'اكتب اسم مدينة واضحًا.');return true;}

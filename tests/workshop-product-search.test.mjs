@@ -63,3 +63,29 @@ test('secure procurement menu describes in-bot results only',async()=>{
   assert.match(source,/السعر يتأكد بالاتصال/);
   assert.match(source,/بحث قطعة ومورد/);
 });
+
+test('search widens by equipment type and brand so results are purchasable', async () => {
+  const { supplierSearchQueries, equipmentSearchTerm, brandSearchTerm } = await import('../api/_lib/bot-procurement.js');
+  assert.match(equipmentSearchTerm('فلتر شيول'), /wheel loader/);
+  assert.match(equipmentSearchTerm('قطع خلاطة خرسانة'), /concrete mixer/);
+  assert.match(brandSearchTerm('شيول فولفو'), /Volvo/);
+  assert.match(brandSearchTerm('بريك كتربلر'), /Caterpillar/);
+  const queries = supplierSearchQueries('فلتر زيت شيول فولفو', 'نجران');
+  // الأدق أولًا: الماركة مع المعدة، ثم وكيل الماركة، ثم المعدة، ثم العام.
+  assert.ok(queries.some(q => /Volvo/.test(q) && /wheel loader/.test(q)));
+  assert.ok(queries.some(q => /وكيل قطع غيار Volvo/.test(q)));
+  assert.ok(queries.indexOf(queries.find(q => /Volvo/.test(q))) < queries.length - 1);
+});
+
+test('image reading reports brand and equipment and asks for what is missing', async () => {
+  const vision = await read('api/_lib/product-image-identification.js');
+  const assistant = await read('api/_lib/bot-product-assistant.js');
+  // النموذج مُلزَم بإخراج الماركة والمعدة، وتُحقن في عبارة البحث إن أغفلها.
+  assert.match(vision, /BRAND/);
+  assert.match(vision, /EQUIPMENT/);
+  assert.match(vision, /if\(brand&&!has\(brand\)\)query=/);
+  assert.match(vision, /if\(equipment&&!has\(equipment\)\)query=/);
+  assert.match(assistant, /🏷️ الماركة/);
+  assert.match(assistant, /🚜 المعدة/);
+  assert.match(assistant, /لنتائج أدق/);
+});

@@ -4,12 +4,16 @@ function outputText(data={}){
   if(data.output_text)return String(data.output_text).trim();
   return(data.output||[]).flatMap(item=>item.content||[]).map(part=>part.text||'').join('\n').trim();
 }
+const MISSING=/^(?:لا يوجد|غير واضح|غير محدد|غير ظاهر|none|unknown|n\/a|-)$/i;
+function field(text,name){const value=(text.match(new RegExp(`^${name}:\\s*(.+)$`,'mi'))||[])[1]?.trim()||'';return MISSING.test(value)?'':value;}
 function parseVision(text=''){
-  const query=(text.match(/^SEARCH_QUERY:\s*(.+)$/mi)||[])[1]?.trim()||'';
-  const identification=(text.match(/^IDENTIFICATION:\s*(.+)$/mi)||[])[1]?.trim()||'قطعة غير محددة';
-  const codes=(text.match(/^READABLE_CODES:\s*(.+)$/mi)||[])[1]?.trim()||'لا توجد أكواد واضحة';
+  const query=field(text,'SEARCH_QUERY');
+  const identification=field(text,'IDENTIFICATION')||'قطعة غير محددة';
+  const codes=field(text,'READABLE_CODES')||'لا توجد أكواد واضحة';
   const confidence=(text.match(/^CONFIDENCE:\s*(high|medium|low)$/mi)||[])[1]?.toLowerCase()||'low';
-  return{query,identification,codes,confidence,raw:text};
+  // الماركة ونوع المعدة هما ما يحوّل البحث من «فلتر» إلى «فلتر شيول فولفو» —
+  // بدونهما تعود نتائج عامة لا تصلح للشراء.
+  return{query,identification,codes,confidence,brand:field(text,'BRAND'),equipment:field(text,'EQUIPMENT'),raw:text};
 }
 function usefulCodes(value=''){
   const text=String(value||'').trim();
@@ -30,8 +34,8 @@ function score(result={}){
 async function analyze({imageUrl,model,caption,attempt,prior=''}){
   const retry=attempt>1;
   const instructions=retry
-    ?`أعد فحص صورة قطعة الغيار بصورة مستقلة ودقيقة. القراءة الأولى كانت ضعيفة، فلا تكرر عبارة «الصورة غير واضحة» لمجرد أن بعض النص صغير. افحص الشعار، شكل القطعة، نقاط التثبيت، ألوان الملصق، التغليف، الأرقام الجزئية، الحروف المعكوسة أو المائلة، والمقاسات. كوّن عبارة بحث مفيدة حتى عند غياب رقم كامل، مستخدمًا وصفًا بصريًا محددًا وأي كود جزئي. لا تخمن رقمًا غير ظاهر. أخرج أربع سطور فقط وبنفس العناوين الإنجليزية: SEARCH_QUERY، IDENTIFICATION، READABLE_CODES، CONFIDENCE.`
-    :`أنت خبير قطع غيار ومشتريات صناعية وقراءة ملصقات. افحص الصورة كاملة بدقة عالية، بما في ذلك الشعار، شكل القطعة، نقاط التثبيت، الألوان، التغليف، المقاسات، الأرقام الجزئية، النص المائل أو المعكوس. لا ترفض الصورة لمجرد أن بعض الكتابة صغيرة، ولا تقل «الصورة غير واضحة» إلا إذا لم يظهر أي جسم قابل للوصف. لا تخمن علامة أو رقم قطعة غير ظاهر. كوّن عبارة بحث عربية وإنجليزية قابلة للاستخدام، ولو بالوصف البصري المحدد مع الأكواد الجزئية. أخرج أربع سطور فقط: SEARCH_QUERY: أفضل عبارة بحث. IDENTIFICATION: وصف دقيق للقطعة. READABLE_CODES: كل الأكواد والأرقام المقروءة مفصولة بفواصل. CONFIDENCE: high أو medium أو low.`;
+    ?`أعد فحص صورة قطعة الغيار بصورة مستقلة ودقيقة. القراءة الأولى كانت ضعيفة، فلا تكرر عبارة «الصورة غير واضحة» لمجرد أن بعض النص صغير. افحص الشعار، شكل القطعة، نقاط التثبيت، ألوان الملصق، التغليف، الأرقام الجزئية، الحروف المعكوسة أو المائلة، والمقاسات. كوّن عبارة بحث مفيدة حتى عند غياب رقم كامل، مستخدمًا وصفًا بصريًا محددًا وأي كود جزئي. لا تخمن رقمًا غير ظاهر. اقرأ الشعار المحفور أو المطبوع لتحديد الماركة (Caterpillar، Volvo، Komatsu، JCB، Hyundai، Doosan، SANY، Shacman، Howo، Bosch، Donaldson…) واستنتج نوع المعدة إن ظهر (شيول، حفار، خلاطة خرسانة، مضخة خرسانة، قلاب، كسارة، بلدوزر، رافعة). أخرج ست سطور فقط وبنفس العناوين الإنجليزية: SEARCH_QUERY، IDENTIFICATION، BRAND، EQUIPMENT، READABLE_CODES، CONFIDENCE. اكتب «لا يوجد» في الماركة أو المعدة إن لم تظهر، ولا تخمّن.`
+    :`أنت خبير قطع غيار ومشتريات صناعية وقراءة ملصقات. افحص الصورة كاملة بدقة عالية، بما في ذلك الشعار، شكل القطعة، نقاط التثبيت، الألوان، التغليف، المقاسات، الأرقام الجزئية، النص المائل أو المعكوس. لا ترفض الصورة لمجرد أن بعض الكتابة صغيرة، ولا تقل «الصورة غير واضحة» إلا إذا لم يظهر أي جسم قابل للوصف. لا تخمن علامة أو رقم قطعة غير ظاهر. كوّن عبارة بحث عربية وإنجليزية قابلة للاستخدام، ولو بالوصف البصري المحدد مع الأكواد الجزئية. اقرأ الشعار المحفور أو المطبوع لتحديد الماركة (Caterpillar، Volvo، Komatsu، JCB، Hyundai، Doosan، SANY، Shacman، Howo، Bosch، Donaldson…) واستنتج نوع المعدة إن ظهر (شيول، حفار، خلاطة خرسانة، مضخة خرسانة، قلاب، كسارة، بلدوزر، رافعة). أخرج ست سطور فقط: SEARCH_QUERY: أفضل عبارة بحث تجمع الماركة والقطعة ورقمها. IDENTIFICATION: وصف دقيق للقطعة. BRAND: اسم الماركة أو «لا يوجد». EQUIPMENT: نوع المعدة أو «لا يوجد». READABLE_CODES: كل الأكواد والأرقام المقروءة مفصولة بفواصل. CONFIDENCE: high أو medium أو low.`;
   const response=await fetch('https://api.openai.com/v1/responses',{
     method:'POST',
     headers:{Authorization:`Bearer ${config.openaiKey}`,'Content-Type':'application/json'},
@@ -68,11 +72,17 @@ export async function identifyProductImage(buffer,mimeType='image/jpeg',caption=
     }catch(error){console.warn('[product image second pass]',{message:String(error?.message||'').slice(0,240)});}
   }
   const codes=usefulCodes(best.codes).join('، ')||'لا توجد أكواد مؤكدة';
+  // نضمن حضور الماركة ونوع المعدة داخل عبارة البحث حتى لو أغفلهما النموذج،
+  // فهما الفارق بين نتيجة قابلة للشراء ونتيجة عامة.
   let query=String(best.query||'').trim();
+  const brand=String(best.brand||'').trim(),equipment=String(best.equipment||'').trim();
+  const has=value=>value&&query.toLowerCase().includes(value.toLowerCase());
+  if(brand&&!has(brand))query=`${brand} ${query}`.trim();
+  if(equipment&&!has(equipment))query=`${query} ${equipment}`.trim();
   if(query.length<2){
     const fallback=[best.identification,...usefulCodes(best.codes),caption].filter(Boolean).join(' ');
     query=fallback.trim();
   }
   if(query.length<2)throw Object.assign(new Error('لم أستطع تكوين عبارة بحث من الصورة. أرسلها كملف صورة أصلي أو أرفق اسم المعدة.'),{status:422,code:'PRODUCT_IMAGE_QUERY_EMPTY'});
-  return{query:query.slice(0,260),identification:String(best.identification||'قطعة غير محددة').slice(0,500),codes:codes.slice(0,400),confidence:best.confidence,analysisPasses:passes,needsMoreDetail:weak(best)};
+  return{query:query.slice(0,260),identification:String(best.identification||'قطعة غير محددة').slice(0,500),brand,equipment,codes:codes.slice(0,400),confidence:best.confidence,analysisPasses:passes,needsMoreDetail:weak(best)};
 }
