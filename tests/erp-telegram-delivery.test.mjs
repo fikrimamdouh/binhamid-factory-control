@@ -54,14 +54,16 @@ test('automatic Telegram delivery includes the owner and Manea once',()=>{
   assert.deepEqual(erpTelegramRecipients('6870312376','6870312376'),['6870312376']);
 });
 
-test('portfolio drafts retain current movements and PDFs use the report date once',async()=>{
+test('portfolio drafts retain report movements and PDFs use the report date once',async()=>{
   const portfolio=await readFile(new URL('../api/_lib/customer-portfolio-pdf.js',import.meta.url),'utf8');
   const dailyPdf=await readFile(new URL('../api/_lib/daily-cumulative-pdf.js',import.meta.url),'utf8');
   const routePath=['..','api','erp','daily-report.js'].join('/');
   const route=await readFile(new URL(routePath,import.meta.url),'utf8');
-  assert.match(portfolio,/currentIndex/);
+  assert.match(portfolio,/activityIndex/);
   assert.match(portfolio,/reportAlreadyCommitted/);
   assert.match(portfolio,/options\?\.currentBatch===true/);
+  assert.match(portfolio,/reportSales/);
+  assert.match(portfolio,/reportCollections/);
   assert.match(dailyPdf,/currentBatch:options\?\.currentBatch!==false/);
   assert.match(route,/prepareErpSuccessDelivery\(\{analysis,sourceFile:originalName,reportDate\}\)/);
   assert.match(route,/posting\?\.duplicate/);
