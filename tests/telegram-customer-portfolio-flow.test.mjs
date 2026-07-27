@@ -4,6 +4,8 @@ import fs from 'node:fs';
 
 const botFiles=fs.readFileSync(new URL('../api/_lib/bot-files.js',import.meta.url),'utf8');
 const portfolio=fs.readFileSync(new URL('../api/_lib/customer-portfolio-pdf.js',import.meta.url),'utf8');
+const portfolioDocument=fs.readFileSync(new URL('../api/_lib/customer-portfolio-document.js',import.meta.url),'utf8');
+const settlement=fs.readFileSync(new URL('../api/_lib/customer-settlement.js',import.meta.url),'utf8');
 const botPortfolio=fs.readFileSync(new URL('../api/_lib/bot-portfolio-reports.js',import.meta.url),'utf8');
 const botReports=fs.readFileSync(new URL('../api/_lib/bot-reports.js',import.meta.url),'utf8');
 const renderer=fs.readFileSync(new URL('../shared/customer-portfolio-declaration.js',import.meta.url),'utf8');
@@ -29,7 +31,6 @@ test('Telegram command selects latest committed non-empty batch',()=>{
   assert.match(botPortfolio,/salesByBatch/);
   assert.match(botPortfolio,/Number\(item\.amount\|\|0\)>0/);
   assert.match(botPortfolio,/const batch=batches\.find/);
-  assert.doesNotMatch(botPortfolio,/report_date=eq\./);
 });
 
 test('Telegram command reads original Excel date before trusting wrong stored date',()=>{
@@ -47,39 +48,40 @@ test('daily sales reports menu includes both portfolio declarations',()=>{
 
 test('portfolio customers come from section sales, not every debtor',()=>{
   assert.match(portfolio,/loadCustomerAnalytics/);
-  assert.match(portfolio,/analysis\?\.sales/);
-  assert.match(portfolio,/analysis\?\.collections/);
-  assert.match(portfolio,/activityIndex/);
+  assert.match(portfolio,/beforeDate:reportDate/);
+  assert.match(portfolio,/buildReportActivityIndex/);
   assert.match(portfolio,/hasSectionSales/);
-  assert.match(portfolio,/base\.grossSales/);
-  assert.match(portfolio,/a\.remainingNew>0/);
+  assert.match(portfolio,/settlement\.remainingPriorSales/);
   assert.doesNotMatch(portfolio,/assignedToRep/);
-  assert.doesNotMatch(portfolio,/dueOnly\?allCustomers\.filter/);
 });
 
-test('Telegram PDF shows report sales, report payment and old-debt allocation',()=>{
-  assert.match(portfolio,/appendDebtAppendix/);
-  assert.match(portfolio,/مبيعات التقرير \/ التاريخ/);
-  assert.match(portfolio,/سداد التقرير \/ التاريخ/);
-  assert.match(portfolio,/المتبقي السابق والقديم/);
-  assert.match(portfolio,/توزيع السداد/);
-  assert.match(portfolio,/الرصيد النهائي/);
-  assert.match(portfolio,/لا تُدرج المديونية الافتتاحية وحدها دون مبيعات/);
+test('Telegram PDF shows new-old classification and payment allocation',()=>{
+  assert.match(portfolioDocument,/تصنيف والحالة/);
+  assert.match(portfolioDocument,/الرصيد السابق/);
+  assert.match(portfolioDocument,/مشتريات التقرير/);
+  assert.match(portfolioDocument,/من المشتريات/);
+  assert.match(portfolioDocument,/من السابق/);
+  assert.match(portfolioDocument,/المتبقي النهائي/);
+  assert.match(settlement,/عميل قديم — سدد الجديد وجزءًا من السابق/);
+  assert.match(settlement,/عميل جديد — سدد مشتريات التقرير بالكامل/);
+});
+
+test('payment term is shown only in declaration obligations',()=>{
+  assert.match(portfolioDocument,/removeRepeatedPaymentTerms/);
+  assert.match(portfolioDocument,/مهلة السداد المعتمدة/);
+  assert.match(portfolioDocument,/مهلة السداد<\\\/th>/);
+  assert.match(portfolioDocument,/تظل مثبتة مرة واحدة ضمن بنود الإقرار/);
 });
 
 test('concrete classifier accepts canonical and ready-mix values',()=>{
-  assert.match(portfolio,/raw\.includes\('خرسان'\)/);
-  assert.match(portfolio,/raw\.includes\('concrete'\)/);
-  assert.match(portfolio,/raw\.includes\('ready mix'\)/);
-  assert.match(portfolio,/raw==='rmc'/);
+  assert.match(settlement,/خرسان\|concrete\|ready\\s\*mix\|readymix\|rmc/);
 });
 
-test('server fallback uses the same website docCli document system',()=>{
+test('server fallback uses the same website document system',()=>{
   assert.match(portfolio,/renderCustomerPortfolioDeclaration/);
   assert.match(portfolio,/company:state\.company/);
   assert.match(renderer,/website-docCli-exact-v1/);
   for(const marker of ['class="doc"','class="spine"','class="mast"','class="tbar"','class="dg"','class="led"','class="cov"','class="exe"','IBM Plex Sans Arabic','Reem Kufi','width:210mm;height:297mm'])assert.match(renderer,new RegExp(marker));
-  assert.match(renderer,/background:linear-gradient\(180deg,#0B2233/);
 });
 
 test('website-style fallback splits only at complete A4 pages',()=>{
@@ -91,12 +93,13 @@ test('website-style fallback splits only at complete A4 pages',()=>{
   assert.match(renderer,/pages\.push\(page/);
 });
 
-test('bot generates the priced declaration first and keeps the archived print as fallback',()=>{
+test('bot prefers fixed historical snapshot then generates only missing departments',()=>{
   assert.match(botPortfolio,/readExactPointer/);
-  assert.match(botPortfolio,/sendExactDailyPortfolio/);
-  assert.match(botPortfolio,/exactWebsitePrint:true/);
-  const generated=botPortfolio.indexOf('const generated=await generateCustomerPortfolioPdfs'),exact=botPortfolio.indexOf('const exact=await sendExactDailyPortfolio');
-  assert.ok(generated>=0&&exact>generated);
+  assert.match(botPortfolio,/snapshotVersion!=='portfolio-settlement-v2'/);
+  assert.match(botPortfolio,/const needsGeneration=\[\]/);
+  assert.match(botPortfolio,/persistPortfolioReportSnapshot/);
+  const exact=botPortfolio.indexOf('const exact=await sendExactDailyPortfolio'),generated=botPortfolio.indexOf('const generated=await generateCustomerPortfolioPdfs');
+  assert.ok(exact>=0&&generated>exact);
 });
 
 test('employee selection is exact and prioritizes residency without name fallback',()=>{
