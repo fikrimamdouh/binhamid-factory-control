@@ -1,0 +1,44 @@
+# Registered on main; this edit triggers the one-time inventory.
+name: Inventory diesel site reports and bot nicknames
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/inventory-diesel-site-and-nickname.yml
+
+permissions:
+  contents: write
+
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+      - name: Build inventory
+        run: |
+          mkdir -p artifacts
+          {
+            echo '=== DIESEL/FUEL FILES ==='
+            find . -type f -not -path './.git/*' | grep -Ei '(diesel|fuel|وقود|ديزل)' | sort || true
+            echo
+            echo '=== DIESEL/FUEL UI TERMS ==='
+            grep -RInE --exclude-dir=.git --exclude-dir=node_modules --exclude='*.map' '(تقارير? الديزل|استهلاك الديزل|مسحوبات|الوقود|diesel|fuel)' . | head -n 2500 || true
+            echo
+            echo '=== NICKNAME / GREETING / IDENTITY ==='
+            grep -RInE --exclude-dir=.git --exclude-dir=node_modules --exclude='*.map' '(warmAck|nickname|nick_name|kunya|كني|كنية|displayName|display_name|identity\.name|full_name|telegram_name|أبو مالك|ابو مالك|أبو فلاح|ابو فلاح)' . | head -n 2000 || true
+          } > artifacts/diesel-site-inventory.txt
+      - name: Commit inventory and remove workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add artifacts/diesel-site-inventory.txt
+          git commit -m "Inventory diesel site reports and bot nicknames [skip ci]"
+          git push origin main
+          git rm .github/workflows/inventory-diesel-site-and-nickname.yml
+          git commit -m "Remove temporary diesel inventory workflow [skip ci]"
+          git push origin main
