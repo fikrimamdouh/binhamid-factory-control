@@ -1,5 +1,5 @@
 import { htmlToPdf } from './pdf-service.js';
-import { settlementAlertLabel } from './customer-settlement.js';
+import { settleCustomerAccount, settlementAlertLabel } from './customer-settlement.js';
 
 const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const money=value=>Number(value||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -9,13 +9,9 @@ const DECISION_LABEL={normal:'طبيعي',watch:'مراجعة قبل زيادة 
 const DECISION_COLOR={normal:'#1b6b3f',watch:'#8a5a00',stop:'#9a2f2f'};
 const AGING_LABEL={current:'لم يحن أجله',days1to30:'١–٣٠ يومًا',days31to60:'٣١–٦٠ يومًا',days61to90:'٦١–٩٠ يومًا',days90plus:'أكثر من ٩٠ يومًا'};
 
-function consume(pool,amount){const used=Math.min(Math.max(0,Number(pool||0)),Math.max(0,Number(amount||0)));return{used,pool:pool-used,amount:amount-used};}
 function settlement(row){
-  const openingDebt=Math.max(0,Number(row.openingBalance||0)),openingCredit=Math.max(0,-Number(row.openingBalance||0)),sales=Math.max(0,Number(row.grossSales||0)),paidRecorded=Math.min(sales,Math.max(0,Number(row.paidApplied||0)));
-  let remainingSales=sales-paidRecorded,remainingOpening=openingDebt,credit=openingCredit+Math.max(0,Number(row.unallocatedCredit||0)),paidSales=paidRecorded,paidOpening=0;
-  let step=consume(credit,remainingSales);credit=step.pool;remainingSales=step.amount;paidSales+=step.used;
-  step=consume(credit,remainingOpening);credit=step.pool;remainingOpening=step.amount;paidOpening+=step.used;
-  return{openingDebt,sales,collections:Number(row.collections||0),paidSales,paidOpening,remainingSales,remainingOpening,advance:credit,finalDebt:remainingSales+remainingOpening};
+  const result=settleCustomerAccount(row,{},{});
+  return{openingDebt:result.openingDebt,sales:result.priorSales,collections:Number(row.collections||0),paidSales:result.priorSales-result.remainingPriorSales,paidOpening:result.openingDebt-result.remainingOpening,remainingSales:result.remainingPriorSales,remainingOpening:result.remainingOpening,advance:result.finalAdvance,finalDebt:result.finalDebt};
 }
 function invoicesTable(rows){
   if(!rows.length)return'<p class="empty">لا توجد فواتير بعد الرصيد الافتتاحي.</p>';
