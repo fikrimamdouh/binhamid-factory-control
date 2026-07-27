@@ -108,12 +108,14 @@ test('historical upgrade accepts a revised file only when its original invoices 
   assert.equal(historicalSalesCompatibility(existing,[incoming[0],{...incoming[1],customerCode:'WRONG'}]).compatible,false);
 });
 
-test('migration 029 upgrades the exact approved file and supports bank collections',async()=>{
-  const [sql,workflow,preflight,verify]=await Promise.all([
+test('migrations 029-030 upgrade the exact approved file and replay revised collection allocations',async()=>{
+  const [sql,repair,workflow,preflight,verify,integrity]=await Promise.all([
     readFile(new URL('../supabase/migrations/029_daily_report_v2_upgrade.sql',import.meta.url),'utf8'),
+    readFile(new URL('../supabase/migrations/030_daily_report_fifo_integrity.sql',import.meta.url),'utf8'),
     readFile(new URL('../.github/workflows/apply-daily-report-v2-migration.yml',import.meta.url),'utf8'),
     readFile(new URL('../scripts/daily-report-v2-migration-preflight.mjs',import.meta.url),'utf8'),
-    readFile(new URL('../scripts/daily-report-v2-migration-verify.mjs',import.meta.url),'utf8')
+    readFile(new URL('../scripts/daily-report-v2-migration-verify.mjs',import.meta.url),'utf8'),
+    readFile(new URL('../scripts/production-data-integrity.mjs',import.meta.url),'utf8')
   ]);
   assert.match(sql,/upgrade_daily_report_details/);
   assert.match(sql,/file_hash is distinct from p_file_hash/);
@@ -122,12 +124,20 @@ test('migration 029 upgrades the exact approved file and supports bank collectio
   assert.match(sql,/'110205','البنك الأهلي 105'/);
   assert.match(sql,/when v_cash\.treasury_code='105' then '110205'/);
   assert.match(sql,/public\.post_daily_report_accounting\(v_batch\.id,p_actor\)/);
+  assert.match(repair,/daily_report_collection_fifo_update_trigger/);
+  assert.match(repair,/public\.allocate_collection_fifo\(new\.id\)/);
+  assert.match(repair,/public\.rebuild_customer_fifo/);
+  assert.match(repair,/DAILY_REPORT_FIFO_REPAIR_FAILED/);
+  assert.match(repair,/values\(30,'030_daily_report_fifo_integrity'\)/);
   assert.match(workflow,/Create and verify encrypted pre-migration backup/);
   assert.match(workflow,/Restore production backup to isolated PostgreSQL 17/);
-  assert.match(workflow,/--single-transaction --file supabase\/migrations\/029_daily_report_v2_upgrade\.sql/);
-  assert.match(workflow,/EXPECTED_SCHEMA_VERSION=29/);
+  assert.match(workflow,/ISOLATED_MIGRATION_TARGET: '30'/);
+  assert.match(workflow,/\$\(seq \$\(\(current_version \+ 1\)\) 30\)/);
+  assert.match(workflow,/EXPECTED_SCHEMA_VERSION=30/);
+  assert.match(workflow,/production-data-integrity\.mjs/);
   assert.match(preflight,/currentVersion<28\|\|currentVersion>targetVersion/);
   assert.match(preflight,/BACKUP_GATE_FAILED/);
   assert.match(verify,/PROTECTED_ROW_COUNT_CHANGED/);
-  assert.match(verify,/SCHEMA_29_DAILY_REPORT_V2_VERIFIED/);
+  assert.match(verify,/SCHEMA_30_DAILY_REPORT_FIFO_VERIFIED/);
+  for(const marker of ['dailyReports','duplicateDailyBatchDate','duplicateDailySaleIdentity','duplicateDailyCashIdentity','duplicateCollectionReference','duplicateSalesReference'])assert.match(integrity,new RegExp(marker));
 });
