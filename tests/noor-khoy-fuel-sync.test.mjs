@@ -15,9 +15,10 @@ test('fuel parser classifies diesel and petrol without dropping either',()=>{
   assert.deepEqual(parsed.rows.map(row=>row.category),['diesel','petrol']);
 });
 
-test('workflow runs daily and imports a selected period in one workbook',()=>{
+test('workflow runs daily and imports a selected period without mutating main',()=>{
   const workflow=read('.github/workflows/noor-khoy-fuel-sync.yml');
   assert.match(workflow,/id-token:\s*write/);
+  assert.match(workflow,/contents:\s*read/);
   assert.match(workflow,/secrets\.NOOR_KHOY_USERNAME/);
   assert.match(workflow,/secrets\.NOOR_KHOY_PASSWORD/);
   assert.match(workflow,/cron:\s*'0 5 \* \* \*'/);
@@ -26,7 +27,10 @@ test('workflow runs daily and imports a selected period in one workbook',()=>{
   assert.match(workflow,/cancel-in-progress:\s*true/);
   assert.match(workflow,/node scripts\/noor-khoy-fuel-sync\.mjs/);
   assert.doesNotMatch(workflow,/while \[\[/);
-  assert.match(workflow,/fuel-sync-status\/latest\.json/);
+  assert.doesNotMatch(workflow,/\n\s*push:\s*\n/);
+  assert.doesNotMatch(workflow,/contents:\s*write/);
+  assert.doesNotMatch(workflow,/git push origin HEAD:main/);
+  assert.doesNotMatch(workflow,/fuel-sync-status\/latest\.json/);
 });
 
 test('browser export sends dates in the export URL and rejects out-of-period rows',()=>{
@@ -84,9 +88,12 @@ test('the existing fuel sync sends verified vehicle balances at 7 PM Riyadh',()=
   assert.match(workflow,/NOOR_KHOY_VEHICLES_URL/);
   assert.match(script,/vehicleBalanceSummary/);
   assert.match(script,/allVehiclePageSnapshots/);
+  assert.match(script,/while\(queue\.length\)/);
+  assert.match(script,/for\(const linked of snapshot\.pageLinks\|\|\[\]\)/);
+  assert.match(script,/const uniqueRows=new Map\(\)/);
+  assert.match(script,/تعارض رصيد المركبة/);
   assert.match(script,/pageLinks/);
   assert.match(script,/لم يتم العثور على رصيد ديزل غير مستخدم موجب في صفحات المركبات/);
-  assert.match(script,/candidates\.flatMap/);
   assert.match(script,/x-fuel-operation':'vehicle-balance-report/);
   assert.match(route,/x-fuel-operation/);
   assert.match(route,/رصيد الديزل المتوفر في المركبات/);

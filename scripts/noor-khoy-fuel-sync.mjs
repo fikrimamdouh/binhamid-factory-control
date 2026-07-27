@@ -38,17 +38,24 @@ function moneyNumber(value){
 }
 function isVehicleBalanceHeader(value){return /balance|credit|remaining|رصيد|المتبقي|متبقي/i.test(compact(value));}
 function normalizedHeader(value){return compact(value).replace(/[\s:：-]/g,'').toLowerCase();}
+function vehicleBalanceKey(value){return westernDigits(compact(value)).toLowerCase().replace(/[^a-z0-9\u0600-\u06ff]+/gi,'');}
 function vehicleBalanceSummary(tables=[]){
-  const candidates=[];
+  const uniqueRows=new Map(),headers=new Set();
   for(const table of tables){
-    const headers=(table.headers||[]).map(normalizedHeader),balanceIndex=headers.findIndex(isVehicleBalanceHeader);if(balanceIndex<0)continue;
-    const vehicleIndex=headers.findIndex(header=>/(?:vehicle|plate|car|truck|مركبة|السيارة|اللوحة)/i.test(header)),rows=[];
-    for(const cells of table.rows||[]){const amount=moneyNumber(cells?.[balanceIndex]),vehicle=compact(cells?.[vehicleIndex>=0?vehicleIndex:0]);if(amount===null||amount<=0||!vehicle)continue;rows.push({vehicle,amount});}
-    if(rows.length)candidates.push({rows,header:compact((table.headers||[])[balanceIndex])});
+    const normalized=(table.headers||[]).map(normalizedHeader),balanceIndex=normalized.findIndex(isVehicleBalanceHeader);if(balanceIndex<0)continue;
+    const vehicleIndex=normalized.findIndex(header=>/(?:vehicle|plate|car|truck|مركبة|السيارة|اللوحة)/i.test(header));
+    headers.add(compact((table.headers||[])[balanceIndex]));
+    for(const cells of table.rows||[]){
+      const amount=moneyNumber(cells?.[balanceIndex]),vehicle=compact(cells?.[vehicleIndex>=0?vehicleIndex:0]),key=vehicleBalanceKey(vehicle);
+      if(amount===null||amount<=0||!key)continue;
+      const previous=uniqueRows.get(key);
+      if(previous&&Math.abs(previous.amount-amount)>0.01)throw new Error(`تعارض رصيد المركبة ${vehicle}: ${previous.amount} مقابل ${amount}.`);
+      if(!previous)uniqueRows.set(key,{vehicle,amount});
+    }
   }
-  const rows=candidates.flatMap(candidate=>candidate.rows),headers=[...new Set(candidates.map(candidate=>candidate.header).filter(Boolean))];
+  const rows=[...uniqueRows.values()];
   if(!rows.length)throw new Error('لم يتم العثور على رصيد ديزل غير مستخدم موجب في صفحات المركبات.');
-  return{rows,header:headers.join(' / '),total:Number(rows.reduce((sum,row)=>sum+row.amount,0).toFixed(2))};
+  return{rows,header:[...headers].filter(Boolean).join(' / '),total:Number(rows.reduce((sum,row)=>sum+row.amount,0).toFixed(2))};
 }
 function isFuelReportUrl(value){try{return /\/companies\/fuels\/?$/i.test(new URL(value).pathname);}catch{return false;}}
 function reportUrl(fromDate,toDate,exportExcel=false){
@@ -184,11 +191,18 @@ async function vehiclePageSnapshot(page){return page.evaluate(()=>({
   })),
   links:Array.from(document.querySelectorAll('a')).map(link=>({text:link.innerText,href:link.href,title:link.getAttribute('title')})).filter(link=>/account|statement|fuel|رصيد|كشف/i.test(`${link.text} ${link.href} ${link.title}`))
 }));}
+function canonicalVehiclePageUrl(value){
+  try{const url=new URL(value);url.hash='';if(url.searchParams.get('page')==='1')url.searchParams.delete('page');return url.toString();}
+  catch{return compact(value);}
+}
 async function allVehiclePageSnapshots(page){
-  const first=await vehiclePageSnapshot(page),urls=[...new Set([first.url,...first.pageLinks])],snapshots=[first];
-  for(const url of urls.slice(1)){
-    await page.goto(url,{waitUntil:'domcontentloaded',timeout:60000});await page.waitForLoadState('networkidle',{timeout:30000}).catch(()=>null);await page.waitForTimeout(500);
-    snapshots.push(await vehiclePageSnapshot(page));
+  const initial=canonicalVehiclePageUrl(page.url()),queue=[initial],queued=new Set(queue),visited=new Set(),snapshots=[];
+  while(queue.length){
+    const url=queue.shift();queued.delete(url);if(!url||visited.has(url))continue;
+    if(canonicalVehiclePageUrl(page.url())!==url){await page.goto(url,{waitUntil:'domcontentloaded',timeout:60000});await page.waitForLoadState('networkidle',{timeout:30000}).catch(()=>null);await page.waitForTimeout(500);}
+    const snapshot=await vehiclePageSnapshot(page),current=canonicalVehiclePageUrl(snapshot.url);visited.add(url);if(current)visited.add(current);snapshots.push(snapshot);
+    for(const linked of snapshot.pageLinks||[]){const next=canonicalVehiclePageUrl(linked);if(!next||visited.has(next)||queued.has(next))continue;queue.push(next);queued.add(next);}
+    if(snapshots.length>100)throw new Error('تجاوز عدد صفحات المركبات الحد الآمن (100 صفحة).');
   }
   return snapshots;
 }
