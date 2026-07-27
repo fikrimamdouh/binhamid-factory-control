@@ -1,4 +1,4 @@
-import { select } from './supabase.js';
+import { insert, select } from './supabase.js';
 import { buildDailyBriefMessage } from './bot-daily-brief.js';
 import { sendMessage, sendDocumentBuffer, keyboard } from './telegram.js';
 import { reportSummary } from './domain.js';
@@ -129,12 +129,12 @@ function dailyDetailKeyboard(){
     [{text:'التحليلات',callback_data:'report:analysis'}]
   ]);
 }
-function invoiceLine(row,index){return `${index}. <b>${esc(row.invoice_no||'بدون رقم')}</b> — ${esc(row.customer_name||'عميل غير محدد')}\n${esc(row.item_name||'صنف غير محدد')} | <b>${num(row.quantity,3)} ${esc(row.unit||'')}</b> | <b>${money(row.amount)}</b>`;}
-function cashLine(row,index){return `${index}. <b>${esc(row.movement_type||row.description||'حركة خزينة')}</b> — ${esc(row.account_name||'حساب غير محدد')}\nخزينة ${esc(row.treasury_code||'—')} | مدين ${money(row.debit)} | دائن ${money(row.credit)}${row.voucher_no?` | إذن ${esc(row.voucher_no)}`:''}`;}
+function invoiceLine(row,index){return `${index}. <b>${esc(row.invoice_no||'بدون رقم')}</b> — ${esc(row.customer_name||'عميل غير محدد')}${row.customer_code?` <code>${esc(row.customer_code)}</code>`:''}\n${esc(row.item_name||'صنف غير محدد')} | <b>${num(row.quantity,3)} ${esc(row.unit||'')}</b> | <b>${money(row.amount)}</b>`;}
+function cashLine(row,index){return `${index}. <b>${esc(row.movement_type||row.description||'حركة خزينة')}</b> — ${esc(row.account_name||'حساب غير محدد')}${row.account_code?` <code>${esc(row.account_code)}</code>`:''}\nخزينة ${esc(row.treasury_name||row.treasury_code||'—')} | مدين ${money(row.debit)} | دائن ${money(row.credit)}${row.voucher_no?` | إذن ${esc(row.voucher_no)}`:''}`;}
 function inventoryLine(row,index){return `${index}. <b>${esc(row.item_name||row.item_code||'صنف')}</b> (${esc(row.unit||'—')})\nافتتاحي ${num(row.opening_quantity,3)} | وارد ${num(row.received_quantity,3)} | منصرف ${num(row.issued_quantity,3)} | ختامي <b>${num(row.closing_quantity,3)}</b>`;}
-async function sendPaged(chatId,title,kind,rows,lineBuilder,page=0){
-  if(!rows.length)return sendMessage(chatId,`<b>${esc(title)}</b>\n\nلا توجد حركات في آخر تقرير معتمد.`);
-  const part=pageOf(rows,page),start=part.current*PAGE_SIZE,text=`<b>${esc(title)}</b>\nالعدد: <b>${rows.length}</b>\n\n${part.rows.map((row,index)=>lineBuilder(row,start+index+1)).join('\n\n')}`;
+async function sendPaged(chatId,title,kind,rows,lineBuilder,page=0,meta=''){
+  if(!rows.length)return sendMessage(chatId,`<b>${esc(title)}</b>${meta?`\n${meta}`:''}\n\nلا توجد حركات في آخر تقرير معتمد.`);
+  const part=pageOf(rows,page),start=part.current*PAGE_SIZE,text=`<b>${esc(title)}</b>${meta?`\n${meta}`:''}\nالعدد: <b>${rows.length}</b>\n\n${part.rows.map((row,index)=>lineBuilder(row,start+index+1)).join('\n\n')}`;
   return sendMessage(chatId,text.slice(0,3900),keyboard(navRows(kind,part.current,part.pages)));
 }
 
@@ -149,13 +149,13 @@ async function sendDepartmentPdf(chatId,data,type){
   if(!rows.length)return sendMessage(chatId,`لا توجد مبيعات ${arabic} في آخر تقرير معتمد.`);
   try{
     await sendMessage(chatId,`جارٍ إعداد تقرير ${arabic} بنفس التنسيق المعتمد.`);
-    const[report]=await generateCumulativeDailyPdfs(pdfAnalysis(data),data.batch.original_name||'التقرير اليومي',[type],data.batch.report_date);
+    const[report]=await generateCumulativeDailyPdfs(pdfAnalysis(data),data.batch.original_name||'التقرير اليومي',[type],data.batch.report_date,{currentBatch:true});
     await sendDocumentBuffer(chatId,report.pdf,report.filename,'application/pdf',report.caption);
     return report;
   }catch(error){
     console.error('[telegram department report pdf]',{type,code:error?.code||null,message:String(error?.message||'').slice(0,400)});
     await sendMessage(chatId,`تعذر إنشاء PDF تقرير ${arabic} مؤقتًا؛ أعرض التفاصيل النصية بدلًا منه.`);
-    return sendPaged(chatId,`مبيعات ${arabic} — ${data.batch.report_date}`,type,rows,invoiceLine,0);
+    return sendPaged(chatId,`مبيعات ${arabic} — ${data.batch.report_date}`,type,rows,invoiceLine,0,`الملف: <b>${esc(data.batch.original_name||'التقرير اليومي')}</b>`);
   }
 }
 
@@ -170,25 +170,48 @@ async function legacyReport(chatId,kind){
 }
 function topLines(rows,field,count=5){return rows.slice(0,count).map((row,index)=>`${index+1}. ${esc(row.name)} — <b>${money(row[field])}</b>`).join('\n')||'لا توجد حركة';}
 
+function groupedCollections(data,payments){
+  const paymentMap=new Map((payments?.rows||[]).map(row=>[row.key,row])),map=new Map();
+  for(const row of data.cash||[]){if(!(row.is_customer_collection===true||String(row.is_customer_collection)==='true'))continue;const code=String(row.account_code||''),name=String(row.account_name||code||'عميل غير محدد'),key=customerKey(code,name),item=map.get(key)||{key,code,name,amount:0,treasuries:new Set(),methods:new Set(),vouchers:new Set()};item.amount+=collectionAmount(row);if(row.treasury_name||row.treasury_code)item.treasuries.add(String(row.treasury_name||row.treasury_code));if(row.payment_method)item.methods.add(String(row.payment_method));if(row.voucher_no)item.vouchers.add(String(row.voucher_no));map.set(key,item);}
+  return[...map.values()].map(row=>({...row,treasuries:[...row.treasuries],methods:[...row.methods],vouchers:[...row.vouchers],payment:paymentMap.get(row.key)||{}})).sort((a,b)=>b.amount-a.amount||a.name.localeCompare(b.name,'ar'));
+}
+async function saveCollectionChoices(chatId,rows,date){
+  if(String(chatId).startsWith('-')||!rows.length)return false;
+  const choices=rows.map((row,index)=>({code:row.code,name:row.name,balance:Number(row.payment?.closingDebt||0),index}));
+  await insert('bot_sessions',[{channel:'telegram',chat_id:String(chatId),external_user_id:String(chatId),state:'enterprise_customer_choose',context:{query:`تحصيلات ${date}`,choices,startedAt:new Date().toISOString()},updated_at:new Date().toISOString()}],{query:'on_conflict=channel,chat_id,external_user_id',prefer:'resolution=merge-duplicates,return=representation'});
+  return true;
+}
+function collectionLine(row,index){
+  const p=row.payment||{},allocation=[Number(p.debtPaid||0)>0?`مديونية سابقة ${money(p.debtPaid)}`:'',Number(p.currentSalesPaid||0)>0?`مبيعات اليوم ${money(p.currentSalesPaid)}`:'',Number(p.advance||0)>0?`دفعة مقدمة ${money(p.advance)}`:''].filter(Boolean).join(' | ')||'لم يتم توزيع السداد';
+  return `<b>${index}. ${esc(row.name)}</b>\nرقم العميل: <code>${esc(row.code||'غير مسجل')}</code>\nالمبلغ: <b>${money(row.amount)}</b>\nالتوزيع: ${allocation}\nالخزينة: ${esc(row.treasuries.join('، ')||'غير محددة')}${row.methods.length?` | ${esc(row.methods.join('، '))}`:''}`;
+}
+async function sendCollectionsReport(chatId,data,a,page){
+  const rows=groupedCollections(data,a.payments);if(!rows.length)return sendMessage(chatId,`<b>تحصيلات العملاء — ${esc(data.batch.report_date)}</b>\nالملف: <b>${esc(data.batch.original_name||'التقرير اليومي')}</b>\n\nلا توجد تحصيلات عملاء في التقرير.`);
+  try{await saveCollectionChoices(chatId,rows,data.batch.report_date);}catch(error){console.warn('[telegram collection choices]',{message:String(error?.message||'').slice(0,220)});}
+  const part=pageOf(rows,page),start=part.current*PAGE_SIZE,buttons=String(chatId).startsWith('-')?[]:part.rows.map((row,index)=>[{text:`كشف ${row.name} — ${row.code||'بدون رقم'}`.slice(0,64),callback_data:`ent:customer_pick|${start+index}`}]),nav=navRows('collections',part.current,part.pages),markup=keyboard([...buttons,...nav]);
+  const text=`<b>تقرير سداد العملاء — ${esc(data.batch.report_date)}</b>\nالملف: <b>${esc(data.batch.original_name||'التقرير اليومي')}</b>\nعدد العملاء: <b>${rows.length}</b> | إجمالي السداد: <b>${money(sum(rows,'amount'))}</b>\n\n${part.rows.map((row,index)=>collectionLine(row,start+index+1)).join('\n\n')}`;
+  return sendMessage(chatId,text.slice(0,3900),markup);
+}
+
 export async function sendReport(chatId,request='daily',identity=null){
   const[kindRaw,pageRaw]=String(request||'daily').split('|'),kind=kindRaw||'daily',page=Number(pageRaw||0);
   if(['fuel','workshop','discrepancies'].includes(kind))return legacyReport(chatId,kind);
   const data=await latestCommittedData();
   if(!data)return sendMessage(chatId,'لا يوجد تقرير يومي معتمد في قاعدة البيانات حتى الآن.');
-  const opening=await openingReceivable(data.batch.report_date),a=analytics(data,opening),date=esc(data.batch.report_date);
-  if(kind==='block')return page>0?sendPaged(chatId,`مبيعات البلوك — ${date}`,'block',a.block,invoiceLine,page):sendDepartmentPdf(chatId,data,'block');
-  if(kind==='concrete')return page>0?sendPaged(chatId,`مبيعات الخرسانة — ${date}`,'concrete',a.concrete,invoiceLine,page):sendDepartmentPdf(chatId,data,'concrete');
-  if(kind==='invoices')return sendPaged(chatId,`كل فواتير التقرير — ${date}`,'invoices',data.sales,invoiceLine,page);
-  if(kind==='collections')return sendPaged(chatId,`تحصيلات العملاء — ${date}`,'collections',a.collections,(row,index)=>`${index}. <b>${esc(row.account_name||'عميل غير محدد')}</b> — ${money(collectionAmount(row))}\nخزينة ${esc(row.treasury_code||'—')} | ${esc(row.payment_method||'طريقة غير محددة')}${row.voucher_no?` | إذن ${esc(row.voucher_no)}`:''}`,page);
-  if(kind==='cash')return sendPaged(chatId,`كل حركة الخزائن — ${date}`,'cash',data.cash,cashLine,page);
-  if(kind==='inventory')return sendPaged(chatId,`حركة المخزون — ${date}`,'inventory',data.inventory,inventoryLine,page);
+  const opening=await openingReceivable(data.batch.report_date),a=analytics(data,opening),date=esc(data.batch.report_date),source=`الملف: <b>${esc(data.batch.original_name||'التقرير اليومي')}</b>`;
+  if(kind==='block')return page>0?sendPaged(chatId,`مبيعات البلوك — ${date}`,'block',a.block,invoiceLine,page,source):sendDepartmentPdf(chatId,data,'block');
+  if(kind==='concrete')return page>0?sendPaged(chatId,`مبيعات الخرسانة — ${date}`,'concrete',a.concrete,invoiceLine,page,source):sendDepartmentPdf(chatId,data,'concrete');
+  if(kind==='invoices')return sendPaged(chatId,`كل فواتير التقرير — ${date}`,'invoices',data.sales,invoiceLine,page,source);
+  if(kind==='collections')return sendCollectionsReport(chatId,data,a,page);
+  if(kind==='cash')return sendPaged(chatId,`كل حركة الخزائن — ${date}`,'cash',data.cash,cashLine,page,source);
+  if(kind==='inventory')return sendPaged(chatId,`حركة المخزون — ${date}`,'inventory',data.inventory,inventoryLine,page,source);
   if(kind==='treasuries'){
     const lines=data.treasuries.map((row,index)=>`${index+1}. <b>${esc(row.treasury_name||row.treasury_code||'خزينة')}</b>\nافتتاحي ${money(row.opening_balance)} | ختامي <b>${money(row.closing_balance)}</b> | التغير ${money(Number(row.closing_balance||0)-Number(row.opening_balance||0))}`);
-    return sendMessage(chatId,`<b>أرصدة الخزائن — ${date}</b>\n\n${lines.length?lines.join('\n\n'):'لا توجد أرصدة خزائن في التقرير.'}`.slice(0,3900));
+    return sendMessage(chatId,`<b>أرصدة الخزائن — ${date}</b>\n${source}\n\n${lines.length?lines.join('\n\n'):'لا توجد أرصدة خزائن في التقرير.'}`.slice(0,3900));
   }
   if(kind==='analysis'){
     const p=a.payments,topCustomers=a.topCustomers.map(([name,value],index)=>`${index+1}. ${esc(name)} — <b>${money(value)}</b>`).join('\n')||'لا توجد مبيعات',topItems=a.topItems.map(([name,value],index)=>`${index+1}. ${esc(name)} — <b>${money(value)}</b>`).join('\n')||'لا توجد مبيعات',balanceLines=a.openingBalance===null?'تعذر حساب الرصيد التراكمي مؤقتًا.':`الرصيد الافتتاحي للعملاء: <b>${money(a.openingBalance)}</b>\n+ مبيعات التقرير: <b>${money(a.totalSales)}</b>\n− تحصيلات التقرير: <b>${money(a.totalCollections)}</b>\n= الرصيد الختامي المتوقع: <b>${money(a.closingBalance)}</b>`;
-    const text=`<b>تحليلات التقرير اليومي — ${date}</b>\n\n<b>المديونية التراكمية</b>\n${balanceLines}\n\n<b>تحليل السداد</b>\nالعملاء الذين سددوا: <b>${p.payers.length}</b>\nالمسدد من مديونية سابقة: <b>${money(p.totalDebtPaid)}</b>\nالمسدد من مبيعات اليوم: <b>${money(p.totalCurrentSalesPaid)}</b>\nدفعات مقدمة: <b>${money(p.totalAdvance)}</b>\nعملاء أقفلوا مديونيتهم السابقة: <b>${p.clearedOldDebt.length}</b>\nاشتروا اليوم ولم يسددوا: <b>${p.salesWithoutPayment.length}</b>\nتغطية التحصيل لإجمالي الرصيد المتاح: <b>${num(a.debtCoverage,1)}%</b>\n\n<b>أعلى من سددوا من المديونية السابقة</b>\n${topLines(p.oldDebtPayers,'debtPaid')}\n\n<b>أعلى الأرصدة المتوقعة بعد اليوم</b>\n${topLines(p.closingDebtors,'closingDebt')}\n\n<b>كفاءة اليوم</b>\nمتوسط الفاتورة: <b>${money(a.avgInvoice)}</b>\nنسبة التحصيل إلى المبيعات: <b>${num(a.collectionRate,1)}%</b>\nتغير الخزائن: <b>${money(a.treasuryClosing-a.treasuryOpening)}</b>\nتنبيهات مخزون صفري/سالب: <b>${a.stockAlerts.length}</b>\n\n<b>أعلى العملاء مبيعًا</b>\n${topCustomers}\n\n<b>أعلى الأصناف بالقيمة</b>\n${topItems}`;
+    const text=`<b>تحليلات التقرير اليومي — ${date}</b>\n${source}\n\n<b>المديونية التراكمية</b>\n${balanceLines}\n\n<b>تحليل السداد</b>\nالعملاء الذين سددوا: <b>${p.payers.length}</b>\nالمسدد من مديونية سابقة: <b>${money(p.totalDebtPaid)}</b>\nالمسدد من مبيعات اليوم: <b>${money(p.totalCurrentSalesPaid)}</b>\nدفعات مقدمة: <b>${money(p.totalAdvance)}</b>\nعملاء أقفلوا مديونيتهم السابقة: <b>${p.clearedOldDebt.length}</b>\nاشتروا اليوم ولم يسددوا: <b>${p.salesWithoutPayment.length}</b>\nتغطية التحصيل لإجمالي الرصيد المتاح: <b>${num(a.debtCoverage,1)}%</b>\n\n<b>أعلى من سددوا من المديونية السابقة</b>\n${topLines(p.oldDebtPayers,'debtPaid')}\n\n<b>أعلى الأرصدة المتوقعة بعد اليوم</b>\n${topLines(p.closingDebtors,'closingDebt')}\n\n<b>كفاءة اليوم</b>\nمتوسط الفاتورة: <b>${money(a.avgInvoice)}</b>\nنسبة التحصيل إلى المبيعات: <b>${num(a.collectionRate,1)}%</b>\nتغير الخزائن: <b>${money(a.treasuryClosing-a.treasuryOpening)}</b>\nتنبيهات مخزون صفري/سالب: <b>${a.stockAlerts.length}</b>\n\n<b>أعلى العملاء مبيعًا</b>\n${topCustomers}\n\n<b>أعلى الأصناف بالقيمة</b>\n${topItems}`;
     return sendMessage(chatId,text.slice(0,3900));
   }
   const p=a.payments,balanceLine=a.openingBalance===null?'💳 الرصيد التراكمي: تعذر حسابه مؤقتًا.':`💳 الرصيد الافتتاحي للعملاء: <b>${money(a.openingBalance)}</b>\n🏦 الرصيد الختامي المتوقع: <b>${money(a.closingBalance)}</b>`;

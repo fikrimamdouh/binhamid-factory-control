@@ -26,7 +26,7 @@ function projection(){
   });
 }
 
-test('current collections settle old invoices globally by FIFO then split to block and concrete',()=>{
+test('current invoices are first, while historical invoices retain FIFO order',()=>{
   const data=projection(),blockA=data.departments.block.rows.find(row=>row.code==='A'),concreteA=data.departments.concrete.rows.find(row=>row.code==='A');
   assert.equal(blockA.openingBalance,80);
   assert.equal(blockA.currentSales,0);
@@ -45,13 +45,13 @@ test('daily report includes old customers, new customers, current sales and proj
   assert.equal(data.latestApprovedDate,'2026-07-17');
 });
 
-test('PDF HTML states cumulative formula and draft approval boundary',()=>{
+test('PDF HTML states cumulative formula and new-first allocation boundary',()=>{
   const data=projection(),html=cumulativeDepartmentHtml({type:'block',data:data.departments.block,sourceFile:'ملخص العمل اليومي.xlsx',reportDate:data.reportDate,latestApprovedDate:data.latestApprovedDate});
   assert.match(html,/تقرير البلوك التراكمي/);
   assert.match(html,/الرصيد السابق/);
   assert.match(html,/تحصيل موزع اليوم/);
   assert.match(html,/مسودة تراكميّة قبل الاعتماد/);
-  assert.match(html,/FIFO/);
+  assert.match(html,/فواتير التقرير الجديدة أولًا/);
   assert.match(html,/عميل أ/);
 });
 

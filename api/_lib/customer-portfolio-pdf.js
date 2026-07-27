@@ -1,6 +1,6 @@
 import { select } from './supabase.js';
 import { htmlToPdf } from './pdf-service.js';
-import { loadProjectedCumulativeDailyReport } from './daily-cumulative-report-data.js';
+import { loadCustomerAnalytics } from './bot-customer-report-data.js';
 import { renderCustomerPortfolioDeclaration } from '../../shared/customer-portfolio-declaration.js';
 import {
   CUSTOMER_PORTFOLIO_DECLARATION,
@@ -13,101 +13,213 @@ const norm=value=>String(value??'').trim().toLowerCase().replace(/[أإآ]/g,'ا
 const clean=value=>String(value??'').trim();
 const htmlEsc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const digits=value=>clean(value).replace(/\D/g,'');
+const n=value=>Number(value||0)||0;
+const money=value=>Number(value||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 const icon=type=>type==='block'?'🧱':'🏗️';
 const ROLE_BY_TYPE={block:'مسؤول مبيعات البلوك',concrete:'مسؤول مبيعات الخرسانة'};
+const ANALYTICS_ROLE={block:'block_sales',concrete:'concrete_sales'};
 const ROLE_ALIASES={
   block:new Set(['مسؤول مبيعات البلوك','مندوب مبيعات البلوك','مندوب بلوك','مبيعات البلوك','block sales','block salesperson','block sales representative','block_sales'].map(norm)),
   concrete:new Set(['مسؤول مبيعات الخرسانة','مسؤول مبيعات الخرسانه','مندوب مبيعات الخرسانة','مندوب خرسانة','مبيعات الخرسانة','concrete sales','concrete salesperson','concrete sales representative','concrete_sales','ready mix sales','ready_mix_sales'].map(norm))
 };
 const VALID_TYPES=new Set(['block','concrete']);
-function publicBase(){let value=String(process.env.PUBLIC_APP_URL||process.env.VERCEL_PROJECT_PRODUCTION_URL||'').trim().replace(/\/$/,'');if(value&&!/^https?:\/\//i.test(value))value=`https://${value}`;return value||'https://binhamid-factory-control.vercel.app';}
+
+function publicBase(){
+  let value=String(process.env.PUBLIC_APP_URL||process.env.VERCEL_PROJECT_PRODUCTION_URL||'').trim().replace(/\/$/,'');
+  if(value&&!/^https?:\/\//i.test(value))value=`https://${value}`;
+  return value||'https://binhamid-factory-control.vercel.app';
+}
 function isoDate(value){const day=clean(value).slice(0,10);return /^\d{4}-\d{2}-\d{2}$/.test(day)?day:'';}
-function dateFromName(value){const text=clean(value).replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d));let match=text.match(/(20\d{2})[./_-](\d{1,2})[./_-](\d{1,2})/);if(match)return`${match[1]}-${String(match[2]).padStart(2,'0')}-${String(match[3]).padStart(2,'0')}`;match=text.match(/(\d{1,2})[./_-](\d{1,2})[./_-](20\d{2})/);return match?`${match[3]}-${String(match[2]).padStart(2,'0')}-${String(match[1]).padStart(2,'0')}`:'';}
+function dateFromName(value){
+  const text=clean(value).replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d));
+  let match=text.match(/(20\d{2})[./_-](\d{1,2})[./_-](\d{1,2})/);
+  if(match)return`${match[1]}-${String(match[2]).padStart(2,'0')}-${String(match[3]).padStart(2,'0')}`;
+  match=text.match(/(\d{1,2})[./_-](\d{1,2})[./_-](20\d{2})/);
+  return match?`${match[3]}-${String(match[2]).padStart(2,'0')}-${String(match[1]).padStart(2,'0')}`:'';
+}
 async function resolveReportDate(analysis,sourceFile){
   const direct=isoDate(analysis?.reportDate||analysis?.detectedDate||analysis?.summary?.reportDate);if(direct)return direct;
   const named=dateFromName(sourceFile);if(named)return named;
-  const rows=await select('daily_report_batches',`original_name=eq.${encodeURIComponent(sourceFile)}&status=eq.approved&select=report_date,committed_at&order=committed_at.desc&limit=1`),approved=isoDate(rows?.[0]?.report_date);if(approved)return approved;
+  const rows=await select('daily_report_batches',`original_name=eq.${encodeURIComponent(sourceFile)}&status=eq.approved&select=report_date,committed_at&order=committed_at.desc&limit=1`),approved=isoDate(rows?.[0]?.report_date);
+  if(approved)return approved;
   throw Object.assign(new Error('تعذر تحديد تاريخ التقرير المعتمد؛ تم منع إنشاء إقرار بتاريخ اليوم.'),{status:422,code:'PORTFOLIO_REPORT_DATE_REQUIRED'});
+}
+async function reportAlreadyCommitted(sourceFile,reportDate){
+  if(!sourceFile||!reportDate)return false;
+  const rows=await select('daily_report_batches',`original_name=eq.${encodeURIComponent(sourceFile)}&report_date=eq.${encodeURIComponent(reportDate)}&status=eq.approved&select=id&limit=1`).catch(()=>[]);
+  return Boolean(rows?.[0]?.id);
 }
 
 function roleMatchesValue(value,type){return ROLE_ALIASES[type]?.has(norm(value))||false;}
 function roleMatches(employee,type){return[employee?.declarationRole,employee?.role,employee?.job,employee?.position].some(value=>roleMatchesValue(value,type));}
 function mergeEmployeeSources(legacyRows,cloudRows){
   const merged=(Array.isArray(legacyRows)?legacyRows:[]).map(row=>({...row})),byId=new Map(),byNationalId=new Map();
-  const indexRow=(row,index)=>{const id=clean(row?.id||row?.external_id),nationalId=digits(row?.nid||row?.national_id);if(id)byId.set(id,index);if(nationalId)byNationalId.set(nationalId,index);};merged.forEach(indexRow);
+  const indexRow=(row,index)=>{
+    for(const id of [row?.id,row?.external_id,...(Array.isArray(row?.employeeAliases)?row.employeeAliases:[])].map(clean).filter(Boolean))byId.set(id,index);
+    const nationalId=digits(row?.nid||row?.national_id);if(nationalId)byNationalId.set(nationalId,index);
+  };
+  merged.forEach(indexRow);
   for(const row of cloudRows||[]){
-    const id=clean(row.external_id),nationalId=digits(row.national_id),cloudRole=clean(row.role),candidate=(nationalId?byNationalId.get(nationalId):undefined)??byId.get(id),values={id:id||undefined,name:clean(row.full_name)||undefined,nid:nationalId||undefined,no:clean(row.employee_no)||undefined,tel:clean(row.phone)||undefined,role:cloudRole||undefined,_cloudSource:true};
-    if(candidate!==undefined){const current=merged[candidate]||{},next={...current,...Object.fromEntries(Object.entries(values).filter(([,value])=>value!==undefined))};if(!clean(current.declarationRole)&&cloudRole&&(roleMatchesValue(cloudRole,'block')||roleMatchesValue(cloudRole,'concrete')))next.declarationRole=cloudRole;merged[candidate]=next;indexRow(next,candidate);}
-    else{const next=Object.fromEntries(Object.entries({...values,declarationRole:cloudRole||undefined}).filter(([,value])=>value!==undefined));merged.push(next);indexRow(next,merged.length-1);}
+    const cloudId=clean(row.external_id),nationalId=digits(row.national_id),cloudRole=clean(row.role),candidate=(nationalId?byNationalId.get(nationalId):undefined)??byId.get(cloudId);
+    if(candidate!==undefined){
+      const current=merged[candidate]||{},aliases=[...new Set([...(Array.isArray(current.employeeAliases)?current.employeeAliases:[]),current.id,current.external_id,cloudId].map(clean).filter(Boolean))];
+      const next={...current,id:clean(current.id)||cloudId||undefined,external_id:cloudId||clean(current.external_id)||undefined,name:clean(row.full_name)||current.name,nid:nationalId||current.nid,no:clean(row.employee_no)||current.no,tel:clean(row.phone)||current.tel,role:cloudRole||current.role,employeeAliases:aliases,_cloudSource:true};
+      if(!clean(current.declarationRole)&&cloudRole&&(roleMatchesValue(cloudRole,'block')||roleMatchesValue(cloudRole,'concrete')))next.declarationRole=cloudRole;
+      merged[candidate]=next;indexRow(next,candidate);
+    }else{
+      const next={id:cloudId||undefined,external_id:cloudId||undefined,name:clean(row.full_name)||undefined,nid:nationalId||undefined,no:clean(row.employee_no)||undefined,tel:clean(row.phone)||undefined,role:cloudRole||undefined,declarationRole:cloudRole||undefined,employeeAliases:cloudId?[cloudId]:[],_cloudSource:true};
+      merged.push(next);indexRow(next,merged.length-1);
+    }
   }
   return merged;
 }
 async function loadAppState(){
-  const[stateRows,cloudEmployees]=await Promise.all([select('app_state','key=eq.primary&select=payload&limit=1'),select('employees','active=eq.true&select=external_id,national_id,employee_no,full_name,phone,role&order=full_name.asc&limit=5000')]),legacy=stateRows?.[0]?.payload?.legacy||{},cfg=legacy?.cfg||{};
-  return{companyName:cfg.name||'مصنع بن حامد للبلوك والخرسانة الجاهزة',company:{unifiedNumber:clean(cfg.uni),commercialRegistration:clean(cfg.cr),vatNumber:clean(cfg.vat),industrialLicense:clean(cfg.ind),address:clean(cfg.addr),phone:clean(cfg.tel),email:clean(cfg.mail)},days:Number(cfg.days||3)||3,cap:Number(cfg.cap||0)||0,authorizedName:[cfg.auth,cfg.authT].filter(Boolean).join(' — '),employees:mergeEmployeeSources(legacy?.emp,cloudEmployees),clients:Array.isArray(legacy?.cli)?legacy.cli:[]};
+  const[stateRows,cloudEmployees]=await Promise.all([
+    select('app_state','key=eq.primary&select=payload&limit=1'),
+    select('employees','active=eq.true&select=external_id,national_id,employee_no,full_name,phone,role&order=full_name.asc&limit=5000')
+  ]),legacy=stateRows?.[0]?.payload?.legacy||{},cfg=legacy?.cfg||{};
+  return{
+    companyName:cfg.name||'مصنع بن حامد للبلوك والخرسانة الجاهزة',
+    company:{unifiedNumber:clean(cfg.uni),commercialRegistration:clean(cfg.cr),vatNumber:clean(cfg.vat),industrialLicense:clean(cfg.ind),address:clean(cfg.addr),phone:clean(cfg.tel),email:clean(cfg.mail)},
+    days:Number(cfg.days||3)||3,cap:Number(cfg.cap||0)||0,authorizedName:[cfg.auth,cfg.authT].filter(Boolean).join(' — '),
+    employees:mergeEmployeeSources(legacy?.emp,cloudEmployees),clients:Array.isArray(legacy?.cli)?legacy.cli:[]
+  };
 }
-function repScore(employee,type){if(!roleMatches(employee,type))return-1;let score=1000;if(roleMatchesValue(employee?.declarationRole,type))score+=250;if(digits(employee?.nid||employee?.national_id).length>=10)score+=200;if(clean(employee?.no||employee?.employee_no))score+=40;if(employee?._cloudSource)score+=20;if(Array.isArray(employee?.employeeAliases)&&employee.employeeAliases.length)score+=10;return score;}
+function repScore(employee,type){
+  if(!roleMatches(employee,type))return-1;
+  let score=1000;
+  if(roleMatchesValue(employee?.declarationRole,type))score+=250;
+  if(digits(employee?.nid||employee?.national_id).length>=10)score+=200;
+  if(clean(employee?.no||employee?.employee_no))score+=40;
+  if(employee?._cloudSource)score+=20;
+  if(Array.isArray(employee?.employeeAliases)&&employee.employeeAliases.length)score+=10;
+  return score;
+}
 function findRep(employees,type){return(employees||[]).filter(employee=>employee?.act!==false&&repScore(employee,type)>=0).sort((a,b)=>repScore(b,type)-repScore(a,type)||clean(a.name).localeCompare(clean(b.name),'ar'))[0]||null;}
-function repIds(rep){return new Set([rep?.id,rep?.external_id,...(Array.isArray(rep?.employeeAliases)?rep.employeeAliases:[])].map(clean).filter(Boolean));}
-function customerKey(value){return clean(value).toLowerCase();}
-function saleType(row){const raw=norm(row?.sales_type||row?.kind||row?.type||row?.segment||'');if(raw==='block'||raw.includes('بلوك')||raw.includes('block'))return'block';if(raw==='concrete'||raw.includes('خرسان')||raw.includes('concrete')||raw.includes('ready mix')||raw.includes('readymix')||raw==='rmc')return'concrete';return'';}
-function directDailyCustomers(type,analysis={}){const rows=[];for(const row of analysis?.sales||[]){if(saleType(row)!==type||Number(row?.amount??row?.total??row?.total_amount??0)<=0)continue;rows.push({customerCode:clean(row?.customerCode||row?.customer_code||row?.code),customerName:clean(row?.customer||row?.customerName||row?.customer_name||row?.name)});}return rows;}
-function invoiceRows(type,analysis={}){return(analysis?.sales||[]).filter(row=>saleType(row)===type&&Number(row?.amount??row?.total??row?.total_amount??0)>0).map((row,index)=>({invoice:clean(row?.invoice||row?.invoiceNo||row?.invoice_no)||`سطر ${row?.row||index+1}`,customer:clean(row?.customer||row?.customerName||row?.customer_name||'عميل غير محدد'),customerCode:clean(row?.customerCode||row?.customer_code),item:clean(row?.item||row?.itemName||row?.item_name||'صنف غير محدد'),quantity:Number(row?.quantity||0),amount:Number(row?.amount??row?.total??row?.total_amount??0)}));}
-function injectTelegramEvidence(document,{reportDate,sourceFile,invoices,storedReportDate,dateSource,sourceBatchId}){
-  const refs=[...new Set(invoices.map(row=>row.invoice).filter(Boolean))],shown=refs.slice(0,30),more=Math.max(0,refs.length-shown.length),corrected=isoDate(storedReportDate)&&isoDate(storedReportDate)!==reportDate;
-  const band=`<div data-telegram-portfolio-proof="1" style="border:1.4px solid #B4893A;background:#F5EDDF;border-radius:4px;padding:7px 10px;margin:0 0 8px;color:#14425F;direction:rtl;font:700 8px/1.55 'IBM Plex Sans Arabic',Arial,Tahoma,sans-serif"><div style="display:flex;gap:12px;flex-wrap:wrap"><span>تاريخ التقرير: <b>${htmlEsc(reportDate)}</b></span><span>فواتير الدفعة: <b>${invoices.length}</b></span><span>المصدر: <b>${htmlEsc(sourceFile||'التقرير اليومي')}</b></span></div><div style="margin-top:3px;font-weight:500">أرقام الفواتير: ${shown.length?shown.map(htmlEsc).join('، '):'لا توجد'}${more?`، و${more} فاتورة أخرى`:''}</div>${corrected?`<div style="margin-top:3px;color:#8A2D20">تم تصحيح تاريخ السجل ${htmlEsc(storedReportDate)} إلى ${htmlEsc(reportDate)} من ملف Excel الأصلي.</div>`:`<div style="margin-top:3px;font-weight:500">مصدر التاريخ: ${dateSource==='database'?'سجل التقرير المعتمد':'ملف Excel الأصلي'}${sourceBatchId?` — مرجع الدفعة ${htmlEsc(String(sourceBatchId).slice(0,12))}`:''}</div>`}</div>`;
-  return document.includes('<div class="sec')?document.replace('<div class="sec',`${band}<div class="sec`):document.replace('</body>',`${band}</body>`);
+function customerKey(value){return norm(value);}
+function saleType(row){
+  const raw=[row?.sales_type,row?.kind,row?.type,row?.segment,row?.item,row?.itemName,row?.item_name].map(norm).filter(Boolean).join(' ');
+  if(raw.includes('بلوك')||raw.includes('بلك')||raw.includes('block'))return'block';
+  if(raw.includes('خرسان')||raw.includes('concrete')||raw.includes('ready mix')||raw.includes('readymix')||raw==='rmc')return'concrete';
+  return'';
 }
-function hasCurrentActivity(row){return Number(row?.currentSales||0)>0||Number(row?.currentApplied||0)>0||(Array.isArray(row?.invoices)&&row.invoices.length>0);}
-// حركة كل عميل من إسقاط التقرير: قيمة المشتريات والمسدَّد خلال الفترة، والمتبقي هو
-// كامل الرصيد غير المسدَّد (شاملًا ما سبق) لأنه ما يبقى فعلًا في ذمة المندوب.
-// مفاتيح العملاء فقط — لا علاقة لها بمطابقة الموظفين التي تبقى بالهوية والمعرّف حصرًا.
-function ledgerIndex(type,projection){
+function analyticsIndex(rows=[]){
   const byCustomerCode=new Map(),byCustomerName=new Map();
-  for(const row of projection?.departments?.[type]?.rows||[]){
-    const items=[...new Set((row.invoices||[]).map(line=>clean(line?.item)).filter(Boolean))];
-    const entry={sales:Number(row.currentSales||0),paid:Number(row.currentApplied||0),outstanding:Number(row.closingBalance||0),quantity:Number(row.currentQuantity||0),item:items.slice(0,2).join('، ')+(items.length>2?` +${items.length-2}`:'')};
-    const code=customerKey(row.code||row.customerCode),name=customerKey(row.name||row.customerName);
-    if(code&&!byCustomerCode.has(code))byCustomerCode.set(code,entry);
-    if(name&&!byCustomerName.has(name))byCustomerName.set(name,entry);
+  for(const row of rows){
+    for(const code of [row.code,row.externalId].map(customerKey).filter(Boolean))if(!byCustomerCode.has(code))byCustomerCode.set(code,row);
+    const name=customerKey(row.name);if(name&&!byCustomerName.has(name))byCustomerName.set(name,row);
   }
   return{byCustomerCode,byCustomerName};
 }
-function canonicalCustomers(type,analysis,projection,state,rep,{dailyOnly=true}={}){
-  const masterByCode=new Map(),masterByName=new Map();for(const client of state.clients){if(client?.code||client?.cr||client?.id)masterByCode.set(customerKey(client.code||client.cr||client.id),client);if(client?.name)masterByName.set(customerKey(client.name),client);}const selected=new Map(),linkedRepIds=repIds(rep),ledger=ledgerIndex(type,projection);
-  const add=(client,source={})=>{const name=clean(client?.name||source?.name||source?.customerName),code=clean(client?.code||client?.cr||source?.code||source?.customerCode),key=customerKey(client?.id||code||name);if(!key||selected.has(key))return;const money=ledger.byCustomerCode.get(customerKey(code))||ledger.byCustomerName.get(customerKey(name))||{sales:0,paid:0,outstanding:0,quantity:0,item:''};selected.set(key,{name:name||code||'عميل غير مسمى',segment:type==='block'?'بلوك':'خرسانة',registry:clean(client?.cr||client?.nationalId||client?.registry||code),code,phone:clean(client?.tel||client?.phone),creditLimit:Number(client?.cap??state.cap??0)||0,paymentDays:Number(client?.days??state.days??3)||state.days,sales:money.sales,paid:money.paid,outstanding:money.outstanding,quantity:money.quantity,item:money.item});};
-  if(!dailyOnly)for(const client of state.clients){const assigned=linkedRepIds.has(clean(client?.rep))||(Array.isArray(client?.repIds)&&client.repIds.some(id=>linkedRepIds.has(clean(id)))),segment=norm(client?.seg||'');if(assigned&&(!segment||segment.includes(type==='block'?'بلوك':'خرسان')||segment.includes('الاثنين')))add(client);}
-  const direct=directDailyCustomers(type,analysis);for(const row of direct){const master=masterByCode.get(customerKey(row.customerCode))||masterByName.get(customerKey(row.customerName));add(master||{},row);}if(!direct.length){const projected=projection?.departments?.[type]?.rows||[];for(const row of projected){if(dailyOnly&&!hasCurrentActivity(row))continue;const master=masterByCode.get(customerKey(row.code||row.customerCode))||masterByName.get(customerKey(row.name||row.customerName));add(master||{},row);}}
-  return[...selected.values()].sort((a,b)=>a.name.localeCompare(b.name,'ar'));
+function activityIndex(type,analysis={},reportDate=''){
+  const byCustomerCode=new Map(),byCustomerName=new Map();
+  const upsert=(code,name,kind,amount,item='')=>{
+    const codeKey=customerKey(code),nameKey=customerKey(name),row=byCustomerCode.get(codeKey)||byCustomerName.get(nameKey)||{code:clean(code),name:clean(name),sales:0,collections:0,items:new Set(),lastSale:'',lastCollection:''};
+    row[kind]+=Math.max(0,n(amount));
+    if(item)row.items.add(clean(item));
+    if(kind==='sales')row.lastSale=reportDate;
+    if(kind==='collections')row.lastCollection=reportDate;
+    if(codeKey)byCustomerCode.set(codeKey,row);if(nameKey)byCustomerName.set(nameKey,row);
+  };
+  for(const row of analysis?.sales||[]){
+    if(saleType(row)!==type)continue;
+    upsert(row.customerCode||row.customer_code,row.customer||row.customerName||row.customer_name,'sales',row.amount??row.total??row.total_amount,row.item||row.itemName||row.item_name);
+  }
+  for(const row of analysis?.collections||[])upsert(row.customerCode||row.accountCode,row.customer||row.customerName||row.accountName,'collections',row.amount??row.debit??row.credit);
+  return{byCustomerCode,byCustomerName};
+}
+function consume(pool,amount){const used=Math.min(Math.max(0,pool),Math.max(0,amount));return{used,pool:pool-used,amount:amount-used};}
+function allocation(base={},current={}){
+  const oldDebt=Math.max(0,n(base.openingBalance)),openingCredit=Math.max(0,-n(base.openingBalance));
+  const priorNewSales=Math.max(0,n(base.grossSales)),priorPaidRecorded=Math.min(priorNewSales,Math.max(0,n(base.paidApplied)));
+  let priorNewRemaining=Math.max(0,priorNewSales-priorPaidRecorded),oldRemaining=oldDebt,creditPool=openingCredit+Math.max(0,n(base.unallocatedCredit));
+  let paidNew=priorPaidRecorded,paidOld=0;
+  let step=consume(creditPool,priorNewRemaining);creditPool=step.pool;priorNewRemaining=step.amount;paidNew+=step.used;
+  step=consume(creditPool,oldRemaining);creditPool=step.pool;oldRemaining=step.amount;paidOld+=step.used;
+  const currentSales=Math.max(0,n(current.sales));let currentSalesRemaining=currentSales;
+  step=consume(creditPool,currentSalesRemaining);creditPool=step.pool;currentSalesRemaining=step.amount;paidNew+=step.used;
+  let paymentPool=Math.max(0,n(current.collections));
+  step=consume(paymentPool,currentSalesRemaining);paymentPool=step.pool;currentSalesRemaining=step.amount;paidNew+=step.used;
+  step=consume(paymentPool,priorNewRemaining);paymentPool=step.pool;priorNewRemaining=step.amount;paidNew+=step.used;
+  step=consume(paymentPool,oldRemaining);paymentPool=step.pool;oldRemaining=step.amount;paidOld+=step.used;
+  const advance=creditPool+paymentPool,newSales=priorNewSales+currentSales,remainingNew=priorNewRemaining+currentSalesRemaining,outstanding=remainingNew+oldRemaining,collections=Math.max(0,n(base.collections))+Math.max(0,n(current.collections));
+  return{oldDebt,oldDate:clean(base.openingDate),newSales,lastSale:clean(current.lastSale||base.lastSale),collections,lastCollection:clean(current.lastCollection||base.lastCollection),paidNew,paidOld,remainingNew,remainingOld:oldRemaining,advance,outstanding};
+}
+function compactDate(value){const text=clean(value);return text?text.split('-').reverse().join('/'):'—';}
+function appendDebtAppendix(document,{customers,employee,type,reportDate,sourceFile,logoUrl}){
+  if(!customers.length)return document;
+  const pages=[];
+  for(let offset=0;offset<customers.length;offset+=7){
+    const rows=customers.slice(offset,offset+7),body=rows.map((row,index)=>`<tr><td>${offset+index+1}</td><td><b>${htmlEsc(row.name)}</b><br><span>${htmlEsc(row.code||'بدون رقم')}</span></td><td><b>${money(row.reportSales)}</b><br><span>${compactDate(row.reportSaleDate)}</span></td><td><b>${money(row.reportCollections)}</b><br><span>${compactDate(row.reportCollectionDate)}</span></td><td><span>فواتير ${type==='block'?'بلوك':'خرسانة'} سابقة: ${money(row.remainingNew)}</span><br><span>رصيد قديم: ${money(row.remainingOld)}</span></td><td><span>على المبيعات: ${money(row.paidNew)}</span><br><span>على القديم: ${money(row.paidOld)}</span></td><td><b>${money(row.outstanding)}</b>${row.advance?`<br><span>دفعة مقدمة: ${money(row.advance)}</span>`:''}</td></tr>`).join('');
+    pages.push(`<div class="doc"><div class="body" style="padding:9mm 9mm 7mm"><div style="display:flex;align-items:center;gap:8mm;border-bottom:2pt solid #0B2233;padding-bottom:3mm"><img src="${htmlEsc(logoUrl)}" style="width:34mm"><div><div style="font:700 15pt 'Reem Kufi',Tahoma;color:#0B2233">بيان مبيعات محفظة ${type==='block'?'البلوك':'الخرسانة'} والتحصيل</div><div style="font-size:8pt;color:#655f50">المندوب: ${htmlEsc(employee.name)} — تقرير ${htmlEsc(reportDate)} — المصدر: ${htmlEsc(sourceFile)}</div></div></div><div style="margin:4mm 0;padding:2.5mm 3mm;border:1pt solid #C6B187;background:#F8F1E4;font-size:8pt"><b>نطاق الإقرار:</b> مبيعات ${type==='block'?'البلوك':'الخرسانة'} السابقة غير المسددة، بالإضافة إلى عملاء مبيعات أو سداد التقرير الحالي. لا تُدرج المديونية الافتتاحية وحدها دون مبيعات من هذا القسم. ويُخصم السداد من مبيعات التقرير، ثم المبيعات السابقة، ثم الرصيد القديم.</div><table style="width:100%;border-collapse:collapse;font-size:7.2pt;line-height:1.45"><thead><tr style="background:#0B2233;color:#fff"><th style="padding:2mm;border:1px solid #8ca0ad">م</th><th style="padding:2mm;border:1px solid #8ca0ad">العميل / الرقم</th><th style="padding:2mm;border:1px solid #8ca0ad">مبيعات التقرير / التاريخ</th><th style="padding:2mm;border:1px solid #8ca0ad">سداد التقرير / التاريخ</th><th style="padding:2mm;border:1px solid #8ca0ad">المتبقي السابق والقديم</th><th style="padding:2mm;border:1px solid #8ca0ad">توزيع السداد</th><th style="padding:2mm;border:1px solid #8ca0ad">الرصيد النهائي</th></tr></thead><tbody>${body}</tbody></table></div></div>`);
+  }
+  return document.replace('</body>',`${pages.join('')}</body>`);
+}
+function canonicalCustomers(type,analysis,state,analyticsRows,{currentBatch=true,reportDate=''}={}){
+  const masterByCode=new Map(),masterByName=new Map();
+  for(const client of state.clients){
+    if(client?.code||client?.cr||client?.id)masterByCode.set(customerKey(client.code||client.cr||client.id),client);
+    if(client?.name)masterByName.set(customerKey(client.name),client);
+  }
+  const analytics=analyticsIndex(analyticsRows),reportActivity=activityIndex(type,analysis,reportDate),projected=currentBatch?reportActivity:{byCustomerCode:new Map(),byCustomerName:new Map()},selected=new Map();
+  const lookup=(index,code,name)=>index.byCustomerCode.get(customerKey(code))||index.byCustomerName.get(customerKey(name))||{};
+  const add=(client,source={})=>{
+    const name=clean(client?.name||source?.name||source?.customerName),code=clean(client?.code||client?.cr||source?.code||source?.externalId||source?.customerCode),key=customerKey(client?.id||code||name);
+    if(!key||selected.has(key))return;
+    const base=lookup(analytics,code,name),activity=lookup(reportActivity,code,name),current=lookup(projected,code,name),a=allocation(base,current);
+    const hasSectionSales=Math.max(0,n(base.grossSales))+Math.max(0,n(activity.sales))>0;
+    const hasReportActivity=Math.max(0,n(activity.sales))+Math.max(0,n(activity.collections))>0;
+    if(!hasSectionSales||(!(a.remainingNew>0)&&!hasReportActivity))return;
+    const items=[...(activity.items||[])],baseProducts=Array.isArray(base.products)?base.products:[];
+    selected.set(key,{
+      name:name||code||'عميل غير مسمى',segment:type==='block'?'بلوك':'خرسانة',registry:clean(client?.cr||client?.nationalId||client?.registry||code),code,
+      phone:clean(client?.tel||client?.phone||base.phone),creditLimit:Number(client?.cap??base.creditLimit??state.cap??0)||0,paymentDays:Number(client?.days??base.paymentDays??state.days??3)||state.days,
+      sales:a.newSales,paid:a.paidNew,outstanding:a.outstanding,quantity:0,item:[...new Set([...items,...baseProducts])].slice(0,2).join('، '),
+      oldBalance:a.oldDebt,oldDate:a.oldDate,newSales:a.newSales,lastSale:a.lastSale,collections:a.collections,lastCollection:a.lastCollection,
+      paidNew:a.paidNew,paidOld:a.paidOld,remainingNew:a.remainingNew,remainingOld:a.remainingOld,advance:a.advance,
+      reportSales:Math.max(0,n(activity.sales)),reportCollections:Math.max(0,n(activity.collections)),reportSaleDate:activity.lastSale||'',reportCollectionDate:activity.lastCollection||'',hasReportActivity
+    });
+  };
+  for(const row of analyticsRows||[]){
+    if(Math.max(0,n(row.grossSales))<=0)continue;
+    const code=clean(row.code||row.externalId),name=clean(row.name),master=masterByCode.get(customerKey(code))||masterByName.get(customerKey(name));
+    add(master||{},row);
+  }
+  for(const row of analysis?.sales||[]){
+    if(saleType(row)!==type)continue;
+    const code=clean(row.customerCode||row.customer_code),name=clean(row.customer||row.customerName||row.customer_name),master=masterByCode.get(customerKey(code))||masterByName.get(customerKey(name));
+    add(master||{}, {customerCode:code,customerName:name});
+  }
+  for(const row of analysis?.collections||[]){
+    const code=clean(row.customerCode||row.accountCode),name=clean(row.customer||row.customerName||row.accountName),base=lookup(analytics,code,name);
+    if(Math.max(0,n(base.grossSales))<=0)continue;
+    const master=masterByCode.get(customerKey(code))||masterByName.get(customerKey(name));
+    add(master||{},base);
+  }
+  return[...selected.values()].sort((a,b)=>Number(b.hasReportActivity)-Number(a.hasReportActivity)||b.outstanding-a.outstanding||a.name.localeCompare(b.name,'ar'));
 }
 
 export async function generateCustomerPortfolioPdfs(analysis={},sourceFile='daily-report.xlsx',requestedTypes=['block','concrete'],options={}){
-  const types=[...new Set((Array.isArray(requestedTypes)?requestedTypes:[requestedTypes]).map(clean).filter(type=>VALID_TYPES.has(type)))];if(!types.length)throw Object.assign(new Error('حدد إقرار البلوك أو إقرار الخرسانة.'),{status:400,code:'PORTFOLIO_TYPE_REQUIRED'});
-  const reportDate=isoDate(options?.reportDate)||await resolveReportDate(analysis,sourceFile),dailyOnly=options?.dailyOnly!==false,dueOnly=options?.dueOnly===true,[state,projection]=await Promise.all([loadAppState(),loadProjectedCumulativeDailyReport(analysis,reportDate,{currentBatch:true})]),baseUrl=`${publicBase()}/`,reports=[];
+  const types=[...new Set((Array.isArray(requestedTypes)?requestedTypes:[requestedTypes]).map(clean).filter(type=>VALID_TYPES.has(type)))];
+  if(!types.length)throw Object.assign(new Error('حدد إقرار البلوك أو إقرار الخرسانة.'),{status:400,code:'PORTFOLIO_TYPE_REQUIRED'});
+  const reportDate=isoDate(options?.reportDate)||await resolveReportDate(analysis,sourceFile),currentBatch=options?.currentBatch===true?true:options?.currentBatch===false||options?.sourceBatchId?false:!(await reportAlreadyCommitted(sourceFile,reportDate)),state=await loadAppState(),baseUrl=`${publicBase()}/`,reports=[];
   for(const type of types){
     const rep=findRep(state.employees,type);if(!rep)throw Object.assign(new Error(`لا يوجد موظف نشط بدور ${ROLE_BY_TYPE[type]}؛ تم منع إصدار الإقرار باسم موظف غير صحيح.`),{status:409,code:`PORTFOLIO_${type.toUpperCase()}_REP_NOT_FOUND`});
-    const allCustomers=canonicalCustomers(type,analysis,projection,state,rep,{dailyOnly});
-    // «المديونين فقط» اختياري: يقصر الإقرار على من عليه رصيد غير مسدَّد فيبقى قصيرًا مهما
-    // زاد العملاء. الافتراضي كل العملاء حتى تظل الوثيقة مُثبِتة لكامل المحفظة المُسندة.
-    const priced=allCustomers.some(row=>Number(row.sales||0)||Number(row.paid||0)||Number(row.outstanding||0));
-    const customers=dueOnly&&priced?allCustomers.filter(row=>Number(row.outstanding||0)>0):allCustomers;
-    const invoices=invoiceRows(type,analysis),documentRef=`BHF-${type.toUpperCase()}-${reportDate.replace(/-/g,'')}-TG`,rendered=renderCustomerPortfolioDeclaration({type,companyName:state.companyName,company:state.company,employee:{name:rep?.name||'',nationalId:digits(rep?.nid||rep?.national_id),role:ROLE_BY_TYPE[type],number:rep?.no||'',phone:rep?.tel||''},customers,days:state.days,defaultCreditLimit:state.cap,declarationText:CUSTOMER_PORTFOLIO_DECLARATION,extraText:CUSTOMER_PORTFOLIO_EXTRA,ackText:DECLARATION_ACK,authorizedName:state.authorizedName,documentRef,dateGregorian:reportDate,logoUrl:`${baseUrl}assets/branding/binhamid-factory-logo.png`,baseUrl});
-    const pdf=await htmlToPdf(rendered.document,{filename:`portfolio-${type}-${reportDate}`,landscape:false}),department=type==='block'?'البلوك':'الخرسانة';
-    reports.push({type,pdf,filename:`إقرار محفظة عملاء ${department}${dueOnly?' — المديونين':''} — ${reportDate} — ${invoices.length} فاتورة.pdf`,caption:`${icon(type)} إقرار محفظة عملاء ${department} — ${rep.name} — ${reportDate} — ${invoices.length} فاتورة — ${customers.length} عميل`,templateVersion:CUSTOMER_PORTFOLIO_TEXT_VERSION,sourceFile,reportDate,customerCount:customers.length,totalCustomerCount:allCustomers.length,dueOnly,invoiceCount:invoices.length,employeeExternalId:clean(rep?.id||rep?.external_id),employeeNationalId:digits(rep?.nid||rep?.national_id)});
+    const analytics=await loadCustomerAnalytics({active:true,role:ANALYTICS_ROLE[type]}),customers=canonicalCustomers(type,analysis,state,analytics?.rows||[],{currentBatch,reportDate});
+    if(!customers.length)throw Object.assign(new Error(`لا توجد مبيعات ${type==='block'?'بلوك':'خرسانة'} سابقة غير مسددة، ولا مبيعات أو سداد لهذا القسم في التقرير الحالي.`),{status:409,code:`PORTFOLIO_${type.toUpperCase()}_NO_SALES_ACTIVITY`});
+    const documentRef=`BHF-${type.toUpperCase()}-${reportDate.replace(/-/g,'')}-TG`,logoUrl=`${baseUrl}assets/branding/binhamid-factory-logo.png`,rendered=renderCustomerPortfolioDeclaration({type,companyName:state.companyName,company:state.company,employee:{name:rep?.name||'',nationalId:digits(rep?.nid||rep?.national_id),role:ROLE_BY_TYPE[type],number:rep?.no||'',phone:rep?.tel||''},customers,days:state.days,defaultCreditLimit:state.cap,declarationText:CUSTOMER_PORTFOLIO_DECLARATION,extraText:CUSTOMER_PORTFOLIO_EXTRA,ackText:DECLARATION_ACK,authorizedName:state.authorizedName,documentRef,dateGregorian:reportDate,logoUrl,baseUrl}),document=appendDebtAppendix(rendered.document,{customers,employee:rep,type,reportDate,sourceFile,logoUrl}),pdf=await htmlToPdf(document,{filename:`portfolio-${type}-${reportDate}`,landscape:false}),department=type==='block'?'البلوك':'الخرسانة';
+    reports.push({type,pdf,filename:`إقرار محفظة عملاء ${department} — ${reportDate}.pdf`,caption:`${icon(type)} إقرار محفظة عملاء ${department} — ${rep.name} — ${reportDate} — ${customers.length} عميل`,templateVersion:CUSTOMER_PORTFOLIO_TEXT_VERSION,sourceFile,reportDate,customerCount:customers.length,totalCustomerCount:customers.length,dueOnly:false,employeeExternalId:clean(rep?.id||rep?.external_id),employeeNationalId:digits(rep?.nid||rep?.national_id)});
   }
   return reports;
 }
 
-// بيانات محفظة المندوب دون توليد PDF — يستخدمها كشف الحساب المستقل ليعرض كل العملاء
-// بنفس أرقام الإقرار بالضبط، فلا يختلف مصدر الرقم بين المستندين.
 export async function collectPortfolioRows(analysis={},sourceFile='daily-report.xlsx',requestedTypes=['block','concrete'],options={}){
   const types=[...new Set((Array.isArray(requestedTypes)?requestedTypes:[requestedTypes]).map(clean).filter(type=>VALID_TYPES.has(type)))];
   if(!types.length)throw Object.assign(new Error('حدد قطاع البلوك أو الخرسانة.'),{status:400,code:'PORTFOLIO_TYPE_REQUIRED'});
-  const reportDate=isoDate(options?.reportDate)||await resolveReportDate(analysis,sourceFile),dailyOnly=options?.dailyOnly!==false;
-  const [state,projection]=await Promise.all([loadAppState(),loadProjectedCumulativeDailyReport(analysis,reportDate,{currentBatch:true})]);
-  return types.map(type=>{
-    const rep=findRep(state.employees,type);
-    if(!rep)throw Object.assign(new Error(`لا يوجد موظف نشط بدور ${ROLE_BY_TYPE[type]}؛ تم منع إصدار الكشف باسم موظف غير صحيح.`),{status:409,code:`PORTFOLIO_${type.toUpperCase()}_REP_NOT_FOUND`});
-    return{type,reportDate,companyName:state.companyName,employee:{name:rep?.name||'',nationalId:digits(rep?.nid||rep?.national_id)},customers:canonicalCustomers(type,analysis,projection,state,rep,{dailyOnly})};
-  });
+  const reportDate=isoDate(options?.reportDate)||await resolveReportDate(analysis,sourceFile),currentBatch=options?.currentBatch===true,state=await loadAppState();
+  return Promise.all(types.map(async type=>{
+    const rep=findRep(state.employees,type);if(!rep)throw Object.assign(new Error(`لا يوجد موظف نشط بدور ${ROLE_BY_TYPE[type]}؛ تم منع إصدار الكشف باسم موظف غير صحيح.`),{status:409,code:`PORTFOLIO_${type.toUpperCase()}_REP_NOT_FOUND`});
+    const analytics=await loadCustomerAnalytics({active:true,role:ANALYTICS_ROLE[type]});
+    return{type,reportDate,companyName:state.companyName,employee:{name:rep?.name||'',nationalId:digits(rep?.nid||rep?.national_id)},customers:canonicalCustomers(type,analysis,state,analytics?.rows||[],{currentBatch,reportDate})};
+  }));
 }
