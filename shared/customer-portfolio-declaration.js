@@ -5,7 +5,7 @@ const fmtG=value=>{const text=clean(value);if(!/^\d{4}-\d{2}-\d{2}$/.test(text))
 const hijri=value=>{try{return new Intl.DateTimeFormat('ar-SA-u-ca-islamic-umalqura',{day:'2-digit',month:'2-digit',year:'numeric',timeZone:'Asia/Riyadh'}).format(new Date(`${value}T12:00:00+03:00`)).replace(/[٠-٩]/g,char=>'٠١٢٣٤٥٦٧٨٩'.indexOf(char)).replace(/\u200f/g,'');}catch{return'';}};
 const chunks=(rows,size)=>{const output=[];for(let index=0;index<rows.length;index+=size)output.push(rows.slice(index,index+size));return output.length?output:[[]];};
 
-export const CUSTOMER_PORTFOLIO_TEXT_VERSION='2026.07.24-website-docCli-exact-v1';
+export const CUSTOMER_PORTFOLIO_TEXT_VERSION='2026.07.27-primary-owner-cross-sector-v2';
 export const CANONICAL_CUSTOMER_PORTFOLIO_DECLARATION=`أُقر بأن العملاء المدرجين في هذا النموذج مُسندون إليّ، وأنني المسؤول المباشر عن متابعة تعاملاتهم وتحصيل مستحقات المنشأة لديهم.
 ألتزم بعدم البيع الآجل لأي عميل خارج سقف الائتمان المعتمد له، وبعدم منح أي مهلة سداد تتجاوز المدة المقررة أعلاه.
 ألتزم بالحصول على موافقة كتابية مسبقة من الإدارة قبل أي تجاوز لسقف الائتمان أو مهلة السداد أو قبل التعامل مع عميل غير مُسجّل في هذا النموذج.
@@ -77,17 +77,33 @@ function ledgerSection(rows,offset,model,sector,totalCredit,finalChunk,number='�
   return sec(number,title,`<table class="led"><thead><tr>${head}</tr></thead><tbody>${bodyRows}</tbody>${foot}</table><div class="ledn">${note}</div>`,false,`${model.customers.length} عميل`);
 }
 
+function crossSectorSection(rows,offset,model,finalChunk){
+  const total=(model.crossSectorPurchases||[]).reduce((sum,row)=>sum+amount(row.amount??row.sales??row.reportSales),0);
+  const body=rows.map((row,index)=>{
+    const invoices=Array.isArray(row.invoices)?row.invoices.map(item=>item.invoice||item.reference||item.no).filter(Boolean).join('، '):clean(row.invoice||row.invoiceNo);
+    const owner=clean(row.ownerEmployeeName)||`مسؤول محفظة ${clean(row.ownerSectorLabel)||'القطاع الأساسي'}`;
+    return`<tr><td class="idx">${String(offset+index+1).padStart(2,'0')}</td><td class="nm">${esc(row.name||row.customerName)}</td><td class="mono">${esc(row.code||row.customerCode||'—')}</td><td>${esc(row.ownerSectorLabel||row.ownerSector||'—')}<div style="font-size:6.2pt;color:#8C8368">${esc(owner)}</div></td><td class="mono">${esc(invoices||'—')}</td><td class="num">${money(amount(row.amount??row.sales??row.reportSales))}</td><td>مسؤولية فاتورة القطاع البائع فقط</td></tr>`;
+  }).join('');
+  const foot=finalChunk?`<tfoot><tr><td colspan="5" class="lbl">إجمالي مبيعات القطاع لعملاء قطاع آخر</td><td class="num">${money(total)}</td><td></td></tr></tfoot>`:'';
+  const note=`هذه العمليات تُحتسب ضمن مبيعات ${model.type==='block'?'البلوك':'الخرسانة'}، ولا تنشئ عميلاً جديدًا ولا تنقل العميل من محفظته الأساسية. يتحمل المندوب الموقّع مسؤولية صحة وتنفيذ ومتابعة فواتير قطاعه المبينة أعلاه فقط، بينما تبقى ملكية العميل ورصيده العام وتحصيلاته لدى مسؤول محفظته الأساسية.`;
+  return sec('٢-أ','مبيعات لعملاء تابعين للقطاع الآخر',`<table class="led"><thead><tr><th style="width:7mm">م</th><th>العميل</th><th style="width:20mm">الكود</th><th style="width:34mm">المحفظة الأساسية</th><th style="width:25mm">الفاتورة</th><th style="width:24mm">قيمة البيع</th><th style="width:38mm">نطاق المسؤولية</th></tr></thead><tbody>${body}</tbody>${foot}</table><div style="margin-top:3mm;border:1pt solid #C6B187;background:#FBF3E5;padding:2.5mm 3mm;font-size:7.7pt;line-height:1.6;color:#4C3A1A;text-align:justify">${note}</div>`,false,`${model.crossSectorPurchases.length} عملية`);
+}
+
 export function renderCustomerPortfolioDeclaration(input={}){
-  const model={...input,customers:Array.isArray(input.customers)?input.customers:[],companyName:clean(input.companyName)||'مصنع بن حامد للبلوك والخرسانة الجاهزة',logoUrl:clean(input.logoUrl)||'/assets/branding/binhamid-factory-logo.png',dateGregorian:clean(input.dateGregorian)||new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Riyadh'}).format(new Date())};
+  const model={...input,customers:Array.isArray(input.customers)?input.customers:[],crossSectorPurchases:Array.isArray(input.crossSectorPurchases)?input.crossSectorPurchases:[],companyName:clean(input.companyName)||'مصنع بن حامد للبلوك والخرسانة الجاهزة',logoUrl:clean(input.logoUrl)||'/assets/branding/binhamid-factory-logo.png',dateGregorian:clean(input.dateGregorian)||new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Riyadh'}).format(new Date())};
   const type=model.type==='block'?'block':'concrete',sector=type==='block'?'البلوك':'الخرسانة الجاهزة',reference=clean(model.documentRef)||`BHF-${type.toUpperCase()}-${model.dateGregorian.replace(/-/g,'')}`,totalCredit=model.customers.reduce((sum,row)=>sum+Number(row.creditLimit||0),0),ctx={employeeName:model.employee?.name||'',employeeNationalId:model.employee?.nationalId||'',companyName:model.companyName,days:Number(model.days||3)||3,creditLimit:model.defaultCreditLimit||0},pages=[];
   const common=()=>`${mast(model)}${tbar('محفظــة عمــلاء','إقرار مسؤولية عن محفظة عملاء',reference,model.dateGregorian)}`;
   const signed=hasLedgerAmounts(model.customers);
-  if(model.customers.length<=5&&!signed){
+  if(model.customers.length<=5&&!signed&&!model.crossSectorPurchases.length){
     const inner=`${common()}${employeeSection(model,sector,totalCredit)}${ledgerSection(model.customers,0,model,sector,totalCredit,true)}${sec('٣','الإقرارات والالتزامات',cov(model.declarationText||CANONICAL_CUSTOMER_PORTFOLIO_DECLARATION,ctx),true)}${clause('مسؤولية التحصيل والائتمان',model.extraText||CANONICAL_CUSTOMER_PORTFOLIO_EXTRA,ctx)}${att(model.ackText||CANONICAL_DECLARATION_ACK,ctx)}${liability(model)}${execution(model,reference,model.dateGregorian)}`;
     pages.push(page(inner,model,reference));
   }else{
     const groups=chunks(model.customers,10);
     groups.forEach((group,index)=>{const inner=`${common()}${index===0?employeeSection(model,sector,totalCredit):''}${ledgerSection(group,index*10,model,sector,totalCredit,index===groups.length-1,index===0?'٢':'٢ تابع',index===0?'كشف العملاء المُسندين':'استكمال كشف العملاء المُسندين')}`;pages.push(page(inner,model,reference));});
+    if(model.crossSectorPurchases.length){
+      const crossGroups=chunks(model.crossSectorPurchases,9);
+      crossGroups.forEach((group,index)=>pages.push(page(`${common()}${crossSectorSection(group,index*9,model,index===crossGroups.length-1)}`,model,reference,'مبيعات عابرة للقطاعات')));
+    }
     const obligations=`${common()}${sec('٣','الإقرارات والالتزامات',cov(model.declarationText||CANONICAL_CUSTOMER_PORTFOLIO_DECLARATION,ctx),true)}${clause('مسؤولية التحصيل والائتمان',model.extraText||CANONICAL_CUSTOMER_PORTFOLIO_EXTRA,ctx)}${att(model.ackText||CANONICAL_DECLARATION_ACK,ctx)}${signed?'':`${liability(model)}${execution(model,reference,model.dateGregorian)}`}`;
     pages.push(page(obligations,model,reference));
     if(signed)pages.push(page(`${common()}${sec('٤','إقرار الذمة والتوقيع',liability(model))}${execution(model,reference,model.dateGregorian)}`,model,reference));
