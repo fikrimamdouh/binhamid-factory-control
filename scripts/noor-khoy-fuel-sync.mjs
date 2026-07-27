@@ -6,6 +6,7 @@ import { chromium } from 'playwright';
 import { parseFuelWorkbook } from '../api/_lib/fuel-summary-parser.js';
 
 const LOGIN_URL=process.env.NOOR_KHOY_LOGIN_URL||'https://www.norkhoysa.com/companies/login';
+const DASHBOARD_URL=process.env.NOOR_KHOY_DASHBOARD_URL||'https://www.norkhoysa.com/companies';
 const REPORT_URL=process.env.NOOR_KHOY_REPORT_URL||'https://www.norkhoysa.com/companies/fuels?fueltype=all';
 const UPLOAD_URL=process.env.BINHAMID_FUEL_UPLOAD_URL||'https://binhamid-factory-control.vercel.app/api/fuel/daily-report';
 const username=String(process.env.NOOR_KHOY_USERNAME||'').trim();
@@ -26,6 +27,11 @@ function shiftedRiyadhDate(offsetDays=-1){
 function ddmmyyyy(iso){const[y,m,d]=iso.split('-');return`${d}/${m}/${y}`;}
 function compact(value){return String(value??'').replace(/\s+/g,' ').trim();}
 function safeName(value){return compact(value).replace(/[^A-Za-z0-9._-]/g,'_').replace(/_+/g,'_').slice(0,120)||'fuel-report.xlsx';}
+function westernDigits(value){return String(value??'').replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d));}
+function moneyNumber(value){
+  const normalized=westernDigits(value).replace(/[٬,\s]/g,'').replace('٫','.').replace(/[^0-9.-]/g,'');
+  const number=Number(normalized);return Number.isFinite(number)&&number>=0?Number(number.toFixed(2)):null;
+}
 
 async function visible(locator){try{return await locator.first().isVisible();}catch{return false;}}
 async function fillFirst(page,selectors,value){
@@ -56,6 +62,29 @@ async function login(page){
   await page.waitForTimeout(1200);
   if(await visible(page.locator('input[type="password"]')))throw new Error('Noor Khoy login failed; the login form is still visible.');
 }
+async function ensureLogin(page,url){
+  await page.goto(url,{waitUntil:'domcontentloaded',timeout:60000});
+  if(/\/login/i.test(page.url())||await visible(page.locator('input[type="password"]'))){await login(page);await page.goto(url,{waitUntil:'domcontentloaded',timeout:60000});}
+}
+function balanceCandidates(text){
+  const lines=String(text||'').split(/\r?\n/).map(compact).filter(Boolean),candidates=[];
+  const amountPattern=/([0-9٠-٩][0-9٠-٩٬,]*(?:[٫.][0-9٠-٩]{1,2})?)/g;
+  for(let index=0;index<lines.length;index++){
+    const context=lines.slice(Math.max(0,index-1),Math.min(lines.length,index+3)).join(' ');
+    if(!/رصيد|متبقي|المتبقي|balance|credit/i.test(context))continue;
+    let score=1;if(/ديزل|diesel/i.test(context))score+=5;if(/ر\.?\s*س|ريال|sar/i.test(context))score+=2;
+    for(const match of context.matchAll(amountPattern)){const amount=moneyNumber(match[1]);if(amount!==null)candidates.push({amount,score,text:context});}
+  }
+  return candidates.sort((a,b)=>b.score-a.score||b.amount-a.amount);
+}
+async function extractDieselBalance(page){
+  const selectors=['[class*="balance" i]','[id*="balance" i]','[class*="wallet" i]','[id*="wallet" i]','[class*="credit" i]','[id*="credit" i]'];
+  const snippets=[];
+  for(const selector of selectors){const locator=page.locator(selector);const count=Math.min(await locator.count().catch(()=>0),20);for(let index=0;index<count;index++)snippets.push(await locator.nth(index).innerText().catch(()=>''));}
+  snippets.push(await page.locator('body').innerText().catch(()=>''));
+  const candidates=balanceCandidates(snippets.join('\n'));
+  return candidates[0]?.amount??null;
+}
 
 async function setNativeDate(locator,iso){
   await locator.evaluate((element,value)=>{
@@ -75,14 +104,9 @@ async function setReportDate(page,iso){
   let from=null,to=null;
   for(const selector of fromSelectors){const item=page.locator(`${selector}:visible`);if(await item.count()){from=item.first();break;}}
   for(const selector of toSelectors){const item=page.locator(`${selector}:visible`);if(await item.count()){to=item.first();break;}}
-  if(!from||!to){
-    const textDates=page.locator('input[type="text"]:visible');
-    if(await textDates.count()>=2){from=textDates.nth(0);to=textDates.nth(1);}
-  }
+  if(!from||!to){const textDates=page.locator('input[type="text"]:visible');if(await textDates.count()>=2){from=textDates.nth(0);to=textDates.nth(1);}}
   if(!from||!to)throw new Error('Noor Khoy date fields were not found.');
-  for(const value of formats){
-    try{await from.fill(value);await to.fill(value);await from.dispatchEvent('change');await to.dispatchEvent('change');return;}catch{}
-  }
+  for(const value of formats){try{await from.fill(value);await to.fill(value);await from.dispatchEvent('change');await to.dispatchEvent('change');return;}catch{}}
   throw new Error('Noor Khoy date fields could not be filled.');
 }
 async function selectAllFuel(page){
@@ -94,78 +118,44 @@ async function selectAllFuel(page){
   }
 }
 async function applyFilter(page){
-  await clickFirst(page,[
-    'button:has-text("بحث")','button:has-text("عرض")','button:has-text("تطبيق")','button:has-text("Search")',
-    'input[type="submit"][value*="بحث"]','input[type="submit"][value*="Search" i]'
-  ]).catch(()=>false);
+  await clickFirst(page,['button:has-text("بحث")','button:has-text("عرض")','button:has-text("تطبيق")','button:has-text("Search")','input[type="submit"][value*="بحث"]','input[type="submit"][value*="Search" i]']).catch(()=>false);
   await page.waitForTimeout(1200);
 }
 async function downloadExcel(page,reportDate){
-  const candidates=[
-    'button:has-text("Excel")','a:has-text("Excel")','button:has-text("اكسل")','a:has-text("اكسل")',
-    'button:has-text("إكسل")','a:has-text("إكسل")','button:has-text("تصدير")','a:has-text("تصدير")',
-    '[href*="excel" i]','[href*="export" i]','[data-export*="excel" i]'
-  ];
-  let trigger=null;
-  for(const selector of candidates){const item=page.locator(`${selector}:visible`).first();if(await visible(item)){trigger=item;break;}}
+  const candidates=['button:has-text("Excel")','a:has-text("Excel")','button:has-text("اكسل")','a:has-text("اكسل")','button:has-text("إكسل")','a:has-text("إكسل")','button:has-text("تصدير")','a:has-text("تصدير")','[href*="excel" i]','[href*="export" i]','[data-export*="excel" i]'];
+  let trigger=null;for(const selector of candidates){const item=page.locator(`${selector}:visible`).first();if(await visible(item)){trigger=item;break;}}
   if(!trigger)throw new Error('Noor Khoy Excel export control was not found.');
-  const downloadPromise=page.waitForEvent('download',{timeout:60000});
-  await trigger.click();
-  const download=await downloadPromise;
-  const suggested=safeName(download.suggestedFilename());
-  const extension=/\.(xlsx|xls)$/i.test(suggested)?path.extname(suggested):'.xlsx';
-  const filePath=path.join(artifacts,`noor-khoy-fuel-${reportDate}${extension}`);
-  await download.saveAs(filePath);
-  return filePath;
+  const downloadPromise=page.waitForEvent('download',{timeout:60000});await trigger.click();const download=await downloadPromise;
+  const suggested=safeName(download.suggestedFilename()),extension=/\.(xlsx|xls)$/i.test(suggested)?path.extname(suggested):'.xlsx';
+  const filePath=path.join(artifacts,`noor-khoy-fuel-${reportDate}${extension}`);await download.saveAs(filePath);return filePath;
 }
 async function githubOidcToken(){
-  const requestUrl=required(process.env.ACTIONS_ID_TOKEN_REQUEST_URL,'ACTIONS_ID_TOKEN_REQUEST_URL');
-  const requestToken=required(process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN,'ACTIONS_ID_TOKEN_REQUEST_TOKEN');
-  const url=new URL(requestUrl);url.searchParams.set('audience','binhamid-fuel-sync');
-  const response=await fetch(url,{headers:{Authorization:`Bearer ${requestToken}`}});
-  if(!response.ok)throw new Error(`GitHub OIDC token request failed: ${response.status}`);
-  const data=await response.json();return required(data.value,'GitHub OIDC token value');
+  const requestUrl=required(process.env.ACTIONS_ID_TOKEN_REQUEST_URL,'ACTIONS_ID_TOKEN_REQUEST_URL'),requestToken=required(process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN,'ACTIONS_ID_TOKEN_REQUEST_TOKEN');
+  const url=new URL(requestUrl);url.searchParams.set('audience','binhamid-fuel-sync');const response=await fetch(url,{headers:{Authorization:`Bearer ${requestToken}`}});
+  if(!response.ok)throw new Error(`GitHub OIDC token request failed: ${response.status}`);const data=await response.json();return required(data.value,'GitHub OIDC token value');
 }
-async function upload(filePath,reportDate,parsed){
-  const token=await githubOidcToken();
-  const buffer=await fs.readFile(filePath);
-  const response=await fetch(UPLOAD_URL,{method:'POST',headers:{
-    Authorization:`Bearer ${token}`,
-    'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'x-fuel-filename-b64':Buffer.from(path.basename(filePath),'utf8').toString('base64'),
-    'x-fuel-report-date':reportDate,
-    'x-fuel-row-count':String(parsed.rowCount)
-  },body:buffer});
-  const text=await response.text();let data;try{data=text?JSON.parse(text):{};}catch{data={raw:text};}
+async function upload(filePath,reportDate,parsed,accountBalance){
+  const token=await githubOidcToken(),buffer=await fs.readFile(filePath),headers={Authorization:`Bearer ${token}`,'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','x-fuel-filename-b64':Buffer.from(path.basename(filePath),'utf8').toString('base64'),'x-fuel-report-date':reportDate,'x-fuel-row-count':String(parsed.rowCount)};
+  if(Number.isFinite(accountBalance))headers['x-fuel-account-balance']=String(accountBalance);
+  const response=await fetch(UPLOAD_URL,{method:'POST',headers,body:buffer});const text=await response.text();let data;try{data=text?JSON.parse(text):{};}catch{data={raw:text};}
   await fs.writeFile(path.join(artifacts,'upload-response.json'),JSON.stringify({status:response.status,data},null,2));
-  if(!response.ok||!data?.ok)throw new Error(`Bin Hamid upload failed (${response.status}): ${compact(data?.error||data?.message||text).slice(0,500)}`);
-  return data;
+  if(!response.ok||!data?.ok)throw new Error(`Bin Hamid upload failed (${response.status}): ${compact(data?.error||data?.message||text).slice(0,500)}`);return data;
 }
 
 async function main(){
-  required(username,'NOOR_KHOY_USERNAME');required(password,'NOOR_KHOY_PASSWORD');
-  await fs.mkdir(artifacts,{recursive:true});
-  const explicit=String(process.env.REPORT_DATE||'').trim(),offset=process.env.FUEL_REPORT_DATE_OFFSET_DAYS||'-1';
-  const reportDate=explicit||shiftedRiyadhDate(offset);
-  const browser=await chromium.launch({headless:true});
-  const context=await browser.newContext({acceptDownloads:true,locale:'ar-SA',timezoneId:'Asia/Riyadh'});
-  const page=await context.newPage();
+  required(username,'NOOR_KHOY_USERNAME');required(password,'NOOR_KHOY_PASSWORD');await fs.mkdir(artifacts,{recursive:true});
+  const explicit=String(process.env.REPORT_DATE||'').trim(),offset=process.env.FUEL_REPORT_DATE_OFFSET_DAYS||'-1',reportDate=explicit||shiftedRiyadhDate(offset);
+  const browser=await chromium.launch({headless:true}),context=await browser.newContext({acceptDownloads:true,locale:'ar-SA',timezoneId:'Asia/Riyadh'}),page=await context.newPage();
   try{
-    await page.goto(REPORT_URL,{waitUntil:'domcontentloaded',timeout:60000});
-    if(/\/login/i.test(page.url())||await visible(page.locator('input[type="password"]'))){await login(page);await page.goto(REPORT_URL,{waitUntil:'domcontentloaded',timeout:60000});}
-    await setReportDate(page,reportDate);await selectAllFuel(page);await applyFilter(page);
-    const filePath=await downloadExcel(page,reportDate);
-    const buffer=await fs.readFile(filePath);
-    const workbook=XLSX.read(buffer,{type:'buffer',cellDates:true});
-    const parsed=parseFuelWorkbook(workbook,XLSX);
+    await ensureLogin(page,DASHBOARD_URL);const accountBalance=await extractDieselBalance(page);
+    await fs.writeFile(path.join(artifacts,'dashboard-balance.json'),JSON.stringify({accountBalance,capturedAt:new Date().toISOString()},null,2));
+    if(accountBalance===null)await fs.writeFile(path.join(artifacts,'dashboard-text.txt'),await page.locator('body').innerText().catch(()=>''),'utf8');
+    await page.goto(REPORT_URL,{waitUntil:'domcontentloaded',timeout:60000});await setReportDate(page,reportDate);await selectAllFuel(page);await applyFilter(page);
+    const filePath=await downloadExcel(page,reportDate),buffer=await fs.readFile(filePath),workbook=XLSX.read(buffer,{type:'buffer',cellDates:true}),parsed=parseFuelWorkbook(workbook,XLSX);
     if(!parsed.rowCount)throw new Error('Downloaded Excel contains no recognizable fuel rows.');
-    const result=await upload(filePath,reportDate,parsed);
-    console.log(JSON.stringify({ok:true,reportDate,file:path.basename(filePath),rows:parsed.rowCount,duplicate:Boolean(result.duplicate),stored:Number(result.storedRows||0)},null,2));
-  }catch(error){
-    await page.screenshot({path:path.join(artifacts,'failure.png'),fullPage:true}).catch(()=>null);
-    await fs.writeFile(path.join(artifacts,'failure.html'),await page.content().catch(()=>''),'utf8').catch(()=>null);
-    throw error;
-  }finally{await browser.close();}
+    const result=await upload(filePath,reportDate,parsed,accountBalance);
+    console.log(JSON.stringify({ok:true,reportDate,accountBalance,file:path.basename(filePath),rows:parsed.rowCount,duplicate:Boolean(result.duplicate),stored:Number(result.storedRows||0)},null,2));
+  }catch(error){await page.screenshot({path:path.join(artifacts,'failure.png'),fullPage:true}).catch(()=>null);await fs.writeFile(path.join(artifacts,'failure.html'),await page.content().catch(()=>''),'utf8').catch(()=>null);throw error;}finally{await browser.close();}
 }
 
 main().catch(error=>{console.error('[noor-khoy-fuel-sync]',error?.stack||error);process.exitCode=1;});
