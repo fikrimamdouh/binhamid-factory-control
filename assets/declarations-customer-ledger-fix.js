@@ -4,7 +4,7 @@
   if(root.document)api.install();
 })(typeof globalThis!=='undefined'?globalThis:this,function(root){
   'use strict';
-  const VERSION='2026.07.17-declarations-customer-ledger-v1';
+  const VERSION='2026.07.27-declarations-customer-ledger-fifo-sector-v2';
   let installed=false,persistWrapped=false,printWrapped=false,rAllWrapped=false,bootPersisted=false;
 
   const num=value=>{const parsed=Number(value||0);return Number.isFinite(parsed)?parsed:0;};
@@ -125,7 +125,11 @@
       if(!assigned)continue;
       const current=activity.get(client.id)||{kinds:new Set(),lastDate:'',sales:0};const kind=kindOf(delivery);if(kind)current.kinds.add(kind);current.lastDate=day(delivery.date)>current.lastDate?day(delivery.date):current.lastDate;current.sales+=num(delivery.amount);activity.set(client.id,current);
     }
-    return clients.filter(client=>{const assigned=client.rep===employee?.id||(Array.isArray(client.repIds)&&client.repIds.includes(employee?.id)),active=activity.has(client.id);if(!assigned&&!active)return false;if(!requested)return true;const item=activity.get(client.id);if(item?.kinds.has(requested))return true;return assigned&&(client.seg===(requested==='concrete'?'خرسانة':'بلوك')||client.seg==='الاثنين');}).map(client=>{const item=activity.get(client.id),kinds=item?.kinds||new Set(),actual=kinds.size>1?'الاثنين':kinds.has('concrete')?'خرسانة':kinds.has('block')?'بلوك':client.seg;return{...client,_portfolioSegment:actual,_portfolioLastDate:item?.lastDate||'',_portfolioSales:item?.sales||0};}).sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'ar'));
+    const rows=clients.filter(client=>{const assigned=client.rep===employee?.id||(Array.isArray(client.repIds)&&client.repIds.includes(employee?.id)),active=activity.has(client.id);if(!assigned&&!active)return false;if(!requested)return true;const item=activity.get(client.id);if(item?.kinds.has(requested))return true;return assigned&&(client.seg===(requested==='concrete'?'خرسانة':'بلوك')||client.seg==='الاثنين');}).map(client=>{
+      const item=activity.get(client.id),kinds=item?.kinds||new Set(),ledger=buildClientLedger(state,client.id,requested),actual=requested?(requested==='concrete'?'خرسانة':'بلوك'):(kinds.size>1?'الاثنين':kinds.has('concrete')?'خرسانة':kinds.has('block')?'بلوك':client.seg);
+      return{...client,_portfolioSegment:actual,_portfolioLastDate:item?.lastDate||'',_portfolioQty:ledger.quantity,_portfolioSales:ledger.sales,_portfolioPaid:ledger.paid,_portfolioBalance:ledger.remaining,_portfolioOverdue:ledger.overdue,_portfolioDue:ledger.nextDueDate,_portfolioLateDays:ledger.maxDaysLate};
+    }).sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'ar'));
+    rows.clients=rows;return rows;
   }
 
   const esc=value=>clean(value).replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
