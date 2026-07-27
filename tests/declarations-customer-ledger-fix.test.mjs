@@ -57,6 +57,18 @@ test('block customer portfolio includes activity linked through customer code an
   assert.equal(client._portfolioSegment,'بلوك');
 });
 
+test('block portfolio never mixes concrete sales or labels into the selected sector',()=>{
+  const api=helpers(),{D,OPS,blockEmployee}=fixture();
+  OPS.deliveries.push({id:'sale-concrete',clientId:'client-imported',customerCode:'C-101',customerName:'مؤسسة العميل الأول',product:'خرسانة 7 كيس',quantity:10,amount:2400,date:'2026-07-18',status:'delivered',employeeId:blockEmployee.id});
+  api.reconcileSalesEmployees({D,OPS},{block:blockEmployee});
+  const client=api.clientPortfolioForEmployee({D,OPS},blockEmployee,'بلوك').find(row=>row.id==='client-master');
+  assert.ok(client);
+  assert.equal(client._portfolioSegment,'بلوك');
+  assert.equal(client._portfolioSales,1260);
+  assert.equal(client._portfolioQty,700);
+  assert.equal(client._portfolioBalance,600);
+});
+
 test('script stays external and is injected after the existing daily import bridge',()=>{
   const html=fs.readFileSync(new URL('../index.html',import.meta.url),'utf8');
   const existing=html.indexOf('binhamid-existing-daily-import-fix');
