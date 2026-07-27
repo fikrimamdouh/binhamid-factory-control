@@ -13,6 +13,7 @@ const STATUS_LABEL={
   old_paid_new_and_previous:'عميل قديم — سدد الجديد وجزءًا من السابق',
   old_paid_new_only:'عميل قديم — سدد مشتريات التقرير',
   old_paid_previous_only:'عميل قديم — سدد من الرصيد السابق فقط',
+  old_paid_previous_with_current_due:'عميل قديم — سدد من الرصيد السابق وبقيت مشتريات التقرير',
   old_partial_current:'عميل قديم — بقي عليه من مشتريات التقرير',
   old_bought_no_payment:'عميل قديم — اشترى ولم يسدد في التقرير',
   old_payment_unallocated:'عميل قديم — سداد يحتاج مراجعة التوزيع',
@@ -106,8 +107,9 @@ function deriveStatus({customerClass,reportSales,reportCollections,paidCurrent,p
     return'new_unpaid';
   }
   if(reportCollections<=0)return reportSales>0?'old_bought_no_payment':'old_no_report_activity';
-  if(reportSales<=0&&paidPrevious>0)return'old_paid_previous_only';
   if(paidCurrent>0&&paidPrevious>0)return'old_paid_new_and_previous';
+  if(paidPrevious>0&&remainingCurrent>0)return'old_paid_previous_with_current_due';
+  if(reportSales<=0&&paidPrevious>0)return'old_paid_previous_only';
   if(paidCurrent>0&&remainingCurrent<=0)return'old_paid_new_only';
   if(paidCurrent>0&&remainingCurrent>0)return'old_partial_current';
   return'old_payment_unallocated';
@@ -121,9 +123,11 @@ export function settleCustomerAccount(base={},activity={},options={}){
   const reportSales=Math.max(0,roundMoney(activity.sales)),reportCollections=Math.max(0,roundMoney(activity.collections));let remainingCurrent=reportSales,priorAdvanceApplied=0;
   step=consume(creditPool,remainingCurrent);creditPool=step.pool;remainingCurrent=step.amount;priorAdvanceApplied=step.used;
   let paymentPool=reportCollections,paidCurrent=0,paidPreviousSales=0,paidOpening=0;
-  step=consume(paymentPool,remainingCurrent);paymentPool=step.pool;remainingCurrent=step.amount;paidCurrent=step.used;
+  // The production ledger is chronological FIFO: settle prior sales and the
+  // opening receivable before applying a report-day receipt to new purchases.
   step=consume(paymentPool,remainingPriorSales);paymentPool=step.pool;remainingPriorSales=step.amount;paidPreviousSales=step.used;
   step=consume(paymentPool,remainingOpening);paymentPool=step.pool;remainingOpening=step.amount;paidOpening=step.used;
+  step=consume(paymentPool,remainingCurrent);paymentPool=step.pool;remainingCurrent=step.amount;paidCurrent=step.used;
   const paidPrevious=roundMoney(paidPreviousSales+paidOpening),finalDebt=roundMoney(remainingCurrent+remainingPriorSales+remainingOpening),finalAdvance=roundMoney(creditPool+paymentPool),customerClass=(base.openingCount||Math.abs(openingBalance)>0.004||base.invoiceCount||priorSales>0||base.collectionCount)?'old':'new',status=deriveStatus({customerClass,reportSales,reportCollections,paidCurrent,paidPrevious,remainingCurrent,finalAdvance});
   let aging=applyToAging(base.aging||{},roundMoney(creditAppliedPriorSales+paidPreviousSales));aging.current=roundMoney(aging.current+remainingCurrent);const unagedOpening=roundMoney(remainingOpening),formulaNet=roundMoney(previousBalance-previousCredit+reportSales-reportCollections),formulaDebt=Math.max(0,formulaNet),formulaAdvance=Math.max(0,-formulaNet),alerts=new Set(activity.alerts||[]);
   if(!String(activity.code||base.code||base.externalId||'').trim())alerts.add('missing_customer_code');
