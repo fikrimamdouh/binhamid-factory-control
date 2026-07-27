@@ -1,4 +1,4 @@
-// [BinHamid] 2026.07.24-customer-portfolio-range-control-v1
+// [BinHamid] 2026.07.27-customer-portfolio-range-control-fifo-sector-v2
 // مصدر واحد لتاريخ إقرار محفظة العملاء ونطاقه، ويُرسل إلى Telegram نفس #sheet الذي يطبعه الموقع.
 (function(){
   'use strict';
@@ -8,7 +8,7 @@
   // منع الوحدة القديمة من إرسال إقرار ثانٍ بمنطق مختلف.
   window.__BH_DAILY_PORTFOLIO_DECLARATIONS__=true;
 
-  const VERSION='2026.07.24-customer-portfolio-range-control-v1';
+  const VERSION='2026.07.27-customer-portfolio-range-control-fifo-sector-v2';
   const clean=value=>String(value??'').replace(/\s+/g,' ').trim();
   const norm=value=>clean(value).toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/ؤ/g,'و').replace(/ئ/g,'ي').replace(/ـ/g,'').replace(/[^\p{L}\p{N}]+/gu,' ').trim();
   const digits=value=>clean(value).replace(/[^0-9٠-٩]/g,'').replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d));
@@ -84,9 +84,13 @@
     for(const sale of sales){
       const client=clients.find(item=>sameClient(item,sale));
       if(!client)continue;
-      selected.set(client.id||clean(client.code)||norm(client.name),{...client,_portfolioSegment:kind==='concrete'?'خرسانة':kind==='block'?'بلوك':client.seg,_portfolioLastDate:context.reportDate||context.toDate,_portfolioSales:Number(sale.amount||sale.total||sale.total_amount||0)});
+      const key=client.id||clean(client.code)||norm(client.name),current=selected.get(key)||{client,reportSales:0,reportQuantity:0};
+      current.reportSales+=Number(sale.amount||sale.total||sale.total_amount||0);current.reportQuantity+=Number(sale.quantity||0);selected.set(key,current);
     }
-    return[...selected.values()].sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'ar'));
+    return[...selected.values()].map(({client,reportSales,reportQuantity})=>{
+      const ledger=typeof window.bhClientLedger==='function'?window.bhClientLedger(client.id,kind):null;
+      return{...client,_portfolioSegment:kind==='concrete'?'خرسانة':kind==='block'?'بلوك':client.seg,_portfolioLastDate:context.reportDate||context.toDate,_portfolioQty:Number(ledger?.quantity??reportQuantity),_portfolioSales:Number(ledger?.sales??reportSales),_portfolioPaid:Number(ledger?.paid||0),_portfolioBalance:Number(ledger?.remaining??reportSales),_portfolioOverdue:Number(ledger?.overdue||0),_portfolioDue:ledger?.nextDueDate||'',_portfolioLateDays:Number(ledger?.maxDaysLate||0)};
+    }).sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'ar'));
   }
 
   function filterClientsByRange(rows,employee,segment,context){
