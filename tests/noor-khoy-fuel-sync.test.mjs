@@ -25,28 +25,36 @@ test('workflow runs in the Riyadh morning for the previous day and uses secrets'
   assert.match(workflow,/FUEL_REPORT_DATE_OFFSET_DAYS:\s*'-1'/);
 });
 
-test('browser sync selects the resolved report date, downloads Excel and uploads through OIDC',()=>{
+test('browser sync reads the dashboard balance before downloading and uploading Excel',()=>{
   const script=read('scripts/noor-khoy-fuel-sync.mjs');
+  assert.match(script,/DASHBOARD_URL/);
+  assert.match(script,/extractDieselBalance/);
+  assert.match(script,/balanceCandidates/);
+  assert.match(script,/x-fuel-account-balance/);
   assert.match(script,/companies\/fuels\?fueltype=all/);
   assert.match(script,/shiftedRiyadhDate/);
   assert.match(script,/setReportDate/);
   assert.match(script,/waitForEvent\('download'/);
   assert.match(script,/parseFuelWorkbook/);
   assert.match(script,/ACTIONS_ID_TOKEN_REQUEST_URL/);
-  assert.match(script,/binhamid-fuel-sync/);
 });
 
-test('server route stores source Excel and silently keeps the private Renault out of state, totals and PDFs',()=>{
+test('server stores balance history, reports it, and keeps the private Renault out silently',()=>{
   const route=read('api/_lib/routes/fuel-sync.js'),pdf=read('api/_lib/fuel-report-pdf.js'),router=read('api/router.js'),vercel=read('vercel.json');
   assert.match(route,/token\.actions\.githubusercontent\.com/);
-  assert.match(route,/claims\.repository!==REPOSITORY/);
   assert.match(route,/PRIVATE_PLATE_KEY='DGD7293'/);
   assert.match(route,/operationalRows=parsed\.rows\.filter\(row=>!privateFuelRow\(row\)\)/);
+  assert.match(route,/requestBalance/);
+  assert.match(route,/fuelAccountBalance/);
+  assert.match(route,/fuelBalances/);
+  assert.match(route,/متبقي في رصيد الديزل/);
+  assert.match(route,/accountBalance/);
   assert.match(route,/mergeIntoState\(operationalRows/);
-  assert.match(route,/totals\(operationalRows\)/);
   assert.match(route,/rows:operationalRows/);
   assert.doesNotMatch(route,/تم استبعاد|تم تجاهل|مستبعدة/);
-  assert.match(pdf,/Array\.isArray\(options\.rows\)/);
+  assert.match(pdf,/متبقي في الرصيد/);
+  assert.match(pdf,/category==='diesel'/);
+  assert.match(pdf,/options\.accountBalance/);
   assert.match(route,/uploadObject/);
   assert.match(route,/insert\('imports'/);
   assert.match(route,/revision=eq\./);
