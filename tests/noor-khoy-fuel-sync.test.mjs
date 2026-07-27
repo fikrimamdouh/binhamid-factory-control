@@ -30,11 +30,16 @@ test('workflow runs daily and supports an ordered historical date range',()=>{
   assert.match(workflow,/FUEL_REPORT_DATE_OFFSET_DAYS:\s*'-1'/);
 });
 
-test('browser sync attaches the current treasury balance only to the latest closed report day',()=>{
+test('browser sync survives the post-login landing redirect and attaches the current treasury balance only to the latest closed report day',()=>{
   const script=read('scripts/noor-khoy-fuel-sync.mjs');
   assert.match(script,/DASHBOARD_URL/);
   assert.match(script,/extractDieselBalance/);
   assert.match(script,/balanceCandidates/);
+  assert.match(script,/waitForURL/);
+  assert.match(script,/openReportPage/);
+  assert.match(script,/reportPageReady/);
+  assert.match(script,/All Funding/);
+  assert.match(script,/failure-context\.json/);
   assert.match(script,/latestClosedDate=shiftedRiyadhDate\(-1\)/);
   assert.match(script,/attachBalance=sendBalance&&reportDate===latestClosedDate/);
   assert.match(script,/x-fuel-account-balance/);
