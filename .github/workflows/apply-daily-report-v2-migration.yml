@@ -20,6 +20,7 @@ on:
       - 'api/_lib/routes/system-runtime.js'
       - 'supabase/migrations/029_daily_report_v2_upgrade.sql'
       - 'supabase/migrations/030_daily_report_fifo_integrity.sql'
+      - 'supabase/migrations/031_daily_report_snapshot_reconciliation.sql'
 
 permissions:
   contents: read
@@ -126,9 +127,9 @@ jobs:
       - name: Prepare isolated PostgreSQL extensions
         run: psql "$LOCAL_DATABASE_URL" -X -v ON_ERROR_STOP=1 -c 'create extension if not exists pgcrypto;'
 
-      - name: Apply migrations 029-030 to isolated clone atomically
+      - name: Apply migrations 029-031 to isolated clone atomically
         env:
-          ISOLATED_MIGRATION_TARGET: '30'
+          ISOLATED_MIGRATION_TARGET: '31'
           ISOLATED_MIGRATION_APPLY_RESULT: daily-report-v2-isolated-apply.json
         run: node scripts/apply-isolated-accounting-migrations.mjs
 
@@ -144,9 +145,9 @@ jobs:
         run: |
           set -euo pipefail
           current_version="$(node -e "const x=require('./daily-report-v2-preflight.json');process.stdout.write(String(x.currentVersion))")"
-          if [ "$current_version" -lt 30 ]; then
+          if [ "$current_version" -lt 31 ]; then
             pending_sql="$(mktemp)"
-            for version in $(seq $((current_version + 1)) 30); do
+            for version in $(seq $((current_version + 1)) 31); do
               file="$(find supabase/migrations -maxdepth 1 -type f -name "$(printf '%03d' "$version")_*.sql" -print -quit)"
               test -n "$file"
               printf '\n-- BEGIN %s\n' "$file" >> "$pending_sql"
@@ -155,14 +156,14 @@ jobs:
             done
             psql "$SUPABASE_DB_URL" -X -v ON_ERROR_STOP=1 --single-transaction --file "$pending_sql"
             rm -f "$pending_sql"
-          elif [ "$current_version" -eq 30 ]; then
-            echo 'Database is already at schema version 30.'
+          elif [ "$current_version" -eq 31 ]; then
+            echo 'Database is already at schema version 31.'
           else
             echo "Unexpected schema version: $current_version" >&2
             exit 1
           fi
 
-      - name: Verify production schema 30, row counts, and financial integrity
+      - name: Verify production schema 31, revised snapshots, and financial integrity
         env:
           DAILY_REPORT_V2_PREFLIGHT_PATH: daily-report-v2-preflight.json
           DAILY_REPORT_V2_RESULT_PATH: daily-report-v2-result.json
@@ -192,7 +193,7 @@ jobs:
           BACKUP_OUTPUT_DIR=post-daily-report-v2-backup \
           BACKUP_VERIFICATION_FILE=post-daily-report-v2-backup-verification.json \
           BACKUP_MANIFEST_ENV_NAME=POST_MIGRATION_MANIFEST \
-          EXPECTED_SCHEMA_VERSION=30 \
+          EXPECTED_SCHEMA_VERSION=31 \
           node scripts/verify-backup-files.mjs
 
       - name: Upload daily-report migration evidence
@@ -233,7 +234,7 @@ jobs:
           const response=await fetch(`https://api.github.com/repos/${process.env.REPOSITORY}/statuses/${process.env.HEAD_SHA}`,{
             method:'POST',
             headers:{Accept:'application/vnd.github+json',Authorization:`Bearer ${process.env.GITHUB_TOKEN}`,'X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'},
-            body:JSON.stringify({state:success?'success':'failure',context:'daily-report-v2-migration',target_url:process.env.RUN_URL,description:success?'Schema 30 repaired FIFO integrity, verified and backed up.':'Daily-report FIFO repair stopped before acceptance.'})
+            body:JSON.stringify({state:success?'success':'failure',context:'daily-report-v2-migration',target_url:process.env.RUN_URL,description:success?'Schema 31 reconciled revised reports, verified and backed up.':'Daily-report snapshot repair stopped before acceptance.'})
           });
           if(!response.ok)throw new Error(`Status publication failed with HTTP ${response.status}`);
           NODE
