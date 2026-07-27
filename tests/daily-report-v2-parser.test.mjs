@@ -108,10 +108,11 @@ test('historical upgrade accepts a revised file only when its original invoices 
   assert.equal(historicalSalesCompatibility(existing,[incoming[0],{...incoming[1],customerCode:'WRONG'}]).compatible,false);
 });
 
-test('migrations 029-030 upgrade the exact approved file and replay revised collection allocations',async()=>{
-  const [sql,repair,workflow,preflight,verify,integrity]=await Promise.all([
+test('migrations 029-031 replace stale revised-workbook rows and replay allocations',async()=>{
+  const [sql,repair,reconciliation,workflow,preflight,verify,integrity]=await Promise.all([
     readFile(new URL('../supabase/migrations/029_daily_report_v2_upgrade.sql',import.meta.url),'utf8'),
     readFile(new URL('../supabase/migrations/030_daily_report_fifo_integrity.sql',import.meta.url),'utf8'),
+    readFile(new URL('../supabase/migrations/031_daily_report_snapshot_reconciliation.sql',import.meta.url),'utf8'),
     readFile(new URL('../.github/workflows/apply-daily-report-v2-migration.yml',import.meta.url),'utf8'),
     readFile(new URL('../scripts/daily-report-v2-migration-preflight.mjs',import.meta.url),'utf8'),
     readFile(new URL('../scripts/daily-report-v2-migration-verify.mjs',import.meta.url),'utf8'),
@@ -129,15 +130,24 @@ test('migrations 029-030 upgrade the exact approved file and replay revised coll
   assert.match(repair,/public\.rebuild_customer_fifo/);
   assert.match(repair,/DAILY_REPORT_FIFO_REPAIR_FAILED/);
   assert.match(repair,/values\(30,'030_daily_report_fifo_integrity'\)/);
+  assert.match(reconciliation,/reconcile_daily_report_upgrade_snapshot/);
+  assert.match(reconciliation,/upgrade_daily_report_details_v2_legacy/);
+  assert.match(reconciliation,/public\.reverse_journal_entry/);
+  assert.match(reconciliation,/daily_report_cash_row_superseded/);
+  assert.match(reconciliation,/daily_report_inventory_row_superseded/);
+  assert.match(reconciliation,/v_cash_count<>9/);
+  assert.match(reconciliation,/round\(v_cash_amount,2\)<>10020/);
+  assert.match(reconciliation,/v_inventory_count<>7/);
+  assert.match(reconciliation,/values\(31,'031_daily_report_snapshot_reconciliation'\)/);
   assert.match(workflow,/Create and verify encrypted pre-migration backup/);
   assert.match(workflow,/Restore production backup to isolated PostgreSQL 17/);
-  assert.match(workflow,/ISOLATED_MIGRATION_TARGET: '30'/);
-  assert.match(workflow,/\$\(seq \$\(\(current_version \+ 1\)\) 30\)/);
-  assert.match(workflow,/EXPECTED_SCHEMA_VERSION=30/);
+  assert.match(workflow,/ISOLATED_MIGRATION_TARGET: '31'/);
+  assert.match(workflow,/\$\(seq \$\(\(current_version \+ 1\)\) 31\)/);
+  assert.match(workflow,/EXPECTED_SCHEMA_VERSION=31/);
   assert.match(workflow,/production-data-integrity\.mjs/);
   assert.match(preflight,/currentVersion<28\|\|currentVersion>targetVersion/);
   assert.match(preflight,/BACKUP_GATE_FAILED/);
   assert.match(verify,/PROTECTED_ROW_COUNT_CHANGED/);
-  assert.match(verify,/SCHEMA_30_DAILY_REPORT_FIFO_VERIFIED/);
-  for(const marker of ['dailyReports','duplicateDailyBatchDate','duplicateDailySaleIdentity','duplicateDailyCashIdentity','duplicateCollectionReference','duplicateSalesReference'])assert.match(integrity,new RegExp(marker));
+  assert.match(verify,/SCHEMA_31_REVISED_SNAPSHOTS_VERIFIED/);
+  for(const marker of ['dailyReports','dailyCollections','duplicateDailyBatchDate','duplicateDailySaleIdentity','duplicateDailyCashIdentity','duplicateCollectionReference','duplicateSalesReference','dailyCashSummaryMismatch','dailyCollectionTotalMismatch','dailyInventorySummaryMismatch','reversedCollectionsWithValue','activeAllocationsOnReversedCollections'])assert.match(integrity,new RegExp(marker));
 });
