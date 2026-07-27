@@ -1,7 +1,7 @@
 // صفحة تقارير الديزل: كل ما يخص الاستهلاك في مكان واحد — ملخص الفترة، استهلاك كل
 // مركبة وكفاءتها، التعبئة المشبوهة، والمقارنة بالفترة السابقة.
 import { sendMessage, keyboard } from './telegram.js';
-import { loadFuelAnalytics, loadFuelStatement, loadVehicleStatement, loadLatestFuelActivity, loadFuelExtendedReport, loadFuelImportHistory, periodRange, monthStart, yesterday } from './fuel-analytics.js';
+import { loadFuelAnalytics, loadFuelStatement, loadVehicleStatement, loadLatestFuelActivity, loadFuelExtendedReport, loadFuelImportHistory, loadLatestVehicleDieselBalance, periodRange, monthStart, yesterday } from './fuel-analytics.js';
 import { compose, title, section, line, note, alert, trend, money, qty, arabicDate, esc, warmAck, RULE } from './bot-format.js';
 
 const VIEW_ROLES=new Set(['admin','manager','accountant','fuel_operator','mechanic','procurement']);
@@ -57,7 +57,7 @@ const empty=(days,category,hasAnyData,error)=>error?compose(
 );
 
 async function summaryView(chatId,identity,days,category){
-  const data=await loadFuelAnalytics(days,{category});
+  const [data,unusedDieselBalance]=await Promise.all([loadFuelAnalytics(days,{category}),category==='petrol'?Promise.resolve(null):loadLatestVehicleDieselBalance()]);
   if(!data.hasData)return sendMessage(chatId,empty(days,category,data.hasAnyData,data.error),fuelMenu(category,days));
   const{totals,previousTotals,otherTotals,range,vehicles}=data;
   const perLiter=totals.liters>0?totals.amount/totals.liters:0;
@@ -71,6 +71,10 @@ async function summaryView(chatId,identity,days,category){
     line('🧾','التعبئات',qty(totals.fills)),
     line('🚚','المركبات',qty(totals.plates)),
     line('📊','متوسط اللتر',money(perLiter.toFixed(2)),'ر.س'),
+    unusedDieselBalance?[RULE,section('🛢️','رصيد الديزل غير المستخدم بالمركبات'),
+      line('💰','الرصيد المتوفر',money(unusedDieselBalance.total),'ر.س'),
+      line('🚚','مركبات لها رصيد',qty(unusedDieselBalance.vehicleCount)),
+      note(`آخر قراءة موثقة: ${arabicDate(unusedDieselBalance.capturedAt)}`)]:null,
     previousTotals?.liters?[RULE,section('📈','مقابل الفترة السابقة'),
       `   اللترات ${trend(totals.liters,previousTotals.liters,{invert:true})}`,
       `   التكلفة ${trend(totals.amount,previousTotals.amount,{invert:true})}`]:null,
