@@ -99,3 +99,16 @@ test('brand matching covers the fleet makes and never fires on lookalike words',
   for (const text of ['رولمان بلي 6205', 'عثمان للتجارة', 'كيسة اسمنت', 'فلتر زيت'])
     assert.equal(brandSearchTerm(text), '', `false brand match on: ${text}`);
 });
+
+test('supplier results check factory stock first and never list one shop twice', async () => {
+  const source = await read('api/_lib/bot-procurement.js');
+  // شراء قطعة موجودة في المخزن هدر مباشر، فتُفحص قبل عرض الموردين.
+  assert.match(source, /internalStockMatches/);
+  assert.match(source, /موجود في مخزن المصنع/);
+  assert.match(source, /select\('inventory_items'/);
+  // نفس المحل يعود بمعرّفات مختلفة من استعلامات متعددة؛ التوحيد بالهاتف يمنع تكراره.
+  assert.match(source, /const byPhone=new Map\(\)/);
+  // التقييم غير المنشور كان ينتج NaN في المقارنة فيُفسد الترتيب.
+  assert.match(source, /const rate=row=>Number\(row\?\.rating\|\|0\)/);
+  assert.doesNotMatch(source, /\|\|b\.rating-a\.rating\|\|/);
+});

@@ -209,17 +209,49 @@ async function searchPlaces(query,city){
       if(!existing||place.matchRank<existing.matchRank||(!existing.phone&&place.phone))byId.set(key,{...existing,...place,matchRank:Math.min(existing?.matchRank??99,place.matchRank)});
     }
   }
-  const found=[...byId.values()];
+  // الدليل يُعيد المحل نفسه بمعرّفات مختلفة عبر الاستعلامات، فنوحّده برقم الهاتف
+  // أيضًا ونُبقي أفضل رتبة مطابقة له، وإلا تكرر نفس المورد في القائمة.
+  const byPhone=new Map(),found=[];
+  for(const place of byId.values()){
+    const phoneKey=String(place.phone||'').replace(/\D/g,'');
+    if(!phoneKey){found.push(place);continue;}
+    const twin=byPhone.get(phoneKey);
+    if(!twin){byPhone.set(phoneKey,place);found.push(place);continue;}
+    if(Number(place.matchRank??99)<Number(twin.matchRank??99))Object.assign(twin,place,{matchRank:Math.min(Number(twin.matchRank??99),Number(place.matchRank??99))});
+  }
   const withPhones=found.filter(row=>row.phone);
-  const usable=(withPhones.length?withPhones:found).sort((a,b)=>Number(Boolean(b.phone))-Number(Boolean(a.phone))||a.matchRank-b.matchRank||b.rating-a.rating||b.reviews-a.reviews);
+  // التقييم قد يكون غير منشور: الطرح المباشر ينتج NaN فيُفسد ترتيب القائمة كلها.
+  const rate=row=>Number(row?.rating||0),count=row=>Number(row?.reviews||0);
+  const usable=(withPhones.length?withPhones:found).sort((a,b)=>Number(Boolean(b.phone))-Number(Boolean(a.phone))||Number(a.matchRank??99)-Number(b.matchRank??99)||rate(b)-rate(a)||count(b)-count(a));
   return {places:usable.slice(0,18),searchQueries,expanded:usable.some(row=>row.matchRank>0)};
 }
 async function logSearch(message,identity,query,city,count,searchQueries=[]){return insert('audit_log',[{actor_type:'telegram',actor_id:String(identity?.user_id||identity?.external_id||message.from.id),action:'supplier_public_search',entity_type:'supplier_search',entity_id:'',details:{query,city,result_count:count,search_queries:searchQueries,requested_by:displayName(identity,message.from),source_message_id:String(message.message_id),chat_id:String(message.chat.id)},created_at:now()}]);}
+
+// قبل إرسال المشتري إلى السوق نفحص المخزن: شراء قطعة موجودة فعلًا هدر مباشر.
+// المطابقة بالكلمات المميزة (٣ أحرف فأكثر) على الاسم أو الـSKU، وتُتجاهل بصمت
+// عند تعذّر القراءة حتى لا تُعطّل البحث الخارجي.
+async function internalStockMatches(query){
+  try{
+    const words=normalize(query).split(/\s+/).filter(word=>word.length>=3);
+    if(!words.length)return[];
+    const items=await select('inventory_items','active=eq.true&select=item_name,sku,quantity_on_hand,unit&limit=3000').catch(()=>[]);
+    return(items||[]).map(item=>{
+      const haystack=`${normalize(item.item_name)} ${normalize(item.sku)}`;
+      return{item,hits:words.filter(word=>haystack.includes(word)).length};
+    }).filter(row=>row.hits>=Math.min(2,words.length)&&Number(row.item.quantity_on_hand||0)>0)
+      .sort((a,b)=>b.hits-a.hits||Number(b.item.quantity_on_hand||0)-Number(a.item.quantity_on_hand||0))
+      .slice(0,3).map(row=>row.item);
+  }catch(error){console.warn('[internal stock check]',String(error?.message||'').slice(0,200));return[];}
+}
 
 async function sendSupplierResults(message,identity,query,city){
   await sendMessage(message.chat.id,`جارٍ البحث عن موردين للقطعة: <b>${esc(query)}</b> في <b>${esc(city)}</b>...\nسأبحث عن القطعة نفسها ثم المحلات المتخصصة ومحلات قطع الغيار العامة.`);
   let result;try{result=await searchPlaces(query,city);}catch(error){return sendMessage(message.chat.id,`<b>تعذر إكمال البحث.</b>\n${esc(error.message||'تعذر الوصول إلى دليل الموردين.')}\n\nجرّب مرة أخرى أو اختر «كل السعودية».`,keyboard([[{text:'بحث في كل السعودية',callback_data:'supplier_city:saudi'},{text:'بحث عن قطعة أخرى',callback_data:'proc:product'}]]));}
   const {places,searchQueries,expanded}=result;
+  const stock=await internalStockMatches(query);
+  if(stock.length)await sendMessage(message.chat.id,[`📦 <b>موجود في مخزن المصنع</b>`,RULE,
+    ...stock.map(item=>`• ${esc(item.item_name)}${item.sku?` <code>${esc(item.sku)}</code>`:''} — <b>${Number(item.quantity_on_hand||0)}</b> ${esc(item.unit||'وحدة')}`),
+    '<i>راجع المخزن قبل الشراء الخارجي.</i>'].join('\n'));
   await logSearch(message,identity,query,city,places.length,searchQueries).catch(()=>{});
   await setSession(message.chat.id,identity.external_id||message.from.id,'supplier_results',{query,city,places,searchQueries,startedAt:now()});
   if(!places.length)return sendMessage(message.chat.id,'لم يعثر دليل الأعمال على محلات في هذه المدينة حتى بعد توسيع البحث إلى محلات قطع الغيار العامة. جرّب «كل السعودية» أو مدينة قريبة.',keyboard([[{text:'بحث في كل السعودية',callback_data:'supplier_city:saudi'},{text:'بحث في مدينة أخرى',callback_data:'supplier_city:other'}]]));
