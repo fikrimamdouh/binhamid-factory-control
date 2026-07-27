@@ -173,6 +173,7 @@ async function uploadVehicleBalance(summary){
 async function vehicleTables(page){return page.evaluate(()=>Array.from(document.querySelectorAll('table')).map(table=>({headers:Array.from(table.querySelectorAll('thead th')).map(cell=>cell.innerText),rows:Array.from(table.querySelectorAll('tbody tr')).map(row=>Array.from(row.querySelectorAll('td')).map(cell=>cell.innerText))})));}
 async function vehiclePageSnapshot(page){return page.evaluate(()=>({
   url:location.href,
+  pageLinks:[...new Set(Array.from(document.querySelectorAll('a[href]')).map(link=>link.href).filter(href=>{try{const url=new URL(href);return url.pathname==='/companies/vehicles'&&url.searchParams.has('page');}catch{return false;}}))],
   tables:Array.from(document.querySelectorAll('table')).map(table=>({
     headers:Array.from(table.querySelectorAll('thead th')).map(cell=>cell.innerText),
     rows:Array.from(table.querySelectorAll('tbody tr')).map(row=>({
@@ -183,6 +184,14 @@ async function vehiclePageSnapshot(page){return page.evaluate(()=>({
   })),
   links:Array.from(document.querySelectorAll('a')).map(link=>({text:link.innerText,href:link.href,title:link.getAttribute('title')})).filter(link=>/account|statement|fuel|رصيد|كشف/i.test(`${link.text} ${link.href} ${link.title}`))
 }));}
+async function allVehiclePageSnapshots(page){
+  const first=await vehiclePageSnapshot(page),urls=[...new Set([first.url,...first.pageLinks])],snapshots=[first];
+  for(const url of urls.slice(1)){
+    await page.goto(url,{waitUntil:'domcontentloaded',timeout:60000});await page.waitForLoadState('networkidle',{timeout:30000}).catch(()=>null);await page.waitForTimeout(500);
+    snapshots.push(await vehiclePageSnapshot(page));
+  }
+  return snapshots;
+}
 async function dieselVehicleStatementSnapshots(page,snapshot){
   const rows=snapshot.tables.flatMap(table=>table.rows||[]).filter(row=>/diesel/i.test(compact(row.cells?.[9]))),statements=[];
   for(const row of rows){
@@ -206,7 +215,7 @@ async function main(){
     if(syncMode==='vehicle-balance-report'){
       await ensureLogin(page);await page.goto(VEHICLES_URL,{waitUntil:'domcontentloaded',timeout:60000});await page.waitForLoadState('networkidle',{timeout:30000}).catch(()=>null);await page.waitForTimeout(1200);
       if(/\/login/i.test(page.url())||await visible(page.locator('input[type="password"]')))throw new Error('Noor Khoy vehicles page requires a new login.');
-      const snapshot=await vehiclePageSnapshot(page),tables=snapshot.tables.map(table=>({headers:table.headers,rows:table.rows.map(row=>row.cells)}));await fs.writeFile(path.join(artifacts,'vehicle-balance-tables.json'),JSON.stringify(tables,null,2));await fs.writeFile(path.join(artifacts,'vehicle-balance-page.json'),JSON.stringify(snapshot,null,2));const statements=await dieselVehicleStatementSnapshots(page,snapshot);await fs.writeFile(path.join(artifacts,'diesel-vehicle-account-statements.json'),JSON.stringify(statements,null,2));
+      const snapshots=await allVehiclePageSnapshots(page),tables=snapshots.flatMap(snapshot=>snapshot.tables.map(table=>({headers:table.headers,rows:table.rows.map(row=>row.cells)})));await fs.writeFile(path.join(artifacts,'vehicle-balance-tables.json'),JSON.stringify(tables,null,2));await fs.writeFile(path.join(artifacts,'vehicle-balance-pages.json'),JSON.stringify(snapshots,null,2));
       const summary=vehicleBalanceSummary(tables);await fs.writeFile(path.join(artifacts,'vehicle-balances.json'),JSON.stringify(summary,null,2));
       const delivery=await uploadVehicleBalance(summary);console.log(JSON.stringify({ok:true,mode:syncMode,total:summary.total,vehicleCount:summary.rows.length,balanceHeader:summary.header,delivery},null,2));return;
     }
