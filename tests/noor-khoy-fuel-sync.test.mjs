@@ -85,7 +85,8 @@ test('the existing fuel sync sends verified vehicle balances at 7 PM Riyadh',()=
   assert.match(script,/vehicleBalanceSummary/);
   assert.match(script,/allVehiclePageSnapshots/);
   assert.match(script,/pageLinks/);
-  assert.match(script,/لم يتم العثور على جدول مركبات يحتوي عمود رصيد صريحًا/);
+  assert.match(script,/لم يتم العثور على رصيد ديزل غير مستخدم موجب في صفحات المركبات/);
+  assert.match(script,/candidates\.flatMap/);
   assert.match(script,/x-fuel-operation':'vehicle-balance-report/);
   assert.match(route,/x-fuel-operation/);
   assert.match(route,/رصيد الديزل المتوفر في المركبات/);
