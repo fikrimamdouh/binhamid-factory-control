@@ -46,7 +46,7 @@ jobs:
       REPORT_END_DATE: ${{ github.event_name == 'push' && '2026-07-26' || inputs.end_date }}
       FUEL_REPORT_DATE_OFFSET_DAYS: '-1'
       FUEL_SEND_BALANCE: 'true'
-      FUEL_NOTIFY: 'true'
+      FUEL_NOTIFY: ${{ github.event_name == 'push' && 'false' || 'true' }}
       FUEL_SYNC_ARTIFACT_DIR: artifacts/noor-khoy-fuel
     steps:
       - uses: actions/checkout@v4
