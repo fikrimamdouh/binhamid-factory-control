@@ -4,6 +4,42 @@ import { displayName } from './bot-profile.js';
 import { clearMaintenanceSession } from './bot-maintenance.js';
 import { canUseProductAssistant, continueProductAssistant, handleProductTextCommand, startProductAssistant, startProductImageAssistant } from './bot-product-assistant.js';
 import { warmAck, RULE } from './bot-format.js';
+import { config } from './config.js';
+
+// الجهة الطالبة تُشتق من دور مقدّم الطلب، فيعرف المدير فورًا «الورشة طلبت» أو
+// «المخزن طلب» بدل اسم مجرد لا يدل على القسم.
+const DEPARTMENT={mechanic:'الورشة',warehouse:'المخزن',procurement:'المشتريات',manager:'الإدارة',admin:'الإدارة',accountant:'الحسابات'};
+const APPROVER_ROLES=new Set(['admin','manager']);
+async function procurementApproverChats(excludeChatIds=[]){
+  const excluded=new Set((excludeChatIds||[]).map(value=>String(value||'')).filter(Boolean)),chats=new Set();
+  if(config.telegramOwnerId&&!excluded.has(String(config.telegramOwnerId)))chats.add(String(config.telegramOwnerId));
+  try{
+    const users=await select('app_users','active=eq.true&select=id,role&limit=500').catch(()=>[]);
+    const ids=(users||[]).filter(user=>APPROVER_ROLES.has(String(user.role||''))).map(user=>String(user.id)).filter(Boolean);
+    if(ids.length){
+      const channels=await select('user_channels',`active=eq.true&channel=eq.telegram&user_id=in.(${ids.join(',')})&select=external_id&limit=500`).catch(()=>[]);
+      for(const row of channels||[]){const chatId=String(row.external_id||'');if(chatId&&!excluded.has(chatId))chats.add(chatId);}
+    }
+  }catch(error){console.warn('[procurement approvers lookup]',String(error?.message||'').slice(0,200));}
+  return[...chats];
+}
+// الطلب العاجل كان ينتظر حتى يفتح أحدهم القائمة؛ الآن يصل للمدير فور إنشائه.
+async function notifyProcurementApprovers(details,department,excludeChatIds=[]){
+  const chats=await procurementApproverChats(excludeChatIds);
+  if(!chats.length)return{recipients:0,delivered:0};
+  const urgent=details.urgency==='critical'||details.urgency==='urgent';
+  const text=[`${urgent?'🚨':'🛒'} <b>${esc(department)} طلبت عرض سعر</b>`,RULE,
+    `🔩 <b>${esc(details.item)}</b>`,
+    `📦 الكمية: <b>${details.quantity}</b> · ${esc(details.urgency_label||'عادي')}`,
+    `🔖 المرجع: <b>${esc(details.reference_no)}</b>`,
+    `👤 الطالب: ${esc(details.requested_by_name||'مستخدم')}`,
+    details.city?`📍 ${esc(details.city)}`:null,
+    RULE,'<i>افتح «طلبات الأسعار المفتوحة» للاعتماد.</i>'].filter(Boolean).join('\n');
+  const sent=await Promise.allSettled(chats.map(chatId=>sendMessage(chatId,text)));
+  const delivered=sent.filter(item=>item.status==='fulfilled').length;
+  if(delivered<chats.length)console.warn('[procurement approvers notify]',{recipients:chats.length,delivered});
+  return{recipients:chats.length,delivered};
+}
 
 // رقم قابل للاتصال بضغطة واحدة: تليجرام يدعم روابط tel، فيُحوَّل الرقم المحلي
 // (05xxxxxxxx) إلى الصيغة الدولية بدل نسخه يدويًا من مربع نص.
@@ -328,8 +364,20 @@ async function createQuoteRequest(message,identity,context,urgency){
   }],{prefer:'return=minimal'}).then(()=>true).catch(error=>{
     console.warn('[rfq purchase request]',String(error?.message||'').slice(0,220));return false;
   });
+  const department=DEPARTMENT[String(identity?.role||'')]||'جهة طالبة';
+  const notified=await notifyProcurementApprovers(details,department,[String(message.chat.id)]).catch(()=>({delivered:0}));
   await clearMaintenanceSession(message.chat.id,identity.external_id||message.from.id);
-  return sendMessage(message.chat.id,`${stored?'✅':'⚠️'} تم تسجيل طلب عرض السعر${stored?' ودخل دورة الاعتماد':' في السجل فقط — راجع مركز المشتريات'}.\n\nالمرجع: <b>${esc(reference)}</b>\nالقطعة: <b>${esc(details.item)}</b>\nالكمية: <b>${details.quantity}</b>\nالاستعجال: <b>${esc(details.urgency_label)}</b>\nالحالة: <b>مفتوح للبحث والتواصل مع الموردين</b>.`);
+  return sendMessage(message.chat.id,[
+    `${stored?'✅':'⚠️'} <b>تم تسجيل طلب عرض السعر</b>${stored?'':' في السجل فقط — راجع مركز المشتريات'}`,
+    RULE,
+    `🔖 المرجع: <b>${esc(reference)}</b>`,
+    `🔩 القطعة: <b>${esc(details.item)}</b>`,
+    `📦 الكمية: <b>${details.quantity}</b> · ${esc(details.urgency_label||'عادي')}`,
+    // يعرف الطالب فورًا أن الإدارة أُبلغت، فلا يتابع يدويًا ولا ينتظر بلا داعٍ.
+    notified.delivered?`📨 أُبلغت الإدارة (${notified.delivered}) باسم <b>${esc(department)}</b>`:'📭 لم يُبلَّغ أحد بعد — تابع مع الإدارة',
+    RULE,
+    '<i>يظهر الطلب في «طلبات الأسعار المفتوحة» حتى الاعتماد.</i>'
+  ].join('\n'));
 }
 
 export async function handleProcurementCallback(message,from,identity,action,value){

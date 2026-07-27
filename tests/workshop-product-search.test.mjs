@@ -149,3 +149,18 @@ test('quote requests become real purchase requests instead of audit-log notes', 
   // فشل الكتابة لا يُسقط الطلب بصمت — يُبلَّغ المستخدم صراحةً.
   assert.match(source, /في السجل فقط — راجع مركز المشتريات/);
 });
+
+test('a quote request notifies management naming the requesting department', async () => {
+  const source = await read('api/_lib/bot-procurement.js');
+  // «الورشة طلبت عرض سعر» — القسم يُشتق من دور الطالب لا من اسمه المجرد.
+  assert.match(source, /const DEPARTMENT=\{mechanic:'الورشة',warehouse:'المخزن'/);
+  assert.match(source, /طلبت عرض سعر/);
+  assert.match(source, /notifyProcurementApprovers/);
+  // المالك ومن دوره admin أو manager، والطالب مستثنى من الإشعار.
+  assert.match(source, /config\.telegramOwnerId/);
+  assert.match(source, /APPROVER_ROLES=new Set\(\['admin','manager'\]\)/);
+  assert.match(source, /notifyProcurementApprovers\(details,department,\[String\(message\.chat\.id\)\]\)/);
+  // العاجل يُميَّز بصريًا، والطالب يعرف إن لم يصل الإشعار أحدًا.
+  assert.match(source, /urgent\?'🚨':'🛒'/);
+  assert.match(source, /لم يُبلَّغ أحد بعد/);
+});
