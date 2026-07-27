@@ -3,14 +3,22 @@ import { select } from './supabase.js';
 import { DEPARTMENT_LABELS, ROLE_LABELS } from './domain.js';
 
 const REPORT_LABELS={fuel:'تقرير الديزل والوقود',payroll:'مسير الرواتب',block_collections:'تحصيلات البلوك',concrete_collections:'تحصيلات الخرسانة',collections:'التحصيلات العامة',block_daily_movement:'التقرير اليومي للبلوك',concrete_daily_movement:'التقرير اليومي للخرسانة',daily_movement:'التقرير اليومي للمبيعات والتحصيل والمخزون',financial_document:'مستند مالي',unknown_excel:'ملف Excel يحتاج تحديد النوع',quotation:'عرض سعر',invoice:'فاتورة',unclassified_document:'مستند يحتاج تصنيف'};
+
+export function channelKunya(externalId,ownerId=config.telegramOwnerId){
+  const id=String(externalId||'').trim(),owner=String(ownerId||'').trim();
+  if(owner&&id===owner)return'أبو مالك';
+  if(id==='6870312376')return'أبو فلاح';
+  return'';
+}
+
 export async function enrichIdentity(basic,from){
-  const identity=Array.isArray(basic)?basic[0]:basic;
-  if(!identity?.user_id)return {...identity,external_id:String(from?.id||''),full_name:[from?.first_name,from?.last_name].filter(Boolean).join(' ')};
+  const identity=Array.isArray(basic)?basic[0]:basic,externalId=String(identity?.external_id||from?.id||''),fixed=channelKunya(externalId);
+  if(!identity?.user_id)return {...identity,external_id:externalId,full_name:[from?.first_name,from?.last_name].filter(Boolean).join(' '),nickname:fixed||identity?.nickname||''};
   let profile;try{profile=(await select('app_users',`id=eq.${encodeURIComponent(identity.user_id)}&select=id,full_name,nickname,role,active&limit=1`))?.[0];}catch{profile=(await select('app_users',`id=eq.${encodeURIComponent(identity.user_id)}&select=id,full_name,role,active&limit=1`))?.[0];}
-  return {...identity,...profile,user_id:identity.user_id,external_id:identity.external_id||String(from?.id||'')};
+  return {...identity,...profile,user_id:identity.user_id,external_id:externalId,nickname:fixed||profile?.nickname||identity?.nickname||''};
 }
 export function displayName(identity,from){
-  if(config.telegramOwnerId&&String(from?.id)===config.telegramOwnerId)return 'أبو مالك';
+  const fixed=channelKunya(identity?.external_id||from?.id);if(fixed)return fixed;
   const nickname=String(identity?.nickname||'').trim(),stored=String(identity?.full_name||'').trim();
   if(nickname&&!/^\d+$/.test(nickname))return nickname;
   return stored&&!/^\d+$/.test(stored)?stored:[from?.first_name,from?.last_name].filter(Boolean).join(' ')||'أستاذي';

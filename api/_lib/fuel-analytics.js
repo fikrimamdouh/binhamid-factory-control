@@ -103,7 +103,7 @@ export function periodRange(days=30,today=riyadhToday()){
 // الخطأ لا يُبتلع إلى مصفوفة فارغة: «الجدول غير موجود» و«لا توجد حركات» شيئان
 // مختلفان، وعرض الأول كالثاني يجعل القسم يكذب على المستخدم إلى الأبد.
 async function fetchRange(from,to){
-  const query=`transaction_date=gte.${from}&transaction_date=lte.${to}&select=transaction_date,plate_key,vehicle_name,vehicle_external_id,driver_name,station,fuel_type,liters,amount,curr_odometer,prev_odometer&order=transaction_date.desc&limit=5000`;
+  const query=`transaction_date=gte.${from}&transaction_date=lte.${to}&select=transaction_date,plate_key,vehicle_name,vehicle_external_id,driver_name,station,fuel_type,receipt_no,liters,unit_price,amount,curr_odometer,prev_odometer,service_km,source_file,imported_at&order=transaction_date.desc&limit=5000`;
   try{return{rows:await select('fuel_transactions',query)||[],error:''};}
   catch(error){console.warn('[fuel fetch]',String(error?.message||'').slice(0,220));return{rows:[],error:storeFailureReason(error)};}
 }
@@ -111,21 +111,27 @@ async function fetchRange(from,to){
 // موحَّد بالفعل في المحلّل، فنستخدم التصنيف نفسه بدل تكرار أنماط ilike هشّة.
 const inCategory=(row,category)=>category==='all'||fuelCategory(row?.fuel_type)===category;
 
+const median=values=>{const list=(values||[]).map(num).filter(value=>value>0).sort((a,b)=>a-b);if(!list.length)return 0;const middle=Math.floor(list.length/2);return list.length%2?list[middle]:(list[middle-1]+list[middle])/2;};
+const rowUnitPrice=row=>num(row?.unit_price)||(num(row?.liters)>0?num(row?.amount)/num(row?.liters):0);
+const rowDistance=row=>{const prev=num(row?.prev_odometer),curr=num(row?.curr_odometer),service=num(row?.service_km);return curr>prev&&prev>0?curr-prev:service>0?service:0;};
+
 function summarize(rows=[]){
   const totals={fills:rows.length,liters:0,amount:0,plates:new Set()};
   const byPlate=new Map();
   for(const row of rows){
-    const liters=num(row.liters),amount=num(row.amount),plate=clean(row.plate_key)||'—';
+    const liters=num(row.liters),amount=num(row.amount),plate=clean(row.plate_key)||'—',distance=rowDistance(row);
     totals.liters+=liters;totals.amount+=amount;totals.plates.add(plate);
-    const entry=byPlate.get(plate)||{plate,name:clean(row.vehicle_name)||plate,liters:0,amount:0,fills:0,km:0};
-    entry.liters+=liters;entry.amount+=amount;entry.fills+=1;
-    const prev=num(row.prev_odometer),curr=num(row.curr_odometer);
-    if(curr>prev&&prev>0)entry.km+=curr-prev;
+    const entry=byPlate.get(plate)||{plate,name:clean(row.vehicle_name)||plate,liters:0,amount:0,fills:0,km:0,linked:false};
+    entry.liters+=liters;entry.amount+=amount;entry.fills+=1;entry.km+=distance;entry.linked=entry.linked||Boolean(clean(row.vehicle_external_id));
     byPlate.set(plate,entry);
   }
   const vehicles=[...byPlate.values()].map(row=>({...row,
-    // لتر/100كم: المؤشر الحقيقي للكفاءة. يُحسب فقط عند توفر عدّاد سليم.
-    per100:row.km>0?Number((row.liters/row.km*100).toFixed(1)):null
+    avgFill:row.fills?row.liters/row.fills:0,
+    avgPrice:row.liters?row.amount/row.liters:0,
+    kmPerLiter:row.km>0&&row.liters>0?row.km/row.liters:null,
+    costPerKm:row.km>0?row.amount/row.km:null,
+    per100:row.km>0?Number((row.liters/row.km*100).toFixed(1)):null,
+    share:totals.liters>0?row.liters/totals.liters*100:0
   })).sort((a,b)=>b.liters-a.liters);
   return{totals:{...totals,plates:totals.plates.size},vehicles};
 }
@@ -192,6 +198,58 @@ export async function loadVehicleStatement(plate,{from,to,category='diesel'}={})
     share:statement.totals.liters>0?liters/statement.totals.liters*100:0};
 }
 
+
+function consecutiveFuelRuns(rows=[]){
+  const groups=new Map(),dayNumber=value=>{const date=isoDate(value);return date?Math.floor(new Date(`${date}T12:00:00Z`).getTime()/86400000):NaN;};
+  for(const row of rows){
+    const plate=clean(row.plate_key)||'—',date=isoDate(row.transaction_date);if(!date)continue;
+    const group=groups.get(plate)||{plate,name:clean(row.vehicle_name)||plate,driver:clean(row.driver_name),days:new Map()};
+    const day=group.days.get(date)||{date,fills:0,liters:0,amount:0};day.fills++;day.liters+=num(row.liters);day.amount+=num(row.amount);group.days.set(date,day);groups.set(plate,group);
+  }
+  const runs=[];
+  for(const group of groups.values()){
+    const days=[...group.days.values()].sort((a,b)=>a.date.localeCompare(b.date));let current=[];
+    const flush=()=>{if(current.length>=2)runs.push({plate:group.plate,name:group.name,driver:group.driver,from:current[0].date,to:current.at(-1).date,days:current.length,dates:current.map(day=>day.date),fills:current.reduce((sum,day)=>sum+day.fills,0),liters:current.reduce((sum,day)=>sum+day.liters,0),amount:current.reduce((sum,day)=>sum+day.amount,0)});current=[];};
+    for(const day of days){if(!current.length||dayNumber(day.date)-dayNumber(current.at(-1).date)===1)current.push(day);else{flush();current=[day];}}flush();
+  }
+  return runs.sort((a,b)=>b.days-a.days||b.liters-a.liters);
+}
+
+export function buildFuelExtendedReport(all=[],{from,to,category='diesel'}={}){
+  const statement=buildStatement(all,{from,to,category}),rows=statement.rows;
+  const receipts=new Map();
+  for(const row of rows){const receipt=clean(row.receipt_no);if(receipt){const list=receipts.get(receipt)||[];list.push(row);receipts.set(receipt,list);}}
+  const duplicateReceipts=[...receipts.entries()].filter(([,list])=>list.length>1).map(([receipt,list])=>({receipt,count:list.length,plates:[...new Set(list.map(row=>clean(row.plate_key)))],dates:[...new Set(list.map(row=>isoDate(row.transaction_date)))]}));
+  const missingRows=rows.map(row=>{const missing=[];if(!clean(row.receipt_no))missing.push('الإيصال');if(!clean(row.station))missing.push('المحطة');if(!clean(row.driver_name))missing.push('السائق');if(!(num(row.curr_odometer)>0||num(row.service_km)>0))missing.push('العداد');if(!clean(row.vehicle_external_id))missing.push('ربط المركبة');return missing.length?{date:isoDate(row.transaction_date),plate:clean(row.plate_key),name:clean(row.vehicle_name)||clean(row.plate_key),missing}:null;}).filter(Boolean);
+  const quality={
+    total:rows.length,
+    missingReceipt:rows.filter(row=>!clean(row.receipt_no)).length,
+    missingStation:rows.filter(row=>!clean(row.station)).length,
+    missingDriver:rows.filter(row=>!clean(row.driver_name)).length,
+    missingOdometer:rows.filter(row=>!(num(row.curr_odometer)>0||num(row.service_km)>0)).length,
+    unlinkedVehicle:rows.filter(row=>!clean(row.vehicle_external_id)).length,
+    duplicateReceipts,
+    missingRows:missingRows.slice(0,20)
+  };
+  const checks=quality.total*5,missing=quality.missingReceipt+quality.missingStation+quality.missingDriver+quality.missingOdometer+quality.unlinkedVehicle;
+  quality.completeness=checks>0?Math.max(0,(checks-missing)/checks*100):0;
+  const priced=rows.map(row=>({...row,calculatedPrice:rowUnitPrice(row)})).filter(row=>row.calculatedPrice>0),values=priced.map(row=>row.calculatedPrice),medianPrice=median(values),averagePrice=values.length?values.reduce((sum,value)=>sum+value,0)/values.length:0;
+  const prices={average:averagePrice,median:medianPrice,min:values.length?Math.min(...values):0,max:values.length?Math.max(...values):0,outliers:priced.filter(row=>medianPrice>0&&Math.abs(row.calculatedPrice-medianPrice)/medianPrice>0.10).sort((a,b)=>Math.abs(b.calculatedPrice-medianPrice)-Math.abs(a.calculatedPrice-medianPrice)).slice(0,15)};
+  return{...statement,quality,prices,consecutiveRuns:consecutiveFuelRuns(rows),efficiency:statement.vehicles};
+}
+
+export async function loadFuelExtendedReport({from,to,category='diesel'}={}){
+  const range=statementRange({from,to}),fetched=await fetchRange(range.from,range.to);
+  return{...buildFuelExtendedReport(fetched.rows,{...range,category}),error:fetched.error};
+}
+
+export async function loadFuelImportHistory(limit=10){
+  const safeLimit=Math.min(30,Math.max(1,Number(limit)||10));
+  try{
+    const rows=await select('imports',`source=eq.noor-khoy&report_type=eq.fuel&select=id,created_at,original_name,row_count,status,file_path,summary&order=created_at.desc&limit=${safeLimit}`)||[];
+    return{rows:rows.map(row=>{const summary=row.summary&&typeof row.summary==='object'?row.summary:{},period=summary.period||{},fuel=summary.fuel||{},diesel=fuel.categories?.diesel||{};return{id:row.id,createdAt:clean(row.created_at),fileName:clean(row.original_name),rowCount:Number(row.row_count||fuel.rows||0),status:clean(row.status),from:isoDate(period.start)||isoDate(summary.source?.reportDate),to:isoDate(period.end)||isoDate(summary.source?.reportDate),dieselRows:Number(diesel.rows||0),dieselLiters:num(diesel.liters),dieselAmount:num(diesel.amount),accountBalance:Number.isFinite(Number(summary.accountBalance))?Number(summary.accountBalance):null,balanceDate:isoDate(summary.balanceDate),filePath:clean(row.file_path)};}),error:''};
+  }catch(error){return{rows:[],error:storeFailureReason(error)};}
+}
 
 // آخر بيانات فعلية وآخر ملف مرفوع: يمنع تقرير «اليوم» من عرض أصفار مضللة
 // عندما لم تصل مزامنة أمس بعد، ويُظهر للمستخدم تاريخ المصدر المتاح بوضوح.

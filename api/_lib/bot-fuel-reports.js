@@ -1,7 +1,7 @@
 // صفحة تقارير الديزل: كل ما يخص الاستهلاك في مكان واحد — ملخص الفترة، استهلاك كل
 // مركبة وكفاءتها، التعبئة المشبوهة، والمقارنة بالفترة السابقة.
 import { sendMessage, keyboard } from './telegram.js';
-import { loadFuelAnalytics, loadFuelStatement, loadVehicleStatement, loadLatestFuelActivity, monthStart, yesterday } from './fuel-analytics.js';
+import { loadFuelAnalytics, loadFuelStatement, loadVehicleStatement, loadLatestFuelActivity, loadFuelExtendedReport, loadFuelImportHistory, periodRange, monthStart, yesterday } from './fuel-analytics.js';
 import { compose, title, section, line, note, alert, trend, money, qty, arabicDate, esc, warmAck, RULE } from './bot-format.js';
 
 const VIEW_ROLES=new Set(['admin','manager','accountant','fuel_operator','mechanic','procurement']);
@@ -15,6 +15,9 @@ export function fuelMenu(category='diesel',days=30){
   return keyboard([
     [{text:`⛽ ملخص ${CATEGORY_LABEL[category]}`,callback_data:at('summary')},{text:'🚚 استهلاك المركبات',callback_data:at('vehicles')}],
     [{text:'⚠️ تعبئة للمراجعة',callback_data:at('flags')},{text:'📈 مقارنة بالسابق',callback_data:at('compare')}],
+    [{text:'⚙️ كفاءة وتكلفة',callback_data:at('efficiency')},{text:'💰 تحليل سعر اللتر',callback_data:at('prices')}],
+    [{text:'📆 أيام متتالية',callback_data:at('consecutive')},{text:'🧾 اكتمال البيانات',callback_data:at('quality')}],
+    [{text:'📊 التوزيع اليومي',callback_data:at('dailytrend')},{text:'📁 ملفات الديزل',callback_data:at('imports')}],
     [{text:'📒 كشف حساب المركبات',callback_data:`fuel:statement:0:${category}`},{text:'📅 مسحوبات أمس',callback_data:`fuel:day:0:${category}`}],
     [{text:'🗓️ آخر 7 أيام',callback_data:at('summary',7)},{text:'🗓️ آخر 30 يوم',callback_data:at('summary',30)},{text:'🗓️ آخر 90 يوم',callback_data:at('summary',90)}],
     [{text:category==='diesel'?'✅ ديزل':'⛽ ديزل',callback_data:at('summary',days,'diesel')},{text:category==='petrol'?'✅ بنزين':'🚗 بنزين',callback_data:at('summary',days,'petrol')},{text:category==='all'?'✅ الكل':'🛢️ الكل',callback_data:at('summary',days,'all')}]
@@ -135,6 +138,87 @@ async function compareView(chatId,identity,days,category){
   ),fuelMenu(category,days));
 }
 
+const extendedForDays=(days,category)=>{const range=periodRange(days);return loadFuelExtendedReport({from:range.from,to:range.to,category});};
+
+async function efficiencyView(chatId,identity,days,category){
+  const data=await extendedForDays(days,category);
+  if(!data.hasData)return sendMessage(chatId,empty(days,category,data.hasAnyData,data.error),fuelMenu(category,days));
+  const rows=data.efficiency.slice(0,15);
+  return sendMessage(chatId,compose(
+    warmAck(identity),title('⚙️',`الكفاءة والتكلفة — ${CATEGORY_LABEL[category]}`),note(`${arabicDate(data.from)} إلى ${arabicDate(data.to)}`),RULE,
+    ...rows.map((row,index)=>compose(
+      `${index+1}. <b>${esc(row.name)}</b> — ${qty(Math.round(row.liters))} لتر · ${money(row.amount)} ر.س`,
+      `   متوسط التعبئة <b>${qty(row.avgFill.toFixed(1))}</b> لتر · متوسط اللتر <b>${money(row.avgPrice,{decimals:2})}</b> ر.س · الحصة <b>${row.share.toFixed(1)}%</b>`,
+      row.kmPerLiter?`   📏 ${qty(Math.round(row.km))} كم · <b>${row.kmPerLiter.toFixed(2)}</b> كم/لتر · <b>${money(row.costPerKm,{decimals:2})}</b> ر.س/كم`:'   📏 <i>العداد غير مكتمل؛ لا يمكن حساب كم/لتر أو تكلفة الكيلومتر.</i>',
+      !row.linked?'   🔗 <i>المركبة غير مرتبطة بسجل الأصول.</i>':null
+    )),
+    RULE,note('الترتيب حسب إجمالي اللترات. الكفاءة لا تُحسب إلا عند وجود قراءة عداد أو مسافة خدمة صحيحة.')
+  ),fuelMenu(category,days));
+}
+
+async function priceView(chatId,identity,days,category){
+  const data=await extendedForDays(days,category);
+  if(!data.hasData)return sendMessage(chatId,empty(days,category,data.hasAnyData,data.error),fuelMenu(category,days));
+  const p=data.prices;
+  return sendMessage(chatId,compose(
+    warmAck(identity),title('💰',`تحليل سعر اللتر — ${CATEGORY_LABEL[category]}`),note(`${arabicDate(data.from)} إلى ${arabicDate(data.to)}`),RULE,
+    line('📊','المتوسط',money(p.average,{decimals:3}),'ر.س/لتر'),line('🎯','الوسيط',money(p.median,{decimals:3}),'ر.س/لتر'),line('⬇️','أقل سعر',money(p.min,{decimals:3}),'ر.س/لتر'),line('⬆️','أعلى سعر',money(p.max,{decimals:3}),'ر.س/لتر'),
+    p.outliers.length?[RULE,section('⚠️','أسعار تختلف أكثر من 10% عن الوسيط'),...p.outliers.slice(0,10).map((row,index)=>`${index+1}. ${arabicDate(row.transaction_date)} · <b>${esc(row.vehicle_name||row.plate_key)}</b> — ${money(row.calculatedPrice,{decimals:3})} ر.س/لتر`)]:[RULE,note('لا توجد أسعار تتجاوز فرق 10% عن الوسيط.')]
+  ),fuelMenu(category,days));
+}
+
+async function consecutiveView(chatId,identity,days,category){
+  const data=await extendedForDays(days,category);
+  if(!data.hasData)return sendMessage(chatId,empty(days,category,data.hasAnyData,data.error),fuelMenu(category,days));
+  const rows=data.consecutiveRuns;
+  if(!rows.length)return sendMessage(chatId,compose(warmAck(identity),title('📆','التعبئة في أيام متتالية'),RULE,note(`لا توجد مركبة عُبئت في يومين متتاليين أو أكثر خلال ${days} يومًا.`)),fuelMenu(category,days));
+  return sendMessage(chatId,compose(
+    warmAck(identity),title('📆',`مركبات عُبئت في أيام متتالية — ${CATEGORY_LABEL[category]}`),RULE,
+    ...rows.slice(0,15).map((row,index)=>`${index+1}. <b>${esc(row.name)}</b> — ${row.days} أيام · ${qty(row.fills)} تعبئة · ${qty(Math.round(row.liters))} لتر\n   ${arabicDate(row.from)} إلى ${arabicDate(row.to)}${row.driver?` · 👤 ${esc(row.driver)}`:''}`),
+    rows.length>15?note(`و${rows.length-15} حالة أخرى.`):null,RULE,note('هذا مؤشر مراجعة تشغيلية، وليس إثباتًا لوجود مخالفة.')
+  ),fuelMenu(category,days));
+}
+
+async function qualityView(chatId,identity,days,category){
+  const data=await extendedForDays(days,category);
+  if(!data.hasData)return sendMessage(chatId,empty(days,category,data.hasAnyData,data.error),fuelMenu(category,days));
+  const q=data.quality;
+  return sendMessage(chatId,compose(
+    warmAck(identity),title('🧾',`اكتمال بيانات ${CATEGORY_LABEL[category]}`),note(`${arabicDate(data.from)} إلى ${arabicDate(data.to)}`),RULE,
+    line('✅','نسبة الاكتمال',`${q.completeness.toFixed(1)}%`),line('🧾','بدون إيصال',qty(q.missingReceipt)),line('⛽','بدون محطة',qty(q.missingStation)),line('👤','بدون سائق',qty(q.missingDriver)),line('📏','بدون عداد',qty(q.missingOdometer)),line('🔗','غير مرتبطة بالأصول',qty(q.unlinkedVehicle)),line('♻️','إيصالات مكررة',qty(q.duplicateReceipts.length)),
+    q.duplicateReceipts.length?[RULE,section('♻️','الإيصالات المكررة'),...q.duplicateReceipts.slice(0,8).map(row=>`• <b>${esc(row.receipt)}</b> — ${row.count} مرات · ${row.plates.map(esc).join('، ')}`)]:null,
+    q.missingRows.length?[RULE,section('🛠️','أول سجلات تحتاج استكمالًا'),...q.missingRows.slice(0,8).map(row=>`• ${arabicDate(row.date)} · <b>${esc(row.name)}</b> — ${row.missing.map(esc).join('، ')}`)]:null
+  ),fuelMenu(category,days));
+}
+
+async function dailyTrendView(chatId,identity,days,category){
+  const data=await extendedForDays(days,category);
+  if(!data.hasData)return sendMessage(chatId,empty(days,category,data.hasAnyData,data.error),fuelMenu(category,days));
+  const rows=data.days.slice().sort((a,b)=>b.date.localeCompare(a.date));
+  const highest=rows.slice().sort((a,b)=>b.liters-a.liters)[0];
+  return sendMessage(chatId,compose(
+    warmAck(identity),title('📊',`التوزيع اليومي — ${CATEGORY_LABEL[category]}`),note(`${arabicDate(data.from)} إلى ${arabicDate(data.to)}`),RULE,
+    highest?note(`أعلى يوم سحبًا: ${arabicDate(highest.date)} — ${qty(Math.round(highest.liters))} لتر بقيمة ${money(highest.amount)} ر.س.`):null,
+    ...rows.slice(0,20).map(row=>`• ${arabicDate(row.date)} — <b>${qty(Math.round(row.liters))}</b> لتر · ${money(row.amount)} ر.س · ${qty(row.fills)} تعبئة`),
+    rows.length>20?note(`و${rows.length-20} يومًا آخر.`):null
+  ),fuelMenu(category,days));
+}
+
+async function importsView(chatId,identity,days,category){
+  const data=await loadFuelImportHistory(12);
+  if(data.error)return sendMessage(chatId,compose(title('⚠️','تعذّر قراءة سجل ملفات الديزل'),RULE,note(data.error)),fuelMenu(category,days));
+  if(!data.rows.length)return sendMessage(chatId,compose(title('📁','ملفات الديزل'),RULE,note('لا توجد ملفات نور خوي محفوظة بعد.')),fuelMenu(category,days));
+  return sendMessage(chatId,compose(
+    warmAck(identity),title('📁','آخر ملفات الديزل المستوردة'),RULE,
+    ...data.rows.map((row,index)=>compose(
+      `${index+1}. <b>${esc(row.fileName||'ملف وقود')}</b>`,
+      `   📅 ${row.from&&row.to?`${arabicDate(row.from)} إلى ${arabicDate(row.to)}`:'الفترة غير مسجلة'} · 🧾 ${qty(row.rowCount)} حركة`,
+      `   ⛽ ديزل: ${qty(Math.round(row.dieselLiters))} لتر · ${money(row.dieselAmount)} ر.س${row.accountBalance!==null?` · 💳 الرصيد ${money(row.accountBalance,{decimals:2})} ر.س`:''}`
+    )),
+    RULE,note('الملف الأصلي محفوظ في مركز الوارد، ومنع التكرار يعتمد على فترة التقرير.')
+  ),fuelMenu(category,days));
+}
+
 // كشف حساب المركبات للفترة: «كل سيارة سحبت كام» — الافتراضي من أول الشهر حتى
 // أمس، لأن اليوم الجاري لم يكتمل ولم يصل تقريره من المحطة بعد.
 async function statementView(chatId,identity,category,from,to){
@@ -238,6 +322,12 @@ export async function handleFuelCallback(message,identity,value=''){
   if(view==='vehicles')return vehiclesView(message.chat.id,identity,days,category);
   if(view==='flags')return flagsView(message.chat.id,identity,days,category);
   if(view==='compare')return compareView(message.chat.id,identity,days,category);
+  if(view==='efficiency')return efficiencyView(message.chat.id,identity,days,category);
+  if(view==='prices')return priceView(message.chat.id,identity,days,category);
+  if(view==='consecutive')return consecutiveView(message.chat.id,identity,days,category);
+  if(view==='quality')return qualityView(message.chat.id,identity,days,category);
+  if(view==='dailytrend')return dailyTrendView(message.chat.id,identity,days,category);
+  if(view==='imports')return importsView(message.chat.id,identity,days,category);
   return summaryView(message.chat.id,identity,days,category);
 }
 
@@ -250,6 +340,12 @@ export async function handleFuelTextCommand(message,identity,text){
   // للمبيعات كما هي، فلا تُخطف من مكانها.
   if(/^\/(fuel_today|diesel_today)$/i.test(raw)||/^(تقرير الديزل اليوم|تقرير اليوم للديزل|تقرير اليوم ديزل|مسحوبات امس|مسحوبات الديزل امس|تقرير الديزل امس|ديزل امس|سحب امس|سحوبات امس)$/.test(value))
     return guard(()=>dayView(message.chat.id,identity,'diesel',null));
+  if(/^\/(fuel_efficiency)$/i.test(raw)||/^(كفاءه الديزل|كفاءة الديزل|تكلفه الديزل|تكلفة الديزل)$/.test(value))return guard(()=>efficiencyView(message.chat.id,identity,30,'diesel'));
+  if(/^\/(fuel_prices)$/i.test(raw)||/^(تحليل سعر الديزل|سعر لتر الديزل|اسعار الديزل|أسعار الديزل)$/.test(value))return guard(()=>priceView(message.chat.id,identity,30,'diesel'));
+  if(/^\/(fuel_consecutive)$/i.test(raw)||/^(ايام تعبئه متتاليه|أيام تعبئة متتالية|تعبئه متتاليه|تعبئة متتالية)$/.test(value))return guard(()=>consecutiveView(message.chat.id,identity,30,'diesel'));
+  if(/^\/(fuel_quality)$/i.test(raw)||/^(اكتمال بيانات الديزل|جوده بيانات الديزل|جودة بيانات الديزل)$/.test(value))return guard(()=>qualityView(message.chat.id,identity,30,'diesel'));
+  if(/^\/(fuel_daily_trend)$/i.test(raw)||/^(التوزيع اليومي للديزل|تحليل ايام الديزل|تحليل أيام الديزل)$/.test(value))return guard(()=>dailyTrendView(message.chat.id,identity,30,'diesel'));
+  if(/^\/(fuel_imports)$/i.test(raw)||/^(ملفات الديزل|سجل رفع الديزل|اخر ملفات الديزل|آخر ملفات الديزل)$/.test(value))return guard(()=>importsView(message.chat.id,identity,30,'diesel'));
   // كشف الحساب الافتراضي: من أول الشهر حتى أمس.
   if(/^\/(fuel_statement)$/i.test(raw)||/^(كشف حساب|كشف حساب الديزل|كشف حساب المركبات|كشف حساب السيارات|كشوف الحسابات|كشف الديزل)$/.test(value))
     return guard(()=>statementView(message.chat.id,identity,'diesel',monthStart(),yesterday()));
