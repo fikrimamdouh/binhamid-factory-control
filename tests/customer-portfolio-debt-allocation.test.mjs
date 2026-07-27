@@ -40,7 +40,7 @@ test('new customer is distinguished and can be fully paid',()=>{
 });
 
 test('report activity detects duplicates and section mismatch',()=>{
-  const index=buildReportActivityIndex({sales:[{invoice:'A1',kind:'خرسانة',item:'بلوك 20',customerCode:'1',customer:'عميل',amount:100},{invoice:'A1',kind:'خرسانة',item:'خرسانة',customerCode:'1',customer:'عميل',amount:100}],collections:[]},'concrete','2026-07-27');
+  const index=buildReportActivityIndex({sales:[{invoice:'A1',kind:'خرسانة',item:'بلوك 20',customerCode:'1',customer:'عميل',amount:100},{invoice:'A1',kind:'خرسانة',item:'خرسانة',customerCode:'1',customer:'عميل',amount:100}],collections:[]},'','2026-07-27');
   assert.ok(index.rows[0].alerts.has('duplicate_invoice'));
   assert.ok(index.rows[0].alerts.has('sales_type_mismatch'));
 });
@@ -80,9 +80,9 @@ test('portfolio keeps legacy employee ids when cloud employees are merged',async
 });
 
 test('portfolio includes classifications, totals, aging and fixed snapshots',async()=>{
-  const portfolio=await readFile(new URL('../api/_lib/customer-portfolio-pdf.js',import.meta.url),'utf8');
+  const [portfolio,settlement]=await Promise.all([readFile(new URL('../api/_lib/customer-portfolio-pdf.js',import.meta.url),'utf8'),readFile(new URL('../api/_lib/customer-settlement.js',import.meta.url),'utf8')]);
   assert.match(portfolio,/aggregateSettlements/);
-  assert.match(portfolio,/customerClassLabel/);
+  assert.match(settlement,/customerClassLabel/);
   assert.match(portfolio,/أعمار المديونية/);
   assert.match(portfolio,/persistPortfolioReportSnapshot/);
   assert.match(portfolio,/portfolio-snapshots/);
