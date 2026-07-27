@@ -69,6 +69,32 @@ test('block portfolio never mixes concrete sales or labels into the selected sec
   assert.equal(client._portfolioBalance,600);
 });
 
+test('concrete-owned customer buying block is not duplicated in block customer table',()=>{
+  const api=helpers(),{D,OPS,blockEmployee}=fixture(),concreteEmployee={id:'emp-concrete',name:'مسؤول الخرسانة',role:'مسؤول مبيعات الخرسانة',act:true};
+  D.emp.push(concreteEmployee);
+  D.cli[0].seg='خرسانة';D.cli[0].rep=concreteEmployee.id;
+  OPS.deliveries[0].employeeId=blockEmployee.id;
+  const portfolio=api.clientPortfolioForEmployee({D,OPS},blockEmployee,'بلوك');
+  assert.equal(portfolio.some(row=>row.id==='client-master'),false);
+  assert.equal(portfolio.crossSectorPurchases.length,1);
+  assert.equal(portfolio.crossSectorPurchases[0].ownerSector,'concrete');
+  assert.equal(portfolio.crossSectorPurchases[0].amount,1260);
+  assert.equal(portfolio.crossSectorPurchases[0].ownerEmployeeName,concreteEmployee.name);
+});
+
+test('first historical sector stays the owner when an unassigned customer later buys from the other sector',()=>{
+  const api=helpers(),{D,OPS,blockEmployee}=fixture();
+  D.cli[0].seg='الاثنين';D.cli[0].rep='';
+  OPS.deliveries.unshift({id:'sale-first-concrete',clientId:'client-imported',customerCode:'C-101',customerName:'مؤسسة العميل الأول',product:'خرسانة 7 كيس',quantity:10,amount:2400,date:'2026-07-01',status:'delivered',employeeId:'emp-concrete'});
+  OPS.deliveries.find(row=>row.id==='sale-1').employeeId=blockEmployee.id;
+  assert.equal(api.primarySector({D,OPS},D.cli[0]),'concrete');
+  assert.equal(api.reconcileCustomerPrimarySectors({D,OPS}),1);
+  assert.equal(D.cli[0].seg,'خرسانة');
+  const portfolio=api.clientPortfolioForEmployee({D,OPS},blockEmployee,'بلوك');
+  assert.equal(portfolio.some(row=>row.id==='client-master'),false);
+  assert.equal(portfolio.crossSectorPurchases[0].amount,1260);
+});
+
 test('script stays external and is injected after the existing daily import bridge',()=>{
   const html=fs.readFileSync(new URL('../index.html',import.meta.url),'utf8');
   const existing=html.indexOf('binhamid-existing-daily-import-fix');
