@@ -1,5 +1,4 @@
 name: Noor Khoy daily fuel sync
-# One-time final verification trigger for the corrected vehicle balance.
 
 on:
   push:
@@ -120,7 +119,7 @@ jobs:
         run: exit 1
 
   vehicle-balance-report:
-    if: github.event.schedule == '0 16 * * *' || (github.event_name == 'workflow_dispatch' && inputs.run_vehicle_balance) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[vehicle-balance-now]'))
+    if: github.event.schedule == '0 16 * * *' || (github.event_name == 'workflow_dispatch' && inputs.run_vehicle_balance)
     runs-on: ubuntu-latest
     timeout-minutes: 12
     env:
