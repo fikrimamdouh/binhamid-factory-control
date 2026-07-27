@@ -1,6 +1,5 @@
 name: Noor Khoy daily fuel sync
 
-# Backfill trigger: fixed post-login navigation
 on:
   push:
     branches:
@@ -23,7 +22,7 @@ on:
     - cron: '0 5 * * *'
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
 
 concurrency:
@@ -59,32 +58,70 @@ jobs:
           npm install --no-save --no-package-lock playwright@1.55.0
           npx playwright install --with-deps chromium
       - name: Download and upload fuel reports
+        id: fuel_import
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p artifacts/noor-khoy-fuel
+          : > artifacts/noor-khoy-fuel/execution.log
           if [[ -n "${REPORT_START_DATE:-}" ]]; then
             start="${REPORT_START_DATE}"
             end="${REPORT_END_DATE:-$(TZ=Asia/Riyadh date -d 'yesterday' +%F)}"
             date -d "$start" +%F >/dev/null
             date -d "$end" +%F >/dev/null
             if [[ "$start" > "$end" ]]; then
-              echo "start_date must not be after end_date" >&2
+              echo "start_date must not be after end_date" | tee -a artifacts/noor-khoy-fuel/execution.log >&2
               exit 2
             fi
             current="$start"
             while [[ "$current" < "$end" || "$current" == "$end" ]]; do
               final_day=false
               [[ "$current" == "$end" ]] && final_day=true
-              echo "Importing Noor Khoy fuel report for $current"
+              echo "Importing Noor Khoy fuel report for $current" | tee -a artifacts/noor-khoy-fuel/execution.log
               REPORT_DATE="$current" \
               FUEL_SEND_BALANCE="$final_day" \
               FUEL_NOTIFY="$final_day" \
               FUEL_SYNC_ARTIFACT_DIR="artifacts/noor-khoy-fuel/$current" \
-              node scripts/noor-khoy-fuel-sync.mjs
+              node scripts/noor-khoy-fuel-sync.mjs 2>&1 | tee -a artifacts/noor-khoy-fuel/execution.log
               current="$(date -I -d "$current + 1 day")"
             done
           else
-            FUEL_SEND_BALANCE=true FUEL_NOTIFY=true node scripts/noor-khoy-fuel-sync.mjs
+            FUEL_SEND_BALANCE=true FUEL_NOTIFY=true node scripts/noor-khoy-fuel-sync.mjs 2>&1 | tee -a artifacts/noor-khoy-fuel/execution.log
+          fi
+      - name: Publish execution status
+        if: always()
+        shell: bash
+        env:
+          IMPORT_OUTCOME: ${{ steps.fuel_import.outcome }}
+        run: |
+          set -euo pipefail
+          mkdir -p .github/fuel-sync-status
+          python - <<'PY'
+          import json, os, pathlib, datetime
+          root=pathlib.Path('artifacts/noor-khoy-fuel')
+          failures=sorted(root.glob('*/failure-context.json'))
+          responses=sorted(root.glob('*/upload-response.json'))
+          diagnostics=[]
+          for p in failures[-3:]:
+              try: diagnostics.append({'file':str(p),'data':json.loads(p.read_text(encoding='utf-8'))})
+              except Exception as e: diagnostics.append({'file':str(p),'error':str(e)})
+          uploads=[]
+          for p in responses[-5:]:
+              try: uploads.append({'file':str(p),'data':json.loads(p.read_text(encoding='utf-8'))})
+              except Exception as e: uploads.append({'file':str(p),'error':str(e)})
+          log=''
+          lp=root/'execution.log'
+          if lp.exists(): log='\n'.join(lp.read_text(encoding='utf-8',errors='replace').splitlines()[-80:])
+          payload={'outcome':os.environ.get('IMPORT_OUTCOME','unknown'),'run_id':os.environ.get('GITHUB_RUN_ID'),'run_attempt':os.environ.get('GITHUB_RUN_ATTEMPT'),'commit':os.environ.get('GITHUB_SHA'),'updated_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'diagnostics':diagnostics,'uploads':uploads,'log_tail':log}
+          pathlib.Path('.github/fuel-sync-status/latest.json').write_text(json.dumps(payload,ensure_ascii=False,indent=2),encoding='utf-8')
+          PY
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add .github/fuel-sync-status/latest.json
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: record fuel sync status [skip ci]"
+            git push origin HEAD:main
           fi
       - name: Keep diagnostic artifacts
         if: always()
@@ -94,3 +131,6 @@ jobs:
           path: artifacts/noor-khoy-fuel/
           if-no-files-found: ignore
           retention-days: 7
+      - name: Fail when fuel import failed
+        if: steps.fuel_import.outcome != 'success'
+        run: exit 1
