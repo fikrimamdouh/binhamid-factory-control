@@ -15,13 +15,13 @@ export async function sendInventoryRisks(chatId,identity){
   if(items.length){
     const negative=items.filter(item=>number(item.quantity_on_hand)<0),zero=items.filter(item=>number(item.quantity_on_hand)===0),low=items.filter(item=>number(item.quantity_on_hand)>0&&number(item.minimum_quantity)>0&&number(item.quantity_on_hand)<=number(item.minimum_quantity));
     let text=`<b>مؤشرات المخزون المركزي</b>\n\nأصناف برصيد سالب: <b>${negative.length}</b>\nأصناف برصيد صفري: <b>${zero.length}</b>\nأصناف عند أو تحت الحد الأدنى: <b>${low.length}</b>`;
-    const critical=[...negative,...zero,...low].slice(0,20);if(critical.length)text+=`\n\n<b>تحتاج متابعة</b>\n${critical.map(item=>`• ${esc(item.item_name)}${item.sku?` (${esc(item.sku)})`:''}: ${esc(item.quantity_on_hand)} ${esc(item.unit||'')} — الحد ${esc(item.minimum_quantity)}`).join('\n')}`;
+    const critical=[...negative,...zero,...low].slice(0,20);if(critical.length)text+=`\n\n⚠️ <b>تحتاج متابعة</b>\n${critical.map(item=>`• ${esc(item.item_name)}${item.sku?` (${esc(item.sku)})`:''}: ${esc(item.quantity_on_hand)} ${esc(item.unit||'')} — الحد ${esc(item.minimum_quantity)}`).join('\n')}`;
     return sendMessage(chatId,text.slice(0,3900));
   }
   const logs=await safeSelect('audit_log','action=eq.enterprise_operation_created&entity_type=in.(inventory,purchase)&select=entity_id,details,created_at&order=created_at.desc&limit=1000'),balances=new Map(),low=[];
   for(const row of [...logs].reverse()){const details=row.details||{},item=String(details.item||'').trim();if(!item)continue;const current=balances.get(item)||0;if(details.subtype==='receive')balances.set(item,current+number(details.quantity));else if(details.subtype==='issue')balances.set(item,current-number(details.quantity));else if(details.subtype==='count')balances.set(item,number(details.quantity));if(details.subtype==='low_stock')low.push(details);}
   const negative=[...balances].filter(([,value])=>value<0),zero=[...balances].filter(([,value])=>value===0),critical=[...negative.map(([item,value])=>`${item}: ${value}`),...low.slice(-10).map(item=>`${item.item}: رصيد ${item.quantity} والحد ${item.expected}`)].slice(0,20);
-  let text=`<b>مؤشرات المخزون</b>\n\nأصناف برصيد سالب: <b>${negative.length}</b>\nأصناف برصيد صفري: <b>${zero.length}</b>\nتنبيهات انخفاض مسجلة: <b>${low.length}</b>`;if(critical.length)text+=`\n\n<b>تحتاج مراجعة</b>\n${critical.map(item=>`• ${esc(item)}`).join('\n')}`;return sendMessage(chatId,text.slice(0,3900));
+  let text=`<b>مؤشرات المخزون</b>\n\nأصناف برصيد سالب: <b>${negative.length}</b>\nأصناف برصيد صفري: <b>${zero.length}</b>\nتنبيهات انخفاض مسجلة: <b>${low.length}</b>`;if(critical.length)text+=`\n\n🔎 <b>تحتاج مراجعة</b>\n${critical.map(item=>`• ${esc(item)}`).join('\n')}`;return sendMessage(chatId,text.slice(0,3900));
 }
 export async function sendDebtAnalysis(chatId,identity){
   if(!identity?.active||!DEBT_ROLES.has(identity.role))return sendMessage(chatId,'ليست لديك صلاحية عرض تحليل مديونية العملاء.');
@@ -39,7 +39,7 @@ export async function sendDebtAnalysis(chatId,identity){
   }
   if(!debts.length)return sendMessage(chatId,'لا توجد مديونيات موجبة واضحة في البيانات التشغيلية الحالية.');
   const total=debts.reduce((sum,item)=>sum+item.balance,0),overLimit=debts.filter(item=>item.limit>0&&item.balance>item.limit),late=debts.filter(item=>item.days>0);
-  return sendMessage(chatId,`<b>تحليل مديونية العملاء</b>\n\nإجمالي المديونية التشغيلية: <b>${formatAmount(total)} ر.س</b>\nعدد العملاء المدينين: <b>${debts.length}</b>\nمتجاوزو الحد الائتماني: <b>${overLimit.length}</b>\nعملاء لديهم مدة ائتمان مسجلة: <b>${late.length}</b>\n\n<b>أعلى العملاء</b>\n${debts.slice(0,10).map((item,index)=>`${index+1}. ${esc(item.name)} — <b>${formatAmount(item.balance)} ر.س</b>`).join('\n')}\n\nالحساب مبني على أوامر البيع والتحصيلات المسجلة، ويلزم مطابقته مع الحسابات المعتمدة.`.slice(0,3900));
+  return sendMessage(chatId,`💳 <b>تحليل مديونية العملاء</b>\n━━━━━━━━━━━━━━━\n\nإجمالي المديونية التشغيلية: <b>${formatAmount(total)} ر.س</b>\nعدد العملاء المدينين: <b>${debts.length}</b>\nمتجاوزو الحد الائتماني: <b>${overLimit.length}</b>\nعملاء لديهم مدة ائتمان مسجلة: <b>${late.length}</b>\n\n🔝 <b>أعلى العملاء</b>\n${debts.slice(0,10).map((item,index)=>`${index+1}. ${esc(item.name)} — <b>${formatAmount(item.balance)} ر.س</b>`).join('\n')}\n\nالحساب مبني على أوامر البيع والتحصيلات المسجلة، ويلزم مطابقته مع الحسابات المعتمدة.`.slice(0,3900));
 }
 export async function sendConcreteCapacity(chatId,identity){
   if(!identity?.active||!CAPACITY_ROLES.has(identity.role))return sendMessage(chatId,'ليست لديك صلاحية عرض تحليل طاقة الخرسانة.');

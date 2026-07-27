@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import { config } from './config.js';
+import { buildDailyBriefMessage } from './bot-daily-brief.js';
 import { select, insert, patch, uploadObject } from './supabase.js';
 import { sendMessage, sendDocumentBuffer, downloadTelegramFile } from './telegram.js';
 import { classifyFile, sha256 } from './domain.js';
@@ -190,6 +191,12 @@ export async function handleExcel(message,group,identity,stored){
     }
   }catch(error){console.error('[telegram excel import]',{stage:error?.excelStage||'unknown',status:Number(error?.status||error?.upstreamStatus||0),message:String(error?.message||'').slice(0,500)});await sendMessage(chatId,`تعذر إكمال معالجة ملف <b>${esc(name)}</b>.\nالسبب: ${esc(excelFailureMessage(error))}\nلم تُرحّل أي بيانات من هذا الملف.`).catch(sendError=>console.error('[telegram excel failure reply]',sendError));return null;}
   const ownerRelay=await relayToOwner(chatId,relay?.buffer,name,relay?.contentType,`ملف وارد من Telegram\n\n${resultText}`,{importId:result?.import?.id});if(result?.pendingApproval&&result.pendingApprovalNotice){const excluded=[String(chatId)];if(ownerRelay&&config.telegramOwnerId)excluded.push(String(config.telegramOwnerId));result.approvalNotification=await notifyDailyReportApprovers(result.pendingApprovalNotice,excluded);}  await sendProcessingResult(chatId,resultText,name);
+  // بعد الترحيل الفعلي يُدفع الملخّص المصمَّم مباشرةً لمن رفع الملف: أرقام اليوم
+  // ومقارنتها بالتقرير السابق وأعلى العملاء وتنبيهات المخزون، بلا ضغط أي زر.
+  if(result?.posting?.ok&&!result?.posting?.duplicate){
+    const brief=await buildDailyBriefMessage().catch(error=>{console.warn('[daily brief]',String(error?.message||'').slice(0,200));return'';});
+    if(brief)await sendMessage(chatId,brief).catch(()=>null);
+  }
   // تقريرا البلوك والخرسانة التراكميان "مسودة" وليسا مرتبطين بنجاح الترحيل
   // التلقائي — أغلب مرسلي الملف اليومي مندوبو مبيعات وليسوا معتمدين، فكان
   // الشرط القديم (posting?.ok) يمنع إرسالهما في كل تلك الحالات. الآن يُرسلان

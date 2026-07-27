@@ -1,4 +1,5 @@
 import { select } from './supabase.js';
+import { buildDailyBriefMessage } from './bot-daily-brief.js';
 import { sendMessage, sendDocumentBuffer, keyboard } from './telegram.js';
 import { reportSummary } from './domain.js';
 import { generateCumulativeDailyPdfs } from './daily-cumulative-pdf.js';
@@ -190,6 +191,10 @@ export async function sendReport(chatId,request='daily'){
     const text=`<b>تحليلات التقرير اليومي — ${date}</b>\n\n<b>المديونية التراكمية</b>\n${balanceLines}\n\n<b>تحليل السداد</b>\nالعملاء الذين سددوا: <b>${p.payers.length}</b>\nالمسدد من مديونية سابقة: <b>${money(p.totalDebtPaid)}</b>\nالمسدد من مبيعات اليوم: <b>${money(p.totalCurrentSalesPaid)}</b>\nدفعات مقدمة: <b>${money(p.totalAdvance)}</b>\nعملاء أقفلوا مديونيتهم السابقة: <b>${p.clearedOldDebt.length}</b>\nاشتروا اليوم ولم يسددوا: <b>${p.salesWithoutPayment.length}</b>\nتغطية التحصيل لإجمالي الرصيد المتاح: <b>${num(a.debtCoverage,1)}%</b>\n\n<b>أعلى من سددوا من المديونية السابقة</b>\n${topLines(p.oldDebtPayers,'debtPaid')}\n\n<b>أعلى الأرصدة المتوقعة بعد اليوم</b>\n${topLines(p.closingDebtors,'closingDebt')}\n\n<b>كفاءة اليوم</b>\nمتوسط الفاتورة: <b>${money(a.avgInvoice)}</b>\nنسبة التحصيل إلى المبيعات: <b>${num(a.collectionRate,1)}%</b>\nتغير الخزائن: <b>${money(a.treasuryClosing-a.treasuryOpening)}</b>\nتنبيهات مخزون صفري/سالب: <b>${a.stockAlerts.length}</b>\n\n<b>أعلى العملاء مبيعًا</b>\n${topCustomers}\n\n<b>أعلى الأصناف بالقيمة</b>\n${topItems}`;
     return sendMessage(chatId,text.slice(0,3900));
   }
-  const p=a.payments,balanceLine=a.openingBalance===null?'الرصيد التراكمي: تعذر حسابه مؤقتًا.':`الرصيد الافتتاحي للعملاء: <b>${money(a.openingBalance)}</b>\nالرصيد الختامي المتوقع: <b>${money(a.closingBalance)}</b>`,text=`<b>تقرير اليوم الكامل — ${date}</b>\nآخر إدخال معتمد: <b>${esc(data.batch.original_name||'التقرير اليومي')}</b>\n\n<b>المبيعات</b>\nإجمالي الفواتير: <b>${data.sales.length}</b>\nإجمالي المبيعات: <b>${money(a.totalSales)}</b>\nالبلوك: <b>${num(a.blockQty,3)} قطعة</b> — ${money(a.blockSales)}\nالخرسانة: <b>${num(a.concreteQty,3)} م³</b> — ${money(a.concreteSales)}\nمتوسط الفاتورة: <b>${money(a.avgInvoice)}</b>\n\n<b>التحصيل والمديونية</b>\nعدد العملاء المسددين: <b>${p.payers.length}</b>\nإجمالي التحصيل: <b>${money(a.totalCollections)}</b>\nمن مديونية سابقة: <b>${money(p.totalDebtPaid)}</b>\nمن مبيعات اليوم: <b>${money(p.totalCurrentSalesPaid)}</b>\nدفعات مقدمة: <b>${money(p.totalAdvance)}</b>\nاشتروا ولم يسددوا: <b>${p.salesWithoutPayment.length}</b>\nنسبة التحصيل للمبيعات: <b>${num(a.collectionRate,1)}%</b>\n${balanceLine}\n\n<b>الخزائن والمخزون</b>\nحركات الخزائن: <b>${data.cash.length}</b>\nإجمالي ختامي الخزائن: <b>${money(a.treasuryClosing)}</b>\nأصناف المخزون: <b>${data.inventory.length}</b>\nتنبيهات رصيد صفري/سالب: <b>${a.stockAlerts.length}</b>`;
+  const p=a.payments,balanceLine=a.openingBalance===null?'💳 الرصيد التراكمي: تعذر حسابه مؤقتًا.':`💳 الرصيد الافتتاحي للعملاء: <b>${money(a.openingBalance)}</b>\n🏦 الرصيد الختامي المتوقع: <b>${money(a.closingBalance)}</b>`;
+  // الصدر أصبح الملخّص المصمَّم (أرقام اليوم، المقارنة، أعلى العملاء، تنبيهات المخزون)،
+  // والتفاصيل الكاملة تُفتح من أزرار التفصيل بدل جدار نص واحد.
+  const brief=await buildDailyBriefMessage().catch(()=>''),
+    text=[brief,balanceLine,`🧾 التحصيلات: <b>${money(p?.total??a.totalPayments??0)}</b>`].filter(Boolean).join('\n');
   return sendMessage(chatId,text.slice(0,3900),dailyDetailKeyboard());
 }

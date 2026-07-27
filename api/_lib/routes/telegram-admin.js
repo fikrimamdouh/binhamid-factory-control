@@ -3,6 +3,7 @@ import { config } from '../config.js';
 import { json, method, body, errorResponse } from '../http.js';
 import { select, patch, downloadObject } from '../supabase.js';
 import { telegram, sendMessage, sendDocumentBuffer } from '../telegram.js';
+import { buildDailyBriefMessage } from '../bot-daily-brief.js';
 
 const commands={
   en:[{command:'start',description:'Open the Bin Hamid Factory assistant'},{command:'menu',description:'Open your role-based operations menu'},{command:'help',description:'Show jobs, services and usage examples'},{command:'register',description:'Register or update employee details'},{command:'invite',description:'Create a secure employee invitation'},{command:'attendance',description:'Check in, check out and driver movement'},{command:'tasks',description:'Show your open tasks'},{command:'reports',description:'Management reports'},{command:'sales',description:'Block and concrete sales orders'},{command:'workshop',description:'Workshop and mechanic menu'},{command:'suppliers',description:'Search suppliers and request quotations'},{command:'gps',description:'Fleet GPS status'},{command:'status',description:'System link and last synchronization'},{command:'whoami',description:'Show your account role and status'}],
@@ -43,7 +44,10 @@ export async function notify(req,res){
     await requireCapability(req,'daily_report.approve');
     const input=await body(req);if(input.event!=='daily_report_approved')throw Object.assign(new Error('نوع الإشعار غير صحيح'),{status:400});if(!config.telegramOwnerId)throw Object.assign(new Error('TELEGRAM_OWNER_ID غير مضبوط'),{status:503});
     const preview=input.preview&&typeof input.preview==='object'?input.preview:{},reportDate=clean(input.reportDate,10),originalName=clean(input.originalName)||'daily-report.xlsx',importId=clean(input.importId,120),batch=await findApprovedBatch(importId,reportDate,originalName),source=await linkedImport(batch,originalName),summary=batch?.preview_summary||batch?.summary||preview;
-    const text=`تم اعتماد <b>التقرير اليومي</b> من الموقع.\n\nالتاريخ: <b>${esc(reportDate||batch?.report_date||'—')}</b>\nالملف: ${esc(originalName||batch?.original_name)}\nعدد الفواتير: <b>${number(summary.invoiceCount)}</b>\nإجمالي المبيعات: <b>${number(summary.salesTotal)} ر.س</b>\nالبلوك: <b>${number(summary.blockSales)} ر.س</b>\nالخرسانة: <b>${number(summary.concreteSales)} ر.س</b>\nالتحصيلات: <b>${number(summary.collectionTotal)} ر.س</b>${(importId||batch?.id)?`\nمرجع الاعتماد: <code>${esc(importId||batch.id)}</code>`:''}`;
+    // الملخّص المصمَّم يُدفع فور الاعتماد: أرقام اليوم ومقارنتها بالسابق وأعلى العملاء
+    // وتنبيهات المخزون، فلا يحتاج المالك الضغط على أي زر ليعرف ماذا حدث.
+    const brief=await buildDailyBriefMessage().catch(error=>{console.warn('[daily brief]',String(error?.message||'').slice(0,200));return'';});
+    const text=brief?`${brief}\n\n✅ <i>اعتُمد من الموقع</i>`:`تم اعتماد <b>التقرير اليومي</b> من الموقع.\n\nالتاريخ: <b>${esc(reportDate||batch?.report_date||'—')}</b>`;
     const ownerMessage=await sendMessage(config.telegramOwnerId,text,{action_name:'daily_report_approved',action_payload:{reportDate:reportDate||batch?.report_date,importId:importId||batch?.id,sourceImportId:source?.id||null}});
     const filePath=batch?.file_storage_path||source?.file_path||'',filename=batch?.original_name||source?.original_name||originalName,ownerFile=await sendApprovedFile(config.telegramOwnerId,filePath,filename,`التقرير المعتمد\n${text.replace(/<[^>]+>/g,'')}`);
     let sourceChatNotified=false,sourceFileSent=false;

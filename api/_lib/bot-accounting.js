@@ -48,7 +48,7 @@ export async function sendAccountingSummary(chatId,identity){
     const totals=trial.reduce((out,row)=>{out.debit+=Number(row.total_debit||0);out.credit+=Number(row.total_credit||0);return out;},{debit:0,credit:0});
     const draft=entries.filter(row=>row.status==='draft').length,posted=entries.filter(row=>row.status==='posted').length,balanced=Number(totals.debit.toFixed(2))===Number(totals.credit.toFixed(2));
     const integrity=integrityRows[0]||{},issues=Object.entries(integrity).filter(([key,value])=>/(error|issue|unbalanced|orphan|negative|missing|difference|mismatch)/i.test(key)&&Number(value)>0);
-    return sendMessage(chatId,`<b>الملخص المحاسبي</b>\n\n• القيود المرحّلة: <b>${posted}</b>\n• القيود المسودة: <b>${draft}</b>\n• إجمالي المدين: <b>${amount(totals.debit)} ر.س</b>\n• إجمالي الدائن: <b>${amount(totals.credit)} ر.س</b>\n• ميزان المراجعة: <b>${balanced?'متزن ✅':'غير متزن ⚠️'}</b>\n• فحص السلامة: <b>${issues.length?'توجد مؤشرات تحتاج مراجعة':'سليم ✅'}</b>`);
+    return sendMessage(chatId,`📚 <b>الملخص المحاسبي</b>\n━━━━━━━━━━━━━━━\n\n• القيود المرحّلة: <b>${posted}</b>\n• القيود المسودة: <b>${draft}</b>\n• إجمالي المدين: <b>${amount(totals.debit)} ر.س</b>\n• إجمالي الدائن: <b>${amount(totals.credit)} ر.س</b>\n• ميزان المراجعة: <b>${balanced?'متزن ✅':'غير متزن ⚠️'}</b>\n• فحص السلامة: <b>${issues.length?'توجد مؤشرات تحتاج مراجعة':'سليم ✅'}</b>`);
   });
 }
 
@@ -59,7 +59,7 @@ export async function sendTrialBalance(chatId,identity){
     const totals=rows.reduce((out,row)=>{out.debit+=Number(row.total_debit||0);out.credit+=Number(row.total_credit||0);return out;},{debit:0,credit:0});
     const important=[...rows].sort((a,b)=>Math.abs(Number(b.balance||0))-Math.abs(Number(a.balance||0))).slice(0,20);
     const lines=important.map(row=>`• <code>${esc(row.account_code)}</code> ${esc(row.account_name_ar||'حساب')} — <b>${amount(row.balance)} ر.س</b>`);
-    return sendMessage(chatId,`<b>ميزان المراجعة</b>\n\nمدين: <b>${amount(totals.debit)} ر.س</b>\nدائن: <b>${amount(totals.credit)} ر.س</b>\nالحالة: <b>${Number(totals.debit.toFixed(2))===Number(totals.credit.toFixed(2))?'متزن ✅':'غير متزن ⚠️'}</b>\n\n<b>أكبر الأرصدة</b>\n${lines.join('\n')}`.slice(0,3900));
+    return sendMessage(chatId,`<b>ميزان المراجعة</b>\n\nمدين: <b>${amount(totals.debit)} ر.س</b>\nدائن: <b>${amount(totals.credit)} ر.س</b>\nالحالة: <b>${Number(totals.debit.toFixed(2))===Number(totals.credit.toFixed(2))?'متزن ✅':'غير متزن ⚠️'}</b>\n\n📊 <b>أكبر الأرصدة</b>\n${lines.join('\n')}`.slice(0,3900));
   });
 }
 
@@ -68,7 +68,7 @@ export async function sendLedger(chatId,identity,query=''){
   return guarded(chatId,identity,async()=>{
     const rows=await requiredSelect('general_ledger',query||'select=journal_entry_id,reference_no,entry_date,description,account_code,account_name_ar,debit,credit,customer_external_id,running_balance&order=entry_date.desc,reference_no.desc,line_no.asc&limit=30','ent:accounting_ledger');
     if(!rows.length)return sendMessage(chatId,'لا توجد حركات دفتر أستاذ مطابقة.');
-    return sendMessage(chatId,`<b>دفتر الأستاذ</b> — ${rows.length} حركة\n\n${rows.slice(0,25).map(ledgerLine).join('\n\n')}`.slice(0,3900));
+    return sendMessage(chatId,`📖 <b>دفتر الأستاذ</b> — ${rows.length} حركة\n\n${rows.slice(0,25).map(ledgerLine).join('\n\n')}`.slice(0,3900));
   });
 }
 
@@ -77,7 +77,7 @@ export async function sendRecentEntries(chatId,identity){
     const rows=await requiredSelect('journal_entries','select=id,reference_no,entry_date,description,source_type,status,currency,posted_at,created_at&order=entry_date.desc,created_at.desc&limit=25','ent:accounting_entries');
     if(!rows.length)return sendMessage(chatId,'لا توجد قيود محاسبية حتى الآن.');
     const lines=rows.map(row=>`• <b>${esc(row.reference_no||row.id)}</b> — ${esc(row.entry_date||'')}\n  ${esc(row.description||row.source_type||'قيد محاسبي').slice(0,150)} | ${esc(row.status==='posted'?'مرحّل':row.status||'')}`);
-    return sendMessage(chatId,`<b>أحدث القيود المحاسبية</b>\n\n${lines.join('\n\n')}`.slice(0,3900));
+    return sendMessage(chatId,`🧾 <b>أحدث القيود المحاسبية</b>\n\n${lines.join('\n\n')}`.slice(0,3900));
   });
 }
 
