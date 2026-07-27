@@ -1,0 +1,105 @@
+name: Apply fuel ledger migration 028
+
+on:
+  push:
+    branches:
+      - agent/fuel-ledger-integration
+    paths:
+      - .github/workflows/apply-fuel-ledger-migration.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-fuel-ledger-migration-028
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/fuel-ledger-integration
+          fetch-depth: 0
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+
+      - name: Resolve an IPv4-capable Supabase connection
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_DB_URL:-}" || { echo 'SUPABASE_DB_URL is missing'; exit 1; }
+          python - <<'PY' > /tmp/fuel-db-candidates
+          import os, base64
+          from urllib.parse import urlparse, unquote, quote, urlunparse
+
+          raw=os.environ['SUPABASE_DB_URL'].strip()
+          parsed=urlparse(raw)
+          candidates=[raw]
+          host=parsed.hostname or ''
+          ref=''
+          if host.startswith('db.') and host.endswith('.supabase.co'):
+              ref=host.split('.')[1]
+          if ref:
+              password=unquote(parsed.password or '')
+              user=quote(f'postgres.{ref}',safe='')
+              password=quote(password,safe='')
+              regions=[
+                  'us-east-1','us-east-2','us-west-1','us-west-2',
+                  'ca-central-1','sa-east-1','eu-west-1','eu-west-2','eu-west-3','eu-central-1','eu-north-1',
+                  'ap-south-1','ap-southeast-1','ap-southeast-2','ap-northeast-1','ap-northeast-2',
+                  'me-central-1'
+              ]
+              for cluster in range(4):
+                  for region in regions:
+                      for port in (5432,6543):
+                          netloc=f'{user}:{password}@aws-{cluster}-{region}.pooler.supabase.com:{port}'
+                          candidates.append(urlunparse(('postgresql',netloc,'/postgres','','sslmode=require&connect_timeout=3','')))
+          for value in dict.fromkeys(candidates):
+              print(base64.b64encode(value.encode()).decode())
+          PY
+
+          found=''
+          while IFS= read -r encoded; do
+            candidate="$(printf '%s' "$encoded" | base64 -d)"
+            if psql "$candidate" -v ON_ERROR_STOP=1 -Atqc 'select 1' >/dev/null 2>&1; then
+              found="$candidate"
+              break
+            fi
+          done < /tmp/fuel-db-candidates
+          test -n "$found" || { echo 'No reachable Supabase direct or pooler endpoint accepted the database credentials'; exit 1; }
+          echo "::add-mask::$found"
+          printf '%s' "$found" > /tmp/fuel-db-url
+          chmod 600 /tmp/fuel-db-url
+
+      - name: Apply migration 028
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql "$(cat /tmp/fuel-db-url)" -v ON_ERROR_STOP=1 -f supabase/migrations/028_fuel_transactions_history.sql
+
+      - name: Verify migration 028
+        shell: bash
+        run: |
+          set -euo pipefail
+          result="$(psql "$(cat /tmp/fuel-db-url)" -v ON_ERROR_STOP=1 -Atqc "select coalesce(to_regclass('public.fuel_transactions')::text,''), exists(select 1 from public.migration_history where version=28);")"
+          test "$result" = 'fuel_transactions|t' || { echo "Migration verification failed: $result"; exit 1; }
+          echo 'Migration 028 verified: fuel_transactions exists and migration_history contains version 28.'
+
+      - name: Remove one-time migration workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/apply-fuel-ledger-migration.yml
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add -A
+          git commit -m "Apply migration 028 and remove one-time runner"
+          git push origin HEAD:agent/fuel-ledger-integration
