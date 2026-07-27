@@ -39,10 +39,20 @@ test('new customer is distinguished and can be fully paid',()=>{
   assert.equal(result.finalAdvance,0);
 });
 
-test('report activity detects duplicates and section mismatch',()=>{
-  const index=buildReportActivityIndex({sales:[{invoice:'A1',kind:'خرسانة',item:'بلوك 20',customerCode:'1',customer:'عميل',amount:100},{invoice:'A1',kind:'خرسانة',item:'خرسانة',customerCode:'1',customer:'عميل',amount:100}],collections:[]},'','2026-07-27');
+test('declared concrete sector is retained while item mismatch and duplicates are flagged',()=>{
+  const index=buildReportActivityIndex({sales:[{invoice:'A1',kind:'خرسانة',item:'بلوك 20',customerCode:'1',customer:'عميل',amount:100},{invoice:'A1',kind:'خرسانة',item:'خرسانة',customerCode:'1',customer:'عميل',amount:100}],collections:[]},'concrete','2026-07-27');
+  assert.equal(index.rows.length,1);
+  assert.equal(index.rows[0].sales,200);
   assert.ok(index.rows[0].alerts.has('duplicate_invoice'));
   assert.ok(index.rows[0].alerts.has('sales_type_mismatch'));
+});
+
+test('customers with the same name and different codes remain separate',()=>{
+  const index=buildReportActivityIndex({sales:[{invoice:'A1',kind:'خرسانة',customerCode:'1001',customer:'اسم متشابه',amount:100},{invoice:'A2',kind:'خرسانة',customerCode:'1002',customer:'اسم متشابه',amount:250}],collections:[]},'concrete','2026-07-27');
+  assert.equal(index.rows.length,2);
+  assert.equal(index.byCustomerCode.get('1001').sales,100);
+  assert.equal(index.byCustomerCode.get('1002').sales,250);
+  assert.notEqual(index.byCustomerCode.get('1001'),index.byCustomerCode.get('1002'));
 });
 
 test('customer buttons remain reusable after opening the first statement',async()=>{
