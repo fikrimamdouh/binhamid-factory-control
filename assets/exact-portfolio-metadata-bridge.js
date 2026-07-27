@@ -1,9 +1,9 @@
-// [BinHamid] 2026.07.24-exact-portfolio-metadata-bridge-v2-activity-date
+// [BinHamid] 2026.07.27-exact-portfolio-metadata-primary-owner-v3
 (function(){
   'use strict';
   if(window.__BH_EXACT_PORTFOLIO_METADATA_BRIDGE__)return;
   window.__BH_EXACT_PORTFOLIO_METADATA_BRIDGE__=true;
-  const VERSION='2026.07.24-exact-portfolio-metadata-bridge-v2-activity-date';
+  const VERSION='2026.07.27-exact-portfolio-metadata-primary-owner-v3';
   const clean=value=>String(value??'').replace(/\s+/g,' ').trim();
   const digits=value=>clean(value).replace(/\D/g,'');
   const iso=value=>/^\d{4}-\d{2}-\d{2}$/.test(clean(value).slice(0,10))?clean(value).slice(0,10):'';
@@ -14,7 +14,7 @@
   function selectedEmployee(){const id=document.getElementById('pcEmp')?.value||'',employees=runtime().D.emp||[];return employees.find(row=>String(row.id)===String(id))||null;}
   function declarationButton(button){return Boolean(button&&(/\bprCli\s*\(/.test(button.getAttribute?.('onclick')||'')||button.dataset?.bhPortfolioRangePrint==='1'));}
   function storedDate(employee,kind){const rows=runtime().OPS.dailyPortfolioDeclarations||[];return rows.filter(row=>row.employeeId===employee?.id&&row.kind===kind&&row.reportDate).sort((a,b)=>String(b.reportDate).localeCompare(String(a.reportDate)))[0]?.reportDate||'';}
-  function customerCount(employee,segment){try{return typeof window.clientPortfolioForEmployee==='function'?(window.clientPortfolioForEmployee(employee,segment)||[]).length:0;}catch{return 0;}}
+  function customerCount(employee,segment){try{const rows=typeof window.clientPortfolioForEmployee==='function'?(window.clientPortfolioForEmployee(employee,segment)||[]):[];return rows.length+(rows.crossSectorPurchases||[]).length;}catch{return 0;}}
   async function latestActivityDate(kind,employee){
     const key=`${kind}:${clean(employee?.id)}`,cached=activityCache.dates[key];
     if(cached&&Date.now()-activityCache.at<30_000)return cached;
