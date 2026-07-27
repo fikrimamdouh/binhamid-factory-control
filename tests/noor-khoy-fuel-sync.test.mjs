@@ -30,15 +30,17 @@ test('workflow runs daily and supports an ordered historical date range',()=>{
   assert.match(workflow,/FUEL_REPORT_DATE_OFFSET_DAYS:\s*'-1'/);
 });
 
-test('browser sync separates current dashboard balance from historical report dates',()=>{
+test('browser sync attaches the current treasury balance only to the latest closed report day',()=>{
   const script=read('scripts/noor-khoy-fuel-sync.mjs');
   assert.match(script,/DASHBOARD_URL/);
   assert.match(script,/extractDieselBalance/);
   assert.match(script,/balanceCandidates/);
-  assert.match(script,/FUEL_SEND_BALANCE/);
-  assert.match(script,/FUEL_NOTIFY/);
+  assert.match(script,/latestClosedDate=shiftedRiyadhDate\(-1\)/);
+  assert.match(script,/attachBalance=sendBalance&&reportDate===latestClosedDate/);
   assert.match(script,/x-fuel-account-balance/);
   assert.match(script,/x-fuel-balance-captured-at/);
+  assert.match(script,/x-fuel-balance-date/);
+  assert.match(script,/station-closing-balance/);
   assert.match(script,/x-fuel-notify/);
   assert.match(script,/companies\/fuels\?fueltype=all/);
   assert.match(script,/setReportDate/);
@@ -47,22 +49,23 @@ test('browser sync separates current dashboard balance from historical report da
   assert.match(script,/ACTIONS_ID_TOKEN_REQUEST_URL/);
 });
 
-test('server stores balance by capture time, mutes backfill, and keeps the private Renault out silently',()=>{
+test('server stores the station treasury as the report-day closing balance and keeps the private Renault out silently',()=>{
   const route=read('api/_lib/routes/fuel-sync.js'),pdf=read('api/_lib/fuel-report-pdf.js'),router=read('api/router.js'),vercel=read('vercel.json');
   assert.match(route,/token\.actions\.githubusercontent\.com/);
   assert.match(route,/PRIVATE_PLATE_KEY='DGD7293'/);
   assert.match(route,/operationalRows=parsed\.rows\.filter\(row=>!privateFuelRow\(row\)\)/);
   assert.match(route,/requestBalanceCapturedAt/);
-  assert.match(route,/requestNotify/);
-  assert.match(route,/balanceDate=balanceValid\?riyadhDate\(context\.balanceCapturedAt\)/);
+  assert.match(route,/requestBalanceDate/);
+  assert.match(route,/context\.balanceDate===context\.reportDate/);
+  assert.match(route,/kind:'closing'/);
+  assert.match(route,/asOfDate:balanceDate/);
   assert.match(route,/fuelAccountBalance/);
   assert.match(route,/fuelBalances/);
   assert.match(route,/notify\?await telegramDelivery/);
-  assert.match(route,/\{skipped:true\}/);
-  assert.match(route,/متبقي في رصيد الديزل/);
+  assert.match(route,/رصيد خزنة المحطة المتبقي بنهاية يوم/);
   assert.match(route,/mergeIntoState\(operationalRows/);
   assert.doesNotMatch(route,/تم استبعاد|تم تجاهل|مستبعدة/);
-  assert.match(pdf,/متبقي في الرصيد/);
+  assert.match(pdf,/رصيد خزنة المحطة بنهاية اليوم/);
   assert.match(pdf,/category==='diesel'/);
   assert.match(route,/uploadObject/);
   assert.match(route,/insert\('imports'/);
