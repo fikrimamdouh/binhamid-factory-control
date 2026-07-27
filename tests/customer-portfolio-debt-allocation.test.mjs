@@ -35,3 +35,18 @@ test('portfolio declaration is based on assigned unpaid customers with old-new s
   assert.match(portfolio,/قاعدة التوزيع/);
   assert.match(delivery,/dailyOnly:false,dueOnly:true,currentBatch:true/);
 });
+
+test('portfolio keeps legacy employee ids when cloud employees are merged',async()=>{
+  const portfolio=await readFile(new URL('../api/_lib/customer-portfolio-pdf.js',import.meta.url),'utf8');
+  assert.match(portfolio,/current\.id,current\.external_id,cloudId/);
+  assert.match(portfolio,/id:clean\(current\.id\)\|\|cloudId/);
+  assert.match(portfolio,/external_id:cloudId/);
+  assert.match(portfolio,/employeeAliases:aliases/);
+});
+
+test('current concrete sales cannot be dropped by a stale representative link',async()=>{
+  const portfolio=await readFile(new URL('../api/_lib/customer-portfolio-pdf.js',import.meta.url),'utf8');
+  assert.match(portfolio,/for\(const row of analysis\?\.sales\|\|\[\]\).*add\(master\|\|\{\}, \{customerCode:code,customerName:name\}\)/s);
+  assert.match(portfolio,/if\(!selected\.size&&!dailyOnly\)for\(const row of analyticsRows/);
+  assert.match(portfolio,/تم منع إرسال إقرار فارغ/);
+});
