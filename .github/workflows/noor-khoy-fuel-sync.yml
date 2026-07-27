@@ -1,5 +1,5 @@
 name: Noor Khoy daily fuel sync
-# One-time verification trigger for the corrected vehicle balance.
+# One-time final verification trigger for the corrected vehicle balance.
 
 on:
   push:
