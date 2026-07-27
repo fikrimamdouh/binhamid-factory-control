@@ -42,6 +42,16 @@ test('browser export sends dates in the export URL and rejects out-of-period row
   assert.match(script,/waitForEvent\('download'/);
 });
 
+test('server sends each fuel report to the owner and approved factory manager',()=>{
+  const route=read('api/_lib/routes/fuel-sync.js');
+  assert.match(route,/FACTORY_MANAGER_CHAT_ID='6870312376'/);
+  assert.match(route,/telegramRecipients\(\)/);
+  assert.match(route,/new Set\(\[config\.telegramOwnerId,FACTORY_MANAGER_CHAT_ID\]/);
+  assert.match(route,/recipients\.map\(chatId=>sendMessage\(chatId,message\)\)/);
+  assert.match(route,/for\(const chatId of recipients\)/);
+  assert.match(route,/recipients:recipients\.length/);
+});
+
 test('server stores one report per period and keeps the private vehicle out silently',()=>{
   const route=read('api/_lib/routes/fuel-sync.js');
   const pdf=read('api/_lib/fuel-report-pdf.js');
