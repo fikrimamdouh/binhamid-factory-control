@@ -1,13 +1,14 @@
 import { generateCustomerPortfolioPdfs } from './customer-portfolio-pdf.js';
+import { loadCustomerAnalytics } from './bot-customer-report-data.js';
 
 const VALID_TYPES=new Set(['block','concrete']);
 const clean=value=>String(value??'').trim();
 const noActivity=error=>String(error?.code||'').endsWith('_NO_SALES_ACTIVITY');
 
 export async function generateAvailablePortfolioPdfs(analysis={},sourceFile='daily-report.xlsx',requestedTypes=['block','concrete'],options={}){
-  const types=[...new Set((Array.isArray(requestedTypes)?requestedTypes:[requestedTypes]).map(clean).filter(type=>VALID_TYPES.has(type)))],reports=[],missingTypes=[],errors=[];
+  const types=[...new Set((Array.isArray(requestedTypes)?requestedTypes:[requestedTypes]).map(clean).filter(type=>VALID_TYPES.has(type)))],reports=[],missingTypes=[],errors=[],reportDate=clean(options?.reportDate).slice(0,10),ownershipAnalytics=options?.ownershipAnalytics||(reportDate?await loadCustomerAnalytics({active:true,role:'admin'},{asOf:reportDate,beforeDate:reportDate}):null),sharedOptions=ownershipAnalytics?{...options,ownershipAnalytics}:options;
   for(const type of types){
-    try{reports.push(...await generateCustomerPortfolioPdfs(analysis,sourceFile,[type],options));}
+    try{reports.push(...await generateCustomerPortfolioPdfs(analysis,sourceFile,[type],sharedOptions));}
     catch(error){
       if(noActivity(error)){missingTypes.push(type);errors.push({type,code:error.code,message:String(error.message||'')});continue;}
       throw error;
