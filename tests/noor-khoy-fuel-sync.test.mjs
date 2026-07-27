@@ -83,11 +83,15 @@ test('the existing fuel sync sends verified vehicle balances at 7 PM Riyadh',()=
   assert.match(workflow,/FUEL_SYNC_MODE: vehicle-balance-report/);
   assert.match(workflow,/NOOR_KHOY_VEHICLES_URL/);
   assert.match(script,/vehicleBalanceSummary/);
+  assert.match(script,/allVehiclePageSnapshots/);
+  assert.match(script,/pageLinks/);
   assert.match(script,/لم يتم العثور على جدول مركبات يحتوي عمود رصيد صريحًا/);
   assert.match(script,/x-fuel-operation':'vehicle-balance-report/);
   assert.match(route,/x-fuel-operation/);
   assert.match(route,/رصيد الديزل المتوفر في المركبات/);
   assert.match(route,/vehicle_diesel_balance_report_sent/);
+  assert.match(route,/latestVehicleBalanceReport/);
+  assert.match(route,/تصحيح رصيد الديزل المتوفر في المركبات/);
 });
 
 test('diesel reports show the latest verified unused vehicle balance separately from consumption',()=>{
