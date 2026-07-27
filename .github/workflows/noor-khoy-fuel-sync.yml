@@ -59,13 +59,23 @@ jobs:
           npm install --no-save --no-package-lock playwright@1.55.0
           npx playwright install --with-deps chromium
       - name: Ensure dedicated fuel storage
+        id: fuel_migration
+        continue-on-error: true
         shell: bash
         run: |
-          set -euo pipefail
-          test -n "${SUPABASE_DB_URL:-}"
-          psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20260727093000_create_fuel_sync_storage.sql
+          set -o pipefail
+          mkdir -p artifacts/noor-khoy-fuel
+          {
+            echo "Checking PostgreSQL client"
+            command -v psql
+            psql --version
+            test -n "${SUPABASE_DB_URL:-}"
+            echo "Applying dedicated fuel storage migration"
+            psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20260727093000_create_fuel_sync_storage.sql
+          } 2>&1 | tee artifacts/noor-khoy-fuel/migration.log
       - name: Download and upload fuel reports
         id: fuel_import
+        if: steps.fuel_migration.outcome == 'success'
         continue-on-error: true
         shell: bash
         run: |
@@ -100,6 +110,7 @@ jobs:
         if: always()
         shell: bash
         env:
+          MIGRATION_OUTCOME: ${{ steps.fuel_migration.outcome }}
           IMPORT_OUTCOME: ${{ steps.fuel_import.outcome }}
         run: |
           set -euo pipefail
@@ -117,10 +128,22 @@ jobs:
           for p in responses[-5:]:
               try: uploads.append({'file':str(p),'data':json.loads(p.read_text(encoding='utf-8'))})
               except Exception as e: uploads.append({'file':str(p),'error':str(e)})
-          log=''
-          lp=root/'execution.log'
-          if lp.exists(): log='\n'.join(lp.read_text(encoding='utf-8',errors='replace').splitlines()[-80:])
-          payload={'outcome':os.environ.get('IMPORT_OUTCOME','unknown'),'run_id':os.environ.get('GITHUB_RUN_ID'),'run_attempt':os.environ.get('GITHUB_RUN_ATTEMPT'),'commit':os.environ.get('GITHUB_SHA'),'updated_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'diagnostics':diagnostics,'uploads':uploads,'log_tail':log}
+          def tail(name,lines=80):
+              p=root/name
+              return '\n'.join(p.read_text(encoding='utf-8',errors='replace').splitlines()[-lines:]) if p.exists() else ''
+          payload={
+            'outcome':'success' if os.environ.get('MIGRATION_OUTCOME')=='success' and os.environ.get('IMPORT_OUTCOME')=='success' else 'failure',
+            'migration_outcome':os.environ.get('MIGRATION_OUTCOME','unknown'),
+            'import_outcome':os.environ.get('IMPORT_OUTCOME','unknown'),
+            'run_id':os.environ.get('GITHUB_RUN_ID'),
+            'run_attempt':os.environ.get('GITHUB_RUN_ATTEMPT'),
+            'commit':os.environ.get('GITHUB_SHA'),
+            'updated_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            'migration_log':tail('migration.log'),
+            'diagnostics':diagnostics,
+            'uploads':uploads,
+            'log_tail':tail('execution.log'),
+          }
           pathlib.Path('.github/fuel-sync-status/latest.json').write_text(json.dumps(payload,ensure_ascii=False,indent=2),encoding='utf-8')
           PY
           git config user.name github-actions
@@ -139,6 +162,6 @@ jobs:
           path: artifacts/noor-khoy-fuel/
           if-no-files-found: ignore
           retention-days: 7
-      - name: Fail when fuel import failed
-        if: steps.fuel_import.outcome != 'success'
+      - name: Fail when fuel synchronization failed
+        if: steps.fuel_migration.outcome != 'success' || steps.fuel_import.outcome != 'success'
         run: exit 1
