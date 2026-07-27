@@ -4,14 +4,40 @@ const db=String(process.env.SUPABASE_DB_URL||'').trim(),output='production-data-
 const stop=(code,reason)=>{writeFileSync(output,JSON.stringify({ok:false,code,reason},null,2));console.error(`[data-integrity] ${code}`);process.exit(1);};
 if(!db)stop('DATABASE_URL_EMPTY','Database connection is empty.');
 const sql=`select json_build_object(
-'counts',json_build_object('customers',(select count(*) from customers),'salesOrders',(select count(*) from sales_orders),'collections',(select count(*) from collection_events),'allocations',(select count(*) from sales_payment_allocations),'dailySales',(select count(*) from daily_report_sales_lines)),
+'counts',json_build_object(
+  'customers',(select count(*) from customers),
+  'salesOrders',(select count(*) from sales_orders),
+  'collections',(select count(*) from collection_events),
+  'allocations',(select count(*) from sales_payment_allocations),
+  'dailyBatches',(select count(*) from daily_report_batches),
+  'dailySales',(select count(*) from daily_report_sales_lines),
+  'dailyCash',(select count(*) from daily_report_cash_movements)
+),
+'dailyReports',(
+  select coalesce(json_agg(row_to_json(report_rows) order by report_rows."reportDate"),'[]'::json)
+  from (
+    select
+      b.report_date as "reportDate",
+      (select count(*) from daily_report_sales_lines s where s.batch_id=b.id) as "invoiceCount",
+      (select coalesce(sum(s.amount),0) from daily_report_sales_lines s where s.batch_id=b.id) as "salesTotal",
+      (select count(*) from daily_report_cash_movements c where c.batch_id=b.id) as "cashMovementCount",
+      (select count(*) from daily_report_cash_movements c where c.batch_id=b.id and c.is_customer_collection=true) as "collectionCount",
+      (select coalesce(sum(c.debit),0) from daily_report_cash_movements c where c.batch_id=b.id and c.is_customer_collection=true) as "collectionTotal"
+    from daily_report_batches b
+    where b.status='approved'
+  ) report_rows
+),
 'checks',json_build_object(
 'invalidSalesBalances',(select count(*) from sales_orders where coalesce(paid_amount,0)<0 or coalesce(paid_amount,0)>coalesce(total_amount,0)+0.01),
 'orphanSalesCustomers',(select count(*) from sales_orders s where nullif(trim(s.customer_external_id),'') is not null and not exists(select 1 from customers c where c.external_id=s.customer_external_id or c.customer_code=s.customer_external_id)),
 'invalidCollectionBalances',(select count(*) from collection_events where abs(coalesce(amount,0)-coalesce(allocated_amount,0)-coalesce(unallocated_amount,0))>0.01),
 'orphanCollectionCustomers',(select count(*) from collection_events e where nullif(trim(e.customer_external_id),'') is not null and not exists(select 1 from customers c where c.external_id=e.customer_external_id or c.customer_code=e.customer_external_id)),
 'orphanActiveAllocations',(select count(*) from sales_payment_allocations a left join collection_events c on c.id=a.collection_id left join sales_orders s on s.id=a.sales_order_id where a.active and (c.id is null or s.id is null)),
-'duplicateDailySaleIdentity',(select count(*) from (select line_identity from daily_report_sales_lines where line_identity is not null group by line_identity having count(*)>1) q)
+'duplicateDailyBatchDate',(select count(*) from (select report_date from daily_report_batches group by report_date having count(*)>1) q),
+'duplicateDailySaleIdentity',(select count(*) from (select line_identity from daily_report_sales_lines where line_identity is not null group by line_identity having count(*)>1) q),
+'duplicateDailyCashIdentity',(select count(*) from (select line_identity from daily_report_cash_movements where line_identity is not null group by line_identity having count(*)>1) q),
+'duplicateCollectionReference',(select count(*) from (select reference_no from collection_events where nullif(reference_no,'') is not null group by reference_no having count(*)>1) q),
+'duplicateSalesReference',(select count(*) from (select reference_no from sales_orders where nullif(reference_no,'') is not null group by reference_no having count(*)>1) q)
 ))::text;`;
 const result=spawnSync('psql',[db,'-X','-t','-A','-v','ON_ERROR_STOP=1','-c',sql],{encoding:'utf8',env:process.env,timeout:120000});
 if(result.error||result.status!==0)stop('QUERY_FAILED','Read-only integrity query failed.');
