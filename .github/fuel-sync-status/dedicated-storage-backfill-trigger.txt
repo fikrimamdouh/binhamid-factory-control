@@ -1,3 +1,3 @@
-Final maintenance run after verified period export.
+Final verified period maintenance run.
 Range: 2026-07-01 through 2026-07-26.
-Purpose: remove invalid trial imports and retain the verified period report only.
+Purpose: deduplicate by period and retain one verified report record.
