@@ -18,6 +18,11 @@ function riyadhDate(value=new Date()){
   const get=type=>parts.find(part=>part.type===type)?.value||'';
   return `${get('year')}-${get('month')}-${get('day')}`;
 }
+function shiftedRiyadhDate(offsetDays=-1){
+  const today=riyadhDate(),date=new Date(`${today}T12:00:00Z`),offset=Number.parseInt(String(offsetDays),10);
+  date.setUTCDate(date.getUTCDate()+(Number.isFinite(offset)?offset:-1));
+  return date.toISOString().slice(0,10);
+}
 function ddmmyyyy(iso){const[y,m,d]=iso.split('-');return`${d}/${m}/${y}`;}
 function compact(value){return String(value??'').replace(/\s+/g,' ').trim();}
 function safeName(value){return compact(value).replace(/[^A-Za-z0-9._-]/g,'_').replace(/_+/g,'_').slice(0,120)||'fuel-report.xlsx';}
@@ -140,7 +145,8 @@ async function upload(filePath,reportDate,parsed){
 async function main(){
   required(username,'NOOR_KHOY_USERNAME');required(password,'NOOR_KHOY_PASSWORD');
   await fs.mkdir(artifacts,{recursive:true});
-  const reportDate=String(process.env.REPORT_DATE||'').trim()||riyadhDate();
+  const explicit=String(process.env.REPORT_DATE||'').trim(),offset=process.env.FUEL_REPORT_DATE_OFFSET_DAYS||'-1';
+  const reportDate=explicit||shiftedRiyadhDate(offset);
   const browser=await chromium.launch({headless:true});
   const context=await browser.newContext({acceptDownloads:true,locale:'ar-SA',timezoneId:'Asia/Riyadh'});
   const page=await context.newPage();
