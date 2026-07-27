@@ -12,6 +12,8 @@ const capture=read('assets/telegram-pdf-declarations.js');
 const bridge=read('assets/exact-portfolio-metadata-bridge.js');
 const archive=read('api/_lib/routes/reports-telegram.js');
 const bot=read('api/_lib/bot-portfolio-reports.js');
+const snapshot=read('api/_lib/customer-portfolio-snapshot.js');
+const batch=read('api/_lib/customer-portfolio-batch.js');
 const index=read('index.html');
 
 for(const file of ['api/_lib/routes/customer-portfolio-range.js','api/_lib/routes/reports-telegram.js','api/_lib/bot-portfolio-reports.js','assets/customer-portfolio-range-analysis.js','assets/telegram-pdf-declarations.js','assets/exact-portfolio-metadata-bridge.js']){
@@ -65,12 +67,16 @@ test('exact website print is archived with portfolio metadata',()=>{
   assert.match(archive,/source:'website-exact-print'/);
 });
 
-test('bot prefers the fixed financial snapshot and generates only when it is missing',()=>{
+test('bot prefers the fixed financial snapshot and generates only missing departments',()=>{
   assert.match(bot,/downloadObject/);
   assert.match(bot,/sendExactDailyPortfolio/);
   assert.match(bot,/snapshotVersion!=='portfolio-settlement-v2'/);
   assert.match(bot,/persistPortfolioReportSnapshot/);
-  const exactCall=bot.indexOf('const exact=await sendExactDailyPortfolio'),generated=bot.indexOf('const generated=await generateCustomerPortfolioPdfs');
+  assert.match(batch,/generateAvailablePortfolioPdfs/);
+  assert.match(batch,/missingTypes\.push\(type\)/);
+  assert.match(snapshot,/existingSnapshot/);
+  assert.match(snapshot,/reused:true/);
+  const exactCall=bot.indexOf('const exact=await sendExactDailyPortfolio'),generated=bot.indexOf('const generated=await generateAvailablePortfolioPdfs');
   assert.ok(exactCall>=0&&generated>exactCall);
 });
 
