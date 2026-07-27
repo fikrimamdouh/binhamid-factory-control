@@ -1,16 +1,16 @@
 {
   "outcome": "failure",
-  "run_id": "30252428246",
+  "run_id": "30253030467",
   "run_attempt": "1",
-  "commit": "60e349e0b786694d66a35f9865be01b94090a0e9",
-  "updated_at": "2026-07-27T09:07:24.266940+00:00",
+  "commit": "0cfe04b4b475593a7eb6ef0b5ed1a682fd6f6ec8",
+  "updated_at": "2026-07-27T09:16:12.643534+00:00",
   "diagnostics": [
     {
       "file": "artifacts/noor-khoy-fuel/2026-07-01/failure-context.json",
       "data": {
         "url": "https://www.norkhoysa.com/companies/fuels?fueltype=all",
         "title": "Nour Khoy | Manage Fuels",
-        "error": "Error: Bin Hamid upload failed (502): تعذر تنفيذ العملية على الخادم\n    at upload (file:///home/runner/work/binhamid-factory-control/binhamid-factory-control/scripts/noor-khoy-fuel-sync.mjs:199:36)\n    at async main (file:///home/runner/work/binhamid-factory-control/binhamid-factory-control/scripts/noor-khoy-fuel-sync.mjs:217:18)"
+        "error": "Error: Bin Hamid upload failed (502): تعذر تحديث بيانات الوقود: canceling statement due to statement timeout | canceling statement due to statement timeout | 57014\n    at upload (file:///home/runner/work/binhamid-factory-control/binhamid-factory-control/scripts/noor-khoy-fuel-sync.mjs:199:36)\n    at async main (file:///home/runner/work/binhamid-factory-control/binhamid-factory-control/scripts/noor-khoy-fuel-sync.mjs:217:18)"
       }
     }
   ],
@@ -20,10 +20,11 @@
       "data": {
         "status": 502,
         "data": {
-          "error": "تعذر تنفيذ العملية على الخادم"
+          "error": "تعذر تحديث بيانات الوقود: canceling statement due to statement timeout | canceling statement due to statement timeout | 57014",
+          "code": "FUEL_SYNC_UPSTREAM_FAILED"
         }
       }
     }
   ],
-  "log_tail": "Importing Noor Khoy fuel report for 2026-07-01\n[noor-khoy-fuel-sync] Error: Bin Hamid upload failed (502): تعذر تنفيذ العملية على الخادم\n    at upload (file:///home/runner/work/binhamid-factory-control/binhamid-factory-control/scripts/noor-khoy-fuel-sync.mjs:199:36)\n    at async main (file:///home/runner/work/binhamid-factory-control/binhamid-factory-control/scripts/noor-khoy-fuel-sync.mjs:217:18)"
+  "log_tail": "Importing Noor Khoy fuel report for 2026-07-01\n[noor-khoy-fuel-sync] Error: Bin Hamid upload failed (502): تعذر تحديث بيانات الوقود: canceling statement due to statement timeout | canceling statement due to statement timeout | 57014\n    at upload (file:///home/runner/work/binhamid-factory-control/binhamid-factory-control/scripts/noor-khoy-fuel-sync.mjs:199:36)\n    at async main (file:///home/runner/work/binhamid-factory-control/binhamid-factory-control/scripts/noor-khoy-fuel-sync.mjs:217:18)"
 }
