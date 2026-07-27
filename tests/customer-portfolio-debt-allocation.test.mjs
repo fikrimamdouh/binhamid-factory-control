@@ -25,15 +25,25 @@ test('customer buttons remain reusable after opening the first statement',async(
   assert.match(source,/compactButtonName/);
 });
 
-test('portfolio declaration is based on assigned unpaid customers with old-new split',async()=>{
+test('portfolio is limited to section sales history and current report activity',async()=>{
   const portfolio=await readFile(new URL('../api/_lib/customer-portfolio-pdf.js',import.meta.url),'utf8');
-  const delivery=await readFile(new URL('../api/_lib/erp-telegram-delivery.js',import.meta.url),'utf8');
-  assert.match(portfolio,/assignedToRep/);
-  assert.match(portfolio,/oldBalance:a\.oldDebt/);
+  assert.match(portfolio,/hasSectionSales/);
+  assert.match(portfolio,/base\.grossSales/);
+  assert.match(portfolio,/activity\.sales/);
+  assert.match(portfolio,/hasReportActivity/);
+  assert.match(portfolio,/a\.remainingNew>0/);
+  assert.doesNotMatch(portfolio,/assignedToRep/);
+  assert.doesNotMatch(portfolio,/if\(!selected\.size/);
+  assert.match(portfolio,/لا تُدرج المديونية الافتتاحية وحدها دون مبيعات/);
+});
+
+test('payment is split between sales and old opening debt',async()=>{
+  const portfolio=await readFile(new URL('../api/_lib/customer-portfolio-pdf.js',import.meta.url),'utf8');
   assert.match(portfolio,/paidNew:a\.paidNew/);
   assert.match(portfolio,/paidOld:a\.paidOld/);
-  assert.match(portfolio,/قاعدة التوزيع/);
-  assert.match(delivery,/dailyOnly:false,dueOnly:true,currentBatch:true/);
+  assert.match(portfolio,/reportSales/);
+  assert.match(portfolio,/reportCollections/);
+  assert.match(portfolio,/يُخصم السداد من مبيعات التقرير، ثم المبيعات السابقة، ثم الرصيد القديم/);
 });
 
 test('portfolio keeps legacy employee ids when cloud employees are merged',async()=>{
@@ -44,9 +54,11 @@ test('portfolio keeps legacy employee ids when cloud employees are merged',async
   assert.match(portfolio,/employeeAliases:aliases/);
 });
 
-test('current concrete sales cannot be dropped by a stale representative link',async()=>{
+test('current concrete sales are included even when fully paid',async()=>{
   const portfolio=await readFile(new URL('../api/_lib/customer-portfolio-pdf.js',import.meta.url),'utf8');
-  assert.match(portfolio,/for\(const row of analysis\?\.sales\|\|\[\]\).*add\(master\|\|\{\}, \{customerCode:code,customerName:name\}\)/s);
-  assert.match(portfolio,/if\(!selected\.size&&!dailyOnly\)for\(const row of analyticsRows/);
-  assert.match(portfolio,/تم منع إرسال إقرار فارغ/);
+  assert.match(portfolio,/for\(const row of analysis\?\.sales\|\|\[\]\)/);
+  assert.match(portfolio,/if\(saleType\(row\)!==type\)continue/);
+  assert.match(portfolio,/add\(master\|\|\{\}, \{customerCode:code,customerName:name\}\)/);
+  assert.match(portfolio,/!\(a\.remainingNew>0\)&&!hasReportActivity/);
+  assert.match(portfolio,/NO_SALES_ACTIVITY/);
 });
