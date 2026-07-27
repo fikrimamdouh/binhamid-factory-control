@@ -21,8 +21,8 @@ const MATCH_BADGE=[['🎯','مطابق للقطعة'],['🔧','محل متخصص
 function supplierCard(place,index){
   // matchRank=0 هو أفضل مطابقة، فاستخدام || هنا يقلبها إلى «عام» — لذلك ??.
   const[icon,label]=MATCH_BADGE[Math.min(Math.max(Number(place.matchRank??2),0),2)]||MATCH_BADGE[2];
-  const tel=callable(place.phone);
-  const phoneLine=tel?`   📞 <a href="tel:${esc(tel)}">${esc(place.phone)}</a>`:'   📞 <i>غير منشور</i>';
+  // لا روابط: الرقم يُعرض في مربع نسخ داخل البوت بدل رابط يفتح تطبيقًا خارجيًا.
+  const phoneLine=place.phone?`   📞 <code>${esc(place.phone)}</code>`:'   📞 <i>غير منشور</i>';
   const stars=place.rating?` ⭐ ${place.rating}${place.reviews?` (${place.reviews})`:''}`:'';
   return[`${index}. ${icon} <b>${esc(place.name)}</b>${stars}`,phoneLine,place.address?`   📍 ${esc(place.address)}`:null,`   <i>${label}</i>`].filter(Boolean).join('\n');
 }
@@ -72,6 +72,11 @@ function urgencyKeyboard(){return keyboard([[{text:'عادي',callback_data:'rfq
 export async function startProcurementAction(message,identity,action){
   const role=identity?.role||'',userId=identity?.external_id||message.from.id;
   if(action==='product')return startProductAssistant(message,identity);
+  // مسار الأسعار: يسأل عن القطعة ثم يشغّل بحث السوق الفعلي.
+  if(action==='price'){
+    await setSession(message.chat.id,identity?.external_id||message.from.id,'product_market_query',{startedAt:now()});
+    return sendMessage(message.chat.id,['💰 <b>بحث أسعار السوق</b>',RULE,'اكتب اسم القطعة ورقمها والماركة إن وجدت.','<i>مثال: فلتر زيت شيول فولفو 21707133</i>'].join('\n'));
+  }
   if(action==='product_image')return startProductImageAssistant(message,identity);
   if(action==='open')return sendOpenQuoteRequests(message.chat.id,identity);
   if(!canCreate(role))return sendMessage(message.chat.id,'إنشاء البحث وطلب عرض السعر متاح للمشتريات والمخزن والورشة والإدارة.');
@@ -267,7 +272,7 @@ async function sendSupplierResults(message,identity,query,city){
     ].filter(Boolean).join('\n');
     const cards=chunk.map((place,localIndex)=>supplierCard(place,chunkIndex*6+localIndex+1)).join('\n\n');
     // التنبيه يُذكر مرة واحدة في آخر صفحة بدل تكراره تحت كل مورد.
-    const footer=last?`\n${RULE}\n<i>اضغط الرقم للاتصال. التوفر والسعر يتأكدان بالاتصال.</i>`:'';
+    const footer=last?`\n${RULE}\n<i>اضغط مطولًا على الرقم لنسخه. التوفر والسعر يتأكدان بالاتصال.</i>`:'';
     if(last)buttons.push([{text:'📝 طلب عرض سعر',callback_data:'supplier_rfq:start'},{text:'🔍 قطعة أخرى',callback_data:'proc:product'}],[{text:'🏙️ مدينة أخرى',callback_data:'supplier_city:other'},{text:'🇸🇦 كل السعودية',callback_data:'supplier_city:saudi'}]);
     await sendMessage(message.chat.id,`${header}\n${cards}${footer}`.slice(0,3900),keyboard(buttons));
   }

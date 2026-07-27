@@ -2,6 +2,7 @@ import { select, insert } from './supabase.js';
 import { sendMessage, keyboard } from './telegram.js';
 import { clearMaintenanceSession } from './bot-maintenance.js';
 import { identifyProductImage } from './product-image-identification.js';
+import { researchProductMarket } from './product-market-research-fast.js';
 
 const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const now=()=>new Date().toISOString();
@@ -36,13 +37,30 @@ export async function startProductImageAssistant(message,identity){
   return sendMessage(message.chat.id,'أرسل صورة القطعة أو الملصق. سأستخرج الاسم أو الرقم، ثم تختار المدينة لعرض الموردين وأرقام الاتصال داخل البوت.');
 }
 
-export async function sendProductResearch(message,identity,query){
+export async function sendProductResearch(message,identity,query,city='نجران'){
   if(!canUseProductAssistant(identity))return sendMessage(message.chat.id,'بحث قطع الغيار والموردين غير متاح لدورك الحالي.');
   const clean=String(query||'').trim();
   if(clean.length<2)return sendMessage(message.chat.id,'اكتب اسم الصنف أو رقم القطعة بصورة أوضح.');
-  await setSession(message.chat.id,identity.external_id||message.from.id,'supplier_search_city',{query:clean,startedAt:now(),source:'direct_product_query'});
-  return sendMessage(message.chat.id,`القطعة: <b>${esc(clean)}</b>\n\nاختر مدينة البحث. ستظهر أسماء الموردين وأرقام الجوال داخل البوت، والسعر يُؤكد بالاتصال حتى لا يُعرض رقم غير موثوق.`,supplierCityKeyboard());
+  // محرك أسعار السوق كان مبنيًا وغير موصول إطلاقًا، فكان المستخدم يُحال دائمًا إلى
+  // «السعر يتأكد بالاتصال». الآن يُستدعى فعليًا ويُعرض السعر المعتاد ونطاقه ومصادره.
+  await sendMessage(message.chat.id,`💰 <b>جارٍ البحث عن أسعار: ${esc(clean)}</b>\n<i>أبحث في المتاجر المنشورة… قد يستغرق نصف دقيقة.</i>`);
+  let research;
+  try{research=await researchProductMarket(clean,{city});}
+  catch(error){
+    await sendMessage(message.chat.id,`⚠️ ${esc(error?.message||'تعذر بحث الأسعار الآن.')}`);
+    await setSession(message.chat.id,identity.external_id||message.from.id,'supplier_search_city',{query:clean,startedAt:now(),source:'price_research_failed'});
+    return sendMessage(message.chat.id,'أعرض لك الموردين للاتصال بهم مباشرة — اختر المدينة:',supplierCityKeyboard());
+  }
+  // لا روابط ولا مصادر خارجية: كل شيء يبقى داخل البوت. تُعرض الأرقام فقط،
+  // وأي رابط يظهر داخل نص المحرك يُجرَّد قبل الإرسال.
+  const priced=String(research.text||'').replace(/https?:\/\/\S+/g,'').replace(/[ \t]{2,}/g,' ').trim();
+  const body=['💰 <b>أسعار السوق</b>','━━━━━━━━━━━━━━━',`🔩 <b>${esc(clean)}</b>`,'',esc(priced).slice(0,2800),
+    '━━━━━━━━━━━━━━━','<i>الأسعار استرشادية؛ السعر النهائي بعرض سعر رسمي.</i>'].filter(Boolean).join('\n');
+  await sendMessage(message.chat.id,body.slice(0,3900));
+  await setSession(message.chat.id,identity.external_id||message.from.id,'supplier_search_city',{query:clean,startedAt:now(),source:'price_research'});
+  return sendMessage(message.chat.id,'لعرض موردين محليين وأرقامهم — اختر المدينة:',supplierCityKeyboard());
 }
+
 
 export async function handleProductImage(message,identity,buffer,mimeType='image/jpeg'){
   if(!canUseProductAssistant(identity))return false;

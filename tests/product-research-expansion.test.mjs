@@ -18,12 +18,12 @@ test('Telegram product flow no longer quotes observed web prices or exposes sour
   const source=await read('api/_lib/product-market-research.js');
   const assistant=await read('api/_lib/bot-product-assistant.js');
   assert.match(source,/function buildPriceLevel/);
-  assert.doesNotMatch(assistant,/product-market-research/);
-  assert.doesNotMatch(assistant,/سعر القطعة في السوق الآن/);
-  assert.doesNotMatch(assistant,/النطاق المرصود/);
-  assert.doesNotMatch(assistant,/price_level:result\.priceLevel/);
+  // القرار السابق كان إخفاء أسعار الويب؛ المالك طلبها صراحةً، فأُعيدت مع وسم
+  // واضح بأنها استرشادية وعرض المصادر، ومسار الموردين يبقى بعدها.
+  assert.match(assistant,/researchProductMarket/);
+  assert.doesNotMatch(assistant,/🔗/);
+  assert.match(assistant,/الأسعار استرشادية/);
   assert.match(assistant,/supplier_search_city/);
-  assert.match(assistant,/السعر يُؤكد بالاتصال/);
 });
 
 test('Telegram image search identifies the item then routes to copyable supplier lookup',async()=>{
@@ -47,7 +47,7 @@ test('supplier directory broadens exact product lookup without external URL fiel
   assert.match(source,/pageSize:20/);
   assert.match(source,/AbortSignal\.timeout\(9000\)/);
   assert.match(source,/usable\.slice\(0,18\)/);
-  assert.match(source,/href="tel:\$\{esc\(tel\)\}"/);
+  assert.match(source,/<code>\$\{esc\(place\.phone\)\}<\/code>/);
   assert.match(source,/محلات رولمان بلي ومحامل وسيور صناعية/);
   assert.match(source,/محلات قطع غيار صناعية وسيارات وشاحنات ومعدات ثقيلة/);
   assert.doesNotMatch(source,/nextPageToken/);

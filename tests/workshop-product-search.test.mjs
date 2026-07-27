@@ -14,11 +14,15 @@ test('workshop menu keeps product and supplier actions inside workshop',async()=
 
 test('product text and image searches route to supplier city selection',async()=>{
   const source=await read('api/_lib/bot-product-assistant.js');
-  assert.doesNotMatch(source,/product-market-research-fast\.js/);
-  assert.doesNotMatch(source,/researchProductMarket/);
+  // بحث الأسعار أُعيد تفعيله بطلب صريح من المالك؛ يظل مسار الموردين قائمًا بعده،
+  // وتُوسم الأسعار بأنها استرشادية والسعر النهائي بعرض سعر رسمي.
+  assert.match(source,/researchProductMarket/);
+  assert.match(source,/الأسعار استرشادية/);
+  assert.match(source,/عرض سعر رسمي/);
+  assert.doesNotMatch(source,/href=/);
+  assert.match(source,/replace\(\/https\?:/);
   assert.match(source,/supplier_search_query/);
   assert.match(source,/supplier_search_city/);
-  assert.match(source,/السعر يُؤكد بالاتصال/);
   assert.match(source,/product_image_waiting/);
 });
 
@@ -34,8 +38,9 @@ test('supplier results contain copyable phone numbers and no external links',asy
   const source=await read('api/_lib/bot-procurement.js');
   // الرقم صار قابلًا للاتصال بضغطة عبر رابط tel بدل نسخه يدويًا من مربع نص،
   // وتنبيه «التوفر والسعر يتأكدان بالاتصال» يُذكر مرة واحدة بدل تكراره تحت كل مورد.
-  assert.match(source,/href="tel:\$\{esc\(tel\)\}"/);
-  assert.match(source,/function callable\(phone\)/);
+  // لا روابط إطلاقًا: الرقم داخل مربع نسخ، ولا يخرج المستخدم من البوت.
+  assert.match(source,/<code>\$\{esc\(place\.phone\)\}<\/code>/);
+  assert.doesNotMatch(source,/href=/);
   assert.match(source,/التوفر والسعر يتأكدان بالاتصال/);
   assert.doesNotMatch(source,/توفر القطعة المطلوبة: <b>يتأكد بالاتصال<\/b>/);
   assert.doesNotMatch(source,/googleMapsUri/);
