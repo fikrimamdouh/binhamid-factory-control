@@ -1,7 +1,7 @@
 // صفحة تقارير الديزل: كل ما يخص الاستهلاك في مكان واحد — ملخص الفترة، استهلاك كل
 // مركبة وكفاءتها، التعبئة المشبوهة، والمقارنة بالفترة السابقة.
 import { sendMessage, keyboard } from './telegram.js';
-import { loadFuelAnalytics, loadFuelStatement, loadVehicleStatement, monthStart, yesterday } from './fuel-analytics.js';
+import { loadFuelAnalytics, loadFuelStatement, loadVehicleStatement, loadLatestFuelActivity, monthStart, yesterday } from './fuel-analytics.js';
 import { compose, title, section, line, note, alert, trend, money, qty, arabicDate, esc, warmAck, RULE } from './bot-format.js';
 
 const VIEW_ROLES=new Set(['admin','manager','accountant','fuel_operator','mechanic','procurement']);
@@ -198,34 +198,28 @@ async function vehicleStatementView(chatId,identity,index,category,from,to){
   ),statementMenu(category,data.from,data.to,data.vehicles));
 }
 
-// «تقرير اليوم» يعني مسحوبات أمس: تقرير المحطة يصل عن اليوم المنقضي، واليوم
-// الجاري ناقص دائمًا فيعطي صورة كاذبة بالنقص.
-async function dayView(chatId,identity,category,date){
-  const day=date||yesterday();
-  const data=await loadFuelStatement({from:day,to:day,category});
-  if(!data.hasData)return sendMessage(chatId,data.error?compose(
-    title('⚠️','تعذّر قراءة سجل الوقود'),RULE,`🛠️ ${esc(data.error)}`,
-    note('التقرير سيعمل فور معالجة هذا السبب؛ الملفات المرسلة لن تضيع.')
-  ):compose(
-    title('📅',`مسحوبات ${arabicDate(day)}`),RULE,
-    note(`لا توجد مسحوبات ${CATEGORY_LABEL[category]} مسجّلة في هذا اليوم.`),
-    data.hasAnyData?note('توجد حركات من فئة وقود أخرى في اليوم نفسه — بدّل الفئة.'):note('إن لم يصل تقرير المحطة بعد، أرسل ملف «اكسيل» هنا.')
-  ),statementMenu(category,day,day,[]));
+// «تقرير اليوم» يعني مسحوبات أمس. إذا لم تصل مزامنة أمس بعد فلا نعرض
+// صفرًا مضللًا؛ نرجع إلى آخر يوم بيانات متاح ونذكر تاريخ آخر رفع بوضوح.
+function uploadNote(latest={}){
+  const reportDate=latest.lastReportDate||latest.latestDate;
+  if(!reportDate)return null;
+  return note(`آخر ملف مرفوع يغطي حتى ${arabicDate(reportDate)}${latest.sourceFile?` — ${esc(latest.sourceFile)}`:''}.`);
+}
+function dayReportBody(identity,category,day,data,contextNote=null,latest=null){
   const{totals,vehicles,perLiter}=data;
-  return sendMessage(chatId,compose(
-    warmAck(identity),
-    title('📅',`مسحوبات ${arabicDate(day)} — ${CATEGORY_LABEL[category]}`),
-    RULE,
-    line('🛢️','المسحوب',qty(Math.round(totals.liters)),'لتر'),
-    line('💰','القيمة',money(totals.amount),'ر.س'),
-    line('🧾','التعبئات',qty(totals.fills)),
-    line('🚚','المركبات',qty(totals.plates)),
-    line('📊','متوسط اللتر',money(perLiter.toFixed(2)),'ر.س'),
-    RULE,
-    section('🚚','لكل مركبة'),
-    ...vehicles.map((row,index)=>`${index+1}. <b>${esc(row.name)}</b> — ${qty(Math.round(row.liters))} لتر · ${money(row.amount)} ر.س${row.fills>1?` · ${qty(row.fills)} تعبئات`:''}`),
-    data.otherTotals?.fills?[RULE,note(`وأيضًا ${qty(data.otherTotals.fills)} تعبئة من فئة أخرى بمبلغ ${money(data.otherTotals.amount)} ر.س.`)]:null
-  ),statementMenu(category,day,day,vehicles));
+  return compose(warmAck(identity),title('📅',`مسحوبات ${arabicDate(day)} — ${CATEGORY_LABEL[category]}`),contextNote?note(contextNote):null,latest?uploadNote(latest):null,RULE,line('🛢️','المسحوب',qty(Math.round(totals.liters)),'لتر'),line('💰','القيمة',money(totals.amount),'ر.س'),line('🧾','التعبئات',qty(totals.fills)),line('🚚','المركبات',qty(totals.plates)),line('📊','متوسط اللتر',money(perLiter.toFixed(2)),'ر.س'),RULE,section('🚚','لكل مركبة'),...vehicles.map((row,index)=>`${index+1}. <b>${esc(row.name)}</b> — ${qty(Math.round(row.liters))} لتر · ${money(row.amount)} ر.س${row.fills>1?` · ${qty(row.fills)} تعبئات`:''}`),data.otherTotals?.fills?[RULE,note(`وأيضًا ${qty(data.otherTotals.fills)} تعبئة من فئة أخرى بمبلغ ${money(data.otherTotals.amount)} ر.س.`)]:null);
+}
+async function dayView(chatId,identity,category,date){
+  const requestedDay=date||yesterday();
+  const data=await loadFuelStatement({from:requestedDay,to:requestedDay,category});
+  if(data.error)return sendMessage(chatId,compose(title('⚠️','تعذّر قراءة سجل الوقود'),RULE,`🛠️ ${esc(data.error)}`,note('التقرير سيعمل فور معالجة هذا السبب؛ الملفات المرسلة لن تضيع.')),statementMenu(category,requestedDay,requestedDay,[]));
+  if(data.hasData)return sendMessage(chatId,dayReportBody(identity,category,requestedDay,data),statementMenu(category,requestedDay,requestedDay,data.vehicles));
+  const latest=await loadLatestFuelActivity({category});
+  if(latest.latestDate&&latest.latestDate!==requestedDay){
+    const latestData=await loadFuelStatement({from:latest.latestDate,to:latest.latestDate,category});
+    if(latestData.hasData)return sendMessage(chatId,dayReportBody(identity,category,latest.latestDate,latestData,`لا توجد بيانات مسجلة ليوم ${arabicDate(requestedDay)}؛ المعروض هو آخر يوم متاح.`,latest),statementMenu(category,latest.latestDate,latest.latestDate,latestData.vehicles));
+  }
+  return sendMessage(chatId,compose(title('📅',`مسحوبات ${arabicDate(requestedDay)}`),RULE,note(`لا توجد مسحوبات ${CATEGORY_LABEL[category]} مسجّلة في هذا اليوم.`),uploadNote(latest),data.hasAnyData?note('توجد حركات من فئة وقود أخرى في اليوم نفسه — بدّل الفئة.'):note('لم تصل بيانات أحدث إلى سجل الوقود بعد.')),statementMenu(category,requestedDay,requestedDay,[]));
 }
 
 const ISO_DATE=/^\d{4}-\d{2}-\d{2}$/;
@@ -262,7 +256,7 @@ export async function handleFuelTextCommand(message,identity,text){
   // مدى صريح: «كشف حساب من 2026-07-01 الى 2026-07-26».
   const range=value.match(/^(?:كشف حساب|كشف|تقرير)\s*(?:الديزل|المركبات|السيارات)?\s*من\s*(\d{4}-\d{2}-\d{2})\s*(?:الى|إلى|حتى|-)\s*(\d{4}-\d{2}-\d{2})$/);
   if(range)return guard(()=>statementView(message.chat.id,identity,'diesel',range[1],range[2]));
-  if(/^\/(fuel|diesel)$/i.test(raw)||/^(ديزل|تقارير الديزل|الديزل|تقرير الديزل|استهلاك الديزل|الوقود)$/.test(value)){
+  if(/^\/(fuel|diesel)$/i.test(raw)||/^(ديزل|تقارير الديزل|الديزل|تقرير الديزل|استهلاك الديزل|الوقود)$/.test(value)||/ديزل/.test(value)){
     await showFuelMenu(message,identity);return true;
   }
   return false;
