@@ -87,11 +87,19 @@ async function recordOutgoing(result, method, fallback = {}) {
   }
 }
 
+// Telegram لا يدعم tel: ضمن روابط HTML أو أزرار URL إلا بصيغ HTTP أو tg://.
+// إبقاء الرقم الدولي كنص عادي يجعل Telegram ينشئ كيان phone_number قابلًا للضغط،
+// فيفتح شاشة الاتصال مباشرة بدل ظهور الرقم كرابط مكسور أو كنص غير فعال.
+export function restoreTelegramPhoneLinks(text=''){
+  return String(text??'').replace(/<a\s+href=(["'])tel:([^"']+)\1[^>]*>.*?<\/a>/gis,(_match,_quote,phone)=>String(phone||'').replace(/[^\d+]/g,''));
+}
+
 export async function sendMessage(chatId, text, extra = {}) {
   const { action_name: actionName, action_payload: actionPayload, ...telegramExtra } = extra || {};
   if(telegramExtra.reply_markup)telegramExtra.reply_markup=styleTelegramMarkup(telegramExtra.reply_markup);
-  const result = await telegram('sendMessage', { chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true, ...telegramExtra });
-  await recordOutgoing(result, 'sendMessage', { text, actionName, actionPayload });
+  const telegramText=restoreTelegramPhoneLinks(text);
+  const result = await telegram('sendMessage', { chat_id: chatId, text:telegramText, parse_mode: 'HTML', disable_web_page_preview: true, ...telegramExtra });
+  await recordOutgoing(result, 'sendMessage', { text:telegramText, actionName, actionPayload });
   return result;
 }
 
