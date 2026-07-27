@@ -1,281 +1,54 @@
 {
-  "outcome": "cancelled",
-  "run_id": "30254146024",
+  "outcome": "success",
+  "run_id": "30255029016",
   "run_attempt": "1",
-  "commit": "46b8456278bc264f05ffbb3e39834e4d405f3408",
-  "updated_at": "2026-07-27T09:36:35.437531+00:00",
+  "commit": "e128bd649b0f23786e1be68c0e8fa1b719d8c234",
+  "updated_at": "2026-07-27T09:43:25.796732+00:00",
   "diagnostics": [],
   "uploads": [
     {
-      "file": "artifacts/noor-khoy-fuel/2026-07-01/upload-response.json",
+      "file": "artifacts/noor-khoy-fuel/upload-response.json",
       "data": {
         "status": 200,
         "data": {
           "ok": true,
           "duplicate": false,
-          "reportDate": "2026-07-01",
-          "accountBalance": 0,
-          "balanceDate": null,
-          "balanceCapturedAt": "2026-07-27T09:30:30.147Z",
-          "fileHash": "162f4b83cfd834cb66308ff55dbbd80105eedcc217a8d7449c49245b742a4594",
-          "importId": "1e2848b6-457e-4b3c-a692-d9fa0e24c4ea",
-          "storagePath": "noor-khoy-fuel/2026-07-01/162f4b83cfd834cb-noor-khoy-fuel-2026-07-01.xlsx",
-          "storedRows": 19888,
+          "reportDate": "2026-07-26",
+          "accountBalance": 1265,
+          "balanceDate": "2026-07-26",
+          "balanceCapturedAt": "2026-07-27T09:42:59.858Z",
+          "fileHash": "00d91d650874310afaf97219ba02eb69d9e540fd4d01836943463850dfc5fcb0",
+          "importId": "33fcf520-0d71-4e7b-8293-920accadd033",
+          "storagePath": "noor-khoy-fuel/2026-07-26/00d91d650874310a-noor-khoy-fuel-2026-07-01_to_2026-07-26.xlsx",
+          "storedRows": 314,
           "summary": {
-            "rows": 19888,
-            "plateCount": 50,
-            "liters": 5052979.99,
-            "amount": 6022464.11,
+            "rows": 314,
+            "plateCount": 37,
+            "liters": 61649.31,
+            "amount": 111108.79,
             "categories": {
               "diesel": {
-                "rows": 7840,
-                "liters": 2352157.19,
-                "amount": 3677282.98
+                "rows": 271,
+                "liters": 60179.34,
+                "amount": 107721.11
               },
               "petrol": {
-                "rows": 1850,
-                "liters": 75710.24,
-                "amount": 168689.06
-              },
-              "other": {
-                "rows": 10198,
-                "liters": 2625112.56,
-                "amount": 2176492.07
+                "rows": 43,
+                "liters": 1469.97,
+                "amount": 3387.68
               }
             }
           },
           "storage": "imports_registry",
           "telegram": {
-            "skipped": true
-          }
-        }
-      }
-    },
-    {
-      "file": "artifacts/noor-khoy-fuel/2026-07-02/upload-response.json",
-      "data": {
-        "status": 200,
-        "data": {
-          "ok": true,
-          "duplicate": false,
-          "reportDate": "2026-07-02",
-          "accountBalance": 0,
-          "balanceDate": null,
-          "balanceCapturedAt": "2026-07-27T09:31:33.450Z",
-          "fileHash": "7ec5894d27c07abe744267f37470e9ce1ba5090ec44b0ddad8e98b8aa26aee76",
-          "importId": "e30e5ca5-26e1-4ea0-a466-8aca45eef4e9",
-          "storagePath": "noor-khoy-fuel/2026-07-02/7ec5894d27c07abe-noor-khoy-fuel-2026-07-02.xlsx",
-          "storedRows": 19888,
-          "summary": {
-            "rows": 19888,
-            "plateCount": 50,
-            "liters": 5052979.99,
-            "amount": 6022464.11,
-            "categories": {
-              "diesel": {
-                "rows": 7840,
-                "liters": 2352157.19,
-                "amount": 3677282.98
-              },
-              "petrol": {
-                "rows": 1850,
-                "liters": 75710.24,
-                "amount": 168689.06
-              },
-              "other": {
-                "rows": 10198,
-                "liters": 2625112.56,
-                "amount": 2176492.07
-              }
-            }
-          },
-          "storage": "imports_registry",
-          "telegram": {
-            "skipped": true
-          }
-        }
-      }
-    },
-    {
-      "file": "artifacts/noor-khoy-fuel/2026-07-03/upload-response.json",
-      "data": {
-        "status": 200,
-        "data": {
-          "ok": true,
-          "duplicate": false,
-          "reportDate": "2026-07-03",
-          "accountBalance": 0,
-          "balanceDate": null,
-          "balanceCapturedAt": "2026-07-27T09:32:42.123Z",
-          "fileHash": "f49a9208a7b9dd5d0165cb2fa15c096088eda8d139c1759257b80f73e7918f60",
-          "importId": "8b40ecfa-88f8-4baf-b52a-d12d44889981",
-          "storagePath": "noor-khoy-fuel/2026-07-03/f49a9208a7b9dd5d-noor-khoy-fuel-2026-07-03.xlsx",
-          "storedRows": 19888,
-          "summary": {
-            "rows": 19888,
-            "plateCount": 50,
-            "liters": 5052979.99,
-            "amount": 6022464.11,
-            "categories": {
-              "diesel": {
-                "rows": 7840,
-                "liters": 2352157.19,
-                "amount": 3677282.98
-              },
-              "petrol": {
-                "rows": 1850,
-                "liters": 75710.24,
-                "amount": 168689.06
-              },
-              "other": {
-                "rows": 10198,
-                "liters": 2625112.56,
-                "amount": 2176492.07
-              }
-            }
-          },
-          "storage": "imports_registry",
-          "telegram": {
-            "skipped": true
-          }
-        }
-      }
-    },
-    {
-      "file": "artifacts/noor-khoy-fuel/2026-07-04/upload-response.json",
-      "data": {
-        "status": 200,
-        "data": {
-          "ok": true,
-          "duplicate": false,
-          "reportDate": "2026-07-04",
-          "accountBalance": 0,
-          "balanceDate": null,
-          "balanceCapturedAt": "2026-07-27T09:33:51.515Z",
-          "fileHash": "b15aca18d1052b17a23b429f2ad05a2bbc0aad32ab0eb02fdcf7f1e0962d21f7",
-          "importId": "e97aaff0-d340-4ab1-9112-a4c2b568641e",
-          "storagePath": "noor-khoy-fuel/2026-07-04/b15aca18d1052b17-noor-khoy-fuel-2026-07-04.xlsx",
-          "storedRows": 19888,
-          "summary": {
-            "rows": 19888,
-            "plateCount": 50,
-            "liters": 5052979.99,
-            "amount": 6022464.11,
-            "categories": {
-              "diesel": {
-                "rows": 7840,
-                "liters": 2352157.19,
-                "amount": 3677282.98
-              },
-              "petrol": {
-                "rows": 1850,
-                "liters": 75710.24,
-                "amount": 168689.06
-              },
-              "other": {
-                "rows": 10198,
-                "liters": 2625112.56,
-                "amount": 2176492.07
-              }
-            }
-          },
-          "storage": "imports_registry",
-          "telegram": {
-            "skipped": true
-          }
-        }
-      }
-    },
-    {
-      "file": "artifacts/noor-khoy-fuel/2026-07-05/upload-response.json",
-      "data": {
-        "status": 200,
-        "data": {
-          "ok": true,
-          "duplicate": false,
-          "reportDate": "2026-07-05",
-          "accountBalance": 0,
-          "balanceDate": null,
-          "balanceCapturedAt": "2026-07-27T09:35:03.632Z",
-          "fileHash": "eb42d9f7946dd33f40bdb03798824cfc5d0296b9998d690c1330d92d2d9a1366",
-          "importId": "fc627334-35de-46f8-8f04-a7db90578213",
-          "storagePath": "noor-khoy-fuel/2026-07-05/eb42d9f7946dd33f-noor-khoy-fuel-2026-07-05.xlsx",
-          "storedRows": 19888,
-          "summary": {
-            "rows": 19888,
-            "plateCount": 50,
-            "liters": 5052979.99,
-            "amount": 6022464.11,
-            "categories": {
-              "diesel": {
-                "rows": 7840,
-                "liters": 2352157.19,
-                "amount": 3677282.98
-              },
-              "petrol": {
-                "rows": 1850,
-                "liters": 75710.24,
-                "amount": 168689.06
-              },
-              "other": {
-                "rows": 10198,
-                "liters": 2625112.56,
-                "amount": 2176492.07
-              }
-            }
-          },
-          "storage": "imports_registry",
-          "telegram": {
-            "skipped": true
-          }
-        }
-      }
-    },
-    {
-      "file": "artifacts/noor-khoy-fuel/2026-07-06/upload-response.json",
-      "data": {
-        "status": 200,
-        "data": {
-          "ok": true,
-          "duplicate": false,
-          "reportDate": "2026-07-06",
-          "accountBalance": 0,
-          "balanceDate": null,
-          "balanceCapturedAt": "2026-07-27T09:36:12.234Z",
-          "fileHash": "579ec78ccb22aaf8d2735ac8f3e7967a64ab537914423b51f6d57b94a6b62c17",
-          "importId": "64e2fa75-f7d3-43eb-9a39-1d2c34a8a660",
-          "storagePath": "noor-khoy-fuel/2026-07-06/579ec78ccb22aaf8-noor-khoy-fuel-2026-07-06.xlsx",
-          "storedRows": 19888,
-          "summary": {
-            "rows": 19888,
-            "plateCount": 50,
-            "liters": 5052979.99,
-            "amount": 6022464.11,
-            "categories": {
-              "diesel": {
-                "rows": 7840,
-                "liters": 2352157.19,
-                "amount": 3677282.98
-              },
-              "petrol": {
-                "rows": 1850,
-                "liters": 75710.24,
-                "amount": 168689.06
-              },
-              "other": {
-                "rows": 10198,
-                "liters": 2625112.56,
-                "amount": 2176492.07
-              }
-            }
-          },
-          "storage": "imports_registry",
-          "telegram": {
-            "skipped": true
+            "reports": [
+              "diesel-report-2026-07-26.pdf",
+              "petrol-report-2026-07-26.pdf"
+            ]
           }
         }
       }
     }
   ],
-  "log_tail": "  \"ok\": true,\n  \"reportDate\": \"2026-07-03\",\n  \"accountBalance\": null,\n  \"balanceAttached\": false,\n  \"notify\": false,\n  \"file\": \"noor-khoy-fuel-2026-07-03.xlsx\",\n  \"rows\": 19986,\n  \"duplicate\": false,\n  \"stored\": 19888,\n  \"summary\": {\n    \"rows\": 19888,\n    \"plateCount\": 50,\n    \"liters\": 5052979.99,\n    \"amount\": 6022464.11,\n    \"categories\": {\n      \"diesel\": {\n        \"rows\": 7840,\n        \"liters\": 2352157.19,\n        \"amount\": 3677282.98\n      },\n      \"petrol\": {\n        \"rows\": 1850,\n        \"liters\": 75710.24,\n        \"amount\": 168689.06\n      },\n      \"other\": {\n        \"rows\": 10198,\n        \"liters\": 2625112.56,\n        \"amount\": 2176492.07\n      }\n    }\n  },\n  \"telegram\": {\n    \"skipped\": true\n  }\n}\nImporting Noor Khoy fuel report for 2026-07-04\n{\n  \"ok\": true,\n  \"reportDate\": \"2026-07-04\",\n  \"accountBalance\": null,\n  \"balanceAttached\": false,\n  \"notify\": false,\n  \"file\": \"noor-khoy-fuel-2026-07-04.xlsx\",\n  \"rows\": 19986,\n  \"duplicate\": false,\n  \"stored\": 19888,\n  \"summary\": {\n    \"rows\": 19888,\n    \"plateCount\": 50,\n    \"liters\": 5052979.99,\n    \"amount\": 6022464.11,\n    \"categories\": {\n      \"diesel\": {\n        \"rows\": 7840,\n        \"liters\": 2352157.19,\n        \"amount\": 3677282.98\n      },\n      \"petrol\": {\n        \"rows\": 1850,\n        \"liters\": 75710.24,\n        \"amount\": 168689.06\n      },\n      \"other\": {\n        \"rows\": 10198,\n        \"liters\": 2625112.56,\n        \"amount\": 2176492.07\n      }\n    }\n  },\n  \"telegram\": {\n    \"skipped\": true\n  }\n}\nImporting Noor Khoy fuel report for 2026-07-05\n{\n  \"ok\": true,\n  \"reportDate\": \"2026-07-05\",\n  \"accountBalance\": null,\n  \"balanceAttached\": false,\n  \"notify\": false,\n  \"file\": \"noor-khoy-fuel-2026-07-05.xlsx\",\n  \"rows\": 19986,\n  \"duplicate\": false,\n  \"stored\": 19888,\n  \"summary\": {\n    \"rows\": 19888,\n    \"plateCount\": 50,\n    \"liters\": 5052979.99,\n    \"amount\": 6022464.11,\n    \"categories\": {\n      \"diesel\": {\n        \"rows\": 7840,\n        \"liters\": 2352157.19,\n        \"amount\": 3677282.98\n      },\n      \"petrol\": {\n        \"rows\": 1850,\n        \"liters\": 75710.24,\n        \"amount\": 168689.06\n      },\n      \"other\": {\n        \"rows\": 10198,\n        \"liters\": 2625112.56,\n        \"amount\": 2176492.07\n      }\n    }\n  },\n  \"telegram\": {\n    \"skipped\": true\n  }\n}\nImporting Noor Khoy fuel report for 2026-07-06\n{\n  \"ok\": true,\n  \"reportDate\": \"2026-07-06\",\n  \"accountBalance\": null,\n  \"balanceAttached\": false,\n  \"notify\": false,\n  \"file\": \"noor-khoy-fuel-2026-07-06.xlsx\",\n  \"rows\": 19986,\n  \"duplicate\": false,\n  \"stored\": 19888,\n  \"summary\": {\n    \"rows\": 19888,\n    \"plateCount\": 50,\n    \"liters\": 5052979.99,\n    \"amount\": 6022464.11,\n    \"categories\": {\n      \"diesel\": {\n        \"rows\": 7840,\n        \"liters\": 2352157.19,\n        \"amount\": 3677282.98\n      },\n      \"petrol\": {\n        \"rows\": 1850,\n        \"liters\": 75710.24,\n        \"amount\": 168689.06\n      },\n      \"other\": {\n        \"rows\": 10198,\n        \"liters\": 2625112.56,\n        \"amount\": 2176492.07\n      }\n    }\n  },\n  \"telegram\": {\n    \"skipped\": true\n  }\n}"
+  "log_tail": "{\n  \"ok\": true,\n  \"fromDate\": \"2026-07-01\",\n  \"toDate\": \"2026-07-26\",\n  \"periodCheck\": {\n    \"minDate\": \"2026-07-01\",\n    \"maxDate\": \"2026-07-26\",\n    \"datedRows\": 316\n  },\n  \"accountBalance\": 1265,\n  \"balanceAttached\": true,\n  \"notify\": true,\n  \"file\": \"noor-khoy-fuel-2026-07-01_to_2026-07-26.xlsx\",\n  \"rows\": 316,\n  \"duplicate\": false,\n  \"stored\": 314,\n  \"summary\": {\n    \"rows\": 314,\n    \"plateCount\": 37,\n    \"liters\": 61649.31,\n    \"amount\": 111108.79,\n    \"categories\": {\n      \"diesel\": {\n        \"rows\": 271,\n        \"liters\": 60179.34,\n        \"amount\": 107721.11\n      },\n      \"petrol\": {\n        \"rows\": 43,\n        \"liters\": 1469.97,\n        \"amount\": 3387.68\n      }\n    }\n  },\n  \"telegram\": {\n    \"reports\": [\n      \"diesel-report-2026-07-26.pdf\",\n      \"petrol-report-2026-07-26.pdf\"\n    ]\n  }\n}"
 }
