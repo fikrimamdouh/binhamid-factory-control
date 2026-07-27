@@ -37,6 +37,7 @@ jobs:
     env:
       NOOR_KHOY_USERNAME: ${{ secrets.NOOR_KHOY_USERNAME }}
       NOOR_KHOY_PASSWORD: ${{ secrets.NOOR_KHOY_PASSWORD }}
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
       NOOR_KHOY_LOGIN_URL: https://www.norkhoysa.com/companies/login
       NOOR_KHOY_DASHBOARD_URL: https://www.norkhoysa.com/companies
       NOOR_KHOY_REPORT_URL: https://www.norkhoysa.com/companies/fuels?fueltype=all
@@ -57,6 +58,12 @@ jobs:
         run: |
           npm install --no-save --no-package-lock playwright@1.55.0
           npx playwright install --with-deps chromium
+      - name: Ensure dedicated fuel storage
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_DB_URL:-}"
+          psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20260727093000_create_fuel_sync_storage.sql
       - name: Download and upload fuel reports
         id: fuel_import
         continue-on-error: true
@@ -121,6 +128,7 @@ jobs:
           git add .github/fuel-sync-status/latest.json
           if ! git diff --cached --quiet; then
             git commit -m "chore: record fuel sync status [skip ci]"
+            git pull --rebase origin main
             git push origin HEAD:main
           fi
       - name: Keep diagnostic artifacts
