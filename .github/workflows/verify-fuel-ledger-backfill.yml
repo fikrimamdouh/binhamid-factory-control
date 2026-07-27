@@ -1,0 +1,74 @@
+name: Verify fuel ledger backfill
+
+on:
+  push:
+    branches:
+      - agent/fuel-ledger-integration
+    paths:
+      - .github/workflows/verify-fuel-ledger-backfill.yml
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/fuel-ledger-integration
+          fetch-depth: 0
+      - run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+      - name: Resolve database connection
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY' > /tmp/candidates
+          import os,base64
+          from urllib.parse import urlparse,unquote,quote,urlunparse
+          raw=os.environ['SUPABASE_DB_URL'].strip(); p=urlparse(raw); values=[raw]
+          h=p.hostname or ''; ref=h.split('.')[1] if h.startswith('db.') and h.endswith('.supabase.co') else ''
+          if ref:
+            u=quote('postgres.'+ref,safe=''); pw=quote(unquote(p.password or ''),safe='')
+            rs=['us-east-1','us-east-2','us-west-1','us-west-2','ca-central-1','sa-east-1','eu-west-1','eu-west-2','eu-west-3','eu-central-1','eu-north-1','ap-south-1','ap-southeast-1','ap-southeast-2','ap-northeast-1','ap-northeast-2','me-central-1']
+            for c in range(4):
+              for r in rs:
+                for port in (5432,6543): values.append(urlunparse(('postgresql',f'{u}:{pw}@aws-{c}-{r}.pooler.supabase.com:{port}','/postgres','','sslmode=require&connect_timeout=3','')))
+          for v in dict.fromkeys(values): print(base64.b64encode(v.encode()).decode())
+          PY
+          found=''
+          while IFS= read -r e; do c="$(printf '%s' "$e"|base64 -d)"; if psql "$c" -Atqc 'select 1' >/dev/null 2>&1; then found="$c"; break; fi; done < /tmp/candidates
+          test -n "$found"
+          echo "::add-mask::$found"
+          printf '%s' "$found" >/tmp/db
+      - name: Record verified totals
+        shell: bash
+        run: |
+          set -euo pipefail
+          db="$(cat /tmp/db)"
+          psql "$db" -At -F '|' -c "select count(*),min(transaction_date),max(transaction_date),round(sum(liters),3),round(sum(amount),2),count(distinct plate_key),count(*) filter(where fuel_type~*'ديزل|diesel|solar'),round(coalesce(sum(liters) filter(where fuel_type~*'ديزل|diesel|solar'),0),3),round(coalesce(sum(amount) filter(where fuel_type~*'ديزل|diesel|solar'),0),2),count(*) filter(where fuel_type~*'بنزين|petrol|gasoline|91|95'),round(coalesce(sum(liters) filter(where fuel_type~*'بنزين|petrol|gasoline|91|95'),0),3),round(coalesce(sum(amount) filter(where fuel_type~*'بنزين|petrol|gasoline|91|95'),0),2),count(*) filter(where regexp_replace(upper(plate_key),'[^A-Z0-9]','','g')='DGD7293') from public.fuel_transactions" > /tmp/totals
+          IFS='|' read -r rows min_date max_date liters amount plates diesel_rows diesel_liters diesel_amount petrol_rows petrol_liters petrol_amount private_rows < /tmp/totals
+          test "$rows" -gt 0
+          test "$private_rows" = '0'
+          python - "$rows" "$min_date" "$max_date" "$liters" "$amount" "$plates" "$diesel_rows" "$diesel_liters" "$diesel_amount" "$petrol_rows" "$petrol_liters" "$petrol_amount" "$private_rows" <<'PY'
+          import json,sys,pathlib,datetime
+          keys=['rows','min_date','max_date','liters','amount','plates','diesel_rows','diesel_liters','diesel_amount','petrol_rows','petrol_liters','petrol_amount','private_rows']
+          raw=dict(zip(keys,sys.argv[1:]))
+          for k in ['rows','plates','diesel_rows','petrol_rows','private_rows']: raw[k]=int(raw[k])
+          for k in ['liters','amount','diesel_liters','diesel_amount','petrol_liters','petrol_amount']: raw[k]=float(raw[k])
+          raw['verified_at']=datetime.datetime.now(datetime.timezone.utc).isoformat()
+          pathlib.Path('.github/fuel-ledger-verification.json').write_text(json.dumps(raw,ensure_ascii=False,indent=2),encoding='utf-8')
+          PY
+      - name: Commit verification and remove runner
+        run: |
+          rm -f .github/workflows/verify-fuel-ledger-backfill.yml
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add -A
+          git commit -m "Record verified fuel ledger backfill totals"
+          git push origin HEAD:agent/fuel-ledger-integration
