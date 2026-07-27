@@ -1,6 +1,9 @@
 name: Noor Khoy daily fuel sync
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       report_date:
@@ -28,6 +31,7 @@ concurrency:
 
 jobs:
   sync:
+    if: github.event_name != 'push' || contains(github.event.head_commit.message, '[fuel-initial-backfill]')
     runs-on: ubuntu-latest
     timeout-minutes: 50
     env:
@@ -38,8 +42,8 @@ jobs:
       NOOR_KHOY_REPORT_URL: https://www.norkhoysa.com/companies/fuels?fueltype=all
       BINHAMID_FUEL_UPLOAD_URL: https://binhamid-factory-control.vercel.app/api/fuel/daily-report
       REPORT_DATE: ${{ inputs.report_date }}
-      REPORT_START_DATE: ${{ inputs.start_date }}
-      REPORT_END_DATE: ${{ inputs.end_date }}
+      REPORT_START_DATE: ${{ github.event_name == 'push' && '2026-07-01' || inputs.start_date }}
+      REPORT_END_DATE: ${{ github.event_name == 'push' && '2026-07-26' || inputs.end_date }}
       FUEL_REPORT_DATE_OFFSET_DAYS: '-1'
     steps:
       - uses: actions/checkout@v4
