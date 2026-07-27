@@ -2,7 +2,7 @@
 // يُرسل تلقائيًا فور الاعتماد (دفع) ويُستخدم أيضًا كصدر «تقرير اليوم» (سحب)، فيقرأ
 // المشغّل الصورة كاملة في ثوانٍ بدل تصفح الأزرار.
 import { select } from './supabase.js';
-import { compose, title, section, line, sub, note, alert, trend, money, qty, arabicDate, esc, RULE } from './bot-format.js';
+import { compose, title, section, line, sub, note, alert, trend, money, qty, arabicDate, esc, warmAck, RULE } from './bot-format.js';
 
 const num=value=>Number(value||0);
 const collected=row=>Math.max(num(row?.debit),num(row?.credit));
@@ -52,11 +52,13 @@ export async function loadDailyBrief(){
   return{batch:current,previousBatch:previous,...now,previousTotals:before?.totals||null};
 }
 
-export function renderDailyBrief(brief){
+export function renderDailyBrief(brief,identity=null){
   if(!brief)return compose(title('📊','التقرير اليومي'),note('لا يوجد تقرير معتمد بعد.'));
+  const greeting=identity?warmAck(identity):null;
   const{batch,totals,topCustomers,inventory,previousTotals,previousBatch}=brief;
   const gap=totals.sales-totals.collections;
   const head=[
+    greeting,
     title('📊',`تقرير ${arabicDate(batch.report_date)}`),
     RULE,
     line('💰','المبيعات',money(totals.sales),'ر.س'),
@@ -82,6 +84,6 @@ export function renderDailyBrief(brief){
   return compose(head,compare,top,stock,tail);
 }
 
-export async function buildDailyBriefMessage(){
-  return renderDailyBrief(await loadDailyBrief());
+export async function buildDailyBriefMessage(identity=null){
+  return renderDailyBrief(await loadDailyBrief(),identity);
 }

@@ -24,8 +24,8 @@ export async function sendEnterprisePriorities(chatId){
   if(urgent.length)points.push(`تعيين مسؤول وموعد لـ ${urgent.length} عمليات عاجلة.`);
   if(syncHours!==null&&syncHours>12)points.push(`مزامنة البرنامج قديمة منذ ${syncHours.toFixed(1)} ساعة.`);
   if(!points.length)points.push('لا يظهر مؤشر حرج حاليًا من السجل المركزي.');
-  let text=`<b>ما يحتاج تدخلك الآن</b>\n\n${points.map((item,index)=>`${index+1}. ${esc(item)}`).join('\n')}`;
-  const samples=[...urgent,...overdue].slice(0,6);if(samples.length)text+=`\n\n<b>عينات للمتابعة</b>\n${samples.map(operationLine).join('\n\n')}`;
+  let text=`🚨 <b>ما يحتاج تدخلك الآن</b>\n━━━━━━━━━━━━━━━\n\n${points.map((item,index)=>`${index+1}. ${esc(item)}`).join('\n')}`;
+  const samples=[...urgent,...overdue].slice(0,6);if(samples.length)text+=`\n\n🔎 <b>عينات للمتابعة</b>\n${samples.map(operationLine).join('\n\n')}`;
   return sendMessage(chatId,text.slice(0,3900),keyboard([[{text:'تحديث',callback_data:'ent:priorities'},{text:'الاعتمادات',callback_data:'ent:approvals'}],[{text:'مهام الفريق',callback_data:'ent:team_tasks'}]]));
 }
 export async function enterpriseSnapshot(){

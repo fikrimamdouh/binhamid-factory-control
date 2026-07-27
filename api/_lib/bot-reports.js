@@ -170,7 +170,7 @@ async function legacyReport(chatId,kind){
 }
 function topLines(rows,field,count=5){return rows.slice(0,count).map((row,index)=>`${index+1}. ${esc(row.name)} — <b>${money(row[field])}</b>`).join('\n')||'لا توجد حركة';}
 
-export async function sendReport(chatId,request='daily'){
+export async function sendReport(chatId,request='daily',identity=null){
   const[kindRaw,pageRaw]=String(request||'daily').split('|'),kind=kindRaw||'daily',page=Number(pageRaw||0);
   if(['fuel','workshop','discrepancies'].includes(kind))return legacyReport(chatId,kind);
   const data=await latestCommittedData();
@@ -194,7 +194,7 @@ export async function sendReport(chatId,request='daily'){
   const p=a.payments,balanceLine=a.openingBalance===null?'💳 الرصيد التراكمي: تعذر حسابه مؤقتًا.':`💳 الرصيد الافتتاحي للعملاء: <b>${money(a.openingBalance)}</b>\n🏦 الرصيد الختامي المتوقع: <b>${money(a.closingBalance)}</b>`;
   // الصدر أصبح الملخّص المصمَّم (أرقام اليوم، المقارنة، أعلى العملاء، تنبيهات المخزون)،
   // والتفاصيل الكاملة تُفتح من أزرار التفصيل بدل جدار نص واحد.
-  const brief=await buildDailyBriefMessage().catch(()=>''),
+  const brief=await buildDailyBriefMessage(identity).catch(()=>''),
     text=[brief,balanceLine,`🧾 التحصيلات: <b>${money(p?.total??a.totalPayments??0)}</b>`].filter(Boolean).join('\n');
   return sendMessage(chatId,text.slice(0,3900),dailyDetailKeyboard());
 }

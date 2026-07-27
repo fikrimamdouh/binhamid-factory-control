@@ -320,14 +320,14 @@ export async function sendExecutiveSalesStatus(chatId,identity){
     if(String(order.created_at||'').slice(0,10)===today)item.total+=Number(order.total_amount||0);
     employees.set(name,item);
   }
-  let text=`<b>الحالة التنفيذية لأوامر البيع</b>\n\n<b>نشاط اليوم</b>\n• أوامر جديدة: <b>${createdToday.length}</b>\n• قيمة بلوك تقديرية: <b>${formatMoney(totals.block)} ر.س</b>\n• قيمة خرسانة تقديرية: <b>${formatMoney(totals.concrete)} ر.س</b>\n• توريدات مستحقة اليوم: <b>${dueToday.length}</b>\n• تم توريدها اليوم: <b>${deliveredToday.length}</b>\n\n<b>المتابعة المفتوحة</b>\n• إجمالي الطلبات المفتوحة: <b>${open.length}</b>\n• متأخرة عن موعد التوريد: <b>${overdue.length}</b>\n• خرجت للتوريد: <b>${open.filter(x=>x.status==='dispatched').length}</b>\n• تحت الإنتاج/التجهيز: <b>${open.filter(x=>x.status==='in_production').length}</b>\n• موقوفة: <b>${open.filter(x=>x.status==='on_hold').length}</b>`;
+  let text=`<b>الحالة التنفيذية لأوامر البيع</b>\n\n<b>نشاط اليوم</b>\n• أوامر جديدة: <b>${createdToday.length}</b>\n• قيمة بلوك تقديرية: <b>${formatMoney(totals.block)} ر.س</b>\n• قيمة خرسانة تقديرية: <b>${formatMoney(totals.concrete)} ر.س</b>\n• توريدات مستحقة اليوم: <b>${dueToday.length}</b>\n• تم توريدها اليوم: <b>${deliveredToday.length}</b>\n\n📂 <b>المتابعة المفتوحة</b>\n• إجمالي الطلبات المفتوحة: <b>${open.length}</b>\n• متأخرة عن موعد التوريد: <b>${overdue.length}</b>\n• خرجت للتوريد: <b>${open.filter(x=>x.status==='dispatched').length}</b>\n• تحت الإنتاج/التجهيز: <b>${open.filter(x=>x.status==='in_production').length}</b>\n• موقوفة: <b>${open.filter(x=>x.status==='on_hold').length}</b>`;
   if(employees.size){
-    text+='\n\n<b>متابعة موظفي المبيعات</b>';
+    text+='\n\n👥 <b>متابعة موظفي المبيعات</b>\n━━━━━━━━━━━━━━━';
     for(const [name,item] of [...employees.entries()].slice(0,10))text+=`\n• <b>${esc(name)}</b>: بلوك ${item.block}، خرسانة ${item.concrete}، مفتوح ${item.open}، متأخر ${item.overdue}، قيمة اليوم ${formatMoney(item.total)} ر.س`;
   }
   const critical=[...overdue,...dueToday.filter(order=>!overdue.includes(order))].slice(0,8);
   if(critical.length){
-    text+='\n\n<b>طلبات تحتاج متابعة</b>';
+    text+='\n\n⚠️ <b>طلبات تحتاج متابعة</b>';
     for(const order of critical)text+=`\n• <b>${esc(order.reference_no)}</b> — ${esc(order.customer_name)} — ${esc(TYPE_LABEL[order.sales_type])}\n  موعد ${esc(order.delivery_date)} | ${esc(STATUS_LABEL[order.status]||order.status)} | ${esc(order.item)} ${esc(order.quantity_text)}`;
   }
   const actions=[];
@@ -335,7 +335,7 @@ export async function sendExecutiveSalesStatus(chatId,identity){
   if(dueToday.length)actions.push(`تأكيد جاهزية الإنتاج والنقل لـ ${dueToday.length} توريد مستحق اليوم.`);
   if(open.some(x=>!x.unit_price))actions.push('استكمال الأسعار الناقصة قبل اعتماد الفواتير.');
   if(!actions.length)actions.push('لا يظهر تأخير حرج؛ استمر في تحديث الحالات حتى التوريد والتحصيل.');
-  text+='\n\n<b>الإجراءات المقترحة</b>\n'+actions.map(action=>`• ${esc(action)}`).join('\n');
+  text+='\n\n🎯 <b>الإجراءات المقترحة</b>\n'+actions.map(action=>`• ${esc(action)}`).join('\n');
   text+='\n\nالملخص مبني على جدول أوامر البيع الفعلي، مع مزامنة السجلات القديمة من Telegram.';
   return sendMessage(chatId,text.slice(0,3900));
 }

@@ -32,7 +32,7 @@ export function costMenu(identity={role:'admin'}){
 export async function showCostMenu(message,identity){
   if(!allowedAny(identity))return sendMessage(message.chat.id,'لا تملك صلاحية عرض نظام التكاليف.');
   if(identity.role==='concrete_sales')return sendMessage(message.chat.id,'يعرض هذا القسم سعر البيع المعتمد للخلطات فقط، دون تفاصيل تكلفة المواد.',costMenu(identity));
-  return sendMessage(message.chat.id,'<b>نظام التكاليف والربحية</b>\n\nيعرض التكلفة الفعلية للمنتجات والمركبات والموظفين والعملاء، والتكلفة المعيارية للخلطات. القرار النهائي يعتمد على فترة تكلفة معتمدة وبيانات مكتملة.',costMenu(identity));
+  return sendMessage(message.chat.id,'💸 <b>نظام التكاليف والربحية</b>\n━━━━━━━━━━━━━━━\n\nيعرض التكلفة الفعلية للمنتجات والمركبات والموظفين والعملاء، والتكلفة المعيارية للخلطات. القرار النهائي يعتمد على فترة تكلفة معتمدة وبيانات مكتملة.',costMenu(identity));
 }
 
 function productDecision(item){

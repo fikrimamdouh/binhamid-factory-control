@@ -90,7 +90,7 @@ export async function sendMeaningfulAlerts(){
   if(!chats.length||!alerts.length)return{sent:0,reason:!chats.length?'no_managers':'no_alerts',day:snapshot.day};
   const digest=stableAlertDigest(alerts),hash=crypto.createHash('sha256').update(`alerts:${snapshot.day}:${digest}`).digest('hex');
   if(await alreadySent(hash))return{sent:0,reason:'duplicate',day:snapshot.day};
-  const text=`<b>تنبيهات مصنع بن حامد</b>\n\n${alerts.map((item,index)=>`${index+1}. <b>${html(item.title)}</b>\n${html(item.message)}`).join('\n\n')}`.slice(0,3900);
+  const text=`🔔 <b>تنبيهات مصنع بن حامد</b>\n━━━━━━━━━━━━━━━\n\n${alerts.map((item,index)=>`${index+1}. <b>${html(item.title)}</b>\n${html(item.message)}`).join('\n\n')}`.slice(0,3900);
   for(const item of chats)await sendMessage(item.external_id,text,{action_name:'manager_alerts',action_payload:{day:snapshot.day,digest}});
   await markSent(hash,'alert',chats.length,snapshot.day);return{sent:chats.length,day:snapshot.day,alerts:alerts.length};
 }

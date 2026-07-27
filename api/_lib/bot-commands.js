@@ -140,7 +140,7 @@ export async function handleBuiltInCommand({message,identity,text}){
   }
   if(/^\/report(?:@\w+)?\s+(today|اليوم)$/i.test(raw)){
     if(!active||!allowed(role,'report')){await sendMessage(chatId,'عرض التقرير متاح لمدير المصنع ومدير النظام فقط.');return true;}
-    await sendReport(chatId,'daily');return true;
+    await sendReport(chatId,'daily',identity);return true;
   }
   const analytical=/^(حلل لي وضع المصنع اليوم|حلل وضع المصنع اليوم|تحليل وضع المصنع اليوم|حلل وضع المصنع|اعمل تحليل للمصنع اليوم)$/.test(t);
   if(analytical){if(!active||!allowed(role,'report'))await sendMessage(chatId,'تحليل وضع المصنع متاح لمدير المصنع ومدير النظام فقط.');else await factoryAnalysis(chatId);return true;}
@@ -163,7 +163,7 @@ export async function handleBuiltInCommand({message,identity,text}){
   const report=reports.find(x=>x.re.test(t));
   if(report){
     if(!active||!allowed(role,'report')){await sendMessage(chatId,'فهمت طلب التقرير، لكن عرضه متاح لمدير المصنع ومدير النظام فقط.');return true;}
-    await sendReport(chatId,report.kind);return true;
+    await sendReport(chatId,report.kind,identity);return true;
   }
   return false;
 }

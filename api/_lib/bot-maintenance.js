@@ -63,7 +63,7 @@ export async function createMaintenanceDraft({chatId,messageId,identity,text,pla
     reported_by:identity.user_id,source_channel:'telegram',source_chat_id:String(chatId),source_message_id:String(messageId),voice_path:voicePath||null,reported_at:now()
   }]),order=rows?.[0];
   await setSession(chatId,identity.external_id,'confirm_maintenance',{maintenanceId:order.id,startedAt:now()});
-  return reply(chatId,`فهمت البلاغ وسجلته مؤقتًا في مسار الورشة.\n\n<b>تأكيد بلاغ عطل</b>\nأمر مؤقت: <b>${esc(order.reference_no)}</b>\nالمركبة: <b>${esc(vehicle.plate_no||vehicle.asset_no)}</b>\nالعطل: ${esc(text)}\nالحالة: لم يُفتح رسميًا بعد.`,true,keyboard([[{text:'تأكيد فتح أمر إصلاح',callback_data:`maint_confirm:${order.id}`}],[{text:'إلغاء البلاغ',callback_data:`maint_cancel:${order.id}`}]]));
+  return reply(chatId,`فهمت البلاغ وسجلته مؤقتًا في مسار الورشة.\n\n🛠️ <b>تأكيد بلاغ عطل</b>\nأمر مؤقت: <b>${esc(order.reference_no)}</b>\nالمركبة: <b>${esc(vehicle.plate_no||vehicle.asset_no)}</b>\nالعطل: ${esc(text)}\nالحالة: لم يُفتح رسميًا بعد.`,true,keyboard([[{text:'تأكيد فتح أمر إصلاح',callback_data:`maint_confirm:${order.id}`}],[{text:'إلغاء البلاغ',callback_data:`maint_cancel:${order.id}`}]]));
 }
 
 export async function createGenericMaintenanceDraft({chatId,messageId,identity,text,target='أصل أو معدة بدون لوحة',kind='general_asset',voicePath='',inspectionReference=''}){

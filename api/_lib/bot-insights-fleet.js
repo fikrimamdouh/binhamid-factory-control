@@ -23,7 +23,7 @@ export async function sendVehicleHistory(chatId,query,identity){
   }
   const liters=fuel.reduce((sum,item)=>sum+number(item.fuel_liters??item.liters??item.quantity),0),fuelCost=fuel.reduce((sum,item)=>sum+number(item.fuel_amount??item.totalCost??item.amount),0),maintenanceCost=central.reduce((sum,item)=>sum+number(item.actual_cost),0),odometers=driverEvents.map(item=>number(item.odometer)).filter(Boolean),distance=odometers.length?Math.max(...odometers)-Math.min(...odometers):0;
   let text=`<b>سجل المركبة أو الأصل خلال 90 يومًا</b>\n\nالمرجع: <b>${esc(plate)}</b>\nتعبئات الديزل: <b>${fuel.length}</b>\nإجمالي اللترات: <b>${liters.toLocaleString('en-US')}</b>\nتكلفة الديزل: <b>${formatAmount(fuelCost)} ر.س</b>\nالمسافة المسجلة: <b>${distance.toFixed(1)} كم</b>\nحركات التسليم: <b>${deliveries.length}</b>\nأوامر الصيانة: <b>${central.length+maintenanceFallback.length}</b>\nتكلفة الصيانة المسجلة: <b>${formatAmount(maintenanceCost)} ر.س</b>`;
-  if(central.length)text+=`\n\n<b>آخر أوامر الإصلاح</b>\n${central.slice(0,8).map(item=>`• ${esc(item.reference_no)} — ${esc(item.status)}\n  ${esc(String(item.problem||'').slice(0,140))}`).join('\n\n')}`;
+  if(central.length)text+=`\n\n🔧 <b>آخر أوامر الإصلاح</b>\n${central.slice(0,8).map(item=>`• ${esc(item.reference_no)} — ${esc(item.status)}\n  ${esc(String(item.problem||'').slice(0,140))}`).join('\n\n')}`;
   return sendMessage(chatId,text.slice(0,3900));
 }
 export async function sendFuelAnomalies(chatId,identity){

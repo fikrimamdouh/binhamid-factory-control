@@ -194,7 +194,7 @@ export async function handleExcel(message,group,identity,stored){
   // بعد الترحيل الفعلي يُدفع الملخّص المصمَّم مباشرةً لمن رفع الملف: أرقام اليوم
   // ومقارنتها بالتقرير السابق وأعلى العملاء وتنبيهات المخزون، بلا ضغط أي زر.
   if(result?.posting?.ok&&!result?.posting?.duplicate){
-    const brief=await buildDailyBriefMessage().catch(error=>{console.warn('[daily brief]',String(error?.message||'').slice(0,200));return'';});
+    const brief=await buildDailyBriefMessage(identity).catch(error=>{console.warn('[daily brief]',String(error?.message||'').slice(0,200));return'';});
     if(brief)await sendMessage(chatId,brief).catch(()=>null);
   }
   // تقريرا البلوك والخرسانة التراكميان "مسودة" وليسا مرتبطين بنجاح الترحيل

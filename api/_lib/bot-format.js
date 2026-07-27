@@ -46,3 +46,26 @@ export const ok=text=>`✅ ${esc(text)}`;
 export function compose(...parts){
   return parts.flat().filter(part=>part!==null&&part!==undefined&&String(part).trim()!=='').join('\n').replace(/\n{3,}/g,'\n\n').trim();
 }
+
+// ردّ ترحيبي دافئ بكنية المستخدم، يتغيّر في كل مرة فلا يبدو آليًا مكررًا.
+// يُستخدم صدرًا للردود الرئيسية فقط، لا في رسائل الخطأ حتى لا يبدو استخفافًا.
+const ACKS=[
+  'أبشر يا {name} 🌟','من عيني يا {name} ❤️','حاضر يا {name} 🤝','تم يا {name} ✅',
+  'أمرك يا {name} 👑','على الراس يا {name} 🙌','يا هلا بك يا {name} 🌹','طال عمرك يا {name} ⭐',
+  'جاهز يا {name} 💪','تفضّل يا {name} 📌','في خدمتك يا {name} 🌷','أبشر بالخير يا {name} ✨'
+];
+export function kunya(identity){
+  const nick=String(identity?.nickname||'').trim();
+  if(nick)return nick;
+  const full=String(identity?.full_name||identity?.name||'').trim();
+  if(!full)return'طويل العمر';
+  const parts=full.split(/\s+/);
+  return parts[0]==='أبو'||parts[0]==='ابو'?parts.slice(0,2).join(' '):parts[0];
+}
+// مؤشر دوّار يبدأ من موضع عشوائي ثم يتقدّم، فلا تتكرر العبارة مرتين متتاليتين
+// داخل الجلسة الواحدة كما يحدث مع الاختيار العشوائي البحت.
+let ackIndex=Math.floor(Math.random()*ACKS.length);
+export function warmAck(identity){
+  ackIndex=(ackIndex+1)%ACKS.length;
+  return ACKS[ackIndex].replace('{name}',esc(kunya(identity)));
+}

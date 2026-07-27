@@ -63,19 +63,19 @@ export async function sendExecutiveWorkshopStatus(chatId){
   const dailyReports=(todayLogs||[]).filter(row=>row.action==='mechanic_daily_report').length;
   const updates=(todayLogs||[]).filter(row=>row.action==='mechanic_order_update').length;
 
-  let text=`<b>الحالة التنفيذية للورشة والميكانيكي</b>\n\n<b>نشاط اليوم</b>\n• تقارير يومية: <b>${dailyReports}</b>\n• فحوصات معدات وأصول: <b>${inspections}</b>\n• تحديثات أوامر الإصلاح: <b>${updates}</b>\n• طلبات أو أوامر جديدة: <b>${today.length}</b>\n• أوامر مكتملة اليوم: <b>${completedToday?.length||0}</b>\n\n<b>الوضع المفتوح</b>\n• إجمالي مهام الورشة المفتوحة: <b>${open.length}</b>\n• عاجلة: <b>${urgent}</b>\n• مركبات أو معدات متوقفة: <b>${stopped}</b>\n• طلبات قطع غيار وتسعير: <b>${parts}</b>\n• بانتظار اعتماد: <b>${pendingApproval}</b>`;
+  let text=`<b>الحالة التنفيذية للورشة والميكانيكي</b>\n\n🔧 <b>نشاط اليوم</b>\n━━━━━━━━━━━━━━━\n• تقارير يومية: <b>${dailyReports}</b>\n• فحوصات معدات وأصول: <b>${inspections}</b>\n• تحديثات أوامر الإصلاح: <b>${updates}</b>\n• طلبات أو أوامر جديدة: <b>${today.length}</b>\n• أوامر مكتملة اليوم: <b>${completedToday?.length||0}</b>\n\n📂 <b>الوضع المفتوح</b>\n• إجمالي مهام الورشة المفتوحة: <b>${open.length}</b>\n• عاجلة: <b>${urgent}</b>\n• مركبات أو معدات متوقفة: <b>${stopped}</b>\n• طلبات قطع غيار وتسعير: <b>${parts}</b>\n• بانتظار اعتماد: <b>${pendingApproval}</b>`;
 
   const statusLine=Object.entries(counts).filter(([,count])=>count).map(([status,count])=>`${STATUS_LABEL[status]||status}: ${count}`).join(' — ');
-  if(statusLine)text+=`\n\n<b>توزيع الحالات</b>\n${esc(statusLine)}`;
+  if(statusLine)text+=`\n\n📊 <b>توزيع الحالات</b>\n${esc(statusLine)}`;
 
   if(mechanics.size){
-    text+=`\n\n<b>أداء الميكانيكي اليوم</b>`;
+    text+=`\n\n🛠️ <b>أداء الميكانيكي اليوم</b>`;
     for(const [name,item] of [...mechanics.entries()].slice(0,8)){
       text+=`\n• <b>${esc(name)}</b>: ${item.reports} تقرير، ${item.inspections} فحص، ${item.updates} تحديث، ${item.parts} طلب قطع غيار`;
       if(item.last)text+=`\n  آخر بيان: ${esc(item.last)}`;
     }
   }else{
-    text+=`\n\n<b>أداء الميكانيكي اليوم</b>\nلم يُسجل نشاط تفصيلي حتى الآن.`;
+    text+=`\n\n🛠️ <b>أداء الميكانيكي اليوم</b>\nلم يُسجل نشاط تفصيلي حتى الآن.`;
   }
 
   const critical=open.filter(row=>row.priority==='urgent'||row.vehicle_stopped||row.status==='quotation_required').slice(0,8);
@@ -86,7 +86,7 @@ export async function sendExecutiveWorkshopStatus(chatId){
     }
   }
 
-  text+=`\n\n<b>الإجراءات المقترحة</b>`;
+  text+=`\n\n🎯 <b>الإجراءات المقترحة</b>`;
   for(const note of priorityAdvice({urgent,stopped,parts,pendingApproval}))text+=`\n• ${esc(note)}`;
   text+=`\n\nالملخص مبني على سجل الورشة المركزي حتى لحظة الطلب.`;
   return sendMessage(chatId,text.slice(0,3900));
