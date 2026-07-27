@@ -19,7 +19,7 @@ test('product text and image searches route to supplier city selection',async()=
   assert.match(source,/researchProductMarket/);
   assert.match(source,/الأسعار استرشادية/);
   assert.match(source,/عرض سعر رسمي/);
-  assert.doesNotMatch(source,/href=/);
+  assert.doesNotMatch(source,/href="https?:/);
   assert.match(source,/replace\(\/https\?:/);
   assert.match(source,/supplier_search_query/);
   assert.match(source,/supplier_search_city/);
@@ -38,9 +38,10 @@ test('supplier results contain copyable phone numbers and no external links',asy
   const source=await read('api/_lib/bot-procurement.js');
   // الرقم صار قابلًا للاتصال بضغطة عبر رابط tel بدل نسخه يدويًا من مربع نص،
   // وتنبيه «التوفر والسعر يتأكدان بالاتصال» يُذكر مرة واحدة بدل تكراره تحت كل مورد.
-  // لا روابط إطلاقًا: الرقم داخل مربع نسخ، ولا يخرج المستخدم من البوت.
-  assert.match(source,/<code>\$\{esc\(place\.phone\)\}<\/code>/);
-  assert.doesNotMatch(source,/href=/);
+  // الاتصال بضغطة مطلوب: رابط tel يفتح المتصل. الممنوع هو الروابط الإلكترونية.
+  assert.match(source,/href="tel:\$\{esc\(tel\)\}"/);
+  assert.match(source,/function callable\(phone\)/);
+  assert.doesNotMatch(source,/href="https?:/);
   assert.match(source,/التوفر والسعر يتأكدان بالاتصال/);
   assert.doesNotMatch(source,/توفر القطعة المطلوبة: <b>يتأكد بالاتصال<\/b>/);
   assert.doesNotMatch(source,/googleMapsUri/);
@@ -116,4 +117,21 @@ test('supplier results check factory stock first and never list one shop twice',
   // التقييم غير المنشور كان ينتج NaN في المقارنة فيُفسد الترتيب.
   assert.match(source, /const rate=row=>Number\(row\?\.rating\|\|0\)/);
   assert.doesNotMatch(source, /\|\|b\.rating-a\.rating\|\|/);
+});
+
+test('price research prefers the free provider and falls back without dying', async () => {
+  const assistant = await read('api/_lib/bot-product-assistant.js');
+  const free = await read('api/_lib/product-market-research-free.js');
+  const configSource = await read('api/_lib/config.js');
+  // المجاني أولًا حتى لا يتوقف البحث على مفتاح مدفوع، والمدفوع بديل عند فشله.
+  assert.match(assistant, /if\(config\.geminiKey\)providers\.push\(\['gemini'/);
+  assert.match(assistant, /if\(config\.openaiKey\)providers\.push\(\['openai'/);
+  assert.match(assistant, /for\(const\[name,run\]of providers\)/);
+  assert.match(configSource, /geminiKey:text\('GEMINI_API_KEY'\)/);
+  // البحث المجاني مؤسَّس على بحث Google، ويعيد المحاولة بلا أداة إن رُفضت.
+  assert.match(free, /google_search/);
+  assert.match(free, /for\(const grounded of \[true,false\]\)/);
+  // ولا يُخرج روابط إطلاقًا.
+  assert.match(free, /لا تضع روابط/);
+  assert.doesNotMatch(free, /href=/);
 });

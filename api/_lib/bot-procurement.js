@@ -21,8 +21,10 @@ const MATCH_BADGE=[['🎯','مطابق للقطعة'],['🔧','محل متخصص
 function supplierCard(place,index){
   // matchRank=0 هو أفضل مطابقة، فاستخدام || هنا يقلبها إلى «عام» — لذلك ??.
   const[icon,label]=MATCH_BADGE[Math.min(Math.max(Number(place.matchRank??2),0),2)]||MATCH_BADGE[2];
-  // لا روابط: الرقم يُعرض في مربع نسخ داخل البوت بدل رابط يفتح تطبيقًا خارجيًا.
-  const phoneLine=place.phone?`   📞 <code>${esc(place.phone)}</code>`:'   📞 <i>غير منشور</i>';
+  // الرقم يفتح المتصل مباشرة بضغطة (tel)، وهو المطلوب للشراء السريع. هذا ليس
+  // رابطًا إلكترونيًا ولا يخرج المستخدم إلى موقع — الروابط الإلكترونية ممنوعة.
+  const tel=callable(place.phone);
+  const phoneLine=tel?`   📞 <a href="tel:${esc(tel)}">${esc(place.phone)}</a>`:'   📞 <i>غير منشور</i>';
   const stars=place.rating?` ⭐ ${place.rating}${place.reviews?` (${place.reviews})`:''}`:'';
   return[`${index}. ${icon} <b>${esc(place.name)}</b>${stars}`,phoneLine,place.address?`   📍 ${esc(place.address)}`:null,`   <i>${label}</i>`].filter(Boolean).join('\n');
 }
@@ -272,7 +274,7 @@ async function sendSupplierResults(message,identity,query,city){
     ].filter(Boolean).join('\n');
     const cards=chunk.map((place,localIndex)=>supplierCard(place,chunkIndex*6+localIndex+1)).join('\n\n');
     // التنبيه يُذكر مرة واحدة في آخر صفحة بدل تكراره تحت كل مورد.
-    const footer=last?`\n${RULE}\n<i>اضغط مطولًا على الرقم لنسخه. التوفر والسعر يتأكدان بالاتصال.</i>`:'';
+    const footer=last?`\n${RULE}\n<i>اضغط الرقم للاتصال مباشرة. التوفر والسعر يتأكدان بالاتصال.</i>`:'';
     if(last)buttons.push([{text:'📝 طلب عرض سعر',callback_data:'supplier_rfq:start'},{text:'🔍 قطعة أخرى',callback_data:'proc:product'}],[{text:'🏙️ مدينة أخرى',callback_data:'supplier_city:other'},{text:'🇸🇦 كل السعودية',callback_data:'supplier_city:saudi'}]);
     await sendMessage(message.chat.id,`${header}\n${cards}${footer}`.slice(0,3900),keyboard(buttons));
   }

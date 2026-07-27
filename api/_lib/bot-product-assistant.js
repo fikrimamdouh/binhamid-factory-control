@@ -3,6 +3,23 @@ import { sendMessage, keyboard } from './telegram.js';
 import { clearMaintenanceSession } from './bot-maintenance.js';
 import { identifyProductImage } from './product-image-identification.js';
 import { researchProductMarket } from './product-market-research-fast.js';
+import { researchProductMarketFree } from './product-market-research-free.js';
+import { config } from './config.js';
+
+// يُفضَّل المزوّد المجاني (Gemini) عند توفره حتى لا يتوقف بحث الأسعار على مفتاح
+// مدفوع، ويُستخدم OpenAI بديلًا. فشل المجاني لا يُنهي العملية بل يُجرَّب الآخر.
+async function researchPrices(query,city){
+  const providers=[];
+  if(config.geminiKey)providers.push(['gemini',()=>researchProductMarketFree(query,{city})]);
+  if(config.openaiKey)providers.push(['openai',()=>researchProductMarket(query,{city})]);
+  if(!providers.length)throw Object.assign(new Error('بحث الأسعار غير مفعّل. اضبط GEMINI_API_KEY المجاني أو OPENAI_API_KEY.'),{status:503,code:'PRICE_RESEARCH_NOT_CONFIGURED'});
+  let lastError=null;
+  for(const[name,run]of providers){
+    try{return await run();}
+    catch(error){lastError=error;console.warn('[price research provider]',{provider:name,message:String(error?.message||'').slice(0,200)});}
+  }
+  throw lastError;
+}
 
 const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const now=()=>new Date().toISOString();
@@ -45,7 +62,7 @@ export async function sendProductResearch(message,identity,query,city='نجرا�
   // «السعر يتأكد بالاتصال». الآن يُستدعى فعليًا ويُعرض السعر المعتاد ونطاقه ومصادره.
   await sendMessage(message.chat.id,`💰 <b>جارٍ البحث عن أسعار: ${esc(clean)}</b>\n<i>أبحث في المتاجر المنشورة… قد يستغرق نصف دقيقة.</i>`);
   let research;
-  try{research=await researchProductMarket(clean,{city});}
+  try{research=await researchPrices(clean,city);}
   catch(error){
     await sendMessage(message.chat.id,`⚠️ ${esc(error?.message||'تعذر بحث الأسعار الآن.')}`);
     await setSession(message.chat.id,identity.external_id||message.from.id,'supplier_search_city',{query:clean,startedAt:now(),source:'price_research_failed'});
