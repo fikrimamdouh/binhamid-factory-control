@@ -30,12 +30,12 @@ const state=JSON.parse(query(`select json_build_object(
     'userInvitations',(select count(*) from public.user_invitations),
     'unifiedAssets',(select count(*) from public.unified_assets))
 )::text;`));
-if(Number(state.currentVersion)!==targetVersion)fail('TARGET_VERSION_NOT_REACHED','Production did not reach schema version 26.',{currentVersion:Number(state.currentVersion)});
+if(Number(state.currentVersion)<targetVersion)fail('TARGET_VERSION_NOT_REACHED','Production did not reach the minimum persistent-master schema version 26.',{currentVersion:Number(state.currentVersion)});
 const versions=(state.versions||[]).map(Number);if([24,25,26].some(version=>!versions.includes(version)))fail('MIGRATION_HISTORY_INCOMPLETE','Migration history 24-26 is incomplete.',{versions});
 const missing=Object.entries(state.objects||{}).filter(([,value])=>!value).map(([name])=>name);if(missing.length)fail('DATABASE_OBJECTS_MISSING','Required persistent master-data objects are missing.',{missing});
 if(Number(state.duplicateIdentityCount||0)!==0)fail('DUPLICATE_ACTIVE_IDENTITIES','Active employees contain duplicate national IDs.',{duplicateIdentityCount:Number(state.duplicateIdentityCount)});
 const changed=Object.keys(preflight.counts||{}).filter(key=>Number(preflight.counts[key])!==Number(state.counts?.[key]));
 if(changed.length)fail('PROTECTED_ROW_COUNT_CHANGED','Protected employee, vehicle or identity rows changed during schema migration.',{changed,before:preflight.counts,after:state.counts});
-const result={ok:true,code:'SCHEMA_26_PERSISTENT_MASTER_VERIFIED',fromVersion:Number(preflight.currentVersion),toVersion:targetVersion,appliedMigrations:Array.from({length:Math.max(0,targetVersion-Number(preflight.currentVersion))},(_,index)=>Number(preflight.currentVersion)+index+1),transactionAtomic:true,preMigrationBackup:preflight.backup,beforeCounts:preflight.counts,afterCounts:state.counts,verification:state};
+const result={ok:true,code:'SCHEMA_26_PERSISTENT_MASTER_VERIFIED',fromVersion:Number(preflight.currentVersion),toVersion:Number(state.currentVersion),appliedMigrations:Array.from({length:Math.max(0,targetVersion-Number(preflight.currentVersion))},(_,index)=>Number(preflight.currentVersion)+index+1),transactionAtomic:true,preMigrationBackup:preflight.backup,beforeCounts:preflight.counts,afterCounts:state.counts,verification:state};
 writeFileSync(resultPath,`${JSON.stringify(result,null,2)}\n`,{mode:0o600});
-console.log(`[persistent-master-verify] SUCCESS ${result.fromVersion}->${targetVersion}`);
+console.log(`[persistent-master-verify] SUCCESS ${result.fromVersion}->${result.toVersion}; baseline=${targetVersion}`);
