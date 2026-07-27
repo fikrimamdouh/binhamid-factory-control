@@ -1,4 +1,4 @@
-const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#39;'}[char]));
 const money=value=>Number(value||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 const chunks=(rows,size)=>{const output=[];for(let index=0;index<rows.length;index+=size)output.push(rows.slice(index,index+size));return output;};
 
@@ -15,5 +15,6 @@ function detailPage({type,rows,offset,employee,reportDate,sourceFile,logoUrl,doc
 }
 export function enhancePortfolioDocument(document='',context={}){
   const cleaned=removeRepeatedPaymentTerms(document),pages=chunks(context.rows||[],7).map((rows,index)=>detailPage({...context,rows,offset:index*7})).join('');
+  if(!cleaned.includes('</body>'))throw Object.assign(new Error('تعذر إكمال إقرار المحفظة لأن قالب المستند لا يحتوي علامة الإغلاق المطلوبة.'),{code:'CUSTOMER_PORTFOLIO_TEMPLATE_MISSING_BODY_TAG'});
   return cleaned.replace('</body>',`${pages}</body>`);
 }
