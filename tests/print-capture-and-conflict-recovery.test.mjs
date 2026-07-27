@@ -41,5 +41,5 @@ test('boot cache keys point to repaired synchronization and PDF modules',()=>{
   assert.match(index,/state-load-performance\.js\?v=20260722-3/);
   assert.match(index,/sync-integrity-guard\.js\?v=20260723-6/);
   assert.match(index,/telegram-pdf-declarations\.js\?v=20260724-10/);
-  assert.match(index,/exact-portfolio-metadata-bridge\.js\?v=20260724-2/);
+  assert.match(index,/exact-portfolio-metadata-bridge\.js\?v=20260727-primary-owner-1/);
 });
