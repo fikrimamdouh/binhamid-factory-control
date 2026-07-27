@@ -74,3 +74,28 @@ test('server stores one report per period and keeps the private vehicle out sile
   assert.match(router,/'fuel\/daily-report':fuelDailyReport/);
   assert.match(vercel,/api\/fuel\/daily-report/);
 });
+
+test('the existing fuel sync sends verified vehicle balances at 7 PM Riyadh',()=>{
+  const workflow=read('.github/workflows/noor-khoy-fuel-sync.yml');
+  const script=read('scripts/noor-khoy-fuel-sync.mjs');
+  const route=read('api/_lib/routes/fuel-sync.js');
+  assert.match(workflow,/cron:\s*'0 16 \* \* \*'/);
+  assert.match(workflow,/FUEL_SYNC_MODE: vehicle-balance-report/);
+  assert.match(workflow,/NOOR_KHOY_VEHICLES_URL/);
+  assert.match(script,/vehicleBalanceSummary/);
+  assert.match(script,/لم يتم العثور على جدول مركبات يحتوي عمود رصيد صريحًا/);
+  assert.match(script,/x-fuel-operation':'vehicle-balance-report/);
+  assert.match(route,/x-fuel-operation/);
+  assert.match(route,/رصيد الديزل المتوفر في المركبات/);
+  assert.match(route,/vehicle_diesel_balance_report_sent/);
+});
+
+test('diesel reports show the latest verified unused vehicle balance separately from consumption',()=>{
+  const analytics=read('api/_lib/fuel-analytics.js');
+  const reports=read('api/_lib/bot-fuel-reports.js');
+  assert.match(analytics,/loadLatestVehicleDieselBalance/);
+  assert.match(analytics,/vehicle_diesel_balance_report_sent/);
+  assert.match(reports,/رصيد الديزل غير المستخدم بالمركبات/);
+  assert.match(reports,/loadLatestVehicleDieselBalance/);
+  assert.match(reports,/category==='petrol'\?Promise\.resolve\(null\)/);
+});
