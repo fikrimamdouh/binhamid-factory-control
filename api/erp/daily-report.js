@@ -142,7 +142,7 @@ export default async function handler(req,res){
     const reportDate=resolveReportDate(req,workbook,originalName,analysis),existing=(await select('imports',`file_hash=eq.${hash}&select=id,status,original_name,report_type,file_path,file_hash,summary&limit=1`))?.[0]||null;
     if(existing&&['posted','approved'].includes(existing.status)){
       const upgrade=await upgradePostedImport(existing,analysis,reportDate,hash);
-      const telegram=await sendErpDuplicateNotice({reportDate,sourceFile:originalName}).catch(error=>({errors:[String(error?.message||error)]}));
+      const telegram=await sendErpDuplicateNotice({reportDate,sourceFile:originalName,upgrade}).catch(error=>({errors:[String(error?.message||error)]}));
       return json(res,200,{ok:true,duplicate:true,upgraded:Boolean(upgrade?.upgraded),upgrade,reportDate,fileHash:hash,importId:existing.id,status:existing.status,summary:analysis.summary,telegram});
     }
 

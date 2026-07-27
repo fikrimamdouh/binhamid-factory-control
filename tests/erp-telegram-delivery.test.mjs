@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { erpSaleType, erpTelegramRecipients, buildCollectionDeliveryRows } from '../api/_lib/erp-telegram-delivery.js';
+import { erpSaleType, erpTelegramRecipients, buildCollectionDeliveryRows, buildErpDuplicateNoticeText } from '../api/_lib/erp-telegram-delivery.js';
 import { cumulativeSaleType, projectCumulativeDailyReport } from '../api/_lib/daily-cumulative-report-data.js';
 
 test('ERP concrete sales keep their department across parser variants',()=>{
@@ -65,6 +65,19 @@ test('collection delivery classifies an old customer and splits payment between 
 test('automatic Telegram delivery includes the owner and Manea once',()=>{
   assert.deepEqual(erpTelegramRecipients('111','6870312376'),['111','6870312376']);
   assert.deepEqual(erpTelegramRecipients('6870312376','6870312376'),['6870312376']);
+});
+
+test('upgraded historical report sends an explicit Telegram success notice',()=>{
+  const text=buildErpDuplicateNoticeText({
+    reportDate:'2026-07-26',
+    sourceFile:'26(1).xlsx',
+    upgrade:{upgraded:true,salesAdded:1,cashMovementsAdded:3,treasuriesAdded:1,inventoryAdded:1,salesCount:18,cashMovementCount:17,treasuryCount:2,inventoryCount:2}
+  });
+  assert.match(text,/تم تحديث تقرير ERP القديم بنجاح/);
+  assert.match(text,/دون تكرار أي حركة/);
+  assert.match(text,/السجلات المستكملة: <b>6<\/b>/);
+  assert.match(text,/الفواتير: <b>18<\/b>/);
+  assert.match(text,/الحركات المالية: <b>17<\/b>/);
 });
 
 test('portfolio preparation uses dated analytics and persists fixed snapshots after posting',async()=>{
