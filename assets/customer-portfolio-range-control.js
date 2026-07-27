@@ -1,4 +1,4 @@
-// [BinHamid] 2026.07.27-customer-portfolio-range-control-fifo-sector-v2
+// [BinHamid] 2026.07.27-customer-portfolio-primary-owner-cross-sector-v3
 // مصدر واحد لتاريخ إقرار محفظة العملاء ونطاقه، ويُرسل إلى Telegram نفس #sheet الذي يطبعه الموقع.
 (function(){
   'use strict';
@@ -8,7 +8,7 @@
   // منع الوحدة القديمة من إرسال إقرار ثانٍ بمنطق مختلف.
   window.__BH_DAILY_PORTFOLIO_DECLARATIONS__=true;
 
-  const VERSION='2026.07.27-customer-portfolio-range-control-fifo-sector-v2';
+  const VERSION='2026.07.27-customer-portfolio-primary-owner-cross-sector-v3';
   const clean=value=>String(value??'').replace(/\s+/g,' ').trim();
   const norm=value=>clean(value).toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/ؤ/g,'و').replace(/ئ/g,'ي').replace(/ـ/g,'').replace(/[^\p{L}\p{N}]+/gu,' ').trim();
   const digits=value=>clean(value).replace(/[^0-9٠-٩]/g,'').replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d));
@@ -80,28 +80,35 @@
   function exactClients(employee,segment,context){
     const runtime=state(),clients=Array.isArray(runtime.D.cli)?runtime.D.cli:[],kind=segment==='خرسانة'?'concrete':segment==='بلوك'?'block':'';
     const sales=(context?.sales||[]).filter(row=>(!kind||salesKind(row)===kind)&&inRange(row?.date||context.reportDate,context.fromDate,context.toDate));
-    const selected=new Map();
+    const selected=new Map(),cross=new Map(),ownerSector=client=>window.BinHamidDeclarationsCustomerFix?.primarySector?.(runtime,client,kind)||(norm(client?.seg).includes('خرسان')?'concrete':/(?:بلك|بلوك)/.test(norm(client?.seg))?'block':kind);
     for(const sale of sales){
       const client=clients.find(item=>sameClient(item,sale));
       if(!client)continue;
+      const owner=ownerSector(client);
+      if(owner&&owner!==kind){
+        const key=client.id||clean(client.code)||norm(client.name),ownerEmployee=(runtime.D.emp||[]).find(item=>item.id===client.rep),current=cross.get(key)||{name:client.name,code:client.code||client.cr||'',phone:client.tel||client.phone||'',ownerSector:owner,ownerSectorLabel:owner==='concrete'?'الخرسانة':'البلوك',ownerEmployeeName:ownerEmployee?.name||'',sellingSector:kind,amount:0,quantity:0,item:new Set(),invoices:[],firstDate:'',lastDate:''},date=day(sale?.date||context.reportDate);
+        current.amount+=Number(sale.amount||sale.total||sale.total_amount||0);current.quantity+=Number(sale.quantity||0);if(sale.item||sale.itemName||sale.product)current.item.add(sale.item||sale.itemName||sale.product);current.invoices.push({invoice:sale.invoice||sale.invoiceNo||sale.invoice_no||sale.clientOrder||sale.no||'',date,amount:Number(sale.amount||sale.total||sale.total_amount||0)});if(date){current.firstDate=!current.firstDate||date<current.firstDate?date:current.firstDate;current.lastDate=date>current.lastDate?date:current.lastDate;}cross.set(key,current);continue;
+      }
       const key=client.id||clean(client.code)||norm(client.name),current=selected.get(key)||{client,reportSales:0,reportQuantity:0};
       current.reportSales+=Number(sale.amount||sale.total||sale.total_amount||0);current.reportQuantity+=Number(sale.quantity||0);selected.set(key,current);
     }
-    return[...selected.values()].map(({client,reportSales,reportQuantity})=>{
+    const rows=[...selected.values()].map(({client,reportSales,reportQuantity})=>{
       const ledger=typeof window.bhClientLedger==='function'?window.bhClientLedger(client.id,kind):null;
       return{...client,_portfolioSegment:kind==='concrete'?'خرسانة':kind==='block'?'بلوك':client.seg,_portfolioLastDate:context.reportDate||context.toDate,_portfolioQty:Number(ledger?.quantity??reportQuantity),_portfolioSales:Number(ledger?.sales??reportSales),_portfolioPaid:Number(ledger?.paid||0),_portfolioBalance:Number(ledger?.remaining??reportSales),_portfolioOverdue:Number(ledger?.overdue||0),_portfolioDue:ledger?.nextDueDate||'',_portfolioLateDays:Number(ledger?.maxDaysLate||0)};
     }).sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'ar'));
+    rows.crossSectorPurchases=[...cross.values()].map(item=>({...item,item:[...item.item].join('، ')})).sort((a,b)=>b.amount-a.amount||String(a.name||'').localeCompare(String(b.name||''),'ar'));context.crossSectorPurchases=rows.crossSectorPurchases;return rows;
   }
 
   function filterClientsByRange(rows,employee,segment,context){
     const runtime=state(),deliveries=Array.isArray(runtime.OPS.deliveries)?runtime.OPS.deliveries:[],kind=segment==='خرسانة'?'concrete':segment==='بلوك'?'block':'';
-    return(rows||[]).filter(client=>deliveries.some(delivery=>{
+    const filtered=(rows||[]).filter(client=>deliveries.some(delivery=>{
       if(!inRange(delivery?.date,context.fromDate,context.toDate))return false;
       if(kind&&salesKind(delivery)!==kind)return false;
       if(!sameClient(client,delivery))return false;
       const assigned=delivery.employeeId===employee?.id||client.rep===employee?.id||(Array.isArray(client.repIds)&&client.repIds.includes(employee?.id));
       return assigned;
     }));
+    filtered.crossSectorPurchases=(rows?.crossSectorPurchases||[]).map(item=>{const invoices=(item.invoices||[]).filter(invoice=>inRange(invoice.date,context.fromDate,context.toDate));if(!invoices.length)return null;return{...item,invoices,amount:invoices.reduce((sum,row)=>sum+Number(row.amount||0),0),firstDate:invoices.map(row=>row.date).filter(Boolean).sort()[0]||'',lastDate:invoices.map(row=>row.date).filter(Boolean).sort().at(-1)||''};}).filter(Boolean);context.crossSectorPurchases=filtered.crossSectorPurchases;return filtered;
   }
 
   function installPortfolioFilter(){
@@ -135,8 +142,20 @@
     return button;
   }
 
+  function insertCrossSectorPage(sheet,context){
+    sheet.querySelectorAll('.bh-cross-sector-page').forEach(node=>node.remove());
+    const rows=context?.crossSectorPurchases||[];if(!rows.length)return;
+    const existing=[...sheet.querySelectorAll('.doc,.portfolio-page,[data-document-page]')],source=existing[0];if(!source)return;
+    const page=document.createElement('div');page.className=`${source.className||'doc'} bh-cross-sector-page`;page.dataset.documentPage='cross-sector';
+    const spine=source.querySelector('.spine')?.cloneNode(true),body=document.createElement('div');body.className=source.querySelector('.body')?.className||'body';
+    const watermark=source.querySelector('.wm')?.cloneNode(true),mast=source.querySelector('.mast')?.cloneNode(true),bar=source.querySelector('.tbar')?.cloneNode(true);if(watermark)body.appendChild(watermark);if(mast)body.appendChild(mast);if(bar){const title=bar.querySelector('h1');if(title)title.textContent='مبيعات لعملاء تابعين للقطاع الآخر';body.appendChild(bar);}
+    const total=rows.reduce((sum,row)=>sum+Number(row.amount||0),0),section=document.createElement('section');section.className='sec';section.innerHTML=`<div class="sh"><span class="n">٢-أ</span><span class="t">مبيعات لعملاء تابعين للقطاع الآخر</span><span class="fill"></span><span class="tag">${rows.length} عملية</span></div><table class="led"><thead><tr><th>م</th><th>العميل</th><th>الكود</th><th>المحفظة الأساسية</th><th>الفاتورة</th><th>قيمة البيع</th><th>نطاق المسؤولية</th></tr></thead><tbody>${rows.map((row,index)=>`<tr><td class="idx">${index+1}</td><td class="nm">${esc(row.name)}</td><td class="mono">${esc(row.code||'—')}</td><td>${esc(row.ownerSectorLabel||'—')}<div style="font-size:6.2pt;color:#8C8368">${esc(row.ownerEmployeeName||'مسؤول القطاع الأساسي')}</div></td><td class="mono">${esc((row.invoices||[]).map(item=>item.invoice).filter(Boolean).join('، ')||'—')}</td><td class="num">${Number(row.amount||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</td><td>مسؤولية فاتورة القطاع البائع فقط</td></tr>`).join('')}</tbody><tfoot><tr><td colspan="5" class="lbl">إجمالي مبيعات القطاع لعملاء قطاع آخر</td><td class="num">${total.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</td><td></td></tr></tfoot></table><div style="margin-top:3mm;border:1pt solid #C6B187;background:#FBF3E5;padding:2.5mm 3mm;font-size:7.7pt;line-height:1.7;color:#4C3A1A;text-align:justify">لا تنشئ هذه العمليات عميلاً جديدًا ولا تنقل العميل من محفظته الأساسية. يتحمل المندوب الموقّع مسؤولية صحة وتنفيذ ومتابعة فواتير قطاعه المبينة أعلاه فقط، بينما تبقى ملكية العميل ورصيده العام وتحصيلاته لدى مسؤول محفظته الأساسية.</div>`;
+    body.appendChild(section);if(spine)page.appendChild(spine);page.appendChild(body);
+    const before=existing.find(node=>/الإقرارات والاعتماد|الإقرارات والالتزامات/.test(node.textContent||''))||existing.at(-1);if(before)sheet.insertBefore(page,before);else sheet.appendChild(page);
+  }
   function annotateSheet(context){
     const sheet=document.getElementById('sheet');if(!sheet)return;
+    insertCrossSectorPage(sheet,context);
     const pages=sheet.querySelectorAll('.doc,.portfolio-page,[data-document-page]');
     const targets=pages.length?[...pages]:[sheet];
     const label=context.fromDate===context.toDate?`تاريخ التقرير: ${fmt(context.toDate)}`:`فترة المحفظة: من ${fmt(context.fromDate)} إلى ${fmt(context.toDate)}`;
