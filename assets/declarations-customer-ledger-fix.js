@@ -4,7 +4,7 @@
   if(root.document)api.install();
 })(typeof globalThis!=='undefined'?globalThis:this,function(root){
   'use strict';
-  const VERSION='2026.07.27-declarations-customer-ledger-fifo-sector-v2';
+  const VERSION='2026.07.27-declarations-customer-primary-owner-v3';
   let installed=false,persistWrapped=false,printWrapped=false,rAllWrapped=false,bootPersisted=false;
 
   const num=value=>{const parsed=Number(value||0);return Number.isFinite(parsed)?parsed:0;};
@@ -15,7 +15,8 @@
   const addDays=(value,days)=>{if(!value)return'';const date=new Date(`${day(value)}T12:00:00`);if(Number.isNaN(date.getTime()))return'';date.setDate(date.getDate()+Math.max(0,num(days)));return date.toISOString().slice(0,10);};
   const today=()=>typeof root.opsToday==='function'?root.opsToday():new Date().toISOString().slice(0,10);
   const daysLate=value=>{if(!value)return 0;const due=new Date(`${day(value)}T00:00:00`),now=new Date(`${today()}T00:00:00`);return Number.isNaN(due.getTime())?0:Math.max(0,Math.floor((now-due)/86400000));};
-  const kindOf=row=>{const text=norm(row?.product||row?.item||row?.itemName||'');return /خرسان/.test(text)?'concrete':/(?:بلك|بلوك)/.test(text)?'block':'';};
+  const sectorOf=value=>{const text=norm(value);return text==='block'||/(?:بلك|بلوك)/.test(text)?'block':text==='concrete'||/خرسان/.test(text)?'concrete':'';};
+  const kindOf=row=>sectorOf(row?.salesType||row?.sales_type||row?.kind)||sectorOf(row?.product||row?.item||row?.itemName||'');
   const clientCodes=client=>new Set([client?.code,client?.customerCode,client?.accountCode,client?.external_id,client?.externalId].map(code).filter(Boolean));
   const rowCodes=row=>new Set([row?.customerCode,row?.accountCode,row?.clientCode,row?.code,row?.customer_external_id,row?.customerExternalId].map(code).filter(Boolean));
   const namesFor=value=>new Set([value?.name,value?.customer,value?.customerName,value?.accountName,value?.clientName,value?.partyName].map(norm).filter(Boolean));
@@ -29,6 +30,18 @@
     const names=namesFor(row);
     if(names.size)return clients.find(client=>intersects(namesFor(client),names))||null;
     return null;
+  }
+
+  function employeeSector(employee){return sectorOf(`${employee?.declarationRole||''} ${employee?.role||''} ${employee?.job||''}`);}
+  function primarySector(state,client,fallback=''){
+    const D=state?.D||{},OPS=state?.OPS||{},explicit=sectorOf(client?.primarySector||client?.primary_sector||client?.ownerSector||client?.owner_sector);
+    if(explicit)return explicit;
+    const segment=sectorOf(client?.seg||client?.segment||client?.costCenter);
+    if(segment)return segment;
+    const repIds=new Set([client?.rep,client?.repId,client?.salesRepId].map(clean).filter(Boolean)),rep=(D.emp||[]).find(employee=>repIds.has(clean(employee.id))||repIds.has(clean(employee.external_id))),repSector=employeeSector(rep);
+    if(repSector)return repSector;
+    const history=(OPS.deliveries||[]).filter(row=>!['returned','cancelled','reversed'].includes(row?.status)&&matchesClient(row,client,D.cli||[])&&kindOf(row)).map((row,index)=>({row,index,date:day(row.date)||'9999-99-99',reference:clean(row.clientOrder||row.invoice||row.no||row.id)})).sort((a,b)=>a.date.localeCompare(b.date)||a.reference.localeCompare(b.reference,'ar',{numeric:true})||a.index-b.index);
+    return kindOf(history[0]?.row)||sectorOf(fallback);
   }
 
   function matchesClient(row,client,clients=[]){
@@ -114,6 +127,17 @@
     return{changes,concreteEmployeeId:concrete?.id||'',blockEmployeeId:block?.id||''};
   }
 
+  function reconcileCustomerPrimarySectors(state){
+    const D=state?.D||{};let changes=0;
+    for(const client of D.cli||[]){
+      if(sectorOf(client.seg||client.segment))continue;
+      const owner=primarySector(state,client);if(!owner)continue;
+      const label=owner==='concrete'?'خرسانة':'بلوك';
+      if(client.seg!==label){client.seg=label;changes++;}
+    }
+    return changes;
+  }
+
   function clientPortfolioForEmployee(state,employee,segment='auto'){
     const D=state?.D||{},OPS=state?.OPS||{},clients=D.cli||[],role=norm(employee?.role),requested=segment==='خرسانة'?'concrete':segment==='بلوك'?'block':segment==='all'?'':segment==='auto'?(role.includes('خرسان')?'concrete':role.includes('بلوك')?'block':''):segment;
     const activity=new Map();
@@ -125,11 +149,20 @@
       if(!assigned)continue;
       const current=activity.get(client.id)||{kinds:new Set(),lastDate:'',sales:0};const kind=kindOf(delivery);if(kind)current.kinds.add(kind);current.lastDate=day(delivery.date)>current.lastDate?day(delivery.date):current.lastDate;current.sales+=num(delivery.amount);activity.set(client.id,current);
     }
-    const rows=clients.filter(client=>{const assigned=client.rep===employee?.id||(Array.isArray(client.repIds)&&client.repIds.includes(employee?.id)),active=activity.has(client.id);if(!assigned&&!active)return false;if(!requested)return true;const item=activity.get(client.id);if(item?.kinds.has(requested))return true;return assigned&&(client.seg===(requested==='concrete'?'خرسانة':'بلوك')||client.seg==='الاثنين');}).map(client=>{
+    const rows=clients.filter(client=>{const assigned=client.rep===employee?.id||(Array.isArray(client.repIds)&&client.repIds.includes(employee?.id)),active=activity.has(client.id),owner=primarySector(state,client,requested);if(requested&&owner&&owner!==requested)return false;if(!assigned&&!active)return false;if(!requested)return true;const item=activity.get(client.id);if(item?.kinds.has(requested))return true;return assigned&&owner===requested;}).map(client=>{
       const item=activity.get(client.id),kinds=item?.kinds||new Set(),ledger=buildClientLedger(state,client.id,requested),actual=requested?(requested==='concrete'?'خرسانة':'بلوك'):(kinds.size>1?'الاثنين':kinds.has('concrete')?'خرسانة':kinds.has('block')?'بلوك':client.seg);
       return{...client,_portfolioSegment:actual,_portfolioLastDate:item?.lastDate||'',_portfolioQty:ledger.quantity,_portfolioSales:ledger.sales,_portfolioPaid:ledger.paid,_portfolioBalance:ledger.remaining,_portfolioOverdue:ledger.overdue,_portfolioDue:ledger.nextDueDate,_portfolioLateDays:ledger.maxDaysLate};
     }).sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'ar'));
-    rows.clients=rows;return rows;
+    const cross=new Map();
+    if(requested)for(const delivery of OPS.deliveries||[]){
+      if(['returned','cancelled','reversed'].includes(delivery?.status)||kindOf(delivery)!==requested)continue;
+      if(delivery.employeeId&&delivery.employeeId!==employee?.id)continue;
+      const candidates=clients.filter(item=>matchesClient(delivery,item,clients)),client=candidates.find(item=>item.rep||(Array.isArray(item.repIds)&&item.repIds.length))||candidates[0]||resolveClient(delivery,clients);if(!client)continue;
+      const owner=primarySector(state,client,requested);if(!owner||owner===requested)continue;
+      const key=client.id||code(client.code)||norm(client.name),ownerEmployee=(D.emp||[]).find(item=>item.id===client.rep),current=cross.get(key)||{name:client.name,code:client.code||client.cr||'',phone:client.tel||client.phone||'',ownerSector:owner,ownerSectorLabel:owner==='concrete'?'الخرسانة':'البلوك',ownerEmployeeName:ownerEmployee?.name||'',sellingSector:requested,amount:0,quantity:0,item:new Set(),invoices:[],firstDate:'',lastDate:''};
+      current.amount+=num(delivery.amount);current.quantity+=num(delivery.quantity);if(delivery.product||delivery.item)current.item.add(delivery.product||delivery.item);current.invoices.push({invoice:delivery.clientOrder||delivery.invoice||delivery.no||'',date:day(delivery.date),amount:num(delivery.amount)});const date=day(delivery.date);if(date){current.firstDate=!current.firstDate||date<current.firstDate?date:current.firstDate;current.lastDate=date>current.lastDate?date:current.lastDate;}cross.set(key,current);
+    }
+    rows.crossSectorPurchases=[...cross.values()].map(item=>({...item,item:[...item.item].join('، ')})).sort((a,b)=>b.amount-a.amount||String(a.name||'').localeCompare(String(b.name||''),'ar'));rows.clients=rows;return rows;
   }
 
   const esc=value=>clean(value).replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
@@ -151,7 +184,7 @@
 
   function runtimeState(){return{D:root.D||{},OPS:root.OPS||{}};}
   function runtimeResponsible(kind){return typeof root.opsSalesResponsible==='function'?root.opsSalesResponsible(kind):responsibleFromState(runtimeState(),kind);}
-  function reconcileRuntime(){return reconcileSalesEmployees(runtimeState(),{concrete:runtimeResponsible('concrete'),block:runtimeResponsible('block')});}
+  function reconcileRuntime(){const state=runtimeState(),sales=reconcileSalesEmployees(state,{concrete:runtimeResponsible('concrete'),block:runtimeResponsible('block')}),customerSectorChanges=reconcileCustomerPrimarySectors(state);return{...sales,customerSectorChanges,changes:sales.changes+customerSectorChanges};}
 
   function install(){
     if(installed)return true;
@@ -179,5 +212,5 @@
   }
 
   if(root.document){const timer=setInterval(()=>{if(install())clearInterval(timer);},250);setTimeout(()=>clearInterval(timer),20000);}
-  return{VERSION,norm,code,kindOf,matchesClient,resolveClient,buildClientLedger,reconcileSalesEmployees,clientPortfolioForEmployee,install};
+  return{VERSION,norm,code,sectorOf,kindOf,employeeSector,primarySector,matchesClient,resolveClient,buildClientLedger,reconcileSalesEmployees,reconcileCustomerPrimarySectors,clientPortfolioForEmployee,install};
 });
