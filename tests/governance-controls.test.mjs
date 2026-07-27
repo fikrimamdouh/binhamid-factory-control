@@ -42,7 +42,7 @@ test('migration workflow tests through schema 24 with encrypted backups and isol
   assert.ok(workflow.includes("psql \"$LOCAL_DATABASE_URL\" -X -v ON_ERROR_STOP=1 -c 'create extension if not exists pgcrypto;'"));
   assert.match(preflight,/targetVersion:24/);assert.match(verify,/const targetVersion=24/);assert.match(verify,/between 16 and 24/);assert.match(verify,/toVersion:24/);assert.match(verify,/PROTECTED_ROW_COUNT_CHANGED/);assert.match(verify,/ACCOUNTING_INTEGRITY_FAILED/);
   assert.match(reversal,/migration_history\)<>24/);assert.match(reversal,/Number\(evidence\.schemaVersion\)!==24/);assert.doesNotMatch(reversal,/SCHEMA_23_REQUIRED/);
-  assert.match(accounting,/Number\(evidence\.schemaVersion\)!==24/);assert.doesNotMatch(accounting,/schemaVersion\)!==23/);
+  assert.match(accounting,/LATEST_REQUIRED_VERSION/);assert.match(accounting,/Number\(evidence\.schemaVersion\)!==LATEST_REQUIRED_VERSION/);assert.doesNotMatch(accounting,/schemaVersion\)!==23/);
 });
 
 test('financial, credit and maintenance guards are server-side database controls',async()=>{
