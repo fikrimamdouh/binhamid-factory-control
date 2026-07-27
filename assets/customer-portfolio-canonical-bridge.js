@@ -2,7 +2,7 @@
   'use strict';
   if(window.__BH_CUSTOMER_PORTFOLIO_CANONICAL_BRIDGE__)return;
   window.__BH_CUSTOMER_PORTFOLIO_CANONICAL_BRIDGE__=true;
-  const VERSION='2026.07.22-customer-portfolio-canonical-bridge-v2-original-texts';
+  const VERSION='2026.07.27-customer-portfolio-primary-owner-v3';
   const clean=value=>String(value??'').trim();
 
   function salesType(employee,segment){
@@ -17,7 +17,7 @@
 
   async function install(){
     let template,texts;
-    try{[template,texts]=await Promise.all([import('/shared/customer-portfolio-declaration.js?v=20260722-1'),import('/shared/canonical-declaration-texts.js?v=20260722-1')]);}
+    try{[template,texts]=await Promise.all([import('/shared/customer-portfolio-declaration.js?v=20260727-primary-owner-1'),import('/shared/canonical-declaration-texts.js?v=20260722-1')]);}
     catch(error){console.error('[canonical declaration] shared renderer failed',error);return false;}
     if(typeof template.renderCustomerPortfolioDeclaration!=='function')return false;
     window.docCli=function(employee,segment){
@@ -28,13 +28,19 @@
         code:row.code||row.id||'',
         phone:row.tel||row.phone||'',
         creditLimit:Number(row.cap??cfg.cap??0),
-        paymentDays:Number(row.days??cfg.days??3)
+        paymentDays:Number(row.days??cfg.days??3),
+        item:row._portfolioItem||'',
+        quantity:Number(row._portfolioQty||0),
+        sales:Number(row._portfolioSales||0),
+        paid:Number(row._portfolioPaid||0),
+        outstanding:Number(row._portfolioBalance||0)
       }));
       const rendered=template.renderCustomerPortfolioDeclaration({
         type,
         companyName:cfg.name||'مصنع بن حامد للبلوك والخرسانة الجاهزة',
         employee:{name:employee?.name||'',nationalId:employee?.nid||'',role:employee?.role||'',number:employee?.no||'',phone:employee?.tel||''},
         customers,
+        crossSectorPurchases:rows.crossSectorPurchases||[],
         days:Number(cfg.days||3),
         defaultCreditLimit:Number(cfg.cap||0),
         declarationText:texts.CUSTOMER_PORTFOLIO_DECLARATION,
