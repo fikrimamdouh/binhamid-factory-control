@@ -45,25 +45,26 @@ test('daily sales reports menu includes both portfolio declarations',()=>{
   assert.match(botReports,/callback_data:'ent:portfolio_current'/);
 });
 
-test('portfolio customers include every assigned debtor and current payment-only activity',()=>{
-  assert.match(portfolio,/assignedToRep/);
+test('portfolio customers come from section sales, not every debtor',()=>{
   assert.match(portfolio,/loadCustomerAnalytics/);
   assert.match(portfolio,/analysis\?\.sales/);
   assert.match(portfolio,/analysis\?\.collections/);
-  assert.match(portfolio,/currentIndex/);
-  assert.match(portfolio,/oldBalance:a\.oldDebt/);
-  assert.match(portfolio,/paidNew:a\.paidNew/);
-  assert.match(portfolio,/paidOld:a\.paidOld/);
-  assert.match(portfolio,/dueOnly\?allCustomers\.filter/);
+  assert.match(portfolio,/activityIndex/);
+  assert.match(portfolio,/hasSectionSales/);
+  assert.match(portfolio,/base\.grossSales/);
+  assert.match(portfolio,/a\.remainingNew>0/);
+  assert.doesNotMatch(portfolio,/assignedToRep/);
+  assert.doesNotMatch(portfolio,/dueOnly\?allCustomers\.filter/);
 });
 
-test('Telegram PDF includes dated old-new debt allocation evidence',()=>{
+test('Telegram PDF shows report sales, report payment and old-debt allocation',()=>{
   assert.match(portfolio,/appendDebtAppendix/);
-  assert.match(portfolio,/رصيد قديم \/ التاريخ/);
-  assert.match(portfolio,/فواتير جديدة \/ آخر فاتورة/);
-  assert.match(portfolio,/إجمالي السداد \/ آخر سداد/);
+  assert.match(portfolio,/مبيعات التقرير \/ التاريخ/);
+  assert.match(portfolio,/سداد التقرير \/ التاريخ/);
+  assert.match(portfolio,/المتبقي السابق والقديم/);
   assert.match(portfolio,/توزيع السداد/);
-  assert.match(portfolio,/المتبقي/);
+  assert.match(portfolio,/الرصيد النهائي/);
+  assert.match(portfolio,/لا تُدرج المديونية الافتتاحية وحدها دون مبيعات/);
 });
 
 test('concrete classifier accepts canonical and ready-mix values',()=>{
