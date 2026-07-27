@@ -93,6 +93,8 @@ async function handleText(message,group,identity,text,voicePath='',stored=null){
   if(await handleEnterpriseTextCommand(message,identity,raw))return;
   if(await handleInsightCommand(message,identity,raw))return;
   if(await handleFuelTextCommand(message,identity,raw))return;
+  // أي رسالة ديزل غير مكتملة تفتح قائمة الاختيارات بدل رد تخميني طويل.
+  if(/ديزل/.test(normalized))return showFuelMenu(message,identity);
   if(await handleProcurementTextCommand(message,identity,raw))return;
   if(await handleSalesTextCommand(message,identity,raw))return;
   const mechanicActions=[

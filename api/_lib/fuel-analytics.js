@@ -192,6 +192,22 @@ export async function loadVehicleStatement(plate,{from,to,category='diesel'}={})
     share:statement.totals.liters>0?liters/statement.totals.liters*100:0};
 }
 
+
+// آخر بيانات فعلية وآخر ملف مرفوع: يمنع تقرير «اليوم» من عرض أصفار مضللة
+// عندما لم تصل مزامنة أمس بعد، ويُظهر للمستخدم تاريخ المصدر المتاح بوضوح.
+export async function loadLatestFuelActivity({category='diesel'}={}){
+  let transactions=[],transactionError='';
+  try{transactions=await select('fuel_transactions','select=transaction_date,fuel_type&order=transaction_date.desc&limit=5000')||[];}
+  catch(error){transactionError=storeFailureReason(error);}
+  const latestRow=transactions.find(row=>inCategory(row,category))||null;
+  let lastImport=null;
+  try{lastImport=(await select('imports','source=eq.noor-khoy&report_type=eq.fuel&select=created_at,original_name,summary&order=created_at.desc&limit=1'))?.[0]||null;}
+  catch(error){console.warn('[fuel latest import]',String(error?.message||'').slice(0,220));}
+  const summary=lastImport?.summary&&typeof lastImport.summary==='object'?lastImport.summary:{};
+  const lastReportDate=isoDate(summary?.period?.end)||isoDate(summary?.source?.reportDate)||isoDate(summary?.balanceDate)||'';
+  return{category,latestDate:isoDate(latestRow?.transaction_date),lastReportDate,lastUploadAt:clean(lastImport?.created_at),sourceFile:clean(lastImport?.original_name),error:transactionError};
+}
+
 export async function loadFuelAnalytics(days=30,{category='diesel'}={}){
   const range=periodRange(days);
   const[currentFetch,previousFetch]=await Promise.all([fetchRange(range.from,range.to),fetchRange(range.previousFrom,range.previousTo)]);
