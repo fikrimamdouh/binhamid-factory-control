@@ -1,0 +1,53 @@
+name: Noor Khoy daily fuel sync
+
+on:
+  workflow_dispatch:
+    inputs:
+      report_date:
+        description: Optional report date (YYYY-MM-DD); Riyadh today when empty
+        required: false
+        type: string
+  schedule:
+    - cron: '20 18 * * *'
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: noor-khoy-daily-fuel-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NOOR_KHOY_USERNAME: ${{ secrets.NOOR_KHOY_USERNAME }}
+      NOOR_KHOY_PASSWORD: ${{ secrets.NOOR_KHOY_PASSWORD }}
+      NOOR_KHOY_LOGIN_URL: https://www.norkhoysa.com/companies/login
+      NOOR_KHOY_REPORT_URL: https://www.norkhoysa.com/companies/fuels?fueltype=all
+      BINHAMID_FUEL_UPLOAD_URL: https://binhamid-factory-control.vercel.app/api/fuel/daily-report
+      REPORT_DATE: ${{ inputs.report_date }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install project dependencies
+        run: npm ci
+      - name: Install browser automation
+        run: |
+          npm install --no-save --no-package-lock playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Download and upload the daily fuel report
+        run: node scripts/noor-khoy-fuel-sync.mjs
+      - name: Keep diagnostic artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: noor-khoy-fuel-${{ github.run_id }}
+          path: artifacts/noor-khoy-fuel/
+          if-no-files-found: ignore
+          retention-days: 7
