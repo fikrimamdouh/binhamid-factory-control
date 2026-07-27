@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const directory=resolve('supabase/migrations'),files=readdirSync(directory).filter(name=>/^\d{3}_.+\.sql$/.test(name)).sort(),versions=files.map(name=>Number(name.slice(0,3))),errors=[];
-const latest=30;
+const latest=31;
 for(let version=1;version<=latest;version++){if(!versions.includes(version))errors.push(`missing migration ${String(version).padStart(3,'0')}`);}
 if(new Set(versions).size!==versions.length)errors.push('duplicate migration version');
 if(Math.max(...versions)!==latest)errors.push(`latest migration must be ${String(latest).padStart(3,'0')}`);
@@ -28,5 +28,6 @@ for(const file of files){
   if(version===24){for(const marker of ['app_users','employees','user_invitations','nickname','sync_app_user_nickname_to_employee','024_employee_nickname_and_financial_command_center'])if(!sql.includes(marker))errors.push(`${file}: missing ${marker}`);}
   if(version===26){for(const marker of ['master_data_import_runs','employee_asset_directory','guard_employee_national_id','sync_unified_asset_to_vehicle','026_persistent_employee_asset_identity_link'])if(!sql.includes(marker))errors.push(`${file}: missing ${marker}`);}
   if(version===30){for(const marker of ['MIGRATION_029_REQUIRED','daily_report_collection_fifo_update_trigger','replay_daily_report_collection_fifo_after_update','rebuild_customer_fifo','DAILY_REPORT_FIFO_REPAIR_FAILED','030_daily_report_fifo_integrity'])if(!sql.includes(marker))errors.push(`${file}: missing ${marker}`);}
+  if(version===31){for(const marker of ['MIGRATION_030_REQUIRED','reconcile_daily_report_upgrade_snapshot','upgrade_daily_report_details_v2_legacy','daily_report_cash_row_superseded','daily_report_inventory_row_superseded','REVISED_SNAPSHOT_REPAIR_MISMATCH','031_daily_report_snapshot_reconciliation'])if(!sql.includes(marker))errors.push(`${file}: missing ${marker}`);}
 }
 if(errors.length){console.error(errors.join('\n'));process.exit(1);}console.log(`MIGRATIONS_OK=${files.length};LATEST=${String(latest).padStart(3,'0')}`);
