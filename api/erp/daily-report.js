@@ -115,18 +115,55 @@ export function payloadFromAnalysis(analysis,reportDate){
   };
 }
 
-async function upgradePostedImport(existing,analysis,reportDate,hash){
+const saleCoreKey=row=>[
+  clean(row?.invoiceNo??row?.invoice_no??row?.invoice,120),
+  clean(row?.customerCode??row?.customer_code,120),
+  erpSaleType({
+    salesType:row?.salesType??row?.sales_type,
+    kind:row?.kind,
+    item:row?.item??row?.item_name
+  })
+].join('|');
+
+export function historicalSalesCompatibility(existingSales=[],incomingSales=[]){
+  const existingKeys=[...new Set((existingSales||[]).map(saleCoreKey).filter(key=>!key.startsWith('||')))];
+  const incomingKeys=new Set((incomingSales||[]).map(saleCoreKey).filter(key=>!key.startsWith('||')));
+  const missing=existingKeys.filter(key=>!incomingKeys.has(key));
+  return{
+    compatible:existingKeys.length>0&&missing.length===0&&incomingKeys.size>=existingKeys.length,
+    existingCount:existingKeys.length,
+    incomingCount:incomingKeys.size,
+    missing
+  };
+}
+
+async function postedBatchForHistoricalUpgrade(reportDate,analysis,sourceHash){
+  const batch=(await select('daily_report_batches',`report_date=eq.${reportDate}&status=eq.approved&select=id,report_date,file_hash,status,original_name,summary&limit=1`))?.[0]||null;
+  if(!batch)return null;
+  if(batch.file_hash===sourceHash)return{batch,compatibility:{compatible:true,matchedBy:'file_hash',existingCount:Number(batch.summary?.invoiceCount||0),incomingCount:Number(analysis?.sales?.length||0),missing:[]}};
+  const existingSales=await select('daily_report_sales_lines',`batch_id=eq.${encodeURIComponent(batch.id)}&select=invoice_no,sales_type,customer_code,item_name,quantity,amount&limit=10000`);
+  return{batch,compatibility:{...historicalSalesCompatibility(existingSales,analysis?.sales||[]),matchedBy:'sales_core'}};
+}
+
+async function upgradePostedImport(existing,analysis,reportDate,trustedHash,sourceHash=trustedHash){
   const payload=payloadFromAnalysis(analysis,reportDate);
   try{
-    const upgraded=await rpc('upgrade_daily_report_details',{p_report_date:reportDate,p_file_hash:hash,p_payload:payload,p_actor:'erp-folder-sync-v2'});
-    const summary={sheetNames:[],daily:analysis.summary,source:{kind:'erp-folder',parserVersion:'daily-report-v2',upgradedAt:new Date().toISOString()}};
-    await patch('imports',`id=eq.${encodeURIComponent(existing.id)}`,{summary,last_error_code:null,last_error_message:null}).catch(()=>{});
-    return Array.isArray(upgraded)?upgraded[0]:upgraded;
+    const upgradedRaw=await rpc('upgrade_daily_report_details',{p_report_date:reportDate,p_file_hash:trustedHash,p_payload:payload,p_actor:'erp-folder-sync-v2'}),upgraded=Array.isArray(upgradedRaw)?upgradedRaw[0]:upgradedRaw;
+    const summary={sheetNames:[],daily:analysis.summary,source:{kind:'erp-folder',parserVersion:'daily-report-v2',sourceFileHash:sourceHash,matchedFileHash:trustedHash,upgradedAt:new Date().toISOString()}};
+    await patch('imports',`id=eq.${encodeURIComponent(existing.id)}`,{status:'posted',posted_batch_id:upgraded?.batchId||null,summary,error_count:0,warning_count:0,last_error_code:null,last_error_message:null}).catch(()=>{});
+    return{...upgraded,sourceFileHash:sourceHash,matchedFileHash:trustedHash};
   }catch(error){
     const text=[error?.message,error?.data?.message,error?.data?.code,error?.code].filter(Boolean).join(' ');
     if(/upgrade_daily_report_details|PGRST202|42883/i.test(text))return{available:false,reason:'MIGRATION_029_REQUIRED'};
     throw error;
   }
+}
+
+async function deliverUpgradeTelegram({analysis,originalName,reportDate,upgrade,shouldSendReports}){
+  if(!shouldSendReports)return{disabled:true};
+  if(!upgrade?.upgraded)return sendErpDuplicateNotice({reportDate,sourceFile:originalName,upgrade});
+  const prepared=await prepareErpSuccessDelivery({analysis,sourceFile:originalName,reportDate}).catch(error=>({recipients:[],collections:[],reports:[],errors:[String(error?.message||error)]}));
+  return sendErpSuccessDelivery({analysis,sourceFile:originalName,reportDate,posting:{...upgrade,batchId:upgrade.batchId,duplicate:false,upgraded:true},prepared});
 }
 
 export default async function handler(req,res){
@@ -139,10 +176,10 @@ export default async function handler(req,res){
     if(buffer[0]!==0x50||buffer[1]!==0x4b)throw Object.assign(new Error('الملف ليس XLSX صالحًا'),{status:415,code:'ERP_SYNC_XLSX_REQUIRED'});
 
     const originalName=decodedFilename(req),hash=sha256(buffer),workbook=XLSX.read(buffer,{type:'buffer',cellDates:true}),analysis=parseDailyWorkbook(workbook,XLSX),classification=resolveDailyReportType(req,workbook,originalName,analysis),reportType=classification.reportType;
-    const reportDate=resolveReportDate(req,workbook,originalName,analysis),existing=(await select('imports',`file_hash=eq.${hash}&select=id,status,original_name,report_type,file_path,file_hash,summary&limit=1`))?.[0]||null;
+    const reportDate=resolveReportDate(req,workbook,originalName,analysis),existing=(await select('imports',`file_hash=eq.${hash}&select=id,status,original_name,report_type,file_path,file_hash,summary&limit=1`))?.[0]||null,shouldSendReports=String(req.headers?.['x-erp-send-reports']??'1')!=='0';
     if(existing&&['posted','approved'].includes(existing.status)){
       const upgrade=await upgradePostedImport(existing,analysis,reportDate,hash);
-      const telegram=await sendErpDuplicateNotice({reportDate,sourceFile:originalName,upgrade}).catch(error=>({errors:[String(error?.message||error)]}));
+      const telegram=await deliverUpgradeTelegram({analysis,originalName,reportDate,upgrade,shouldSendReports}).catch(error=>({errors:[String(error?.message||error)]}));
       return json(res,200,{ok:true,duplicate:true,upgraded:Boolean(upgrade?.upgraded),upgrade,reportDate,fileHash:hash,importId:existing.id,status:existing.status,summary:analysis.summary,telegram});
     }
 
@@ -159,10 +196,22 @@ export default async function handler(req,res){
     }
     if(!imp?.id)throw Object.assign(new Error('تعذر تسجيل ملف ERP في مركز الوارد'),{status:502,code:'ERP_SYNC_IMPORT_REGISTER_FAILED'});
 
-    const shouldSendReports=String(req.headers?.['x-erp-send-reports']??'1')!=='0',preparedTelegram=shouldSendReports?await prepareErpSuccessDelivery({analysis,sourceFile:originalName,reportDate}).catch(error=>({recipients:[],collections:[],reports:[],errors:[String(error?.message||error)]})):null;
+    const historical=await postedBatchForHistoricalUpgrade(reportDate,analysis,hash);
+    if(historical){
+      if(!historical.compatibility.compatible){
+        const reason='يوجد تقرير معتمد لنفس التاريخ، لكن الفواتير أو العملاء لا يطابقون الملف الحالي. أُوقف التحديث لمنع دمج تقريرين مختلفين.';
+        const telegram=await sendErpFailureNotice({reportDate,sourceFile:originalName,reason}).catch(error=>({errors:[String(error?.message||error)]}));
+        return json(res,409,{ok:false,duplicate:false,code:'ERP_HISTORICAL_REPORT_MISMATCH',reason,reportDate,fileHash:hash,importId:imp.id,storagePath,summary:analysis.summary,compatibility:historical.compatibility,telegram});
+      }
+      const upgrade=await upgradePostedImport(imp,analysis,reportDate,historical.batch.file_hash,hash);
+      const telegram=await deliverUpgradeTelegram({analysis,originalName,reportDate,upgrade,shouldSendReports}).catch(error=>({errors:[String(error?.message||error)]}));
+      return json(res,200,{ok:true,duplicate:true,upgraded:Boolean(upgrade?.upgraded),upgrade,reportDate,fileHash:hash,importId:imp.id,status:'posted',summary:analysis.summary,compatibility:historical.compatibility,telegram});
+    }
+
+    const preparedTelegram=shouldSendReports?await prepareErpSuccessDelivery({analysis,sourceFile:originalName,reportDate}).catch(error=>({recipients:[],collections:[],reports:[],errors:[String(error?.message||error)]})):null;
     const posting=await commitDailyReportFromTelegram({reportDate,originalName,fileHash:hash,contentHash:hash,idempotencyKey:`erp-folder:${reportDate}:${hash}`,importId:imp.id,payload:payloadFromAnalysis(analysis,reportDate)},'erp-folder-sync');
     if(!posting?.ok){
-      const errors=(posting?.errors||[]).slice(0,5),reason=errors.map((item,index)=>`${index+1}. ${clean(item?.message||item?.code,300)}`).join('\n')||'فشل تحقق التقرير على الخادم.';
+      const errors=(posting?.errors||[]).slice(0,5),reason=errors.map((item,index)=>`${index+1}. ${clean(item?.message||item?.code,300)}`).join('\n')||clean(posting?.reason,500)||'فشل تحقق التقرير على الخادم.';
       const telegram=await sendErpFailureNotice({reportDate,sourceFile:originalName,reason}).catch(error=>({errors:[String(error?.message||error)]}));
       return json(res,422,{ok:false,duplicate:false,reportDate,fileHash:hash,importId:imp.id,storagePath,summary:analysis.summary,posting,telegram});
     }

@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 import * as XLSX from 'xlsx';
 import { parseDailyWorkbook } from '../api/_lib/daily-summary-parser.js';
 
-const { payloadFromAnalysis,resolveReportDate }=await import(['..','api','erp','daily-report.js'].join('/'));
+const { historicalSalesCompatibility,payloadFromAnalysis,resolveReportDate }=await import(['..','api','erp','daily-report.js'].join('/'));
 
 const rows=[
   ['المبيعات'],
@@ -90,6 +90,22 @@ test('ERP route selects the latest movement date and posts full financial detail
   assert.equal(payload.cashMovements.find(row=>row.voucherNo==='573').isCustomerCollection,true);
   assert.equal(payload.treasuries.length,2);
   assert.equal(payload.summary.parserVersion,'daily-report-v2');
+});
+
+test('historical upgrade accepts a revised file only when its original invoices and customers still match',()=>{
+  const existing=[
+    {invoice_no:'18448',customer_code:'11508',sales_type:'block',amount:70},
+    {invoice_no:'18447',customer_code:'13200',sales_type:'block',amount:450}
+  ];
+  const incoming=[
+    {invoice:'18448',customerCode:'11508',kind:'بلك',amount:70},
+    {invoice:'18447',customerCode:'13200',kind:'بلوك',amount:450},
+    {invoice:'18450',customerCode:'13201',kind:'block',amount:1440}
+  ];
+  assert.deepEqual(historicalSalesCompatibility(existing,incoming),{
+    compatible:true,existingCount:2,incomingCount:3,missing:[]
+  });
+  assert.equal(historicalSalesCompatibility(existing,[incoming[0],{...incoming[1],customerCode:'WRONG'}]).compatible,false);
 });
 
 test('migration 029 upgrades the exact approved file and supports bank collections',async()=>{

@@ -13,6 +13,11 @@ test('ERP folder sync is isolated, authenticated, idempotent and uses the canoni
   assert.match(source,/idempotencyKey:`erp-folder:/);
   assert.match(source,/inventoryType:'finished_goods'/);
   assert.match(source,/inventoryType:'raw_material'/);
+  assert.match(source,/historicalSalesCompatibility/);
+  assert.match(source,/postedBatchForHistoricalUpgrade/);
+  assert.match(source,/historical\.batch\.file_hash/);
+  assert.match(source,/status:'posted',posted_batch_id:/);
+  assert.match(source,/posting\?\.reason/);
 });
 
 test('ERP folder sync accepts a workbook when the dedicated parser found daily sections even if generic classification missed it',async()=>{
