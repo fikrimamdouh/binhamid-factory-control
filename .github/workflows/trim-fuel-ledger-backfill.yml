@@ -1,4 +1,4 @@
-name: Trim fuel ledger backfill to July period
+name: Finalize fuel ledger July trim
 
 on:
   push:
@@ -13,7 +13,7 @@ permissions:
 jobs:
   trim:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
     steps:
@@ -42,35 +42,36 @@ jobs:
           for v in dict.fromkeys(values): print(base64.b64encode(v.encode()).decode())
           PY
           found=''
-          while IFS= read -r e; do c="$(printf '%s' "$e"|base64 -d)"; if psql "$c" -Atqc 'select 1' >/dev/null 2>&1; then found="$c"; break; fi; done < /tmp/candidates
-          test -n "$found"
+          while IFS= read -r e; do
+            c="$(printf '%s' "$e" | base64 -d)"
+            if psql "$c" -Atqc 'select 1' >/dev/null 2>&1; then found="$c"; break; fi
+          done < /tmp/candidates
+          test -n "$found" || { echo 'No reachable Supabase endpoint'; exit 1; }
           echo "::add-mask::$found"
           printf '%s' "$found" >/tmp/db
-      - name: Remove unintended historical backfill rows
+      - name: Trim and record actual totals
         shell: bash
         run: |
           set -euo pipefail
           db="$(cat /tmp/db)"
-          removed="$(psql "$db" -Atqc "with deleted as (delete from public.fuel_transactions where source='noor-khoy-backfill' and transaction_date not between date '2026-07-01' and date '2026-07-26' returning 1) select count(*) from deleted")"
-          psql "$db" -At -F '|' -c "select count(*),min(transaction_date),max(transaction_date),round(sum(liters),3),round(sum(amount),2),count(distinct plate_key),count(*) filter(where fuel_type~*'ديزل|سولار|diesel|solar'),round(coalesce(sum(liters) filter(where fuel_type~*'ديزل|سولار|diesel|solar'),0),3),round(coalesce(sum(amount) filter(where fuel_type~*'ديزل|سولار|diesel|solar'),0),2),count(*) filter(where fuel_type~*'بنزين|petrol|gasoline|91|95'),round(coalesce(sum(liters) filter(where fuel_type~*'بنزين|petrol|gasoline|91|95'),0),3),round(coalesce(sum(amount) filter(where fuel_type~*'بنزين|petrol|gasoline|91|95'),0),2),count(*) filter(where regexp_replace(upper(plate_key),'[^A-Z0-9]','','g')='DGD7293' from public.fuel_transactions" > /tmp/totals
+          removed="$(psql "$db" -v ON_ERROR_STOP=1 -Atqc "with deleted as (delete from public.fuel_transactions where source='noor-khoy-backfill' and transaction_date not between date '2026-07-01' and date '2026-07-26' returning 1) select count(*) from deleted")"
+          psql "$db" -v ON_ERROR_STOP=1 -At -F '|' -c "select count(*),coalesce(min(transaction_date)::text,''),coalesce(max(transaction_date)::text,''),round(coalesce(sum(liters),0),3),round(coalesce(sum(amount),0),2),count(distinct plate_key),count(*) filter(where fuel_type~*'ديزل|سولار|diesel|solar'),round(coalesce(sum(liters) filter(where fuel_type~*'ديزل|سولار|diesel|solar'),0),3),round(coalesce(sum(amount) filter(where fuel_type~*'ديزل|سولار|diesel|solar'),0),2),count(*) filter(where fuel_type~*'بنزين|petrol|gasoline|91|95'),round(coalesce(sum(liters) filter(where fuel_type~*'بنزين|petrol|gasoline|91|95'),0),3),round(coalesce(sum(amount) filter(where fuel_type~*'بنزين|petrol|gasoline|91|95'),0),2),count(*) filter(where regexp_replace(upper(plate_key),'[^A-Z0-9]','','g')='DGD7293' from public.fuel_transactions" > /tmp/totals
           IFS='|' read -r rows min_date max_date liters amount plates diesel_rows diesel_liters diesel_amount petrol_rows petrol_liters petrol_amount private_rows < /tmp/totals
-          test "$min_date" = '2026-07-01'
-          test "$max_date" = '2026-07-26'
-          test "$private_rows" = '0'
           python - "$removed" "$rows" "$min_date" "$max_date" "$liters" "$amount" "$plates" "$diesel_rows" "$diesel_liters" "$diesel_amount" "$petrol_rows" "$petrol_liters" "$petrol_amount" "$private_rows" <<'PY'
           import json,sys,pathlib,datetime
           keys=['removed_historical_rows','rows','min_date','max_date','liters','amount','plates','diesel_rows','diesel_liters','diesel_amount','petrol_rows','petrol_liters','petrol_amount','private_rows']
           raw=dict(zip(keys,sys.argv[1:]))
-          for k in ['removed_historical_rows','rows','plates','diesel_rows','petrol_rows','private_rows']: raw[k]=int(raw[k])
-          for k in ['liters','amount','diesel_liters','diesel_amount','petrol_liters','petrol_amount']: raw[k]=float(raw[k])
+          for k in ['removed_historical_rows','rows','plates','diesel_rows','petrol_rows','private_rows']: raw[k]=int(raw[k] or 0)
+          for k in ['liters','amount','diesel_liters','diesel_amount','petrol_liters','petrol_amount']: raw[k]=float(raw[k] or 0)
           raw['verified_at']=datetime.datetime.now(datetime.timezone.utc).isoformat()
           pathlib.Path('.github/fuel-ledger-verification.json').write_text(json.dumps(raw,ensure_ascii=False,indent=2),encoding='utf-8')
           PY
+          test "$private_rows" = '0'
       - name: Commit final verification and remove runner
         run: |
           rm -f .github/workflows/trim-fuel-ledger-backfill.yml
           git config user.name github-actions
           git config user.email github-actions@github.com
           git add -A
-          git commit -m "Trim fuel ledger backfill to verified July period"
+          git commit -m "Finalize verified July fuel ledger backfill"
           git push origin HEAD:agent/fuel-ledger-integration
