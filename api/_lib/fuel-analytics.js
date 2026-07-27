@@ -100,6 +100,16 @@ export function periodRange(days=30,today=riyadhToday()){
   return{from:shiftDays(today,-(days-1)),to:today,previousFrom:shiftDays(today,-(days*2-1)),previousTo:shiftDays(today,-days)};
 }
 
+// رصيد المركبات ليس «استهلاكًا» ولا يُخلط بحركات التعبئة؛ هو لقطة مستقلة تصل
+// مساءً من صفحة المركبات بالمحطة. آخر لقطة موثقة فقط هي التي تظهر بالتقرير.
+export async function loadLatestVehicleDieselBalance(){
+  try{
+    const row=(await select('audit_log','action=eq.vehicle_diesel_balance_report_sent&select=details,created_at&order=created_at.desc&limit=1'))?.[0],details=row?.details||{},total=Number(details.total),vehicleCount=Number(details.vehicle_count);
+    if(!row||!Number.isFinite(total)||total<0||!Number.isInteger(vehicleCount)||vehicleCount<1)return null;
+    return{total:Number(total.toFixed(2)),vehicleCount,capturedAt:clean(details.captured_at)||clean(row.created_at)};
+  }catch(error){console.warn('[vehicle diesel balance]',String(error?.message||'').slice(0,180));return null;}
+}
+
 // الخطأ لا يُبتلع إلى مصفوفة فارغة: «الجدول غير موجود» و«لا توجد حركات» شيئان
 // مختلفان، وعرض الأول كالثاني يجعل القسم يكذب على المستخدم إلى الأبد.
 async function fetchRange(from,to){
