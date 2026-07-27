@@ -6,7 +6,9 @@ import { sendMessage, sendDocumentBuffer, downloadTelegramFile } from './telegra
 import { classifyFile, sha256 } from './domain.js';
 import { parseDailyWorkbook } from './daily-summary-parser.js';
 import { generateCumulativeDailyPdfs } from './daily-cumulative-pdf.js';
-import { generateFuelReportPdf } from './fuel-report-pdf.js';
+import { generateFuelReportPdfs } from './fuel-report-pdf.js';
+import { storeFuelRows, storeFailureReason } from './fuel-analytics.js';
+import { parseFuelWorkbook } from './fuel-summary-parser.js';
 import { generateCustomerPortfolioPdfs } from './customer-portfolio-pdf.js';
 import { commitDailyReportFromTelegram } from './routes/daily-report.js';
 import { requestDailyBackup } from './daily-backup-trigger.js';
@@ -137,16 +139,36 @@ async function sendCumulativeDailyReports(chatId,analysis,name){
 }
 // تقرير الديزل: يقرأ الملف برقم اللوحة ويرسل PDF فيه استهلاك كل لوحة وكل
 // التحذيرات (إيصال مكرر، عداد غير منطقي، تعبئة متقاربة، كمية/سعر شاذ).
+const CATEGORY_NAME={diesel:'الديزل',petrol:'البنزين',other:'أنواع أخرى'};
 async function sendFuelReport(chatId,buffer,name){
   try{
     const workbook=XLSX.read(buffer,{type:'buffer',cellDates:true});
-    const{pdf,filename,caption,report,rowCount}=await generateFuelReportPdf(workbook,XLSX,name);
-    if(!rowCount){await sendMessage(chatId,'لم أجد صفوف ديزل صالحة (برقم لوحة ومبلغ أو كمية) في هذا الملف.');return null;}
-    await sendDocumentBuffer(chatId,pdf,filename,'application/pdf',caption);
-    await relayPdfToOwner(chatId,pdf,filename,`نسخة إدارة — ${caption}`);
-    const t=report.totals;
-    await sendMessage(chatId,`⛽ تم تحليل ${t.fillCount} تعبئة على ${t.plateCount} لوحة.\nإجمالي اللترات: ${t.liters}\nإجمالي المبلغ: ${t.amount} ر.س\nالملاحظات: ${t.danger} حرجة، ${t.warn} تنبيه.`);
-    return report;
+    // تقرير مستقل لكل فئة وقود: الديزل والبنزين لا يُجمعان في جدول واحد.
+    const reports=await generateFuelReportPdfs(workbook,XLSX,name);
+    if(!reports.length){await sendMessage(chatId,'لم أجد صفوف وقود صالحة (برقم لوحة ومبلغ أو كمية) في هذا الملف.');return null;}
+    for(const report of reports){
+      await sendDocumentBuffer(chatId,report.pdf,report.filename,'application/pdf',report.caption);
+      await relayPdfToOwner(chatId,report.pdf,report.filename,`نسخة إدارة — ${report.caption}`);
+    }
+    // الحركات تُحفظ دائمًا: بدونها لا مقارنة ولا استهلاك تراكمي ولا كشف تعبئة
+    // مشبوهة ولا كشف حساب لمركبة. التكرار تمنعه بصمة السطر في قاعدة البيانات.
+    const fuelRows=parseFuelWorkbook(workbook,XLSX).rows;
+    const saved=await storeFuelRows(fuelRows,{sourceFile:name}).catch(error=>{
+      console.warn('[fuel store]',String(error?.message||'').slice(0,220));
+      return{stored:0,skipped:0,failed:fuelRows.length,reason:storeFailureReason(error)};
+    });
+    const breakdown=reports.map(item=>`• ${CATEGORY_NAME[item.category]||item.category}: ${item.report.totals.fillCount} تعبئة، ${item.report.totals.liters} لتر، ${item.report.totals.amount} ر.س`).join('\n');
+    const flagged=reports.reduce((sum,item)=>sum+item.report.totals.danger+item.report.totals.warn,0);
+    // التمييز صريح: «حُفظت» جديد فعلًا، و«مسجّلة مسبقًا» إعادة رفع لفترة متداخلة،
+    // و«تعذّر حفظها» خطأ حقيقي يُذكر سببه وإجراؤه. بدون ذلك يصل التقرير كأنه نجح
+    // بينما لم تُحفظ حركة واحدة، ويبقى قسم الديزل فارغًا بلا تفسير.
+    const storage=[
+      saved.stored?`💾 حُفظت ${saved.stored} حركة جديدة في سجل الوقود.`:'',
+      saved.skipped?`↩️ ${saved.skipped} حركة مسجّلة مسبقًا (لم تتكرر).`:'',
+      saved.failed?`⚠️ لم تُحفظ ${saved.failed} حركة.\n🛠️ ${esc(saved.reason||'سبب غير معروف — راجع السجل.')}`:''
+    ].filter(Boolean).join('\n');
+    await sendMessage(chatId,`⛽ تم تحليل ${fuelRows.length} تعبئة.\n${breakdown}\nالملاحظات التي تحتاج مراجعة: ${flagged}.${storage?`\n${storage}`:''}\n\nاستعرض كشف الحساب والاستهلاك من «تقارير الديزل».`);
+    return reports[0]?.report||null;
   }catch(error){
     console.error('[telegram fuel report]',{code:error?.code||null,status:Number(error?.status||error?.upstreamStatus||0),message:String(error?.message||'').slice(0,500)});
     const reason=error?.code==='PDF_SERVICE_NOT_CONFIGURED'?'خدمة PDF غير مضبوطة. يلزم ضبط PDF_PROVIDER وPDF_API_URL في Vercel.':String(error?.message||'تعذر إنشاء تقرير الديزل').slice(0,300);

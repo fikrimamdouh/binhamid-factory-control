@@ -39,10 +39,10 @@ test('schema readiness includes employee nickname and persistent employee asset 
   const [migration24,migration26,audit,runtime]=await Promise.all([read('supabase/migrations/024_employee_nickname_and_financial_command_center.sql'),read('supabase/migrations/026_persistent_employee_asset_identity_link.sql'),read('scripts/audit-migrations.mjs'),read('api/_lib/routes/system-runtime.js')]);
   assert.match(migration24,/values\(24,'024_employee_nickname_and_financial_command_center'\)/);
   assert.match(migration26,/values\(26,'026_persistent_employee_asset_identity_link'\)/);
-  assert.match(audit,/const latest=27/);
+  assert.match(audit,/const latest=28/);
   assert.match(audit,/version===24/);
   assert.match(audit,/version===26/);
-  assert.match(runtime,/LATEST_REQUIRED_VERSION=27/);
+  assert.match(runtime,/LATEST_REQUIRED_VERSION=28/);
   assert.match(runtime,/app_users:\['nickname'\]/);
   assert.match(runtime,/employees:\['nickname','national_id','site'/);
   assert.match(runtime,/user_invitations:\['nickname'\]/);
