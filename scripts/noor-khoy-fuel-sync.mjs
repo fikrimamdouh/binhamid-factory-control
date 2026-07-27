@@ -8,12 +8,14 @@ import { parseFuelWorkbook } from '../api/_lib/fuel-summary-parser.js';
 const LOGIN_URL=process.env.NOOR_KHOY_LOGIN_URL||'https://www.norkhoysa.com/companies/login';
 const DASHBOARD_URL=process.env.NOOR_KHOY_DASHBOARD_URL||'https://www.norkhoysa.com/companies';
 const REPORT_URL=process.env.NOOR_KHOY_REPORT_URL||'https://www.norkhoysa.com/companies/fuels?fueltype=all';
+const VEHICLES_URL=process.env.NOOR_KHOY_VEHICLES_URL||'https://www.norkhoysa.com/companies/vehicles';
 const UPLOAD_URL=process.env.BINHAMID_FUEL_UPLOAD_URL||'https://binhamid-factory-control.vercel.app/api/fuel/daily-report';
 const username=String(process.env.NOOR_KHOY_USERNAME||'').trim();
 const password=String(process.env.NOOR_KHOY_PASSWORD||'');
 const artifacts=path.resolve(process.env.FUEL_SYNC_ARTIFACT_DIR||'artifacts/noor-khoy-fuel');
 const sendBalance=!/^(false|0|no)$/i.test(String(process.env.FUEL_SEND_BALANCE||'true').trim());
 const notify=!/^(false|0|no)$/i.test(String(process.env.FUEL_NOTIFY||'true').trim());
+const syncMode=String(process.env.FUEL_SYNC_MODE||'daily-report').trim();
 
 function required(value,name){if(!value)throw new Error(`Missing required environment variable: ${name}`);return value;}
 function riyadhDate(value=new Date()){
@@ -33,6 +35,20 @@ function westernDigits(value){return String(value??'').replace(/[٠-٩]/g,d=>'٠
 function moneyNumber(value){
   const normalized=westernDigits(value).replace(/[٬,\s]/g,'').replace('٫','.').replace(/[^0-9.-]/g,'');
   const number=Number(normalized);return Number.isFinite(number)&&number>=0?Number(number.toFixed(2)):null;
+}
+function isVehicleBalanceHeader(value){return /balance|credit|remaining|رصيد|المتبقي|متبقي/i.test(compact(value));}
+function normalizedHeader(value){return compact(value).replace(/[\s:：-]/g,'').toLowerCase();}
+function vehicleBalanceSummary(tables=[]){
+  const candidates=[];
+  for(const table of tables){
+    const headers=(table.headers||[]).map(normalizedHeader),balanceIndex=headers.findIndex(isVehicleBalanceHeader);if(balanceIndex<0)continue;
+    const vehicleIndex=headers.findIndex(header=>/(?:vehicle|plate|car|truck|مركبة|السيارة|اللوحة)/i.test(header)),rows=[];
+    for(const cells of table.rows||[]){const amount=moneyNumber(cells?.[balanceIndex]),vehicle=compact(cells?.[vehicleIndex>=0?vehicleIndex:0]);if(amount===null||!vehicle)continue;rows.push({vehicle,amount});}
+    if(rows.length)candidates.push({rows,header:compact((table.headers||[])[balanceIndex])});
+  }
+  candidates.sort((a,b)=>b.rows.length-a.rows.length);const winner=candidates[0];
+  if(!winner)throw new Error('لم يتم العثور على جدول مركبات يحتوي عمود رصيد صريحًا.');
+  return{rows:winner.rows,header:winner.header,total:Number(winner.rows.reduce((sum,row)=>sum+row.amount,0).toFixed(2))};
 }
 function isFuelReportUrl(value){try{return /\/companies\/fuels\/?$/i.test(new URL(value).pathname);}catch{return false;}}
 function reportUrl(fromDate,toDate,exportExcel=false){
@@ -149,6 +165,12 @@ async function upload(filePath,fromDate,toDate,parsed,accountBalance,balanceCapt
   await fs.writeFile(path.join(artifacts,'upload-response.json'),JSON.stringify({status:response.status,data},null,2));
   if(!response.ok||!data?.ok)throw new Error(`Bin Hamid upload failed (${response.status}): ${compact(data?.error||data?.message||text).slice(0,500)}`);return data;
 }
+async function uploadVehicleBalance(summary){
+  const token=await githubOidcToken(),capturedAt=new Date().toISOString(),response=await fetch(UPLOAD_URL,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json','x-fuel-operation':'vehicle-balance-report'},body:JSON.stringify({total:summary.total,vehicleCount:summary.rows.length,capturedAt})}),text=await response.text();let data;try{data=text?JSON.parse(text):{};}catch{data={raw:text};}
+  await fs.writeFile(path.join(artifacts,'vehicle-balance-response.json'),JSON.stringify({status:response.status,data},null,2));
+  if(!response.ok||!data?.ok)throw new Error(`Vehicle balance delivery failed (${response.status}): ${compact(data?.error||text).slice(0,500)}`);return{...data,capturedAt};
+}
+async function vehicleTables(page){return page.evaluate(()=>Array.from(document.querySelectorAll('table')).map(table=>({headers:Array.from(table.querySelectorAll('thead th')).map(cell=>cell.innerText),rows:Array.from(table.querySelectorAll('tbody tr')).map(row=>Array.from(row.querySelectorAll('td')).map(cell=>cell.innerText))})));}
 
 async function main(){
   required(username,'NOOR_KHOY_USERNAME');required(password,'NOOR_KHOY_PASSWORD');await fs.mkdir(artifacts,{recursive:true});
@@ -157,8 +179,15 @@ async function main(){
   const fromDate=requestedStart||defaultDate,toDate=requestedEnd||requestedStart||defaultDate;
   if(!validDate(fromDate)||!validDate(toDate)||fromDate>toDate)throw new Error(`Invalid fuel report period: ${fromDate} to ${toDate}`);
   const latestClosedDate=shiftedRiyadhDate(-1),attachBalance=sendBalance&&toDate===latestClosedDate;
+  if(!['daily-report','vehicle-balance-report'].includes(syncMode))throw new Error(`Unsupported FUEL_SYNC_MODE: ${syncMode}`);
   const browser=await chromium.launch({headless:true}),context=await browser.newContext({acceptDownloads:true,locale:'ar-SA',timezoneId:'Asia/Riyadh'}),page=await context.newPage();
   try{
+    if(syncMode==='vehicle-balance-report'){
+      await ensureLogin(page);await page.goto(VEHICLES_URL,{waitUntil:'domcontentloaded',timeout:60000});await page.waitForLoadState('networkidle',{timeout:30000}).catch(()=>null);await page.waitForTimeout(1200);
+      if(/\/login/i.test(page.url())||await visible(page.locator('input[type="password"]')))throw new Error('Noor Khoy vehicles page requires a new login.');
+      const summary=vehicleBalanceSummary(await vehicleTables(page));await fs.writeFile(path.join(artifacts,'vehicle-balances.json'),JSON.stringify(summary,null,2));
+      const delivery=await uploadVehicleBalance(summary);console.log(JSON.stringify({ok:true,mode:syncMode,total:summary.total,vehicleCount:summary.rows.length,balanceHeader:summary.header,delivery},null,2));return;
+    }
     await ensureLogin(page);let accountBalance=null,balanceCapturedAt='';
     if(attachBalance){
       await page.goto(DASHBOARD_URL,{waitUntil:'domcontentloaded',timeout:60000});await page.waitForLoadState('networkidle',{timeout:30000}).catch(()=>null);await page.waitForTimeout(1500);
