@@ -14,9 +14,13 @@ const headerIndex=(row,aliases)=>{
   for(let index=0;index<normalized.length;index++)if(terms.some(term=>normalized[index].includes(term)))return index;
   return -1;
 };
-// رقم اللوحة بأشكاله (عربي/إنجليزي/أرقام) يُطبَّع لحرف مقارنة واحد لمطابقته
-// مع سجل الأصول بغض النظر عن الفراغات أو الشرطات أو اختلاف ترتيب الكتابة.
 const plateKey=value=>westernDigits(String(value||'')).toUpperCase().replace(/[^A-Z0-9\u0600-\u06FF]/g,'');
+const fuelCategory=value=>{
+  const text=norm(value);
+  if(/بنزين|petrol|gasoline|91|95/.test(text))return'petrol';
+  if(/ديزل|diesel|solar/.test(text))return'diesel';
+  return'other';
+};
 const FUEL_ALIASES={
   receipt:['رقم الإيصال','رقم الايصال'],driver:['السائق'],station:['المحطة'],vehicleName:['المركبة'],
   plate:['رقم اللوحة','رقم اللوح','اللوحة'],amount:['المبلغ'],fuelType:['نوع الوقود'],date:['التاريخ'],
@@ -29,26 +33,27 @@ function fuelColumns(row){
 }
 function parseDate(value){
   if(value instanceof Date&&!Number.isNaN(value.getTime()))return value.toISOString();
-  const text=clean(value,40);if(!text)return '';
+  const text=clean(value,40);if(!text)return'';
   const iso=new Date(text.replace(' ','T'));if(!Number.isNaN(iso.getTime()))return iso.toISOString();
   return text;
 }
 export function parseFuelWorkbook(workbook,xlsx){
   const rows=[];
   for(const sheetName of workbook?.SheetNames||[]){
-    const sheetRows=xlsx.utils.sheet_to_json(workbook.Sheets[sheetName],{header:1,defval:'',raw:false,blankrows:false});
-    let columns=null;
-    for(let index=0;index<Math.min(sheetRows.length,10);index++){const detected=fuelColumns(sheetRows[index]||[]);if(detected){columns=detected;sheetRows.splice(0,index+1);break;}}
+    const sourceRows=xlsx.utils.sheet_to_json(workbook.Sheets[sheetName],{header:1,defval:'',raw:false,blankrows:false});
+    let columns=null,start=0;
+    for(let index=0;index<Math.min(sourceRows.length,10);index++){const detected=fuelColumns(sourceRows[index]||[]);if(detected){columns=detected;start=index+1;break;}}
     if(!columns)continue;
-    for(let index=0;index<sheetRows.length;index++){
-      const row=sheetRows[index]||[];if(fuelColumns(row))continue;
+    for(let index=start;index<sourceRows.length;index++){
+      const row=sourceRows[index]||[];if(fuelColumns(row))continue;
       const plate=clean(row[columns.plate],40);if(!plate)continue;
       const liters=number(row[columns.liters])||0,amount=number(row[columns.amount])||0;
       if(liters<=0&&amount<=0)continue;
+      const fuelType=clean(row[columns.fuelType],40)||'Diesel';
       rows.push({
         sheet:sheetName,row:index+1,receipt:clean(row[columns.receipt],80),driver:clean(row[columns.driver],150),
         station:clean(row[columns.station],200),vehicleName:clean(row[columns.vehicleName],150),plate,plateKey:plateKey(plate),
-        amount:round(amount,2),fuelType:clean(row[columns.fuelType],40)||'Diesel',date:parseDate(row[columns.date]),
+        amount:round(amount,2),fuelType,category:fuelCategory(fuelType),date:parseDate(row[columns.date]),
         price:round(number(row[columns.price])||(liters>0?amount/liters:0),3),liters:round(liters,3),
         beforeTax:round(number(row[columns.beforeTax])||0,2),tax:round(number(row[columns.tax])||0,2),
         net:round(number(row[columns.net])||amount,2),prevOdometer:round(number(row[columns.prevOdometer])||0,1),
@@ -57,27 +62,21 @@ export function parseFuelWorkbook(workbook,xlsx){
     }
   }
   const seen=new Set();
-  const cleanRows=rows.filter(row=>{const key=[row.sheet,row.row,row.receipt,row.plate,row.amount].join('|');if(seen.has(key))return false;seen.add(key);return true;});
-  return{rows:cleanRows,rowCount:cleanRows.length};
+  const cleanRows=rows.filter(row=>{const key=[row.receipt,row.plateKey,row.date,row.liters,row.amount,row.category].join('|');if(seen.has(key))return false;seen.add(key);return true;});
+  return{rows:cleanRows,rowCount:cleanRows.length,categories:{diesel:cleanRows.filter(row=>row.category==='diesel').length,petrol:cleanRows.filter(row=>row.category==='petrol').length,other:cleanRows.filter(row=>row.category==='other').length}};
 }
 const median=values=>{const list=(values||[]).filter(v=>Number.isFinite(v)&&v>0).sort((a,b)=>a-b);if(!list.length)return 0;const mid=Math.floor(list.length/2);return list.length%2?list[mid]:(list[mid-1]+list[mid])/2;};
 const PRICE_VARIANCE_PCT=10,VOLUME_VARIANCE_PCT=50,RAPID_REFILL_HOURS=6;
-// يبني ملخصًا لكل لوحة (عدد التعبئات، اللترات، المبلغ) بالإضافة إلى قائمة
-// تحذيرات (إيصال مكرر، عداد غير منطقي، سعر/كمية شاذة، تعبئة متقاربة) — نفس
-// منطق الرقابة الداخلية المستخدم في الموقع لكن بصيغة مختصرة تلائم تليجرام.
 export function buildFuelControlReport(rows){
   const byReceipt=new Map(),byPlate=new Map();
   for(const row of rows){
     if(row.receipt){if(!byReceipt.has(row.receipt))byReceipt.set(row.receipt,[]);byReceipt.get(row.receipt).push(row);}
     if(!byPlate.has(row.plateKey))byPlate.set(row.plateKey,[]);byPlate.get(row.plateKey).push(row);
   }
-  const prices=rows.map(r=>r.price).filter(v=>v>0),medianPrice=median(prices);
-  const alerts=[];
+  const prices=rows.map(r=>r.price).filter(v=>v>0),medianPrice=median(prices),alerts=[];
   const add=(row,level,check,detail)=>alerts.push({level,check,detail,date:row.date,plate:row.plate,receipt:row.receipt||'—',driver:row.driver||'—'});
   for(const[,plateRows]of byPlate){
-    const ordered=plateRows.slice().sort((a,b)=>String(a.date).localeCompare(String(b.date)));
-    const liters=ordered.map(r=>r.liters),medianLiters=median(liters);
-    let previous=null;
+    const ordered=plateRows.slice().sort((a,b)=>String(a.date).localeCompare(String(b.date))),liters=ordered.map(r=>r.liters),medianLiters=median(liters);let previous=null;
     for(const row of ordered){
       if(row.receipt&&(byReceipt.get(row.receipt)?.length||0)>1)add(row,'danger','إيصال مكرر',`رقم الإيصال مستخدم في ${byReceipt.get(row.receipt).length} تعبئات`);
       if(!row.receipt)add(row,'warn','إيصال غير مسجل','لا يوجد رقم إيصال');
@@ -96,8 +95,5 @@ export function buildFuelControlReport(rows){
     const liters=plateRows.reduce((sum,r)=>sum+r.liters,0),amount=plateRows.reduce((sum,r)=>sum+r.amount,0),driverNames=[...new Set(plateRows.map(r=>r.driver).filter(Boolean))];
     return{plateKey:key,plate:plateRows[0].plate,vehicleName:plateRows[0].vehicleName,drivers:driverNames.join('، ')||'—',fills:plateRows.length,liters:round(liters,2),amount:round(amount,2),avgPrice:round(liters?amount/liters:0,3),share:totalLiters?round(liters/totalLiters*100,1):0,alertCount:alerts.filter(a=>a.plate===plateRows[0].plate).length};
   }).sort((a,b)=>b.liters-a.liters);
-  return{
-    vehicles,alerts,medianPrice:round(medianPrice,3),
-    totals:{plateCount:vehicles.length,fillCount:rows.length,liters:round(totalLiters,2),amount:round(rows.reduce((sum,r)=>sum+r.amount,0),2),danger:alerts.filter(a=>a.level==='danger').length,warn:alerts.filter(a=>a.level==='warn').length,info:alerts.filter(a=>a.level==='info').length}
-  };
+  return{vehicles,alerts,medianPrice:round(medianPrice,3),totals:{plateCount:vehicles.length,fillCount:rows.length,liters:round(totalLiters,2),amount:round(rows.reduce((sum,r)=>sum+r.amount,0),2),danger:alerts.filter(a=>a.level==='danger').length,warn:alerts.filter(a=>a.level==='warn').length,info:alerts.filter(a=>a.level==='info').length}};
 }
