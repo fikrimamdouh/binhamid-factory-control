@@ -1,5 +1,6 @@
 name: Noor Khoy daily fuel sync
 
+# Backfill trigger: fixed post-login navigation
 on:
   push:
     branches:
