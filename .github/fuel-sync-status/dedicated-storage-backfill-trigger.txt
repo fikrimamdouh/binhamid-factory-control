@@ -1,2 +1,3 @@
-Triggered after switching fuel storage to the existing imports registry on 2026-07-27.
+Final maintenance run after verified period export.
 Range: 2026-07-01 through 2026-07-26.
+Purpose: remove invalid trial imports and retain the verified period report only.
