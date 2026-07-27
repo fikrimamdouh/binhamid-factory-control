@@ -65,13 +65,13 @@ test('exact website print is archived with portfolio metadata',()=>{
   assert.match(archive,/source:'website-exact-print'/);
 });
 
-test('bot sends the priced declaration first and keeps the stored website PDF as fallback',()=>{
+test('bot prefers the fixed financial snapshot and generates only when it is missing',()=>{
   assert.match(bot,/downloadObject/);
   assert.match(bot,/sendExactDailyPortfolio/);
-  assert.match(bot,/exactWebsitePrint:true/);
-  // النسخة المؤرشفة لا تحمل أرقام العملاء ولا إجمالي ذمة المندوب، فتُقدَّم النسخة المولَّدة.
-  const generated=bot.indexOf('const generated=await generateCustomerPortfolioPdfs'),exactCall=bot.indexOf('const exact=await sendExactDailyPortfolio');
-  assert.ok(generated>=0&&exactCall>generated);
+  assert.match(bot,/snapshotVersion!=='portfolio-settlement-v2'/);
+  assert.match(bot,/persistPortfolioReportSnapshot/);
+  const exactCall=bot.indexOf('const exact=await sendExactDailyPortfolio'),generated=bot.indexOf('const generated=await generateCustomerPortfolioPdfs');
+  assert.ok(exactCall>=0&&generated>exactCall);
 });
 
 test('load order has one print owner followed by metadata, range owner, and analysis',()=>{
