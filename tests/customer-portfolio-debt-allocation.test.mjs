@@ -5,7 +5,7 @@ import { projectCumulativeDailyReport } from '../api/_lib/daily-cumulative-repor
 import { buildReportActivityIndex, settleCustomerAccount } from '../api/_lib/customer-settlement.js';
 import { removeRepeatedPaymentTerms } from '../api/_lib/customer-portfolio-document.js';
 
-test('collections settle current invoices before older invoices',()=>{
+test('collections settle older invoices before current report invoices',()=>{
   const report=projectCumulativeDailyReport({
     reportDate:'2026-07-26',
     storedSales:[{reference_no:'OLD-1',sales_type:'concrete',customer_external_id:'1001',customer_name:'عميل اختبار',item:'خرسانة قديمة',quantity:1,total_amount:100,paid_amount:0,status:'registered',delivery_date:'2026-07-20'}],
@@ -15,20 +15,22 @@ test('collections settle current invoices before older invoices',()=>{
   const row=report.departments.concrete.rows[0];
   assert.equal(row.currentSales,60);
   assert.equal(row.currentApplied,80);
-  assert.equal(row.invoices[0].outstanding,0);
+  assert.equal(row.currentAppliedToOld,80);
+  assert.equal(row.currentAppliedToNew,0);
+  assert.equal(row.invoices[0].outstanding,60);
   assert.equal(row.closingBalance,80);
 });
 
-test('old customer payment closes report purchases then reduces previous balance',()=>{
+test('old customer payment reduces previous balance before report purchases',()=>{
   const result=settleCustomerAccount({openingBalance:5000,openingCount:1,grossSales:0,paidApplied:0,unallocatedCredit:0,aging:{}},{code:'1054',name:'مقهى مون بكس',sales:2000,collections:3500,lastSale:'2026-07-27',lastCollection:'2026-07-27'});
   assert.equal(result.customerClass,'old');
   assert.equal(result.previousBalance,5000);
-  assert.equal(result.paidCurrent,2000);
-  assert.equal(result.paidPrevious,1500);
-  assert.equal(result.remainingCurrent,0);
-  assert.equal(result.remainingOpening,3500);
+  assert.equal(result.paidCurrent,0);
+  assert.equal(result.paidPrevious,3500);
+  assert.equal(result.remainingCurrent,2000);
+  assert.equal(result.remainingOpening,1500);
   assert.equal(result.finalDebt,3500);
-  assert.equal(result.status,'old_paid_new_and_previous');
+  assert.equal(result.status,'old_paid_previous_with_current_due');
 });
 
 test('new customer is distinguished and can be fully paid',()=>{
