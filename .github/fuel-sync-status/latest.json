@@ -1,9 +1,12 @@
 {
-  "outcome": "skipped",
-  "run_id": "30253642618",
+  "outcome": "failure",
+  "migration_outcome": "failure",
+  "import_outcome": "skipped",
+  "run_id": "30253831758",
   "run_attempt": "1",
-  "commit": "72dd1421f8b4492fea1656a3098ddd9b3fab40a9",
-  "updated_at": "2026-07-27T09:22:44.307963+00:00",
+  "commit": "9f7d59e7987b61c497a0adef9c773dad34f4539b",
+  "updated_at": "2026-07-27T09:25:12.522587+00:00",
+  "migration_log": "Checking PostgreSQL client\n/usr/bin/psql\npsql (PostgreSQL) 16.14 (Ubuntu 16.14-1.pgdg24.04+1)\nApplying dedicated fuel storage migration\npsql: error: connection to server at \"db.sedyhvmistwevtgenwgn.supabase.co\" (2406:da18:1f7e:b101:b6d1:8ef7:560b:d36e), port 5432 failed: Network is unreachable\n\tIs the server running on that host and accepting TCP/IP connections?",
   "diagnostics": [],
   "uploads": [],
   "log_tail": ""
