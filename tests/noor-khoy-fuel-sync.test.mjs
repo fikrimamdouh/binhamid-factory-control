@@ -16,13 +16,11 @@ test('fuel parser classifies diesel and petrol without dropping either',()=>{
   assert.equal(parsed.categories.petrol,1);
 });
 
-test('workflow runs daily, migrates dedicated storage, and supports an ordered historical range',()=>{
+test('workflow runs daily and supports an ordered historical range',()=>{
   const workflow=read('.github/workflows/noor-khoy-fuel-sync.yml');
   assert.match(workflow,/id-token:\s*write/);
   assert.match(workflow,/secrets\.NOOR_KHOY_USERNAME/);
   assert.match(workflow,/secrets\.NOOR_KHOY_PASSWORD/);
-  assert.match(workflow,/secrets\.SUPABASE_DB_URL/);
-  assert.match(workflow,/20260727093000_create_fuel_sync_storage\.sql/);
   assert.match(workflow,/cron:\s*'0 5 \* \* \*'/);
   assert.match(workflow,/start_date:/);
   assert.match(workflow,/end_date:/);
@@ -30,6 +28,7 @@ test('workflow runs daily, migrates dedicated storage, and supports an ordered h
   assert.match(workflow,/FUEL_SEND_BALANCE="\$final_day"/);
   assert.match(workflow,/FUEL_NOTIFY="\$final_day"/);
   assert.match(workflow,/fuel-sync-status\/latest\.json/);
+  assert.doesNotMatch(workflow,/psql/);
 });
 
 test('browser sync locks export to the real fuel report and attaches the current treasury balance only to the latest closed day',()=>{
@@ -51,25 +50,23 @@ test('browser sync locks export to the real fuel report and attaches the current
   assert.match(script,/parseFuelWorkbook/);
 });
 
-test('server uses dedicated fuel tables, stores closing balance, and keeps the private Renault out silently',()=>{
-  const route=read('api/_lib/routes/fuel-sync.js'),pdf=read('api/_lib/fuel-report-pdf.js'),router=read('api/router.js'),vercel=read('vercel.json'),http=read('api/_lib/http.js'),migration=read('supabase/migrations/20260727093000_create_fuel_sync_storage.sql');
+test('server stores original Excel and every normalized row in the existing imports registry',()=>{
+  const route=read('api/_lib/routes/fuel-sync.js'),pdf=read('api/_lib/fuel-report-pdf.js'),router=read('api/router.js'),vercel=read('vercel.json'),http=read('api/_lib/http.js');
   assert.match(route,/PRIVATE_PLATE_KEY='DGD7293'/);
   assert.match(route,/operationalRows=parsed\.rows\.filter\(row=>!privateFuelRow\(row\)\)/);
-  assert.match(route,/upsertChunks\('fuel_entries'/);
-  assert.match(route,/upsert\('fuel_daily_summaries'/);
-  assert.match(route,/upsert\('fuel_balance_snapshots'/);
-  assert.match(route,/storage:'dedicated_tables'/);
-  assert.match(route,/kind:'closing'/);
+  assert.match(route,/fuelRows:storedRows\(operationalRows\)/);
+  assert.match(route,/storage:\{kind:'imports_registry'/);
+  assert.match(route,/storage:'imports_registry'/);
+  assert.match(route,/accountBalance/);
+  assert.match(route,/balanceDate/);
   assert.match(route,/رصيد خزنة المحطة المتبقي بنهاية يوم/);
   assert.match(route,/FUEL_SYNC_UPSTREAM_FAILED/);
+  assert.doesNotMatch(route,/app_state/);
   assert.doesNotMatch(route,/تم استبعاد|تم تجاهل|مستبعدة/);
   assert.match(pdf,/رصيد خزنة المحطة بنهاية اليوم/);
   assert.match(route,/uploadObject/);
   assert.match(route,/insert\('imports'/);
   assert.match(http,/FUEL_SYNC_UPSTREAM_FAILED/);
-  assert.match(migration,/create table if not exists public\.fuel_entries/);
-  assert.match(migration,/create table if not exists public\.fuel_daily_summaries/);
-  assert.match(migration,/create table if not exists public\.fuel_balance_snapshots/);
   assert.match(router,/'fuel\/daily-report':fuelDailyReport/);
   assert.match(vercel,/api\/fuel\/daily-report/);
 });
