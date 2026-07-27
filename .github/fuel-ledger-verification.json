@@ -1,0 +1,16 @@
+{
+  "rows": 19888,
+  "min_date": "2022-01-27",
+  "max_date": "2026-07-27",
+  "liters": 5052979.99,
+  "amount": 6022464.11,
+  "plates": 50,
+  "diesel_rows": 7840,
+  "diesel_liters": 2352157.19,
+  "diesel_amount": 3677282.98,
+  "petrol_rows": 1850,
+  "petrol_liters": 75710.24,
+  "petrol_amount": 168689.06,
+  "private_rows": 0,
+  "verified_at": "2026-07-27T11:07:49.038368+00:00"
+}
