@@ -32,20 +32,33 @@ test('a concrete sale and collection update the concrete projection',()=>{
   assert.equal(projection.departments.block.rows.length,0);
 });
 
-test('collection delivery rows expose customer code and new-old allocation',()=>{
+test('collection delivery classifies an old customer and splits payment between current purchases and previous balance',()=>{
+  const analysis={
+    sales:[{invoice:'18123',kind:'خرسانة',customerCode:'13063',customer:'عميل الخرسانة',item:'خرسانة جديدة',quantity:10,amount:600}],
+    collections:[{customerCode:'13063',customer:'عميل الخرسانة',amount:800,treasuryCode:'101',treasuryName:'الخزينة الرئيسية'}]
+  };
   const projection=projectCumulativeDailyReport({
     reportDate:'2026-07-25',
-    storedSales:[{reference_no:'OLD-1',sales_type:'concrete',customer_external_id:'13063',customer_name:'عميل الخرسانة',item:'خرسانة قديمة',quantity:1,total_amount:1000,paid_amount:0,status:'registered',delivery_date:'2026-07-20'}],
-    dailySales:[{invoice:'18123',kind:'خرسانة',customerCode:'13063',customer:'عميل الخرسانة',item:'خرسانة جديدة',quantity:10,amount:600}],
-    dailyCollections:[{customerCode:'13063',customer:'عميل الخرسانة',amount:800}]
+    storedSales:[],
+    dailySales:analysis.sales,
+    dailyCollections:analysis.collections
   });
-  const rows=buildCollectionDeliveryRows({collections:[{customerCode:'13063',customer:'عميل الخرسانة',amount:800,treasuryCode:'101',treasuryName:'الخزينة الرئيسية'}]},projection);
+  const analytics={rows:[{
+    key:'code:13063',code:'13063',externalId:'13063',name:'عميل الخرسانة',
+    openingBalance:5000,openingCount:1,grossSales:0,paidApplied:0,unallocatedCredit:0,
+    invoiceCount:0,collectionCount:0,aging:{current:0,days1to30:0,days31to60:0,days61to90:0,days90plus:0},sales:[]
+  }]};
+  const rows=buildCollectionDeliveryRows(analysis,projection,analytics,'2026-07-25');
   assert.equal(rows.length,1);
   assert.equal(rows[0].code,'13063');
-  assert.equal(rows[0].concreteApplied,800);
-  assert.equal(rows[0].appliedToNew,600);
-  assert.equal(rows[0].appliedToOld,200);
-  assert.equal(rows[0].outsideInvoices,0);
+  assert.equal(rows[0].customerClass,'old');
+  assert.equal(rows[0].previousBalance,5000);
+  assert.equal(rows[0].reportSales,600);
+  assert.equal(rows[0].reportCollections,800);
+  assert.equal(rows[0].paidCurrent,600);
+  assert.equal(rows[0].paidPrevious,200);
+  assert.equal(rows[0].finalDebt,4800);
+  assert.equal(rows[0].status,'old_paid_new_and_previous');
   assert.equal(rows[0].linked,true);
 });
 
@@ -54,16 +67,17 @@ test('automatic Telegram delivery includes the owner and Manea once',()=>{
   assert.deepEqual(erpTelegramRecipients('6870312376','6870312376'),['6870312376']);
 });
 
-test('portfolio drafts retain report movements and PDFs use the report date once',async()=>{
+test('portfolio preparation uses dated analytics and persists fixed snapshots after posting',async()=>{
   const portfolio=await readFile(new URL('../api/_lib/customer-portfolio-pdf.js',import.meta.url),'utf8');
+  const delivery=await readFile(new URL('../api/_lib/erp-telegram-delivery.js',import.meta.url),'utf8');
   const dailyPdf=await readFile(new URL('../api/_lib/daily-cumulative-pdf.js',import.meta.url),'utf8');
   const routePath=['..','api','erp','daily-report.js'].join('/');
   const route=await readFile(new URL(routePath,import.meta.url),'utf8');
-  assert.match(portfolio,/activityIndex/);
-  assert.match(portfolio,/reportAlreadyCommitted/);
-  assert.match(portfolio,/options\?\.currentBatch===true/);
-  assert.match(portfolio,/reportSales/);
-  assert.match(portfolio,/reportCollections/);
+  assert.match(portfolio,/beforeDate:reportDate/);
+  assert.match(portfolio,/buildReportActivityIndex/);
+  assert.match(portfolio,/persistPortfolioReportSnapshot/);
+  assert.match(delivery,/loadCustomerAnalytics\(\{active:true,role:'admin'\},\{asOf:reportDate,beforeDate:reportDate\}\)/);
+  assert.match(delivery,/persistPortfolioReportSnapshot\(report\)/);
   assert.match(dailyPdf,/currentBatch:options\?\.currentBatch!==false/);
   assert.match(route,/prepareErpSuccessDelivery\(\{analysis,sourceFile:originalName,reportDate\}\)/);
   assert.match(route,/posting\?\.duplicate/);

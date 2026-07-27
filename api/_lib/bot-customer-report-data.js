@@ -23,9 +23,12 @@ function riyadhToday(){
   const get=type=>parts.find(x=>x.type===type)?.value||'';
   return new Date(`${get('year')}-${get('month')}-${get('day')}T00:00:00Z`);
 }
+function parseAsOf(value){const text=String(value||'').slice(0,10);return /^\d{4}-\d{2}-\d{2}$/.test(text)?new Date(`${text}T00:00:00Z`):riyadhToday();}
 function dateValue(value){const text=String(value||'').slice(0,10);return /^\d{4}-\d{2}-\d{2}$/.test(text)?new Date(`${text}T00:00:00Z`):null;}
+function dateText(value){return String(value||'').slice(0,10);}
 function addDays(date,days){if(!date)return null;return new Date(date.getTime()+Math.max(0,n(days))*dayMs);}
 function newest(a,b){if(!a)return b||'';if(!b)return a;return String(a)>String(b)?a:b;}
+function oldest(a,b){if(!a)return b||'';if(!b)return a;return String(a)<String(b)?a:b;}
 function agingBucket(days){if(days<=0)return'current';if(days<=30)return'days1to30';if(days<=60)return'days31to60';if(days<=90)return'days61to90';return'days90plus';}
 async function pagedSelect(table,query,maxPages=50){
   const output=[];
@@ -50,7 +53,7 @@ async function mergeApprovedDailyFallback(sales=[],collections=[]){
   ]);
   const mergedSales=(sales||[]).map(row=>({...row})),mergedCollections=(collections||[]).map(row=>({...row})),saleRefs=new Set(mergedSales.map(row=>String(row.reference_no||''))),collectionRefs=new Set(mergedCollections.map(row=>String(row.reference_no||'')));
   for(const row of dailySales){
-    const reportDate=batchDates.get(String(row.batch_id));if(!reportDate)continue;const reference= dailyReference(reportDate,'S',row.source_row_no);if(saleRefs.has(reference))continue;
+    const reportDate=batchDates.get(String(row.batch_id));if(!reportDate)continue;const reference=dailyReference(reportDate,'S',row.source_row_no);if(saleRefs.has(reference))continue;
     mergedSales.push({reference_no:reference,sales_type:row.sales_type,customer_external_id:String(row.customer_code||''),customer_name:String(row.customer_name||''),item:String(row.item_name||''),quantity:n(row.quantity),unit:String(row.unit||''),total_amount:money(row.amount),paid_amount:0,payment_method:'credit',status:'registered',delivery_date:reportDate,created_at:`${reportDate}T12:00:00+03:00`,source_invoice_no:String(row.invoice_no||''),_dailyFallback:true});saleRefs.add(reference);
   }
   const fallbackCollections=[];
@@ -71,7 +74,8 @@ function baseAggregate(customer={},key=''){
     key,externalId:String(customer.external_id||''),code:String(customer.customer_code||customer.external_id||''),name:String(customer.customer_name||'عميل غير مسمى'),phone:String(customer.phone||''),segment:String(customer.segment||''),creditLimit:n(customer.credit_limit),paymentDays:n(customer.payment_days),
     openingBalance:0,openingDate:'',openingCheques:0,openingPrevious:0,openingDebitTurnover:0,openingCreditTurnover:0,openingSource:'',openingCount:0,unagedOpening:0,
     grossSales:0,paidApplied:0,balance:0,netBalance:0,debitBalance:0,creditBalance:0,collections:0,unallocatedCredit:0,
-    invoiceCount:0,collectionCount:0,lastSale:'',lastCollection:'',aging:{current:0,days1to30:0,days31to60:0,days61to90:0,days90plus:0},sales:[],collectionRows:[],products:new Set(),salesTypes:new Set()
+    invoiceCount:0,collectionCount:0,firstSale:'',lastSale:'',firstCollection:'',lastCollection:'',oldestDueDate:'',maxDaysLate:0,
+    aging:{current:0,days1to30:0,days31to60:0,days61to90:0,days90plus:0},sales:[],collectionRows:[],products:new Set(),salesTypes:new Set(),controlAlerts:new Set()
   };
 }
 function canonicalKey(customer={}){const code=norm(customer.external_id||customer.customer_code);if(code)return`code:${code}`;return`name:${norm(customer.customer_name)||'unknown'}`;}
@@ -97,7 +101,7 @@ export function buildCustomerAnalytics({customers=[],sales=[],collections=[],ope
   openingBalances=(openingBalances||[]).filter(r=>!isExcludedCustomer(r.customerCode||r.clientId,r.customerName));
   sales=(sales||[]).filter(r=>!isExcludedCustomer(r.customer_external_id,r.customer_name));
   collections=(collections||[]).filter(r=>!isExcludedCustomer(r.customer_external_id,r.customer_name));
-  const scope=customerReportScope(role),aggregates=new Map(),codeMap=new Map(),nameCandidates=new Map();
+  const scope=customerReportScope(role),aggregates=new Map(),codeMap=new Map(),nameCandidates=new Map(),invoiceKeys=new Set(),collectionKeys=new Set();
   for(const customer of customers||[]){
     const key=canonicalKey(customer),existing=aggregates.get(key),agg=existing||baseAggregate(customer,key);if(existing){agg.name=agg.name==='عميل غير مسمى'&&customer.customer_name?String(customer.customer_name):agg.name;agg.segment=agg.segment||String(customer.segment||'');agg.phone=agg.phone||String(customer.phone||'');}else aggregates.set(key,agg);
     for(const customerCode of [customer.external_id,customer.customer_code].map(norm).filter(Boolean))codeMap.set(customerCode,key);
@@ -118,40 +122,44 @@ export function buildCustomerAnalytics({customers=[],sales=[],collections=[],ope
   }
   for(const row of sales||[]){
     if(closedStatus.has(String(row.status||'')))continue;if(scope!=='all'&&String(row.sales_type||'')!==scope)continue;
-    const key=resolve(row.customer_external_id,row.customer_name),agg=aggregates.get(key);scopedKeys.add(key);const total=n(row.total_amount),paid=Math.min(total,Math.max(0,n(row.paid_amount))),outstanding=Math.max(0,total-paid);
-    agg.grossSales=money(agg.grossSales+total);agg.paidApplied=money(agg.paidApplied+paid);agg.balance=money(agg.balance+outstanding);agg.invoiceCount+=1;agg.lastSale=newest(agg.lastSale,String(row.delivery_date||row.created_at||'').slice(0,10));if(row.item)agg.products.add(String(row.item));if(row.sales_type)agg.salesTypes.add(String(row.sales_type));
-    const base=dateValue(row.delivery_date||row.created_at),due=addDays(base,agg.paymentDays),late=due?Math.floor((asOf-due)/dayMs):0,bucket=agingBucket(late);agg.aging[bucket]=money(agg.aging[bucket]+outstanding);agg.sales.push({...row,total,paid,outstanding,dueDate:due?due.toISOString().slice(0,10):'',daysLate:Math.max(0,late)});
+    const key=resolve(row.customer_external_id,row.customer_name),agg=aggregates.get(key);scopedKeys.add(key);const total=n(row.total_amount),paid=Math.min(total,Math.max(0,n(row.paid_amount))),outstanding=Math.max(0,total-paid),saleDate=String(row.delivery_date||row.created_at||'').slice(0,10),reference=String(row.reference_no||'');
+    agg.grossSales=money(agg.grossSales+total);agg.paidApplied=money(agg.paidApplied+paid);agg.balance=money(agg.balance+outstanding);agg.invoiceCount+=1;agg.firstSale=oldest(agg.firstSale,saleDate);agg.lastSale=newest(agg.lastSale,saleDate);if(row.item)agg.products.add(String(row.item));if(row.sales_type)agg.salesTypes.add(String(row.sales_type));
+    const base=dateValue(row.delivery_date||row.created_at),due=addDays(base,agg.paymentDays),late=due?Math.floor((asOf-due)/dayMs):0,bucket=agingBucket(late);agg.aging[bucket]=money(agg.aging[bucket]+outstanding);agg.oldestDueDate=oldest(agg.oldestDueDate,due?due.toISOString().slice(0,10):'');agg.maxDaysLate=Math.max(agg.maxDaysLate,Math.max(0,late));agg.sales.push({...row,total,paid,outstanding,dueDate:due?due.toISOString().slice(0,10):'',daysLate:Math.max(0,late)});
+    const duplicateKey=`${key}|${norm(reference)}`;if(reference&&invoiceKeys.has(duplicateKey))agg.controlAlerts.add('duplicate_invoice');if(reference)invoiceKeys.add(duplicateKey);
   }
   for(const row of collections||[]){
     if(closedStatus.has(String(row.status||'')))continue;const key=resolve(row.customer_external_id,row.customer_name,scope==='all');if(scope!=='all'&&!scopedKeys.has(key))continue;const agg=aggregates.get(key);if(!agg)continue;
-    const collected=Math.max(0,n(row.amount)),unallocated=Math.max(0,n(row.unallocated_amount));agg.collections=money(agg.collections+collected);agg.unallocatedCredit=money(agg.unallocatedCredit+unallocated);agg.collectionCount+=1;agg.lastCollection=newest(agg.lastCollection,String(row.occurred_at||row.created_at||'').slice(0,10));agg.collectionRows.push({...row,amount:collected,unallocated});
+    const collected=Math.max(0,n(row.amount)),unallocated=Math.max(0,n(row.unallocated_amount)),collectionDate=String(row.occurred_at||row.created_at||'').slice(0,10),reference=String(row.reference_no||'');agg.collections=money(agg.collections+collected);agg.unallocatedCredit=money(agg.unallocatedCredit+unallocated);agg.collectionCount+=1;agg.firstCollection=oldest(agg.firstCollection,collectionDate);agg.lastCollection=newest(agg.lastCollection,collectionDate);agg.collectionRows.push({...row,amount:collected,unallocated});
+    const duplicateKey=`${key}|${norm(reference)}|${money(collected)}|${collectionDate}`;if(reference&&collectionKeys.has(duplicateKey))agg.controlAlerts.add('duplicate_collection');if(reference)collectionKeys.add(duplicateKey);
   }
   let rows=[...aggregates.values()].filter(item=>scope==='all'?(item.invoiceCount||item.collectionCount||item.openingCount):scopedKeys.has(item.key));
   rows=rows.map(item=>{
     const overdue=money(item.aging.days1to30+item.aging.days31to60+item.aging.days61to90+item.aging.days90plus),netBalance=money(item.balance-item.unallocatedCredit),debitBalance=Math.max(0,netBalance),creditBalance=Math.max(0,-netBalance),utilization=item.creditLimit>0?debitBalance/item.creditLimit:null;
     let decision='normal';if(item.aging.days90plus>0||(item.creditLimit>0&&debitBalance>item.creditLimit))decision='stop';else if(overdue>0||(utilization!==null&&utilization>=0.8)||(debitBalance>0&&item.creditLimit===0))decision='watch';
+    if(!String(item.code||item.externalId||'').trim())item.controlAlerts.add('missing_customer_code');if(item.unallocatedCredit>0)item.controlAlerts.add('advance_payment');if(item.aging.days90plus>0)item.controlAlerts.add('overdue_90_plus');
     item.sales.sort((a,b)=>String(b.delivery_date||b.created_at||'').localeCompare(String(a.delivery_date||a.created_at||'')));item.collectionRows.sort((a,b)=>String(b.occurred_at||b.created_at||'').localeCompare(String(a.occurred_at||a.created_at||'')));
-    return{...item,overdue,netBalance,debitBalance,creditBalance,utilization,decision,products:[...item.products].slice(0,12),salesTypes:[...item.salesTypes]};
+    const asOfText=asOf.toISOString().slice(0,10),customerClass=(item.openingCount||item.firstSale&&item.firstSale<asOfText||item.firstCollection&&item.firstCollection<asOfText)?'old':'new';
+    return{...item,overdue,netBalance,debitBalance,creditBalance,utilization,decision,customerClass,customerClassLabel:customerClass==='old'?'عميل قديم':'عميل جديد',products:[...item.products].slice(0,12),salesTypes:[...item.salesTypes],controlAlerts:[...item.controlAlerts]};
   });
   const totals=rows.reduce((out,row)=>{
-    out.customers+=1;out.grossSales=money(out.grossSales+row.grossSales);out.paidApplied=money(out.paidApplied+row.paidApplied);out.balance=money(out.balance+row.balance);out.netBalance=money(out.netBalance+row.netBalance);out.debitBalance=money(out.debitBalance+row.debitBalance);out.creditBalance=money(out.creditBalance+row.creditBalance);out.collections=money(out.collections+row.collections);out.unallocatedCredit=money(out.unallocatedCredit+row.unallocatedCredit);out.overdue=money(out.overdue+row.overdue);
+    out.customers+=1;out.grossSales=money(out.grossSales+row.grossSales);out.paidApplied=money(out.paidApplied+row.paidApplied);out.balance=money(out.balance+row.balance);out.netBalance=money(out.netBalance+row.netBalance);out.debitBalance=money(out.debitBalance+row.debitBalance);out.creditBalance=money(out.creditBalance+row.creditBalance);out.collections=money(out.collections+row.collections);out.unallocatedCredit=money(out.unallocatedCredit+row.unallocatedCredit);out.overdue=money(out.overdue+row.overdue);out.alerts+=row.controlAlerts.length;out[row.customerClass==='old'?'oldCustomers':'newCustomers']+=1;
     if(row.openingCount){out.openingCustomers+=1;out.openingNet=money(out.openingNet+row.openingBalance);out.openingDebit=money(out.openingDebit+Math.max(0,row.openingBalance));out.openingCredit=money(out.openingCredit+Math.max(0,-row.openingBalance));out.openingCheques=money(out.openingCheques+row.openingCheques);}
     if(!row.invoiceCount&&!row.collectionCount&&row.openingCount)out.noMovement+=1;if(Math.abs(row.netBalance)<0.01)out.zeroBalances+=1;
     for(const key of Object.keys(out.aging))out.aging[key]=money(out.aging[key]+row.aging[key]);if(row.decision==='stop')out.stopped+=1;else if(row.decision==='watch')out.watch+=1;return out;
-  },{customers:0,openingCustomers:0,openingDebit:0,openingCredit:0,openingNet:0,openingCheques:0,grossSales:0,paidApplied:0,balance:0,netBalance:0,debitBalance:0,creditBalance:0,collections:0,unallocatedCredit:0,overdue:0,noMovement:0,zeroBalances:0,stopped:0,watch:0,aging:{current:0,days1to30:0,days31to60:0,days61to90:0,days90plus:0}});
+  },{customers:0,newCustomers:0,oldCustomers:0,openingCustomers:0,openingDebit:0,openingCredit:0,openingNet:0,openingCheques:0,grossSales:0,paidApplied:0,balance:0,netBalance:0,debitBalance:0,creditBalance:0,collections:0,unallocatedCredit:0,overdue:0,noMovement:0,zeroBalances:0,stopped:0,watch:0,alerts:0,aging:{current:0,days1to30:0,days31to60:0,days61to90:0,days90plus:0}});
   return{scope,rows,totals,asOf:asOf.toISOString().slice(0,10)};
 }
 export function findCustomers(analytics,query){
   const q=norm(query);if(!q)return[];
   return(analytics?.rows||[]).map(row=>{const customerCode=norm(row.code||row.externalId),name=norm(row.name),phone=norm(row.phone);let score=0;if(customerCode===q)score=100;else if(name===q)score=95;else if(customerCode.startsWith(q))score=85;else if(name.startsWith(q))score=80;else if(customerCode.includes(q))score=70;else if(name.includes(q))score=65;else if(phone.includes(q))score=55;return{row,score};}).filter(x=>x.score>0).sort((a,b)=>b.score-a.score||b.row.grossSales-a.row.grossSales).map(x=>x.row).slice(0,10);
 }
-export async function loadCustomerAnalytics(identity){
+export async function loadCustomerAnalytics(identity={},options={}){
   const [databaseCustomers,sales,collections,stateRows]=await Promise.all([
     pagedSelect('customers','active=eq.true&select=external_id,customer_code,customer_name,phone,segment,credit_limit,payment_days,active&order=customer_name.asc').catch(()=>[]),
     pagedSelect('sales_orders','select=reference_no,sales_type,customer_external_id,customer_name,item,quantity,unit,total_amount,paid_amount,payment_method,status,delivery_date,created_at&order=created_at.desc').catch(()=>[]),
     pagedSelect('collection_events','select=reference_no,customer_external_id,customer_name,amount,allocated_amount,unallocated_amount,payment_method,status,note,occurred_at,created_at&order=occurred_at.desc').catch(()=>[]),
     select('app_state','key=eq.primary&select=payload&limit=1').catch(()=>[])
-  ]),projected=await mergeApprovedDailyFallback(sales,collections);
-  const payload=stateRows?.[0]?.payload||{},customers=mergeLocalCustomers(databaseCustomers,payload);
-  return buildCustomerAnalytics({customers,sales:projected.sales,collections:projected.collections,openingBalances:await openingRows(payload),role:identity?.role||''});
+  ]),projected=await mergeApprovedDailyFallback(sales,collections),beforeDate=String(options?.beforeDate||'').slice(0,10),throughDate=String(options?.throughDate||'').slice(0,10),within=(value)=>{const day=dateText(value);if(beforeDate&&day&&day>=beforeDate)return false;if(throughDate&&day&&day>throughDate)return false;return true;};
+  const payload=stateRows?.[0]?.payload||{},customers=mergeLocalCustomers(databaseCustomers,payload),filteredSales=projected.sales.filter(row=>within(row.delivery_date||row.created_at)),filteredCollections=projected.collections.filter(row=>within(row.occurred_at||row.created_at)),filteredOpening=(await openingRows(payload)).filter(row=>within(row.date||row.balanceDate));
+  return buildCustomerAnalytics({customers,sales:filteredSales,collections:filteredCollections,openingBalances:filteredOpening,role:identity?.role||'',asOf:parseAsOf(options?.asOf)});
 }

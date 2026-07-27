@@ -12,6 +12,8 @@ const capture=read('assets/telegram-pdf-declarations.js');
 const bridge=read('assets/exact-portfolio-metadata-bridge.js');
 const archive=read('api/_lib/routes/reports-telegram.js');
 const bot=read('api/_lib/bot-portfolio-reports.js');
+const snapshot=read('api/_lib/customer-portfolio-snapshot.js');
+const batch=read('api/_lib/customer-portfolio-batch.js');
 const index=read('index.html');
 
 for(const file of ['api/_lib/routes/customer-portfolio-range.js','api/_lib/routes/reports-telegram.js','api/_lib/bot-portfolio-reports.js','assets/customer-portfolio-range-analysis.js','assets/telegram-pdf-declarations.js','assets/exact-portfolio-metadata-bridge.js']){
@@ -65,13 +67,17 @@ test('exact website print is archived with portfolio metadata',()=>{
   assert.match(archive,/source:'website-exact-print'/);
 });
 
-test('bot sends the priced declaration first and keeps the stored website PDF as fallback',()=>{
+test('bot prefers the fixed financial snapshot and generates only missing departments',()=>{
   assert.match(bot,/downloadObject/);
   assert.match(bot,/sendExactDailyPortfolio/);
-  assert.match(bot,/exactWebsitePrint:true/);
-  // النسخة المؤرشفة لا تحمل أرقام العملاء ولا إجمالي ذمة المندوب، فتُقدَّم النسخة المولَّدة.
-  const generated=bot.indexOf('const generated=await generateCustomerPortfolioPdfs'),exactCall=bot.indexOf('const exact=await sendExactDailyPortfolio');
-  assert.ok(generated>=0&&exactCall>generated);
+  assert.match(bot,/snapshotVersion!=='portfolio-settlement-v2'/);
+  assert.match(bot,/persistPortfolioReportSnapshot/);
+  assert.match(batch,/generateAvailablePortfolioPdfs/);
+  assert.match(batch,/missingTypes\.push\(type\)/);
+  assert.match(snapshot,/existingSnapshot/);
+  assert.match(snapshot,/reused:true/);
+  const exactCall=bot.indexOf('const exact=await sendExactDailyPortfolio'),generated=bot.indexOf('const generated=await generateAvailablePortfolioPdfs');
+  assert.ok(exactCall>=0&&generated>exactCall);
 });
 
 test('load order has one print owner followed by metadata, range owner, and analysis',()=>{
