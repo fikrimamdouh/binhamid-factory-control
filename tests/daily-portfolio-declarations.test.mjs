@@ -8,7 +8,7 @@ const migration=fs.readFileSync(new URL('../supabase/migrations/027_daily_report
 
 test('loads automatic portfolio declarations before daily report source',()=>{
   const declaration=index.indexOf('/assets/daily-portfolio-declarations.js?v=20260724-2');
-  const source=index.indexOf('/assets/daily-report-source-of-truth.js?v=20260724-install-guarantee-2');
+  const source=index.indexOf('/assets/daily-report-source-of-truth.js?v=20260727-full-finance-1');
   assert.ok(declaration>=0,'portfolio declaration asset must be loaded');
   assert.ok(source>declaration,'portfolio hooks must be installed before daily approval source wraps the modal');
 });

@@ -1,6 +1,6 @@
 (function(){
   'use strict';
-  const VERSION='2026.07.24-daily-report-source-v4',TOKEN_KEY='binhamid_cloud_access_token';
+  const VERSION='2026.07.27-daily-report-source-v5',TOKEN_KEY='binhamid_cloud_access_token';
   let installed=false,activeContext=null,modalWrapped=false;
   const wrappedImports=new Set();
   const guardedByAccessor=new Set();
@@ -12,6 +12,7 @@
   const isBlock=row=>/بلك|بلوك/.test(norm(row?.item||row?.product));
   const keySale=row=>[row.invoice||row.clientOrder,row.customerCode,row.item||row.product,num(row.quantity).toFixed(3),num(row.amount).toFixed(2)].join('|');
   const keyCollection=row=>[row.treasuryCode,row.customerCode,row.receipt||row.no,num(row.amount).toFixed(2)].join('|');
+  const keyCash=row=>[row.movementDate||row.date,row.treasuryCode,row.accountCode||row.customerCode,row.voucherNo||row.receipt||row.no,row.movementType||row.type,num(row.debit??row.amount).toFixed(2),num(row.credit).toFixed(2)].join('|');
   const unique=(rows,keyFn)=>{const seen=new Set();return(rows||[]).filter(row=>{const key=keyFn(row);if(seen.has(key))return false;seen.add(key);return true;});};
 
   const IMPORT_FNS=[['opsImportDailySummary','summary'],['opsImportDailyMovement','movement']];
@@ -101,9 +102,11 @@
 
   function payloadFromPlan(plan){
     const sales=unique(plan?.sales||[],keySale).map((row,index)=>({sourceRowNo:Number(row.row)||index+1,invoiceNo:clean(row.invoice||row.clientOrder),salesType:isConcrete(row)?'concrete':isBlock(row)?'block':'other',customerCode:clean(row.customerCode),customerName:clean(row.customer||row.customerName),item:clean(row.item||row.product),quantity:num(row.quantity),unit:clean(row.unit)||null,amount:num(row.amount),paymentTerms:clean(row.paymentTerms)||null,issues:Array.isArray(row.issues)?row.issues:[]}));
-    const cashMovements=unique(plan?.collections||[],keyCollection).map((row,index)=>({sourceRowNo:Number(row.row)||index+1,treasuryCode:clean(row.treasuryCode)||(norm(row.method).includes('نقاط')?'104':'101'),treasuryName:clean(row.treasuryName)||null,debit:num(row.amount),credit:0,accountName:clean(row.customer||row.customerName),accountType:'عميل',accountCode:clean(row.customerCode),description:clean(row.notes)||null,movementType:clean(row.type)||'استلام تحصيل عميل',voucherNo:clean(row.receipt||row.no)||null,movementDate:clean(row.date)||null,paymentMethod:clean(row.method)||null,isCustomerCollection:true}));
+    const sourceCash=plan?.cashMovements?.length?plan.cashMovements:(plan?.collections||[]).map(row=>({...row,debit:row.amount,credit:0,accountName:row.customer||row.customerName,accountCode:row.customerCode,description:row.notes,movementType:row.type,voucherNo:row.receipt||row.no,movementDate:row.date,isCustomerCollection:true}));
+    const cashMovements=unique(sourceCash,keyCash).map((row,index)=>({sourceRowNo:Number(row.row)||index+1,treasuryCode:clean(row.treasuryCode)||(norm(row.method).includes('نقاط')?'104':'101'),treasuryName:clean(row.treasuryName)||null,debit:num(row.debit??row.amount),credit:num(row.credit),accountName:clean(row.accountName||row.customer||row.customerName),accountType:clean(row.accountType)||(row.isCustomerCollection?'عميل':null),accountCode:clean(row.accountCode||row.customerCode),description:clean(row.description||row.notes)||null,movementType:clean(row.movementType||row.type)||null,voucherNo:clean(row.voucherNo||row.receipt||row.no)||null,movementDate:clean(row.movementDate||row.date)||null,paymentMethod:clean(row.paymentMethod||row.method)||null,isCustomerCollection:Boolean(row.isCustomerCollection)}));
     const block=sales.filter(row=>row.salesType==='block'),concrete=sales.filter(row=>row.salesType==='concrete');
-    return{sales,cashMovements,treasuries:[],inventory:inventoryRows(plan?.stock||[]),summary:{invoiceCount:sales.length,totalSales:sales.reduce((sum,row)=>sum+row.amount,0),blockSales:block.reduce((sum,row)=>sum+row.amount,0),concreteSales:concrete.reduce((sum,row)=>sum+row.amount,0),blockQuantity:block.reduce((sum,row)=>sum+row.quantity,0),concreteQuantity:concrete.reduce((sum,row)=>sum+row.quantity,0),collectionTotal:cashMovements.reduce((sum,row)=>sum+row.debit,0)}};
+    const treasuries=unique(plan?.treasuries||[],row=>[row.treasuryCode,num(row.opening).toFixed(2),num(row.closing).toFixed(2)].join('|')).map(row=>({treasuryCode:clean(row.treasuryCode),treasuryName:clean(row.treasuryName)||null,opening:num(row.opening),closing:num(row.closing)}));
+    return{sales,cashMovements,treasuries,inventory:inventoryRows(plan?.stock||[]),summary:{parserVersion:'daily-report-v2',invoiceCount:sales.length,totalSales:sales.reduce((sum,row)=>sum+row.amount,0),blockSales:block.reduce((sum,row)=>sum+row.amount,0),concreteSales:concrete.reduce((sum,row)=>sum+row.amount,0),blockQuantity:block.reduce((sum,row)=>sum+row.quantity,0),concreteQuantity:concrete.reduce((sum,row)=>sum+row.quantity,0),cashMovementCount:cashMovements.length,bankMovementCount:cashMovements.filter(row=>row.treasuryCode==='105'||row.paymentMethod==='bank').length,collectionTotal:cashMovements.filter(row=>row.isCustomerCollection).reduce((sum,row)=>sum+row.debit,0)}};
   }
 
   async function request(input){
@@ -128,7 +131,7 @@
     if(mode==='summary')plan=window.bh12ParseDailyWorkbook(workbook)||{};
     else plan=window.opsParseMovementWorkbook(workbook,file.name)||{};
     const parsed=window.BinHamidDailySummaryParser.parseWorkbook(workbook,window.XLSX);
-    plan={...plan,sales:unique([...(plan.sales||[]),...(parsed.sales||[])],keySale),collections:unique([...(plan.collections||[]),...(parsed.collections||[])],keyCollection)};
+    plan={...plan,sales:unique([...(plan.sales||[]),...(parsed.sales||[])],keySale),collections:unique([...(plan.collections||[]),...(parsed.collections||[])],keyCollection),cashMovements:unique([...(plan.cashMovements||[]),...(parsed.cashMovements||[])],keyCash),treasuries:unique([...(plan.treasuries||[]),...(parsed.treasuries||[])],row=>[row.treasuryCode,num(row.opening).toFixed(2),num(row.closing).toFixed(2)].join('|'))};
     return{file,mode,plan,fileHash:await hashFile(file),fileBase64Promise:fileBase64(file)};
   }
 

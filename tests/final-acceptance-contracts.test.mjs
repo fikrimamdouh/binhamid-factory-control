@@ -23,7 +23,7 @@ test('accounting acceptance stays schema 24 while persistent master advances pro
   const runtime=read('api/_lib/routes/system-runtime.js');
   assert.doesNotMatch(workflow,/directOperationsSchema\)!==15|expected schema 15|schema 15/);
   assert.match(workflow,/directOperationsSchema\)!==24|directOperationsSchema\)===24|directOperationsSchema===24/);
-  assert.match(runtime,/LATEST_REQUIRED_VERSION=28/);
+  assert.match(runtime,/LATEST_REQUIRED_VERSION=29/);
   assert.match(runtime,/directOperationsSchema:24/);
   assert.match(accountingMigrations,/024_employee_nickname_and_financial_command_center\.sql/);
   assert.ok(accountingMigrations.includes("ISOLATED_MIGRATION_TARGET: '24'"));

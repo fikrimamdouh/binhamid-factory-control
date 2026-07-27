@@ -1,0 +1,220 @@
+name: Apply Daily Report V2 Migration
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/apply-daily-report-v2-migration.yml'
+      - 'scripts/daily-report-v2-migration-preflight.mjs'
+      - 'scripts/daily-report-v2-migration-verify.mjs'
+      - 'scripts/resolve-supabase-connection.mjs'
+      - 'scripts/restore-drill.mjs'
+      - 'scripts/apply-isolated-accounting-migrations.mjs'
+      - 'scripts/verify-backup-files.mjs'
+      - 'scripts/backup-supabase.mjs'
+      - 'scripts/production-db-readiness.mjs'
+      - 'api/_lib/routes/system-runtime.js'
+      - 'supabase/migrations/029_daily_report_v2_upgrade.sql'
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: binhamid-daily-report-v2-migration
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: daily_report_v2_clone
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d daily_report_v2_clone"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      LOCAL_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/daily_report_v2_clone
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+
+      - name: Validate repository and daily-report contracts
+        run: |
+          set -euo pipefail
+          npm install --ignore-scripts --no-audit --no-fund
+          node --check scripts/daily-report-v2-migration-preflight.mjs
+          node --check scripts/daily-report-v2-migration-verify.mjs
+          node --check scripts/apply-isolated-accounting-migrations.mjs
+          node --check scripts/restore-drill.mjs
+          node --check api/_lib/daily-summary-parser.js
+          node --check api/erp/daily-report.js
+          npm run check
+
+      - name: Install PostgreSQL 17 client
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y curl ca-certificates
+          sudo install -d -m 0755 /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          . /etc/os-release
+          printf '%s\n' 'Types: deb' 'URIs: https://apt.postgresql.org/pub/repos/apt' "Suites: ${VERSION_CODENAME}-pgdg" 'Components: main' 'Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc' | sudo tee /etc/apt/sources.list.d/pgdg.sources > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client-17
+          test -x /usr/lib/postgresql/17/bin/pg_dump
+          echo '/usr/lib/postgresql/17/bin' >> "$GITHUB_PATH"
+
+      - name: Resolve protected database connection
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          SUPABASE_POOLER_HOST: ${{ vars.SUPABASE_POOLER_HOST }}
+          CONNECTION_DIAGNOSTIC_PATH: daily-report-v2-connection.json
+        run: node scripts/resolve-supabase-connection.mjs
+
+      - name: Create and verify encrypted pre-migration backup
+        env:
+          BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+          BACKUP_ENVIRONMENT: production-pre-daily-report-v2
+          BACKUP_OUTPUT_DIR: pre-daily-report-v2-backup
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf pre-daily-report-v2-backup
+          mkdir -p pre-daily-report-v2-backup
+          : > pre-daily-report-v2-backup-result.jsonl
+          node scripts/backup-supabase.mjs | tee pre-daily-report-v2-backup-result.jsonl
+          test "${PIPESTATUS[0]}" -eq 0
+          BACKUP_RESULT_FILE=pre-daily-report-v2-backup-result.jsonl \
+          BACKUP_OUTPUT_DIR=pre-daily-report-v2-backup \
+          BACKUP_VERIFICATION_FILE=pre-daily-report-v2-backup-verification.json \
+          BACKUP_MANIFEST_ENV_NAME=PRE_MIGRATION_MANIFEST \
+          node scripts/verify-backup-files.mjs
+
+      - name: Run production preflight
+        env:
+          DAILY_REPORT_V2_PREFLIGHT_PATH: daily-report-v2-preflight.json
+        run: node scripts/daily-report-v2-migration-preflight.mjs
+
+      - name: Restore production backup to isolated PostgreSQL 17
+        env:
+          BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+          RESTORE_ARTIFACT_DIR: pre-daily-report-v2-backup
+          RESTORE_DRILL_RESULT: daily-report-v2-isolated-restore.json
+          SUPABASE_DB_URL: ''
+        run: node scripts/restore-drill.mjs
+
+      - name: Prepare isolated PostgreSQL extensions
+        run: psql "$LOCAL_DATABASE_URL" -X -v ON_ERROR_STOP=1 -c 'create extension if not exists pgcrypto;'
+
+      - name: Apply migration 029 to isolated clone atomically
+        env:
+          ISOLATED_MIGRATION_TARGET: '29'
+          ISOLATED_MIGRATION_APPLY_RESULT: daily-report-v2-isolated-apply.json
+        run: node scripts/apply-isolated-accounting-migrations.mjs
+
+      - name: Verify isolated schema and protected row counts
+        env:
+          SUPABASE_DB_URL: ${{ env.LOCAL_DATABASE_URL }}
+          DAILY_REPORT_V2_PREFLIGHT_PATH: daily-report-v2-preflight.json
+          DAILY_REPORT_V2_RESULT_PATH: daily-report-v2-isolated-result.json
+        run: node scripts/daily-report-v2-migration-verify.mjs
+
+      - name: Apply migration 029 to production atomically
+        shell: bash
+        run: |
+          set -euo pipefail
+          current_version="$(node -e "const x=require('./daily-report-v2-preflight.json');process.stdout.write(String(x.currentVersion))")"
+          if [ "$current_version" -eq 28 ]; then
+            psql "$SUPABASE_DB_URL" -X -v ON_ERROR_STOP=1 --single-transaction --file supabase/migrations/029_daily_report_v2_upgrade.sql
+          elif [ "$current_version" -eq 29 ]; then
+            echo 'Database is already at schema version 29.'
+          else
+            echo "Unexpected schema version: $current_version" >&2
+            exit 1
+          fi
+
+      - name: Verify production schema 29 and protected row counts
+        env:
+          DAILY_REPORT_V2_PREFLIGHT_PATH: daily-report-v2-preflight.json
+          DAILY_REPORT_V2_RESULT_PATH: daily-report-v2-result.json
+          PRODUCTION_READINESS_PATH: daily-report-v2-production-readiness.json
+        run: |
+          set -euo pipefail
+          node scripts/daily-report-v2-migration-verify.mjs
+          node scripts/production-db-readiness.mjs
+
+      - name: Create and verify encrypted post-migration backup
+        env:
+          BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+          BACKUP_ENVIRONMENT: production-post-daily-report-v2
+          BACKUP_OUTPUT_DIR: post-daily-report-v2-backup
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf post-daily-report-v2-backup
+          mkdir -p post-daily-report-v2-backup
+          : > post-daily-report-v2-backup-result.jsonl
+          node scripts/backup-supabase.mjs | tee post-daily-report-v2-backup-result.jsonl
+          test "${PIPESTATUS[0]}" -eq 0
+          BACKUP_RESULT_FILE=post-daily-report-v2-backup-result.jsonl \
+          BACKUP_OUTPUT_DIR=post-daily-report-v2-backup \
+          BACKUP_VERIFICATION_FILE=post-daily-report-v2-backup-verification.json \
+          BACKUP_MANIFEST_ENV_NAME=POST_MIGRATION_MANIFEST \
+          EXPECTED_SCHEMA_VERSION=29 \
+          node scripts/verify-backup-files.mjs
+
+      - name: Upload daily-report migration evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-report-v2-migration-evidence-${{ github.run_id }}
+          path: |
+            daily-report-v2-connection.json
+            daily-report-v2-preflight.json
+            daily-report-v2-isolated-restore.json
+            daily-report-v2-isolated-apply.json
+            daily-report-v2-isolated-result.json
+            daily-report-v2-result.json
+            daily-report-v2-production-readiness.json
+            pre-daily-report-v2-backup-verification.json
+            post-daily-report-v2-backup-verification.json
+            pre-daily-report-v2-backup/*.enc
+            pre-daily-report-v2-backup/*.manifest.json
+            post-daily-report-v2-backup/*.enc
+            post-daily-report-v2-backup/*.manifest.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Publish migration status
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          node <<'NODE'
+          const success=process.env.JOB_STATUS==='success';
+          const response=await fetch(`https://api.github.com/repos/${process.env.REPOSITORY}/statuses/${process.env.HEAD_SHA}`,{
+            method:'POST',
+            headers:{Accept:'application/vnd.github+json',Authorization:`Bearer ${process.env.GITHUB_TOKEN}`,'X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'},
+            body:JSON.stringify({state:success?'success':'failure',context:'daily-report-v2-migration',target_url:process.env.RUN_URL,description:success?'Schema 29 applied, verified and backed up.':'Daily-report v2 migration stopped before acceptance.'})
+          });
+          if(!response.ok)throw new Error(`Status publication failed with HTTP ${response.status}`);
+          NODE
