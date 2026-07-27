@@ -1,0 +1,129 @@
+name: Restore supplier phone call links
+
+on:
+  push:
+    branches:
+      - agent/restore-supplier-phone-call
+    paths:
+      - .github/workflows/restore-supplier-phone-call.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/restore-supplier-phone-call
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Restore clickable supplier phone numbers
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path=Path('api/_lib/bot-procurement.js')
+          text=path.read_text()
+          old="""// رقم قابل للاتصال بضغطة واحدة: تليجرام يدعم روابط tel، فيُحوَّل الرقم المحلي
+// (05xxxxxxxx) إلى الصيغة الدولية بدل نسخه يدويًا من مربع نص.
+function callable(phone){
+  const raw=String(phone||'').replace(/[^\\d+]/g,'');
+  if(!raw)return'';
+  if(raw.startsWith('+'))return raw;
+  if(raw.startsWith('00'))return`+${raw.slice(2)}`;
+  if(raw.startsWith('05')&&raw.length===10)return`+966${raw.slice(1)}`;
+  if(raw.startsWith('9665'))return`+${raw}`;
+  return raw;
+}
+"""
+          new="""// Telegram يتعرف على الرقم الدولي المكتوب كنص ككيان phone_number قابل للضغط.
+// لا نستخدم رابط tel داخل HTML؛ Telegram يقبل روابط HTTP أو tg://، لذلك كان الرقم
+// يظهر أحيانًا كنص غير قابل للاتصال. نطبع الرقم الدولي صراحةً ليفتح شاشة الاتصال.
+export function callable(phone){
+  const western=String(phone||'')
+    .replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d))
+    .replace(/[۰-۹]/g,d=>'۰۱۲۳۴۵۶۷۸۹'.indexOf(d));
+  const raw=western.replace(/[^\\d+]/g,'');
+  if(!raw)return'';
+  if(raw.startsWith('+'))return`+${raw.slice(1).replace(/\\D/g,'')}`;
+  if(raw.startsWith('00'))return`+${raw.slice(2)}`;
+  if(raw.startsWith('966'))return`+${raw}`;
+  // أرقام الجوال والثابت السعودية المحلية تُحوّل إلى الصيغة الدولية.
+  if(/^0\\d{9}$/.test(raw))return`+966${raw.slice(1)}`;
+  if(/^[15]\\d{8}$/.test(raw))return`+966${raw}`;
+  return raw;
+}
+"""
+          if old not in text:
+              raise SystemExit('callable block not found; refusing unsafe replacement')
+          text=text.replace(old,new,1)
+          old_card="""function supplierCard(place,index){
+  // matchRank=0 هو أفضل مطابقة، فاستخدام || هنا يقلبها إلى «عام» — لذلك ??.
+  const[icon,label]=MATCH_BADGE[Math.min(Math.max(Number(place.matchRank??2),0),2)]||MATCH_BADGE[2];
+  // الرقم يفتح المتصل مباشرة بضغطة (tel)، وهو المطلوب للشراء السريع. هذا ليس
+  // رابطًا إلكترونيًا ولا يخرج المستخدم إلى موقع — الروابط الإلكترونية ممنوعة.
+  const tel=callable(place.phone);
+  const phoneLine=tel?`   📞 <a href=\"tel:${esc(tel)}\">${esc(place.phone)}</a>`:'   📞 <i>غير منشور</i>';
+"""
+          new_card="""export function supplierCard(place,index){
+  // matchRank=0 هو أفضل مطابقة، فاستخدام || هنا يقلبها إلى «عام» — لذلك ??.
+  const[icon,label]=MATCH_BADGE[Math.min(Math.max(Number(place.matchRank??2),0),2)]||MATCH_BADGE[2];
+  // الرقم الدولي يبقى نصًا عاديًا حتى ينشئ Telegram كيان phone_number؛ الضغط عليه
+  // يفتح الاتصال مباشرة بدل رابط tel غير المدعوم داخل روابط HTML للبوت.
+  const tel=callable(place.phone);
+  const phoneLine=tel?`   📞 ${tel}`:'   📞 <i>غير منشور</i>';
+"""
+          if old_card not in text:
+              raise SystemExit('supplier card block not found; refusing unsafe replacement')
+          text=text.replace(old_card,new_card,1)
+          path.write_text(text)
+          PY
+
+          cat > tests/supplier-phone-call.test.mjs <<'EOF'
+          import test from 'node:test';
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs';
+          import { callable, supplierCard } from '../api/_lib/bot-procurement.js';
+
+          test('supplier phone numbers normalize to clickable Saudi international form',()=>{
+            assert.equal(callable('055 123 4567'),'+966551234567');
+            assert.equal(callable('٠٥٥ ١٢٣ ٤٥٦٧'),'+966551234567');
+            assert.equal(callable('017 522 1234'),'+966175221234');
+            assert.equal(callable('00966 55 123 4567'),'+966551234567');
+          });
+
+          test('supplier card uses Telegram phone-number entity instead of unsupported tel HTML link',()=>{
+            const card=supplierCard({name:'مورد تجريبي',phone:'0551234567',matchRank:0},1);
+            assert.match(card,/📞 \\+966551234567/);
+            assert.doesNotMatch(card,/href=["']tel:/i);
+            const source=fs.readFileSync(new URL('../api/_lib/bot-procurement.js',import.meta.url),'utf8');
+            assert.doesNotMatch(source,/<a href=["']tel:/i);
+          });
+          EOF
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run focused tests
+        run: node --test tests/supplier-phone-call.test.mjs
+
+      - name: Commit fix and remove one-time runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/restore-supplier-phone-call.yml
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add -A
+          git commit -m "Restore direct supplier phone dialing in Telegram"
+          git push origin HEAD:agent/restore-supplier-phone-call
