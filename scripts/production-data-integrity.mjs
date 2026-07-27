@@ -11,7 +11,8 @@ const sql=`select json_build_object(
   'allocations',(select count(*) from sales_payment_allocations),
   'dailyBatches',(select count(*) from daily_report_batches),
   'dailySales',(select count(*) from daily_report_sales_lines),
-  'dailyCash',(select count(*) from daily_report_cash_movements)
+  'dailyCash',(select count(*) from daily_report_cash_movements),
+  'dailyInventory',(select count(*) from daily_report_inventory_snapshots)
 ),
 'dailyReports',(
   select coalesce(json_agg(row_to_json(report_rows) order by report_rows."reportDate"),'[]'::json)
@@ -22,7 +23,8 @@ const sql=`select json_build_object(
       (select coalesce(sum(s.amount),0) from daily_report_sales_lines s where s.batch_id=b.id) as "salesTotal",
       (select count(*) from daily_report_cash_movements c where c.batch_id=b.id) as "cashMovementCount",
       (select count(*) from daily_report_cash_movements c where c.batch_id=b.id and c.is_customer_collection=true) as "collectionCount",
-      (select coalesce(sum(c.debit),0) from daily_report_cash_movements c where c.batch_id=b.id and c.is_customer_collection=true) as "collectionTotal"
+      (select coalesce(sum(c.debit),0) from daily_report_cash_movements c where c.batch_id=b.id and c.is_customer_collection=true) as "collectionTotal",
+      (select count(*) from daily_report_inventory_snapshots i where i.batch_id=b.id) as "inventoryCount"
     from daily_report_batches b
     where b.status='approved'
   ) report_rows
@@ -53,7 +55,13 @@ const sql=`select json_build_object(
 'duplicateDailySaleIdentity',(select count(*) from (select line_identity from daily_report_sales_lines where line_identity is not null group by line_identity having count(*)>1) q),
 'duplicateDailyCashIdentity',(select count(*) from (select line_identity from daily_report_cash_movements where line_identity is not null group by line_identity having count(*)>1) q),
 'duplicateCollectionReference',(select count(*) from (select reference_no from collection_events where nullif(reference_no,'') is not null group by reference_no having count(*)>1) q),
-'duplicateSalesReference',(select count(*) from (select reference_no from sales_orders where nullif(reference_no,'') is not null group by reference_no having count(*)>1) q)
+'duplicateSalesReference',(select count(*) from (select reference_no from sales_orders where nullif(reference_no,'') is not null group by reference_no having count(*)>1) q),
+'dailyCashSummaryMismatch',(select count(*) from daily_report_batches b where b.status='approved' and (select count(*) from daily_report_cash_movements c where c.batch_id=b.id)<>coalesce((b.summary->>'cashMovementCount')::integer,-1)),
+'dailyCollectionCountMismatch',(select count(*) from daily_report_batches b where b.status='approved' and (select count(*) from daily_report_cash_movements c where c.batch_id=b.id and c.is_customer_collection=true)<>coalesce((b.summary->>'collectionCount')::integer,-1)),
+'dailyCollectionTotalMismatch',(select count(*) from daily_report_batches b where b.status='approved' and abs((select coalesce(sum(c.debit),0) from daily_report_cash_movements c where c.batch_id=b.id and c.is_customer_collection=true)-coalesce((b.summary->>'collectionTotal')::numeric,-1))>0.01),
+'dailyInventorySummaryMismatch',(select count(*) from daily_report_batches b where b.status='approved' and (select count(*) from daily_report_inventory_snapshots i where i.batch_id=b.id)<>(coalesce((b.summary->>'finishedGoodsCount')::integer,0)+coalesce((b.summary->>'rawMaterialsCount')::integer,0))),
+'reversedCollectionsWithValue',(select count(*) from collection_events where status='reversed' and (abs(coalesce(amount,0))>0.01 or abs(coalesce(allocated_amount,0))>0.01 or abs(coalesce(unallocated_amount,0))>0.01)),
+'activeAllocationsOnReversedCollections',(select count(*) from sales_payment_allocations a join collection_events c on c.id=a.collection_id where a.active and c.status='reversed')
 ))::text;`;
 const result=spawnSync('psql',[db,'-X','-t','-A','-v','ON_ERROR_STOP=1','-c',sql],{encoding:'utf8',env:process.env,timeout:120000});
 if(result.error||result.status!==0)stop('QUERY_FAILED','Read-only integrity query failed.');
