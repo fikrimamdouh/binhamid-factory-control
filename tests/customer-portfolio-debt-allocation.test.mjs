@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { projectCumulativeDailyReport } from '../api/_lib/daily-cumulative-report-data.js';
+import { buildReportActivityIndex, settleCustomerAccount } from '../api/_lib/customer-settlement.js';
+import { removeRepeatedPaymentTerms } from '../api/_lib/customer-portfolio-document.js';
 
 test('collections settle current invoices before older invoices',()=>{
   const report=projectCumulativeDailyReport({
@@ -17,6 +19,32 @@ test('collections settle current invoices before older invoices',()=>{
   assert.equal(row.closingBalance,80);
 });
 
+test('old customer payment closes report purchases then reduces previous balance',()=>{
+  const result=settleCustomerAccount({openingBalance:5000,openingCount:1,grossSales:0,paidApplied:0,unallocatedCredit:0,aging:{}},{code:'1054',name:'مقهى مون بكس',sales:2000,collections:3500,lastSale:'2026-07-27',lastCollection:'2026-07-27'});
+  assert.equal(result.customerClass,'old');
+  assert.equal(result.previousBalance,5000);
+  assert.equal(result.paidCurrent,2000);
+  assert.equal(result.paidPrevious,1500);
+  assert.equal(result.remainingCurrent,0);
+  assert.equal(result.remainingOpening,3500);
+  assert.equal(result.finalDebt,3500);
+  assert.equal(result.status,'old_paid_new_and_previous');
+});
+
+test('new customer is distinguished and can be fully paid',()=>{
+  const result=settleCustomerAccount({openingBalance:0,openingCount:0,grossSales:0,invoiceCount:0,collectionCount:0,aging:{}},{code:'NEW-1',name:'عميل جديد',sales:1200,collections:1200});
+  assert.equal(result.customerClass,'new');
+  assert.equal(result.status,'new_paid_full');
+  assert.equal(result.finalDebt,0);
+  assert.equal(result.finalAdvance,0);
+});
+
+test('report activity detects duplicates and section mismatch',()=>{
+  const index=buildReportActivityIndex({sales:[{invoice:'A1',kind:'خرسانة',item:'بلوك 20',customerCode:'1',customer:'عميل',amount:100},{invoice:'A1',kind:'خرسانة',item:'خرسانة',customerCode:'1',customer:'عميل',amount:100}],collections:[]},'concrete','2026-07-27');
+  assert.ok(index.rows[0].alerts.has('duplicate_invoice'));
+  assert.ok(index.rows[0].alerts.has('sales_type_mismatch'));
+});
+
 test('customer buttons remain reusable after opening the first statement',async()=>{
   const source=await readFile(new URL('../api/_lib/bot-customer-search.js',import.meta.url),'utf8');
   assert.match(source,/\['enterprise_customer_choose','enterprise_customer_last_statement'\]\.includes/);
@@ -25,25 +53,22 @@ test('customer buttons remain reusable after opening the first statement',async(
   assert.match(source,/compactButtonName/);
 });
 
+test('payment terms are removed from the portfolio tables and kept in declaration text',()=>{
+  const source='<div class="f w2 dark"><div class="k">مهلة السداد المعتمدة</div><div class="v lg">3 <span>أيام</span></div></div><table><tr><th style="width:13mm">مهلة السداد</th></tr><tr><td class="mono">3 يوم</td></tr></table><p>ألتزم بمهلة السداد 3 أيام</p>';
+  const cleaned=removeRepeatedPaymentTerms(source);
+  assert.doesNotMatch(cleaned,/مهلة السداد المعتمدة/);
+  assert.doesNotMatch(cleaned,/>مهلة السداد<\/th>/);
+  assert.doesNotMatch(cleaned,/>3 يوم<\/td>/);
+  assert.match(cleaned,/ألتزم بمهلة السداد 3 أيام/);
+});
+
 test('portfolio is limited to section sales history and current report activity',async()=>{
   const portfolio=await readFile(new URL('../api/_lib/customer-portfolio-pdf.js',import.meta.url),'utf8');
   assert.match(portfolio,/hasSectionSales/);
   assert.match(portfolio,/base\.grossSales/);
-  assert.match(portfolio,/activity\.sales/);
-  assert.match(portfolio,/hasReportActivity/);
-  assert.match(portfolio,/a\.remainingNew>0/);
+  assert.match(portfolio,/settlement\.remainingPriorSales/);
+  assert.match(portfolio,/settlement\.hasReportActivity/);
   assert.doesNotMatch(portfolio,/assignedToRep/);
-  assert.doesNotMatch(portfolio,/if\(!selected\.size/);
-  assert.match(portfolio,/لا تُدرج المديونية الافتتاحية وحدها دون مبيعات/);
-});
-
-test('payment is split between sales and old opening debt',async()=>{
-  const portfolio=await readFile(new URL('../api/_lib/customer-portfolio-pdf.js',import.meta.url),'utf8');
-  assert.match(portfolio,/paidNew:a\.paidNew/);
-  assert.match(portfolio,/paidOld:a\.paidOld/);
-  assert.match(portfolio,/reportSales/);
-  assert.match(portfolio,/reportCollections/);
-  assert.match(portfolio,/يُخصم السداد من مبيعات التقرير، ثم المبيعات السابقة، ثم الرصيد القديم/);
 });
 
 test('portfolio keeps legacy employee ids when cloud employees are merged',async()=>{
@@ -54,11 +79,12 @@ test('portfolio keeps legacy employee ids when cloud employees are merged',async
   assert.match(portfolio,/employeeAliases:aliases/);
 });
 
-test('current concrete sales are included even when fully paid',async()=>{
+test('portfolio includes classifications, totals, aging and fixed snapshots',async()=>{
   const portfolio=await readFile(new URL('../api/_lib/customer-portfolio-pdf.js',import.meta.url),'utf8');
-  assert.match(portfolio,/for\(const row of analysis\?\.sales\|\|\[\]\)/);
-  assert.match(portfolio,/if\(saleType\(row\)!==type\)continue/);
-  assert.match(portfolio,/add\(master\|\|\{\}, \{customerCode:code,customerName:name\}\)/);
-  assert.match(portfolio,/!\(a\.remainingNew>0\)&&!hasReportActivity/);
-  assert.match(portfolio,/NO_SALES_ACTIVITY/);
+  assert.match(portfolio,/aggregateSettlements/);
+  assert.match(portfolio,/customerClassLabel/);
+  assert.match(portfolio,/أعمار المديونية/);
+  assert.match(portfolio,/persistPortfolioReportSnapshot/);
+  assert.match(portfolio,/portfolio-snapshots/);
+  assert.match(portfolio,/portfolio-settlement-v2/);
 });
