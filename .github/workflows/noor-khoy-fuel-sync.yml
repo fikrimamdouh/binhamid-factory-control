@@ -4,7 +4,15 @@ on:
   workflow_dispatch:
     inputs:
       report_date:
-        description: Optional report date (YYYY-MM-DD); previous Riyadh day when empty
+        description: Optional single report date (YYYY-MM-DD)
+        required: false
+        type: string
+      start_date:
+        description: Optional backfill start date (YYYY-MM-DD)
+        required: false
+        type: string
+      end_date:
+        description: Optional backfill end date (YYYY-MM-DD); defaults to previous Riyadh day
         required: false
         type: string
   schedule:
@@ -21,14 +29,17 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 50
     env:
       NOOR_KHOY_USERNAME: ${{ secrets.NOOR_KHOY_USERNAME }}
       NOOR_KHOY_PASSWORD: ${{ secrets.NOOR_KHOY_PASSWORD }}
       NOOR_KHOY_LOGIN_URL: https://www.norkhoysa.com/companies/login
+      NOOR_KHOY_DASHBOARD_URL: https://www.norkhoysa.com/companies
       NOOR_KHOY_REPORT_URL: https://www.norkhoysa.com/companies/fuels?fueltype=all
       BINHAMID_FUEL_UPLOAD_URL: https://binhamid-factory-control.vercel.app/api/fuel/daily-report
       REPORT_DATE: ${{ inputs.report_date }}
+      REPORT_START_DATE: ${{ inputs.start_date }}
+      REPORT_END_DATE: ${{ inputs.end_date }}
       FUEL_REPORT_DATE_OFFSET_DAYS: '-1'
     steps:
       - uses: actions/checkout@v4
@@ -42,8 +53,34 @@ jobs:
         run: |
           npm install --no-save --no-package-lock playwright@1.55.0
           npx playwright install --with-deps chromium
-      - name: Download and upload the daily fuel report
-        run: node scripts/noor-khoy-fuel-sync.mjs
+      - name: Download and upload fuel reports
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${REPORT_START_DATE:-}" ]]; then
+            start="${REPORT_START_DATE}"
+            end="${REPORT_END_DATE:-$(TZ=Asia/Riyadh date -d 'yesterday' +%F)}"
+            date -d "$start" +%F >/dev/null
+            date -d "$end" +%F >/dev/null
+            if [[ "$start" > "$end" ]]; then
+              echo "start_date must not be after end_date" >&2
+              exit 2
+            fi
+            current="$start"
+            while [[ "$current" < "$end" || "$current" == "$end" ]]; do
+              final_day=false
+              [[ "$current" == "$end" ]] && final_day=true
+              echo "Importing Noor Khoy fuel report for $current"
+              REPORT_DATE="$current" \
+              FUEL_SEND_BALANCE="$final_day" \
+              FUEL_NOTIFY="$final_day" \
+              FUEL_SYNC_ARTIFACT_DIR="artifacts/noor-khoy-fuel/$current" \
+              node scripts/noor-khoy-fuel-sync.mjs
+              current="$(date -I -d "$current + 1 day")"
+            done
+          else
+            FUEL_SEND_BALANCE=true FUEL_NOTIFY=true node scripts/noor-khoy-fuel-sync.mjs
+          fi
       - name: Keep diagnostic artifacts
         if: always()
         uses: actions/upload-artifact@v4
