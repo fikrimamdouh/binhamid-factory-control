@@ -32,7 +32,7 @@ test('a concrete sale and collection update the concrete projection',()=>{
   assert.equal(projection.departments.block.rows.length,0);
 });
 
-test('collection delivery classifies an old customer and splits payment between current purchases and previous balance',()=>{
+test('collection delivery classifies an old customer and settles previous balance first',()=>{
   const analysis={
     sales:[{invoice:'18123',kind:'خرسانة',customerCode:'13063',customer:'عميل الخرسانة',item:'خرسانة جديدة',quantity:10,amount:600}],
     collections:[{customerCode:'13063',customer:'عميل الخرسانة',amount:800,treasuryCode:'101',treasuryName:'الخزينة الرئيسية'}]
@@ -55,10 +55,10 @@ test('collection delivery classifies an old customer and splits payment between 
   assert.equal(rows[0].previousBalance,5000);
   assert.equal(rows[0].reportSales,600);
   assert.equal(rows[0].reportCollections,800);
-  assert.equal(rows[0].paidCurrent,600);
-  assert.equal(rows[0].paidPrevious,200);
+  assert.equal(rows[0].paidCurrent,0);
+  assert.equal(rows[0].paidPrevious,800);
   assert.equal(rows[0].finalDebt,4800);
-  assert.equal(rows[0].status,'old_paid_new_and_previous');
+  assert.equal(rows[0].status,'old_paid_previous_with_current_due');
   assert.equal(rows[0].linked,true);
 });
 
