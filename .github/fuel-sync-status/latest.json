@@ -1,0 +1,19 @@
+{
+  "outcome": "failure",
+  "run_id": "30252132191",
+  "run_attempt": "1",
+  "commit": "15ccc32f6413959d2f57fc2c33c32e3948725666",
+  "updated_at": "2026-07-27T09:02:39.822532+00:00",
+  "diagnostics": [
+    {
+      "file": "artifacts/noor-khoy-fuel/2026-07-01/failure-context.json",
+      "data": {
+        "url": "https://www.norkhoysa.com/companies/Vehicleimport",
+        "title": "Nour Khoy | Manage Vehicles",
+        "error": "page.waitForEvent: Timeout 60000ms exceeded while waiting for event \"download\"\n=========================== logs ===========================\nwaiting for event \"download\"\n============================================================\n    at downloadExcel (/home/runner/work/binhamid-factory-control/binhamid-factory-control/scripts/noor-khoy-fuel-sync.mjs:111:30)\n    at async main (/home/runner/work/binhamid-factory-control/binhamid-factory-control/scripts/noor-khoy-fuel-sync.mjs:135:20)"
+      }
+    }
+  ],
+  "uploads": [],
+  "log_tail": "Importing Noor Khoy fuel report for 2026-07-01\n[noor-khoy-fuel-sync] page.waitForEvent: Timeout 60000ms exceeded while waiting for event \"download\"\n=========================== logs ===========================\nwaiting for event \"download\"\n============================================================\n    at downloadExcel (/home/runner/work/binhamid-factory-control/binhamid-factory-control/scripts/noor-khoy-fuel-sync.mjs:111:30)\n    at async main (/home/runner/work/binhamid-factory-control/binhamid-factory-control/scripts/noor-khoy-fuel-sync.mjs:135:20)"
+}
