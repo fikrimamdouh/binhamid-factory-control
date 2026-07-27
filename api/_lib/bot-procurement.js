@@ -318,8 +318,18 @@ export async function continueProcurementSession(message,identity,session,text){
 async function createQuoteRequest(message,identity,context,urgency){
   const reference=await nextReference(),details={reference_no:reference,item:context.item||context.query,quantity:Number(context.quantity||1),urgency,urgency_label:URGENCY[urgency]||urgency,city:context.city||'',status:'open',requested_by_name:displayName(identity,message.from),requested_by_user_id:String(identity.user_id||''),chat_id:String(message.chat.id),source_message_id:String(message.message_id),created_at:now()};
   await insert('audit_log',[{actor_type:'telegram',actor_id:String(identity?.user_id||identity?.external_id||message.from.id),action:'supplier_quote_request',entity_type:'request_for_quotation',entity_id:reference,details,created_at:now()}]);
+  // الطلب كان يُسجَّل في سجل التدقيق فقط، فلا تراه شاشة المشتريات ولا المدير المالي
+  // ولا يمكن اعتماده أو إغلاقه. الآن يصبح طلب شراء حقيقيًا يدخل دورة العمل.
+  const stored=await insert('purchase_requests',[{
+    reference_no:reference,request_type:'rfq',item_description:details.item,
+    quantity:details.quantity,unit:'قطعة',urgency,status:'open',
+    requested_by:identity?.user_id||null,source_chat_id:String(message.chat.id||''),
+    source_message_id:String(message.message_id||''),requested_at:now()
+  }],{prefer:'return=minimal'}).then(()=>true).catch(error=>{
+    console.warn('[rfq purchase request]',String(error?.message||'').slice(0,220));return false;
+  });
   await clearMaintenanceSession(message.chat.id,identity.external_id||message.from.id);
-  return sendMessage(message.chat.id,`تم تسجيل طلب عرض السعر.\n\nالمرجع: <b>${esc(reference)}</b>\nالقطعة: <b>${esc(details.item)}</b>\nالكمية: <b>${details.quantity}</b>\nالاستعجال: <b>${esc(details.urgency_label)}</b>\nالحالة: <b>مفتوح للبحث والتواصل مع الموردين</b>.`);
+  return sendMessage(message.chat.id,`${stored?'✅':'⚠️'} تم تسجيل طلب عرض السعر${stored?' ودخل دورة الاعتماد':' في السجل فقط — راجع مركز المشتريات'}.\n\nالمرجع: <b>${esc(reference)}</b>\nالقطعة: <b>${esc(details.item)}</b>\nالكمية: <b>${details.quantity}</b>\nالاستعجال: <b>${esc(details.urgency_label)}</b>\nالحالة: <b>مفتوح للبحث والتواصل مع الموردين</b>.`);
 }
 
 export async function handleProcurementCallback(message,from,identity,action,value){
@@ -351,11 +361,22 @@ export async function handleProcurementCallback(message,from,identity,action,val
 
 export async function sendOpenQuoteRequests(chatId,identity){
   if(!canUse(identity?.role))return sendMessage(chatId,'ليست لديك صلاحية عرض طلبات الأسعار.');
-  const logs=await select('audit_log','action=eq.supplier_quote_request&entity_type=eq.request_for_quotation&select=entity_id,details,created_at&order=created_at.desc&limit=50');
-  if(!logs?.length)return sendMessage(chatId,'لا توجد طلبات عروض أسعار مسجلة.');
-  const body=logs.slice(0,15).map((row,index)=>`${index+1}. <b>${esc(row.entity_id)}</b> — ${esc(row.details?.item||'قطعة')}\nالكمية: ${esc(row.details?.quantity||1)} | الاستعجال: ${esc(row.details?.urgency_label||'عادي')}\nبواسطة: ${esc(row.details?.requested_by_name||'مسؤول الورشة')}`).join('\n\n');
-  return sendMessage(chatId,`<b>طلبات عروض الأسعار المفتوحة</b>\n\n${body}`.slice(0,3900));
+  // المصدر صار جدول طلبات الشراء نفسه، فتظهر الحالة الحقيقية (مفتوح/معتمد/مغلق)
+  // بدل قائمة ساكنة من سجل التدقيق لا تتغير أبدًا.
+  const rows=await select('purchase_requests','request_type=eq.rfq&status=not.in.(closed,cancelled,rejected)&select=reference_no,item_description,quantity,unit,urgency,status,requested_at&order=requested_at.desc&limit=20').catch(()=>[]);
+  if(!rows?.length)return sendMessage(chatId,'📂 لا توجد طلبات عروض أسعار مفتوحة.');
+  const STATUS={open:'🟡 مفتوح',pending:'🟡 بانتظار',approved:'🟢 معتمد',ordered:'🔵 مطلوب',received:'✅ مستلم'};
+  const age=value=>{const days=Math.floor((Date.now()-new Date(value||Date.now()).getTime())/86400000);return days<=0?'اليوم':`منذ ${days} يوم`;};
+  const body=[`📂 <b>طلبات الأسعار المفتوحة</b> (${rows.length})`,RULE,
+    ...rows.map((row,index)=>[
+      `${index+1}. <b>${esc(row.item_description||'قطعة')}</b>`,
+      `   🔖 ${esc(row.reference_no||'—')} · ${STATUS[row.status]||esc(row.status||'—')}`,
+      `   📦 ${Number(row.quantity||1)} ${esc(row.unit||'قطعة')} · ${esc(URGENCY[row.urgency]||row.urgency||'عادي')} · ${age(row.requested_at)}`
+    ].join('\n')),
+    RULE,'<i>الطلب المعتمد ينتقل إلى الشراء ثم الاستلام.</i>'].join('\n');
+  return sendMessage(chatId,body.slice(0,3900));
 }
+
 
 export async function handleProcurementTextCommand(message,identity,text){
   if(canUseProductAssistant(identity)&&await handleProductTextCommand(message,identity,text))return true;

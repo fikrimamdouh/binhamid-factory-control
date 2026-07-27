@@ -135,3 +135,17 @@ test('price research prefers the free provider and falls back without dying', as
   assert.match(free, /لا تضع روابط/);
   assert.doesNotMatch(free, /href=/);
 });
+
+test('quote requests become real purchase requests instead of audit-log notes', async () => {
+  const source = await read('api/_lib/bot-procurement.js');
+  // كان الطلب يُكتب في audit_log فقط، فلا يراه المدير المالي ولا شاشة المشتريات
+  // ولا يمكن اعتماده — الآن يدخل جدول طلبات الشراء بدورة حالة حقيقية.
+  assert.match(source, /insert\('purchase_requests'/);
+  assert.match(source, /request_type:'rfq'/);
+  assert.match(source, /status:'open'/);
+  // والقائمة تقرأ الحالة الحقيقية بدل سجل التدقيق الساكن.
+  assert.match(source, /select\('purchase_requests','request_type=eq\.rfq/);
+  assert.doesNotMatch(source, /action=eq\.supplier_quote_request&entity_type/);
+  // فشل الكتابة لا يُسقط الطلب بصمت — يُبلَّغ المستخدم صراحةً.
+  assert.match(source, /في السجل فقط — راجع مركز المشتريات/);
+});
