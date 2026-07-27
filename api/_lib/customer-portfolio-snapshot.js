@@ -7,7 +7,7 @@ const pointerPath=type=>`portfolio-documents/latest-daily-${type}.json`;
 async function existingSnapshot(report){
   try{
     const file=await downloadObject(pointerPath(report.type)),pointer=JSON.parse(file.buffer.toString('utf8'));
-    if(pointer?.snapshotVersion==='portfolio-settlement-v2'&&pointer?.portfolioType===report.type&&String(pointer?.reportDate||'')===String(report.reportDate||'')&&pointer?.pdfPath&&pointer?.snapshotPath)return pointer;
+    if(pointer?.snapshotVersion==='portfolio-settlement-v3-cross-sector'&&pointer?.portfolioType===report.type&&String(pointer?.reportDate||'')===String(report.reportDate||'')&&pointer?.pdfPath&&pointer?.snapshotPath)return pointer;
     return null;
   }catch(error){if(isMissing(error))return null;throw error;}
 }
