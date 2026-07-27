@@ -130,8 +130,8 @@ async function compareView(chatId,identity,days,category){
     `   ${trend(totals.amount,previousTotals.amount,{invert:true})} · ${costDiff>=0?'+':''}${money(Math.round(costDiff))} ر.س`,
     line('🧾','التعبئات',`${qty(totals.fills)} مقابل ${qty(previousTotals.fills)}`),
     RULE,
-    // الزيادة ليست سيئة بذاتها: قد تعني تشغيلًا أكثر. الربط بالإنتاج هو الحكم.
-    note('ارتفاع الاستهلاك قد يعني زيادة تشغيل؛ قارنه بالإنتاج قبل الحكم.')
+    // الزيادة ليست سيئة دائمًا: قد يكون الإنتاج أعلى، لذلك تُعرض كإشارة لا حكم.
+    note('قارن الزيادة بحجم التشغيل والإنتاج قبل الحكم على كفاءة الاستهلاك.')
   ),fuelMenu(category,days));
 }
 
@@ -262,7 +262,7 @@ export async function handleFuelTextCommand(message,identity,text){
   // مدى صريح: «كشف حساب من 2026-07-01 الى 2026-07-26».
   const range=value.match(/^(?:كشف حساب|كشف|تقرير)\s*(?:الديزل|المركبات|السيارات)?\s*من\s*(\d{4}-\d{2}-\d{2})\s*(?:الى|إلى|حتى|-)\s*(\d{4}-\d{2}-\d{2})$/);
   if(range)return guard(()=>statementView(message.chat.id,identity,'diesel',range[1],range[2]));
-  if(/^\/(fuel|diesel)$/i.test(raw)||/^(تقارير الديزل|الديزل|تقرير الديزل|استهلاك الديزل|الوقود)$/.test(value)){
+  if(/^\/(fuel|diesel)$/i.test(raw)||/^(ديزل|تقارير الديزل|الديزل|تقرير الديزل|استهلاك الديزل|الوقود)$/.test(value)){
     await showFuelMenu(message,identity);return true;
   }
   return false;
