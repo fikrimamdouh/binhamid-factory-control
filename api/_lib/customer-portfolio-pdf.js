@@ -12,6 +12,7 @@ import {
 } from './customer-settlement.js';
 import { enhancePortfolioDocument } from './customer-portfolio-document.js';
 import { renderCustomerPortfolioDeclaration } from '../../shared/customer-portfolio-declaration.js';
+import { portfolioSectorLabel, resolveCustomerPortfolioOwner } from '../../shared/customer-portfolio-ownership.js';
 import {
   CUSTOMER_PORTFOLIO_DECLARATION,
   CUSTOMER_PORTFOLIO_EXTRA,
@@ -19,7 +20,7 @@ import {
   CUSTOMER_PORTFOLIO_TEXT_VERSION
 } from '../../shared/canonical-declaration-texts.js';
 
-const SNAPSHOT_VERSION='portfolio-settlement-v2';
+const SNAPSHOT_VERSION='portfolio-settlement-v3-cross-sector';
 const clean=value=>String(value??'').trim();
 const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const digits=value=>clean(value).replace(/\D/g,'');
@@ -59,18 +60,29 @@ function repScore(employee,type){if(!roleMatches(employee,type))return-1;let sco
 function findRep(employees,type){return(employees||[]).filter(employee=>employee?.act!==false&&repScore(employee,type)>=0).sort((a,b)=>repScore(b,type)-repScore(a,type)||clean(a.name).localeCompare(clean(b.name),'ar'))[0]||null;}
 function masterIndexes(clients=[]){const byCode=new Map(),byName=new Map();for(const client of clients||[]){for(const value of [client?.id,client?.code,client?.cr].map(normalizeCustomerValue).filter(Boolean))if(!byCode.has(value))byCode.set(value,client);const name=normalizeCustomerValue(client?.name);if(name&&!byName.has(name))byName.set(name,client);}return{byCode,byName};}
 function lookupMaster(index,code,name){return index.byCode.get(normalizeCustomerValue(code))||index.byName.get(normalizeCustomerValue(name))||{};}
+function sameCustomer(row,code,name){
+  const wantedCode=normalizeCustomerValue(code),rowCode=normalizeCustomerValue(row?.customerCode||row?.customer_code||row?.customer_external_id),wantedName=normalizeCustomerValue(name),rowName=normalizeCustomerValue(row?.customer||row?.customerName||row?.customer_name);
+  return Boolean(wantedCode&&rowCode&&wantedCode===rowCode||!wantedCode&&wantedName&&rowName===wantedName);
+}
+function ownershipHistory(analysis,base,code,name){return[...(Array.isArray(base?.sales)?base.sales:[]),...(analysis?.sales||[]).filter(row=>sameCustomer(row,code,name))];}
 function reportCustomerCandidates(type,analyticsRows,activityRows){
   const candidates=new Map(),add=(code,name,source)=>{const key=normalizeCustomerValue(code)||`name:${normalizeCustomerValue(name)}`;if(!key)return;const current=candidates.get(key)||{code:clean(code),name:clean(name),sources:[]};current.sources.push(source);if(!current.code&&code)current.code=clean(code);if(!current.name&&name)current.name=clean(name);candidates.set(key,current);};
   for(const row of analyticsRows||[])if(Number(row.grossSales||0)>0)add(row.code||row.externalId,row.name,'history');
   for(const row of activityRows||[])if(Number(row.sales||0)>0||Number(row.collections||0)>0)add(row.code,row.name,'report');
   return[...candidates.values()];
 }
-function customerRows(type,analysis,state,analytics,reportDate){
-  const analyticsIndex=indexCustomerAnalytics(analytics?.rows||[]),activityIndex=buildReportActivityIndex(analysis,type,reportDate),masters=masterIndexes(state.clients),rows=[];
+function customerRows(type,analysis,state,analytics,ownershipAnalytics,reportDate){
+  const analyticsIndex=indexCustomerAnalytics(analytics?.rows||[]),ownershipIndex=indexCustomerAnalytics(ownershipAnalytics?.rows||[]),activityIndex=buildReportActivityIndex(analysis,type,reportDate),masters=masterIndexes(state.clients),rows=[],crossSectorPurchases=[];
   for(const candidate of reportCustomerCandidates(type,analytics?.rows||[],activityIndex.rows)){
     const base=lookupCustomer(analyticsIndex,candidate.code,candidate.name)||{},activity=lookupActivity(activityIndex,candidate.code,candidate.name),settlement=settleCustomerAccount(base,activity,{reportDate}),hasSectionSales=Number(base.grossSales||0)+Number(activity.sales||0)>0;
     if(!hasSectionSales||(!(settlement.remainingPriorSales>0||settlement.remainingCurrent>0)&&!settlement.hasReportActivity))continue;
-    const master=lookupMaster(masters,candidate.code,candidate.name),code=clean(master?.code||master?.cr||candidate.code||base.code||base.externalId),name=clean(master?.name||candidate.name||base.name)||code||'عميل غير مسمى',items=[...new Set([...(activity.items||[]),...(Array.isArray(base.products)?base.products:[])])];
+    const master=lookupMaster(masters,candidate.code,candidate.name),code=clean(master?.code||master?.cr||candidate.code||base.code||base.externalId),name=clean(master?.name||candidate.name||base.name)||code||'عميل غير مسمى',ownershipBase=lookupCustomer(ownershipIndex,code,name)||{},owner=resolveCustomerPortfolioOwner({customer:{segment:ownershipBase.segment,...master},employees:state.employees,historySales:ownershipHistory(analysis,ownershipBase,code,name),fallbackSector:type}),items=[...new Set([...(activity.items||[]),...(Array.isArray(base.products)?base.products:[])])];
+    if(owner.sector!==type){
+      if(Number(activity.sales||0)>0)crossSectorPurchases.push({
+        name,code,phone:clean(master?.tel||master?.phone||base.phone),ownerSector:owner.sector,ownerSectorLabel:portfolioSectorLabel(owner.sector),ownerEmployeeName:clean(owner.employee?.name||owner.employee?.full_name),ownerSource:owner.source,sellingSector:type,amount:Number(activity.sales||0),quantity:(activity.invoices||[]).reduce((sum,row)=>sum+Number(row.quantity||0),0),item:[...(activity.items||[])].join('، '),invoices:activity.invoices||[]
+      });
+      continue;
+    }
     rows.push({
       ...settlement,name,code,registry:clean(master?.cr||master?.nationalId||master?.registry||code),phone:clean(master?.tel||master?.phone||base.phone),segment:type==='block'?'بلوك':'خرسانة',creditLimit:Number(master?.cap??base.creditLimit??state.cap??0)||0,
       item:items.slice(0,2).join('، '),quantity:(activity.invoices||[]).reduce((sum,row)=>sum+Number(row.quantity||0),0),
@@ -79,7 +91,9 @@ function customerRows(type,analysis,state,analytics,reportDate){
       reportSaleDate:activity.lastSale||'',reportCollectionDate:activity.lastCollection||'',invoiceDetails:activity.invoices||[],collectionDetails:activity.collectionRows||[]
     });
   }
-  return rows.sort((a,b)=>Number(b.hasReportActivity)-Number(a.hasReportActivity)||b.finalDebt-a.finalDebt||a.name.localeCompare(b.name,'ar'));
+  rows.sort((a,b)=>Number(b.hasReportActivity)-Number(a.hasReportActivity)||b.finalDebt-a.finalDebt||a.name.localeCompare(b.name,'ar'));
+  crossSectorPurchases.sort((a,b)=>b.amount-a.amount||a.name.localeCompare(b.name,'ar'));
+  return{customers:rows,crossSectorPurchases};
 }
 function summaryPage({type,rows,totals,employee,reportDate,sourceFile,logoUrl,documentRef}){
   const department=type==='block'?'البلوك':'الخرسانة',statusCounts=new Map();for(const row of rows)statusCounts.set(row.statusLabel,(statusCounts.get(row.statusLabel)||0)+1);
@@ -91,12 +105,12 @@ function appendSummary(document,context){return document.replace('</body>',`${su
 
 export async function generateCustomerPortfolioPdfs(analysis={},sourceFile='daily-report.xlsx',requestedTypes=['block','concrete'],options={}){
   const types=[...new Set((Array.isArray(requestedTypes)?requestedTypes:[requestedTypes]).map(clean).filter(type=>VALID_TYPES.has(type)))];if(!types.length)throw Object.assign(new Error('حدد إقرار البلوك أو إقرار الخرسانة.'),{status:400,code:'PORTFOLIO_TYPE_REQUIRED'});
-  const reportDate=isoDate(options?.reportDate)||await resolveReportDate(analysis,sourceFile),state=await loadAppState(),baseUrl=`${publicBase()}/`,reports=[];
+  const reportDate=isoDate(options?.reportDate)||await resolveReportDate(analysis,sourceFile),state=await loadAppState(),ownershipAnalytics=options?.ownershipAnalytics||await loadCustomerAnalytics({active:true,role:'admin'},{asOf:reportDate,beforeDate:reportDate}),baseUrl=`${publicBase()}/`,reports=[];
   for(const type of types){
     const rep=findRep(state.employees,type);if(!rep)throw Object.assign(new Error(`لا يوجد موظف نشط بدور ${ROLE_BY_TYPE[type]}؛ تم منع إصدار الإقرار باسم موظف غير صحيح.`),{status:409,code:`PORTFOLIO_${type.toUpperCase()}_REP_NOT_FOUND`});
-    const analytics=await loadCustomerAnalytics({active:true,role:ANALYTICS_ROLE[type]},{asOf:reportDate,beforeDate:reportDate}),rows=customerRows(type,analysis,state,analytics,reportDate);if(!rows.length)throw Object.assign(new Error(`لا توجد مبيعات ${type==='block'?'بلوك':'خرسانة'} سابقة غير مسددة، ولا مبيعات أو سداد لهذا القسم في التقرير الحالي.`),{status:409,code:`PORTFOLIO_${type.toUpperCase()}_NO_SALES_ACTIVITY`});
-    const totals=aggregateSettlements(rows),documentRef=`BHF-${type.toUpperCase()}-${reportDate.replace(/-/g,'')}-TG`,logoUrl=`${baseUrl}assets/branding/binhamid-factory-logo.png`,rendered=renderCustomerPortfolioDeclaration({type,companyName:state.companyName,company:state.company,employee:{name:rep?.name||'',nationalId:digits(rep?.nid||rep?.national_id),role:ROLE_BY_TYPE[type],number:rep?.no||'',phone:rep?.tel||''},customers:rows,days:state.days,defaultCreditLimit:state.cap,declarationText:CUSTOMER_PORTFOLIO_DECLARATION,extraText:CUSTOMER_PORTFOLIO_EXTRA,ackText:DECLARATION_ACK,authorizedName:state.authorizedName,documentRef,dateGregorian:reportDate,logoUrl,baseUrl}),enhanced=enhancePortfolioDocument(rendered.document,{type,rows,employee:rep,reportDate,sourceFile,logoUrl,documentRef}),document=appendSummary(enhanced,{type,rows,totals,employee:rep,reportDate,sourceFile,logoUrl,documentRef}),pdf=await htmlToPdf(document,{filename:`portfolio-${type}-${reportDate}`,landscape:false}),department=type==='block'?'البلوك':'الخرسانة',snapshot={snapshotVersion:SNAPSHOT_VERSION,documentType:'customer_portfolio',portfolioType:type,reportDate,sourceFile,sourceBatchId:clean(options?.sourceBatchId),documentRef,employee:{name:rep?.name||'',nationalId:digits(rep?.nid||rep?.national_id),externalId:clean(rep?.id||rep?.external_id)},customers:rows,totals,createdAt:new Date().toISOString()};
-    reports.push({type,pdf,filename:`إقرار محفظة عملاء ${department} — ${reportDate}.pdf`,caption:`${icon(type)} إقرار محفظة عملاء ${department} — ${rep.name} — ${reportDate} — ${rows.length} عميل`,templateVersion:CUSTOMER_PORTFOLIO_TEXT_VERSION,sourceFile,reportDate,customerCount:rows.length,totalCustomerCount:rows.length,employeeExternalId:clean(rep?.id||rep?.external_id),employeeNationalId:digits(rep?.nid||rep?.national_id),summary:totals,snapshot});
+    const analytics=await loadCustomerAnalytics({active:true,role:ANALYTICS_ROLE[type]},{asOf:reportDate,beforeDate:reportDate}),portfolio=customerRows(type,analysis,state,analytics,ownershipAnalytics,reportDate),rows=portfolio.customers,crossSectorPurchases=portfolio.crossSectorPurchases;if(!rows.length&&!crossSectorPurchases.length)throw Object.assign(new Error(`لا توجد مبيعات ${type==='block'?'بلوك':'خرسانة'} سابقة غير مسددة، ولا مبيعات أو سداد لهذا القسم في التقرير الحالي.`),{status:409,code:`PORTFOLIO_${type.toUpperCase()}_NO_SALES_ACTIVITY`});
+    const totals=aggregateSettlements(rows),documentRef=`BHF-${type.toUpperCase()}-${reportDate.replace(/-/g,'')}-TG`,logoUrl=`${baseUrl}assets/branding/binhamid-factory-logo.png`,rendered=renderCustomerPortfolioDeclaration({type,companyName:state.companyName,company:state.company,employee:{name:rep?.name||'',nationalId:digits(rep?.nid||rep?.national_id),role:ROLE_BY_TYPE[type],number:rep?.no||'',phone:rep?.tel||''},customers:rows,crossSectorPurchases,days:state.days,defaultCreditLimit:state.cap,declarationText:CUSTOMER_PORTFOLIO_DECLARATION,extraText:CUSTOMER_PORTFOLIO_EXTRA,ackText:DECLARATION_ACK,authorizedName:state.authorizedName,documentRef,dateGregorian:reportDate,logoUrl,baseUrl}),enhanced=enhancePortfolioDocument(rendered.document,{type,rows,employee:rep,reportDate,sourceFile,logoUrl,documentRef}),document=appendSummary(enhanced,{type,rows,totals,employee:rep,reportDate,sourceFile,logoUrl,documentRef}),pdf=await htmlToPdf(document,{filename:`portfolio-${type}-${reportDate}`,landscape:false}),department=type==='block'?'البلوك':'الخرسانة',snapshot={snapshotVersion:SNAPSHOT_VERSION,documentType:'customer_portfolio',portfolioType:type,reportDate,sourceFile,sourceBatchId:clean(options?.sourceBatchId),documentRef,employee:{name:rep?.name||'',nationalId:digits(rep?.nid||rep?.national_id),externalId:clean(rep?.id||rep?.external_id)},customers:rows,crossSectorPurchases,totals,createdAt:new Date().toISOString()},customerCount=rows.length+crossSectorPurchases.length;
+    reports.push({type,pdf,filename:`إقرار محفظة عملاء ${department} — ${reportDate}.pdf`,caption:`${icon(type)} إقرار محفظة عملاء ${department} — ${rep.name} — ${reportDate} — ${rows.length} عميل أساسي${crossSectorPurchases.length?` — ${crossSectorPurchases.length} عملية لعملاء القطاع الآخر`:''}`,templateVersion:CUSTOMER_PORTFOLIO_TEXT_VERSION,sourceFile,reportDate,customerCount,primaryCustomerCount:rows.length,crossSectorCount:crossSectorPurchases.length,totalCustomerCount:customerCount,employeeExternalId:clean(rep?.id||rep?.external_id),employeeNationalId:digits(rep?.nid||rep?.national_id),summary:totals,snapshot});
   }
   return reports;
 }
@@ -111,6 +125,6 @@ export async function persistPortfolioReportSnapshot(report={}){
 
 export async function collectPortfolioRows(analysis={},sourceFile='daily-report.xlsx',requestedTypes=['block','concrete'],options={}){
   const types=[...new Set((Array.isArray(requestedTypes)?requestedTypes:[requestedTypes]).map(clean).filter(type=>VALID_TYPES.has(type)))];if(!types.length)throw Object.assign(new Error('حدد قطاع البلوك أو الخرسانة.'),{status:400,code:'PORTFOLIO_TYPE_REQUIRED'});
-  const reportDate=isoDate(options?.reportDate)||await resolveReportDate(analysis,sourceFile),state=await loadAppState();
-  return Promise.all(types.map(async type=>{const rep=findRep(state.employees,type);if(!rep)throw Object.assign(new Error(`لا يوجد موظف نشط بدور ${ROLE_BY_TYPE[type]}؛ تم منع إصدار الكشف باسم موظف غير صحيح.`),{status:409,code:`PORTFOLIO_${type.toUpperCase()}_REP_NOT_FOUND`});const analytics=await loadCustomerAnalytics({active:true,role:ANALYTICS_ROLE[type]},{asOf:reportDate,beforeDate:reportDate}),customers=customerRows(type,analysis,state,analytics,reportDate);return{type,reportDate,companyName:state.companyName,employee:{name:rep?.name||'',nationalId:digits(rep?.nid||rep?.national_id)},customers,summary:aggregateSettlements(customers)};}));
+  const reportDate=isoDate(options?.reportDate)||await resolveReportDate(analysis,sourceFile),state=await loadAppState(),ownershipAnalytics=options?.ownershipAnalytics||await loadCustomerAnalytics({active:true,role:'admin'},{asOf:reportDate,beforeDate:reportDate});
+  return Promise.all(types.map(async type=>{const rep=findRep(state.employees,type);if(!rep)throw Object.assign(new Error(`لا يوجد موظف نشط بدور ${ROLE_BY_TYPE[type]}؛ تم منع إصدار الكشف باسم موظف غير صحيح.`),{status:409,code:`PORTFOLIO_${type.toUpperCase()}_REP_NOT_FOUND`});const analytics=await loadCustomerAnalytics({active:true,role:ANALYTICS_ROLE[type]},{asOf:reportDate,beforeDate:reportDate}),portfolio=customerRows(type,analysis,state,analytics,ownershipAnalytics,reportDate),customers=portfolio.customers;return{type,reportDate,companyName:state.companyName,employee:{name:rep?.name||'',nationalId:digits(rep?.nid||rep?.national_id)},customers,crossSectorPurchases:portfolio.crossSectorPurchases,summary:aggregateSettlements(customers)};}));
 }
