@@ -30,6 +30,7 @@ import * as attendanceSitePresets from './_lib/routes/attendance-site-presets.js
 import * as permanentCleanup from './_lib/routes/permanent-cleanup.js';
 import * as costCenterAssignments from './_lib/routes/cost-center-assignments.js';
 import { openingBalances } from './_lib/routes/opening-balances.js';
+import { fuelDailyReport } from './_lib/routes/fuel-sync.js';
 
 const routes={
   'admin/groups':admin.groups,
@@ -51,6 +52,7 @@ const routes={
   'imports/status':imports.status,
   'daily-report':dailyReport.dailyReport,
   'daily-report/fifo':fifo.fifo,
+  'fuel/daily-report':fuelDailyReport,
   'customer-portfolio/range':customerPortfolioRange.customerPortfolioRange,
   'accounting':accounting.accounting,
   'system/database-readiness':systemRuntime.databaseReadiness,
