@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       report_date:
-        description: Optional report date (YYYY-MM-DD); Riyadh today when empty
+        description: Optional report date (YYYY-MM-DD); previous Riyadh day when empty
         required: false
         type: string
   schedule:
-    - cron: '20 18 * * *'
+    - cron: '0 5 * * *'
 
 permissions:
   contents: read
@@ -29,6 +29,7 @@ jobs:
       NOOR_KHOY_REPORT_URL: https://www.norkhoysa.com/companies/fuels?fueltype=all
       BINHAMID_FUEL_UPLOAD_URL: https://binhamid-factory-control.vercel.app/api/fuel/daily-report
       REPORT_DATE: ${{ inputs.report_date }}
+      FUEL_REPORT_DATE_OFFSET_DAYS: '-1'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
