@@ -12,6 +12,8 @@ const UPLOAD_URL=process.env.BINHAMID_FUEL_UPLOAD_URL||'https://binhamid-factory
 const username=String(process.env.NOOR_KHOY_USERNAME||'').trim();
 const password=String(process.env.NOOR_KHOY_PASSWORD||'');
 const artifacts=path.resolve(process.env.FUEL_SYNC_ARTIFACT_DIR||'artifacts/noor-khoy-fuel');
+const sendBalance=!/^(false|0|no)$/i.test(String(process.env.FUEL_SEND_BALANCE||'true').trim());
+const notify=!/^(false|0|no)$/i.test(String(process.env.FUEL_NOTIFY||'true').trim());
 
 function required(value,name){if(!value)throw new Error(`Missing required environment variable: ${name}`);return value;}
 function riyadhDate(value=new Date()){
@@ -134,9 +136,9 @@ async function githubOidcToken(){
   const url=new URL(requestUrl);url.searchParams.set('audience','binhamid-fuel-sync');const response=await fetch(url,{headers:{Authorization:`Bearer ${requestToken}`}});
   if(!response.ok)throw new Error(`GitHub OIDC token request failed: ${response.status}`);const data=await response.json();return required(data.value,'GitHub OIDC token value');
 }
-async function upload(filePath,reportDate,parsed,accountBalance){
-  const token=await githubOidcToken(),buffer=await fs.readFile(filePath),headers={Authorization:`Bearer ${token}`,'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','x-fuel-filename-b64':Buffer.from(path.basename(filePath),'utf8').toString('base64'),'x-fuel-report-date':reportDate,'x-fuel-row-count':String(parsed.rowCount)};
-  if(Number.isFinite(accountBalance))headers['x-fuel-account-balance']=String(accountBalance);
+async function upload(filePath,reportDate,parsed,accountBalance,balanceCapturedAt){
+  const token=await githubOidcToken(),buffer=await fs.readFile(filePath),headers={Authorization:`Bearer ${token}`,'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','x-fuel-filename-b64':Buffer.from(path.basename(filePath),'utf8').toString('base64'),'x-fuel-report-date':reportDate,'x-fuel-row-count':String(parsed.rowCount),'x-fuel-notify':notify?'true':'false'};
+  if(Number.isFinite(accountBalance)){headers['x-fuel-account-balance']=String(accountBalance);headers['x-fuel-balance-captured-at']=balanceCapturedAt;}
   const response=await fetch(UPLOAD_URL,{method:'POST',headers,body:buffer});const text=await response.text();let data;try{data=text?JSON.parse(text):{};}catch{data={raw:text};}
   await fs.writeFile(path.join(artifacts,'upload-response.json'),JSON.stringify({status:response.status,data},null,2));
   if(!response.ok||!data?.ok)throw new Error(`Bin Hamid upload failed (${response.status}): ${compact(data?.error||data?.message||text).slice(0,500)}`);return data;
@@ -147,14 +149,20 @@ async function main(){
   const explicit=String(process.env.REPORT_DATE||'').trim(),offset=process.env.FUEL_REPORT_DATE_OFFSET_DAYS||'-1',reportDate=explicit||shiftedRiyadhDate(offset);
   const browser=await chromium.launch({headless:true}),context=await browser.newContext({acceptDownloads:true,locale:'ar-SA',timezoneId:'Asia/Riyadh'}),page=await context.newPage();
   try{
-    await ensureLogin(page,DASHBOARD_URL);const accountBalance=await extractDieselBalance(page);
-    await fs.writeFile(path.join(artifacts,'dashboard-balance.json'),JSON.stringify({accountBalance,capturedAt:new Date().toISOString()},null,2));
-    if(accountBalance===null)await fs.writeFile(path.join(artifacts,'dashboard-text.txt'),await page.locator('body').innerText().catch(()=>''),'utf8');
-    await page.goto(REPORT_URL,{waitUntil:'domcontentloaded',timeout:60000});await setReportDate(page,reportDate);await selectAllFuel(page);await applyFilter(page);
+    let accountBalance=null,balanceCapturedAt='';
+    if(sendBalance){
+      await ensureLogin(page,DASHBOARD_URL);accountBalance=await extractDieselBalance(page);balanceCapturedAt=new Date().toISOString();
+      await fs.writeFile(path.join(artifacts,'dashboard-balance.json'),JSON.stringify({accountBalance,capturedAt:balanceCapturedAt},null,2));
+      if(accountBalance===null)await fs.writeFile(path.join(artifacts,'dashboard-text.txt'),await page.locator('body').innerText().catch(()=>''),'utf8');
+      await page.goto(REPORT_URL,{waitUntil:'domcontentloaded',timeout:60000});
+    }else{
+      await ensureLogin(page,REPORT_URL);
+    }
+    await setReportDate(page,reportDate);await selectAllFuel(page);await applyFilter(page);
     const filePath=await downloadExcel(page,reportDate),buffer=await fs.readFile(filePath),workbook=XLSX.read(buffer,{type:'buffer',cellDates:true}),parsed=parseFuelWorkbook(workbook,XLSX);
     if(!parsed.rowCount)throw new Error('Downloaded Excel contains no recognizable fuel rows.');
-    const result=await upload(filePath,reportDate,parsed,accountBalance);
-    console.log(JSON.stringify({ok:true,reportDate,accountBalance,file:path.basename(filePath),rows:parsed.rowCount,duplicate:Boolean(result.duplicate),stored:Number(result.storedRows||0)},null,2));
+    const result=await upload(filePath,reportDate,parsed,accountBalance,balanceCapturedAt);
+    console.log(JSON.stringify({ok:true,reportDate,accountBalance,notify,file:path.basename(filePath),rows:parsed.rowCount,duplicate:Boolean(result.duplicate),stored:Number(result.storedRows||0)},null,2));
   }catch(error){await page.screenshot({path:path.join(artifacts,'failure.png'),fullPage:true}).catch(()=>null);await fs.writeFile(path.join(artifacts,'failure.html'),await page.content().catch(()=>''),'utf8').catch(()=>null);throw error;}finally{await browser.close();}
 }
 
