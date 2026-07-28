@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 const entryPath=['..','api','erp','daily-report.js'].join('/');
-const implementationPath=['..','api','erp','daily-report-v4.js'].join('/');
-const dateHelpersPath=['..','api','erp','daily-report-v3.js'].join('/');
+const implementationPath=['..','api','_lib','daily-report-v4.js'].join('/');
+const dateHelpersPath=['..','api','_lib','daily-report-v3.js'].join('/');
 
 test('ERP folder sync routes through the snapshot-safe authenticated importer',async()=>{
   const [entry,source]=await Promise.all([
