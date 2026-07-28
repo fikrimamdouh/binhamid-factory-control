@@ -24,7 +24,7 @@ export function procurementMenu(){return keyboard([
 ]);}
 export async function showProcurementMenu(message,identity){
   if(!canUse(identity))return deny(message,identity,false);
-  return sendMessage(message.chat.id,'اختر العملية المطلوبة. البحث الشامل يجمع المواقع الرسمية للشركات والمصانع والوكلاء والأدلة التجارية مع دليل الأماكن، ثم يوحد النتائج داخل البوت.',procurementMenu());
+  return sendMessage(message.chat.id,'اختر العملية المطلوبة. البحث الشامل يجمع المواقع الرسمية للشركات والمصانع والوكلاء والأدلة التجارية مع دليل الأماكن، ثم يوحد النتائج داخل البوت. لا توجد روابط خارجية؛ تظهر الأسماء وأرقام الاتصال والعناوين والمصدر داخل المحادثة.',procurementMenu());
 }
 export async function startProcurementAction(message,identity,action){
   if(action==='product')return startProductAssistant(message,identity);
