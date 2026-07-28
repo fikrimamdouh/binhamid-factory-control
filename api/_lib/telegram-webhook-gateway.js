@@ -1,16 +1,21 @@
 import { verifyTelegram } from './auth.js';
 import { json, method, body, errorResponse } from './http.js';
 import { rpc } from './supabase.js';
-import { sendMessage, answerCallback } from './telegram.js';
+import { sendMessage, answerCallback, downloadTelegramFile } from './telegram.js';
 import { ensureTelegramGroup, ensureTelegramIdentity, storeTelegramMessage } from './bot-webhook-core.js';
 import { getBotSession, clearMaintenanceSession } from './bot-maintenance.js';
-import { showProcurementMenu, continueProcurementSession, handleProcurementCallback, handleProcurementTextCommand } from './bot-procurement-secure.js';
+import { directBusinessSearchRequested, handleDirectBusinessSearchCommand, showProcurementMenu, continueProcurementSession, handleProcurementCallback, handleProcurementTextCommand } from './bot-procurement-secure.js';
 import { showSalesMenu, startSalesAction, continueSalesSession, confirmSalesOrder, cancelSalesDraft, handleSalesTextCommand, startGuidedSales, continueGuidedSales, handleGuidedSalesCallback, isStructuredSalesOrder, isNaturalSalesMessage, handleStructuredSalesOrder, handleNaturalSalesMessage } from './bot-sales-secure.js';
 import { showMechanicMenu, startMechanicAction, continueMechanicSession, confirmSparePartsRequest, handleMechanicTextCommand } from './bot-mechanic-secure.js';
 import { showAttendanceMenu, continueAttendanceSession, handleAttendanceLocation, handleAttendancePhoto, handleAttendanceCallback } from './bot-attendance-secure.js';
 import { sendGpsFleetStatus } from './bot-gps.js';
 import { continueRegistrationSession, handleRegistrationCallback, handleRegistrationTextCommand, isRegistrationCommand } from './bot-registration.js';
 import { handleDriverRegistrationMedia } from './bot-driver-registration.js';
+import { transcribeTelegramVoice, voiceFailureMessage } from './bot-voice.js';
+import { detectExplicitIntent, shouldSwitchSession } from './bot-intent-switch.js';
+import { sendReport, reportKeyboard } from './bot-reports.js';
+import { handleFuelTextCommand, showFuelMenu } from './bot-fuel-reports.js';
+import { handleEnterpriseTextCommand } from './bot-enterprise.js';
 import enterpriseHandler from './telegram-webhook-handler.js';
 
 const GPS_ROLES=new Set(['admin','manager','mechanic','driver','fuel_operator']);
@@ -35,12 +40,12 @@ const resultValue=value=>Array.isArray(value)?value[0]:value;
 const updateKind=update=>update?.callback_query?'callback':update?.edited_message?'edited_message':update?.message?.document?'document':update?.message?.voice?'voice':update?.message?.photo?'photo':update?.message?.location?'location':'message';
 const safeErrorCode=error=>String(error?.code||error?.data?.code||'TELEGRAM_PROCESSING_FAILED').replace(/[^A-Z0-9_-]/gi,'_').slice(0,120);
 
-function sensitiveSession(session){const state=String(session?.state||'');return state==='product_market_query'||/^(supplier_|rfq_|sales_|guided_sales_|mechanic_|driver_|attendance_)/.test(state);}
+function sensitiveSession(session){const state=String(session?.state||'');return state==='product_market_query'||/^(supplier_|rfq_|business_search_|sales_|guided_sales_|mechanic_|driver_|attendance_)/.test(state);}
 function sessionAllowed(identity,session){
   if(!identity?.active)return false;
   const state=String(session?.state||''),role=identity.role||'';
   if(state==='product_market_query')return PROCUREMENT_USE.has(role);
-  if(state.startsWith('supplier_')||state.startsWith('rfq_'))return PROCUREMENT_CREATE.has(role);
+  if(state.startsWith('supplier_')||state.startsWith('rfq_')||state.startsWith('business_search_'))return PROCUREMENT_CREATE.has(role);
   if(state==='sales_update_order')return SALES_UPDATE.has(role);
   if(state.startsWith('sales_')||state.startsWith('guided_sales_')){const own=roleType(role),type=session?.context?.salesType||session?.context?.draft?.sales_type||'';return SALES_CREATE.has(role)&&(!own||!type||own===type);}
   if(state.startsWith('mechanic_'))return WORKSHOP_OPERATE.has(role);
@@ -50,6 +55,65 @@ function sessionAllowed(identity,session){
 }
 async function rejectSession(message,identity){await clearMaintenanceSession(message.chat.id,identity?.external_id||message.from?.id).catch(()=>{});await sendMessage(message.chat.id,'تم إيقاف الجلسة لأن صلاحيتك الحالية لا تسمح بإكمال العملية.');return true;}
 async function logIntercepted(update,message,identity){const group=await ensureTelegramGroup(message.chat);await storeTelegramMessage(update.update_id,message,group,identity);if(['group','supergroup'].includes(message.chat.type)&&!group.active){await sendMessage(message.chat.id,'المجموعة لم تعتمد بعد.');return false;}return true;}
+
+function reportKind(value=''){
+  if(/تقرير البلوك|فواتير البلوك|مبيعات البلوك/.test(value))return'block';
+  if(/تقرير الخرسان|فواتير الخرسان|مبيعات الخرسان/.test(value))return'concrete';
+  if(/فواتير اليوم|كل فواتير اليوم|تفاصيل فواتير اليوم/.test(value))return'invoices';
+  if(/تحصيلات اليوم|تقرير التحصيلات|تحصيل اليوم/.test(value))return'collections';
+  if(/حركه الخزائن|حركة الخزائن|الخزائن اليوم/.test(value))return'cash';
+  if(/ارصده الخزائن|أرصدة الخزائن|رصيد الخزائن/.test(value))return'treasuries';
+  if(/مخزون اليوم|حركه المخزون|حركة المخزون/.test(value))return'inventory';
+  if(/تحليلات اليوم|تحليل اليوم|مؤشرات اليوم/.test(value))return'analysis';
+  if(/تقرير اليوم|التقرير اليومي|ملخص اليوم|الحركه اليوميه|الحركة اليومية/.test(value))return'daily';
+  return'';
+}
+function canReadDailyReport(role,kind='daily'){
+  if(['admin','manager','accountant'].includes(role))return true;
+  if(role==='block_sales')return kind==='block';
+  if(role==='concrete_sales')return kind==='concrete';
+  if(role==='collector')return kind==='collections';
+  if(role==='warehouse')return kind==='inventory';
+  return false;
+}
+
+async function prepareVoiceMessage(message){
+  if(!message.voice)return{ok:true,voice:false};
+  await sendMessage(message.chat.id,'تم استلام الرسالة الصوتية، جارٍ فهم طلبك...', {disable_voice_reply:true}).catch(()=>{});
+  let downloaded;
+  try{downloaded=await downloadTelegramFile(message.voice.file_id,{expectedSize:message.voice.file_size,maxBytes:20*1024*1024});}
+  catch(error){await sendMessage(message.chat.id,'تعذر تنزيل التسجيل من Telegram. أعد إرسال الرسالة مرة واحدة.',{disable_voice_reply:true});return{ok:false,handled:true};}
+  const result=await transcribeTelegramVoice(downloaded.buffer,message.voice.mime_type||downloaded.contentType);
+  if(!result.text){await sendMessage(message.chat.id,voiceFailureMessage(result),{disable_voice_reply:true});return{ok:false,handled:true};}
+  message._original_voice=message.voice;
+  message._voice_transcription=result.text;
+  delete message.voice;
+  message.text=result.text;
+  await sendMessage(message.chat.id,`تم فهم التسجيل: <b>${String(result.text).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])).slice(0,500)}</b>\nجارٍ تنفيذ الطلب...`,{disable_voice_reply:true}).catch(()=>{});
+  return{ok:true,voice:true,text:result.text};
+}
+
+async function executeExplicitIntent(intent,message,identity,raw){
+  const role=identity.role||'pending',value=norm(raw);
+  if(intent.intent==='business_search')return handleDirectBusinessSearchCommand(message,identity,raw);
+  if(intent.intent==='gps'){if(!GPS_ROLES.has(role)){await sendMessage(message.chat.id,'ليست لديك صلاحية عرض GPS.');return true;}await sendGpsFleetStatus(message.chat.id,'',identity);return true;}
+  if(intent.intent==='attendance'){await showAttendanceMenu(message,identity);return true;}
+  if(intent.intent==='fuel'){if(await handleFuelTextCommand(message,identity,raw))return true;await showFuelMenu(message,identity);return true;}
+  if(intent.intent==='report'){
+    const kind=reportKind(value);
+    if(kind){if(!canReadDailyReport(role,kind)){await sendMessage(message.chat.id,'ليست لديك صلاحية عرض هذا التقرير.');return true;}await sendReport(message.chat.id,kind);return true;}
+    await sendMessage(message.chat.id,'اختر التقرير المطلوب:',reportKeyboard());return true;
+  }
+  if(intent.intent==='sales'){
+    if(await handleSalesTextCommand(message,identity,raw))return true;
+    if(isStructuredSalesOrder(identity,raw)&&await handleStructuredSalesOrder(message,identity,raw))return true;
+    if(isNaturalSalesMessage(identity,raw)&&await handleNaturalSalesMessage(message,identity,raw))return true;
+    await showSalesMenu(message,identity);return true;
+  }
+  if(intent.intent==='workshop'){if(await handleMechanicTextCommand(message,identity,raw))return true;await showMechanicMenu(message,identity);return true;}
+  if(intent.intent==='enterprise'){if(await handleEnterpriseTextCommand(message,identity,raw))return true;}
+  return false;
+}
 
 async function interceptCallback(update){
   const query=update.callback_query,message=query?.message;if(!query||!message)return false;
@@ -83,8 +147,8 @@ async function interceptCallback(update){
 
 async function interceptMessage(update){
   const message=update.message||update.edited_message;if(!message?.from||message.from.is_bot)return false;
+  const prepared=await prepareVoiceMessage(message);if(prepared.handled)return true;
   const identity=await ensureTelegramIdentity(message.from),session=await getBotSession(message.chat.id,message.from.id),state=String(session?.state||'');
-  if(sensitiveSession(session)&&!sessionAllowed(identity,session)){if(!await logIntercepted(update,message,identity))return true;return rejectSession(message,identity);}
   if((message.document||message.photo?.length)&&state.startsWith('registration_driver_')){
     if(message.chat.type!=='private'){await sendMessage(message.chat.id,'مستندات تسجيل السائق تُرسل في المحادثة الخاصة فقط.');return true;}
     if(!await logIntercepted(update,message,identity))return true;
@@ -92,17 +156,27 @@ async function interceptMessage(update){
   }
   if(message.location&&(state.startsWith('driver_')||state.startsWith('attendance_')||message.location.live_period||message.edit_date)){if(!await logIntercepted(update,message,identity))return true;await handleAttendanceLocation(message,identity,session);return true;}
   if(message.photo?.length&&state==='driver_fuel_photo'){if(!await logIntercepted(update,message,identity))return true;await handleAttendancePhoto(message,identity,session);return true;}
-  if(message.voice||message.document||message.photo?.length)return false;
-  const raw=String(message.text||message.caption||'').trim(),normalized=norm(raw),registrationSession=state.startsWith('registration_')&&state!=='registration_submitted',registrationCommand=isRegistrationCommand(raw)||/^(الوظائف|الوظائف المتاحه|الوظائف المتاحة|حاله التسجيل|حالة التسجيل|حاله طلبي|حالة طلبي)$/.test(normalized);
+  if(message.document||message.photo?.length)return false;
+
+  const raw=String(message.text||message.caption||'').trim(),normalized=norm(raw),switchDecision=shouldSwitchSession(state,raw);
+  if(switchDecision.next.explicit){
+    if(!await logIntercepted(update,message,identity))return true;
+    if(!identity.active){await sendMessage(message.chat.id,'حسابك غير معتمد لتنفيذ هذا الإجراء.');return true;}
+    if(switchDecision.switch)await clearMaintenanceSession(message.chat.id,identity?.external_id||message.from.id).catch(()=>{});
+    if(await executeExplicitIntent(switchDecision.next,message,identity,raw))return true;
+  }
+
+  if(sensitiveSession(session)&&!sessionAllowed(identity,session)){if(!await logIntercepted(update,message,identity))return true;return rejectSession(message,identity);}
+  const registrationSession=state.startsWith('registration_')&&state!=='registration_submitted',registrationCommand=isRegistrationCommand(raw)||/^(الوظائف|الوظائف المتاحه|الوظائف المتاحة|حاله التسجيل|حالة التسجيل|حاله طلبي|حالة طلبي)$/.test(normalized);
   if(registrationSession||registrationCommand){
     if(message.chat.type!=='private'){await sendMessage(message.chat.id,'تسجيل الموظف يتم من المحادثة الخاصة مع البوت.');return true;}
     if(!await logIntercepted(update,message,identity))return true;
     if(registrationSession&&await continueRegistrationSession(message,identity,session,raw))return true;
     if(await handleRegistrationTextCommand(message,identity,raw))return true;
   }
-  const procurementSession=state==='product_market_query'||state.startsWith('supplier_')||state.startsWith('rfq_'),salesSession=state.startsWith('sales_')||state.startsWith('guided_sales_'),mechanicSession=state.startsWith('mechanic_'),attendanceSession=state.startsWith('driver_')||state.startsWith('attendance_');
+  const procurementSession=state==='product_market_query'||state.startsWith('supplier_')||state.startsWith('rfq_')||state.startsWith('business_search_'),salesSession=state.startsWith('sales_')||state.startsWith('guided_sales_'),mechanicSession=state.startsWith('mechanic_'),attendanceSession=state.startsWith('driver_')||state.startsWith('attendance_');
   const structuredSalesCommand=isStructuredSalesOrder(identity,raw),naturalSalesCommand=isNaturalSalesMessage(identity,raw);
-  const procurementCommand=/^\/(suppliers|products)(?:@\w+)?$/i.test(raw)||procurementText.test(normalized)||productPriceText.test(raw),salesCommand=/^\/sales(?:@\w+)?$/i.test(raw)||salesText.test(normalized),mechanicCommand=/^\/workshop(?:@\w+)?$/i.test(raw)||mechanicText.test(normalized),attendanceCommand=/^\/attendance(?:@\w+)?$/i.test(raw)||attendanceText.test(normalized),gpsCommand=/^\/gps(?:@\w+)?$/i.test(raw)||gpsText.test(normalized);
+  const procurementCommand=/^\/(suppliers|products)(?:@\w+)?$/i.test(raw)||procurementText.test(normalized)||productPriceText.test(raw)||directBusinessSearchRequested(raw),salesCommand=/^\/sales(?:@\w+)?$/i.test(raw)||salesText.test(normalized),mechanicCommand=/^\/workshop(?:@\w+)?$/i.test(raw)||mechanicText.test(normalized),attendanceCommand=/^\/attendance(?:@\w+)?$/i.test(raw)||attendanceText.test(normalized),gpsCommand=/^\/gps(?:@\w+)?$/i.test(raw)||gpsText.test(normalized);
   if(!procurementSession&&!salesSession&&!mechanicSession&&!attendanceSession&&!procurementCommand&&!salesCommand&&!structuredSalesCommand&&!naturalSalesCommand&&!mechanicCommand&&!attendanceCommand&&!gpsCommand)return false;
   if(!await logIntercepted(update,message,identity))return true;
   if(!identity.active){await sendMessage(message.chat.id,'حسابك غير معتمد لتنفيذ هذا الإجراء.');return true;}
