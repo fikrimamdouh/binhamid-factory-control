@@ -74,17 +74,22 @@ test('explicit Arabic commands change modules while plain answers remain inside 
 });
 
 test('Telegram procurement voice and gateway contracts use deep search speech and intent-first routing',async()=>{
-  const [secure,flow,directory,voice,telegram,context,gateway,core,intro]=await Promise.all([
+  const [secure,flow,directory,voice,telegram,context,gateway,core,intro,enterprise,notifications]=await Promise.all([
     read('api/_lib/bot-procurement-secure.js'),read('api/_lib/bot-business-directory-flow.js'),read('api/_lib/bot-business-directory.js'),
-    read('api/_lib/bot-voice.js'),read('api/_lib/telegram.js'),read('api/_lib/bot-voice-context.js'),read('api/_lib/telegram-webhook-gateway.js'),read('api/_lib/bot-webhook-core.js'),read('api/_lib/bot-owner-voice-intro.js')
+    read('api/_lib/bot-voice.js'),read('api/_lib/telegram.js'),read('api/_lib/bot-voice-context.js'),read('api/_lib/telegram-webhook-gateway.js'),read('api/_lib/bot-webhook-core.js'),read('api/_lib/bot-owner-voice-intro.js'),read('api/_lib/bot-enterprise.js'),read('api/_lib/bot-user-notifications.js')
   ]);
   assert.match(secure,/بحث شامل شركات ومحلات/);
   assert.match(secure,/لا توجد روابط خارجية/);
   assert.match(secure,/NATURAL_MARKET_REQUEST/);
+  assert.match(secure,/action==='supplier_city'&&!canCreate/);
   assert.match(flow,/searchComprehensiveBusinessDirectory/);
   assert.match(flow,/priorQuery/);
   assert.match(flow,/disable_voice_reply:true/);
+  assert.match(flow,/groupResultCards/);
+  assert.doesNotMatch(flow,/slice\(0,3900\)/);
   assert.match(directory,/tools:\[\{type:'web_search',search_context_size:'high'/);
+  assert.match(directory,/research_summary:researchText/);
+  assert.match(directory,/max_output_tokens:6000/);
   assert.match(directory,/places\.googleapis\.com\/v1\/places:searchText/);
   assert.match(voice,/audio\/speech/);
   assert.match(voice,/gpt-4o-mini-tts/);
@@ -99,4 +104,8 @@ test('Telegram procurement voice and gateway contracts use deep search speech an
   assert.match(core,/_original_voice/);
   assert.match(intro,/OWNER_VOICE_INTRO_TEXT/);
   assert.match(intro,/sendVoiceBuffer\(message\.chat\.id,speech\.buffer\)/);
+  assert.match(intro,/catch\(error\)/);
+  assert.match(enterprise,/handleSystemNotificationTextCommand\(message,identity,raw\)/);
+  assert.match(notifications,/handleOwnerVoiceIntroCommand\(message,identity,text\)/);
+  assert.match(notifications,/\(\?:\^\|\\\\n\)\\\\s\*/);
 });
