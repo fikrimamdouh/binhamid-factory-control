@@ -8,6 +8,33 @@ const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&
 const now=()=>new Date().toISOString();
 const CITY_LABELS={najran:'نجران',riyadh:'الرياض',jeddah:'جدة',dammam:'الدمام',khamis:'خميس مشيط',saudi:'كل السعودية'};
 const DEEP_STATES=new Set(['business_search_query','business_search_city','business_search_custom_city','business_search_results']);
+const DIRECT_SEARCH_PATTERNS=[
+  /^(?:(?:انا|إنا)\s+)?(?:(?:محتاج|عاوز|اريد|أريد|ابغى|أبغى)\s+)?(?:(?:انك|إنك)\s+)?(?:تبحث|ابحث|إبحث|دور|دوّر|تدور|فتش|فتّش)\s*(?:لي|لنا)?\s*(?:عن|على|في)?\s+(.{2,})$/i,
+  /^(?:فين|وين)\s+(?:الاقي|ألاقي|اجد|أجد|احصل|أحصل)\s*(?:على)?\s+(.{2,})$/i,
+  /^(?:هات|هاتلي|هات لي|جيب|جيبلي|جيب لي)\s+(?:(?:شركات|محلات|مصانع|موردين|وكلاء|موزعين)\s*)?(?:عن|لـ?|بتوع)?\s*(.{2,})$/i
+];
+const PROCUREMENT_HINT=/عمود|كردان|قطعه|قطعة|فلتر|رولمان|بلي|سير|بطاري|كاوتش|كفر|اطار|إطار|خرطوم|هيدروليك|طلمب|مضخ|موتور|محرك|صمام|بلف|ترس|جربوكس|جير|كلتش|فرامل|مسمار|صامول|لحام|كمبروسر|شركة|شركه|مصنع|مورد|وكيل|موزع|محل|ورشه|ورشة|اشتري|شراء|سعر/i;
+const NON_MARKET_HINT=/تقرير|اقرار|إقرار|كشف حساب|رصيد|تحصيل|سداد|فاتور|عميل|خزين|بنك|ديزل|وقود|حضور|انصراف|اعتماد|خطاب|ميزاني|مديوني|محفظه|محفظة/i;
+const CITY_PATTERNS=[
+  ['نجران',/\b(?:في\s+)?نجران\b/i],['خميس مشيط',/\b(?:في\s+)?خميس\s+مشيط\b/i],['الرياض',/\b(?:في\s+)?الرياض\b/i],['جدة',/\b(?:في\s+)?جده|جدة\b/i],['الدمام',/\b(?:في\s+)?الدمام\b/i],['كل السعودية',/\b(?:في\s+)?كل\s+السعوديه|السعودية|السعوديه\b/i]
+];
+
+function trimSearchQuery(value=''){
+  return clean(value,300).replace(/^[\s:،,-]+|[\s؟?!.,،؛:]+$/g,'').replace(/\s+(?:لو سمحت|من فضلك|بالله|كده|كذا)$/i,'').trim();
+}
+export function extractDirectBusinessSearchQuery(text=''){
+  const raw=clean(text,600).replace(/\s+/g,' ').trim();
+  if(!raw)return'';
+  for(const pattern of DIRECT_SEARCH_PATTERNS){const match=raw.match(pattern),query=trimSearchQuery(match?.[1]);if(query)return query;}
+  const need=raw.match(/^(?:محتاج|عاوز|اريد|أريد|ابغى|أبغى)\s+(.{2,})$/i),query=trimSearchQuery(need?.[1]);
+  if(query&&PROCUREMENT_HINT.test(query)&&!NON_MARKET_HINT.test(query))return query;
+  return'';
+}
+export function directBusinessSearchCity(text='',query=''){
+  const raw=clean(text,600);
+  for(const[city,pattern]of CITY_PATTERNS)if(pattern.test(raw))return city;
+  return'كل السعودية';
+}
 
 function callable(phone){
   const raw=String(phone||'').replace(/[^\d+]/g,'');
@@ -81,6 +108,15 @@ export async function sendDeepBusinessResults(message,identity,query,city){
     await sendMessage(message.chat.id,`${header}\n${body}${last?'\n━━━━━━━━━━━━━━━\n<i>النتائج المنشورة لا تعني حصر السوق بالكامل؛ تحقق بالاتصال والسجل التجاري قبل التعاقد.</i>':''}`.slice(0,3900),keyboard(buttons));
   }
   return result.businesses;
+}
+
+export async function handleDirectBusinessSearch(message,identity,text){
+  const query=extractDirectBusinessSearchQuery(text);
+  if(!query)return false;
+  const userId=identity?.external_id||message.from.id,city=directBusinessSearchCity(text,query);
+  await clearMaintenanceSession(message.chat.id,userId).catch(()=>{});
+  await sendDeepBusinessResults(message,identity,query,city);
+  return true;
 }
 
 export async function continueDeepBusinessSearch(message,identity,session,text){
