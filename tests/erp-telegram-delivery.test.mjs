@@ -84,7 +84,7 @@ test('portfolio preparation uses dated analytics and persists fixed snapshots af
   const portfolio=await readFile(new URL('../api/_lib/customer-portfolio-pdf.js',import.meta.url),'utf8');
   const delivery=await readFile(new URL('../api/_lib/erp-telegram-delivery.js',import.meta.url),'utf8');
   const dailyPdf=await readFile(new URL('../api/_lib/daily-cumulative-pdf.js',import.meta.url),'utf8');
-  const route=await readFile(new URL('../api/erp/daily-report-v3.js',import.meta.url),'utf8');
+  const route=await readFile(new URL('../api/erp/daily-report-v4.js',import.meta.url),'utf8');
   assert.match(portfolio,/beforeDate:reportDate/);
   assert.match(portfolio,/buildReportActivityIndex/);
   assert.match(portfolio,/persistPortfolioReportSnapshot/);
@@ -92,6 +92,6 @@ test('portfolio preparation uses dated analytics and persists fixed snapshots af
   assert.match(delivery,/persistPortfolioReportSnapshot\(report\)/);
   assert.match(dailyPdf,/currentBatch:options\?\.currentBatch!==false/);
   assert.match(route,/prepareErpSuccessDelivery\(\{analysis,sourceFile:originalName,reportDate\}\)/);
-  assert.match(route,/posting\?\.duplicate/);
-  assert.match(route,/prepared:preparedTelegram/);
+  assert.match(route,/sendErpDuplicateNotice/);
+  assert.match(route,/prepared\)/);
 });
