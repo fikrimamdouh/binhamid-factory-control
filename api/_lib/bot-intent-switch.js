@@ -26,15 +26,21 @@ export function sessionModule(state=''){
 export function detectExplicitIntent(text=''){
   const raw=String(text||'').trim(),value=normalize(raw);
   if(!value)return{intent:'',module:'',explicit:false};
-  const slash=/^\/\w+/.test(raw),imperative=START.test(raw);
-  if(directBusinessSearchRequested(raw)||(imperative&&SEARCH_ITEM.test(raw)&&!REPORT.test(raw)&&!FUEL.test(raw)))return{intent:'business_search',module:'procurement',explicit:true};
-  if((imperative||slash)&&GPS.test(raw))return{intent:'gps',module:'fleet',explicit:true};
-  if((imperative||slash)&&ATTENDANCE.test(raw))return{intent:'attendance',module:'attendance',explicit:true};
-  if((imperative||slash)&&FUEL.test(raw))return{intent:'fuel',module:'fuel',explicit:true};
-  if((imperative||slash)&&REPORT.test(raw))return{intent:'report',module:'reports',explicit:true};
-  if((imperative||slash)&&SALES.test(raw))return{intent:'sales',module:'sales',explicit:true};
-  if((imperative||slash)&&WORKSHOP.test(raw))return{intent:'workshop',module:'workshop',explicit:true};
-  if((imperative||slash)&&ENTERPRISE.test(raw))return{intent:'enterprise',module:moduleForText(raw)||'enterprise',explicit:true};
+  const slash=/^\/\w+/.test(raw),imperative=START.test(raw),command=imperative||slash;
+
+  // المسارات التشغيلية المحددة تُحسم أولًا. هذا يمنع عبارات مثل
+  // «هات تقرير اليوم» من أن تُفسر كبحث سوق لمجرد بدايتها بكلمة «هات».
+  if(command&&GPS.test(raw))return{intent:'gps',module:'fleet',explicit:true};
+  if(command&&ATTENDANCE.test(raw))return{intent:'attendance',module:'attendance',explicit:true};
+  if(command&&FUEL.test(raw))return{intent:'fuel',module:'fuel',explicit:true};
+  if(command&&REPORT.test(raw))return{intent:'report',module:'reports',explicit:true};
+  if(command&&SALES.test(raw))return{intent:'sales',module:'sales',explicit:true};
+  if(command&&WORKSHOP.test(raw))return{intent:'workshop',module:'workshop',explicit:true};
+  if(command&&ENTERPRISE.test(raw))return{intent:'enterprise',module:moduleForText(raw)||'enterprise',explicit:true};
+
+  const directSearch=directBusinessSearchRequested(raw);
+  if((directSearch||imperative&&SEARCH_ITEM.test(raw))&&!REPORT.test(raw)&&!FUEL.test(raw)&&!GPS.test(raw)&&!ATTENDANCE.test(raw)&&!SALES.test(raw)&&!WORKSHOP.test(raw)&&!ENTERPRISE.test(raw))return{intent:'business_search',module:'procurement',explicit:true};
+
   const moduleId=moduleForText(raw);
   if(slash&&moduleId)return{intent:moduleId,module:moduleId,explicit:true};
   return{intent:'',module:'',explicit:false};
