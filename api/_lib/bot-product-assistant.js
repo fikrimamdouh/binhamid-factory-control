@@ -42,7 +42,7 @@ async function setSession(chatId,userId,state,context={}){
 function stripSearchNoise(value=''){
   return String(value||'').trim()
     .replace(/^[\s:،,-]+|[\s؟?!.,،؛:]+$/g,'')
-    .replace(/^(?:(?:انا|إنا)\s+)?(?:(?:عاوزك|عايزك|محتاجك|اريدك|أريدك|ابغاك|أبغاك)\s+)?(?:(?:ابحث|إبحث|تبحث|دور|دوّر|فتش|فتّش|شوف|هات|هاتلي|هات لي|جيب|جيبلي|جيب لي)\s*)?(?:لي|لنا)?\s*(?:عن|على|في)?\s*/i,'')
+    .replace(/^(?:(?:انا|إنا)\s+)?(?:(?:محتاج|عاوز|عايز|اريد|أريد|ابغى|أبغى)\s+)?(?:(?:انك|إنك|عاوزك|عايزك|محتاجك|اريدك|أريدك|ابغاك|أبغاك)\s+)?(?:(?:تبحث|ابحث|إبحث|دور|دوّر|فتش|فتّش|شوف|هات|هاتلي|هات لي|جيب|جيبلي|جيب لي)\s*)?(?:لي|لنا)?\s*(?:عن|على|في)?\s*/i,'')
     .replace(/^(?:السعر|سعر|اسعار|أسعار|ثمن|تكلفة|تكلفه|قارن\s+اسعار|قارن\s+أسعار|سعر\s+السوق)\s*(?:لـ?|عن|على)?\s*/i,'')
     .replace(/^(?:انا|إنا)\s+(?:محتاج|عاوز|عايز|اريد|أريد|ابغى|أبغى)\s*/i,'')
     .replace(/\s+(?:في\s+)?(?:نجران|خميس\s+مشيط|الرياض|جده|جدة|الدمام|كل\s+السعوديه|كل\s+السعودية|السعودية|السعوديه)\s*$/i,'')
@@ -88,11 +88,15 @@ export async function sendProductResearch(message,identity,query,city='كل ال
   await clearMaintenanceSession(message.chat.id,identity.external_id||message.from.id).catch(()=>{});
   await sendMessage(message.chat.id,`<b>جارٍ البحث عن أسعار وموردين: ${esc(clean)}</b>\n<i>أفحص الأسعار المنشورة والمتاجر والموردين والمحلات.</i>`,{disable_voice_reply:true});
 
+  const supplierPromise=sendDeepBusinessResults(message,identity,clean,city).catch(error=>{
+    console.warn('[product supplier research]',{message:String(error?.message||error).slice(0,220)});
+    return[];
+  });
   let research=null;
   try{research=await researchPrices(clean,city);}
   catch(error){
     console.warn('[product price research]',{message:String(error?.message||error).slice(0,220)});
-    await sendMessage(message.chat.id,'لم يكتمل رصد أسعار منشورة موثوقة الآن. سأكمل البحث عن المحلات والموردين وأرقام الاتصال.');
+    await sendMessage(message.chat.id,'لم يكتمل رصد أسعار منشورة موثوقة الآن. يستمر البحث عن المحلات والموردين وأرقام الاتصال.');
   }
 
   if(research){
@@ -101,7 +105,7 @@ export async function sendProductResearch(message,identity,query,city='كل ال
     await sendMessage(message.chat.id,body.slice(0,3900));
   }
 
-  const businesses=await sendDeepBusinessResults(message,identity,clean,city);
+  const businesses=await supplierPromise;
   return{research,businesses};
 }
 
