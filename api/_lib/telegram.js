@@ -98,8 +98,8 @@ export async function sendMessage(chatId, text, extra = {}) {
   const telegramText=restoreTelegramPhoneLinks(text);
   const result = await telegram('sendMessage', { chat_id: chatId, text:telegramText, parse_mode: 'HTML', disable_web_page_preview: true, ...telegramExtra });
   await recordOutgoing(result, 'sendMessage', { text:telegramText, actionName, actionPayload });
-  if(shouldSpeakTelegramText(telegramText,{disable_voice_reply:disableVoiceReply})){
-    markVoiceReplySent();
+  if(shouldSpeakTelegramText(chatId,telegramText,{disable_voice_reply:disableVoiceReply})){
+    markVoiceReplySent(chatId);
     const speech=await synthesizeTelegramReply(telegramText);
     if(speech.buffer)await sendVoiceBuffer(chatId,speech.buffer).catch(error=>console.warn('[telegram voice reply]',{message:String(error?.message||'').slice(0,220)}));
   }
