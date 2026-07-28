@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { earliestPortfolioSector, resolveCustomerPortfolioOwner } from '../shared/customer-portfolio-ownership.js';
+import { earliestPortfolioSector, resolveCustomerPortfolioOwner, salePortfolioSector } from '../shared/customer-portfolio-ownership.js';
+import { saleTypeOf } from '../api/_lib/customer-settlement.js';
 import { renderCustomerPortfolioDeclaration } from '../shared/customer-portfolio-declaration.js';
 
 const employees=[
@@ -8,17 +9,32 @@ const employees=[
   {id:'rep-concrete',name:'مندوب الخرسانة',role:'مسؤول مبيعات الخرسانة'}
 ];
 
-test('master sector owns the customer even when the current invoice belongs to the other sector',()=>{
-  const owner=resolveCustomerPortfolioOwner({customer:{seg:'خرسانة',rep:'rep-concrete'},employees,historySales:[{sales_type:'block',delivery_date:'2026-07-26'}],fallbackSector:'block'});
+test('assigned representative owns the customer when the stored segment is stale',()=>{
+  const owner=resolveCustomerPortfolioOwner({customer:{seg:'بلوك',rep:'rep-concrete'},employees,historySales:[{sales_type:'block',item:'خرسانة 9 كيس',delivery_date:'2026-07-26'}],fallbackSector:'block'});
   assert.equal(owner.sector,'concrete');
-  assert.equal(owner.source,'customer_segment');
+  assert.equal(owner.source,'assigned_representative');
   assert.equal(owner.employee.name,'مندوب الخرسانة');
+});
+
+test('explicit primary sector remains stronger than representative and invoice type',()=>{
+  const owner=resolveCustomerPortfolioOwner({customer:{primarySector:'خرسانة',seg:'بلوك',rep:'rep-block'},employees,historySales:[{sales_type:'block',delivery_date:'2026-07-26'}],fallbackSector:'block'});
+  assert.equal(owner.sector,'concrete');
+  assert.equal(owner.source,'explicit_primary_sector');
 });
 
 test('assigned representative resolves an old both-sector customer before invoice fallback',()=>{
   const owner=resolveCustomerPortfolioOwner({customer:{seg:'الاثنين',rep:'rep-concrete'},employees,historySales:[{sales_type:'block',delivery_date:'2026-07-01'}],fallbackSector:'block'});
   assert.equal(owner.sector,'concrete');
   assert.equal(owner.source,'assigned_representative');
+});
+
+test('item description overrides a conflicting stored sales type in both directions',()=>{
+  const concrete={sales_type:'block',item:'خرسانة 9 كيس'};
+  const block={sales_type:'concrete',item:'بلك اسود مقاس 40*20*20'};
+  assert.equal(salePortfolioSector(concrete),'concrete');
+  assert.equal(salePortfolioSector(block),'block');
+  assert.equal(saleTypeOf(concrete),'concrete');
+  assert.equal(saleTypeOf(block),'block');
 });
 
 test('earliest sale is a deterministic fallback for an unassigned customer',()=>{
@@ -40,7 +56,7 @@ test('declaration renders cross-sector purchases separately without adding them 
   });
   assert.equal(rendered.model.customers.length,1);
   assert.equal(rendered.model.crossSectorPurchases.length,1);
-  assert.match(rendered.document,/مبيعات لعملاء تابعين للقطاع الآخر/);
+  assert.match(rendered.document,/عملاء تابعون لقطاع آخر اشتروا من البلوك|مبيعات لعملاء تابعين للقطاع الآخر/);
   assert.match(rendered.document,/عميل خرسانة/);
   assert.match(rendered.document,/1,800/);
   assert.match(rendered.document,/لا تنشئ عميلاً جديدًا ولا تنقل العميل/);
