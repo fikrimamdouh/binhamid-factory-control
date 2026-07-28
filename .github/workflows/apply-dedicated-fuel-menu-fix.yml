@@ -1,4 +1,4 @@
-name: Apply dedicated fuel menu fix
+name: Apply diesel report menu redirect
 
 on:
   push:
@@ -12,25 +12,55 @@ permissions:
 jobs:
   apply:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: npm
-      - run: npm ci
-      - name: Apply patch
-        run: node scripts/apply-dedicated-fuel-menu-patch.mjs
-      - name: Validate
+      - name: Keep diesel button and redirect it
+        shell: bash
         run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          reports_path = Path('api/_lib/bot-reports.js')
+          reports = reports_path.read_text(encoding='utf-8')
+          full_row = "    [{text:'الديزل',callback_data:'report:fuel'},{text:'الورشة',callback_data:'report:workshop'}]"
+          workshop_row = "    [{text:'الورشة',callback_data:'report:workshop'}]"
+          if full_row not in reports:
+              if workshop_row not in reports:
+                  raise SystemExit('Diesel report row target not found')
+              reports = reports.replace(workshop_row, full_row, 1)
+          reports_path.write_text(reports, encoding='utf-8')
+
+          commands_path = Path('api/_lib/bot-commands.js')
+          commands = commands_path.read_text(encoding='utf-8')
+          legacy = "    {re:/^(تقرير الديزل|ديزل اليوم|وقود اليوم|تقرير الوقود)$/,kind:'fuel'},\n"
+          commands = commands.replace(legacy, '', 1)
+          commands_path.write_text(commands, encoding='utf-8')
+
+          handler_path = Path('api/_lib/telegram-webhook-handler.js')
+          handler = handler_path.read_text(encoding='utf-8')
+          redirect = "    if(value==='fuel')return showFuelMenu({...message,from:query.from},identity);"
+          anchor = "  if(action==='report'){\n    if(value==='concrete_file')return sendStoredReportRequest(message.chat.id,identity,'concrete');"
+          if redirect not in handler:
+              if anchor not in handler:
+                  raise SystemExit('Report callback anchor not found')
+              handler = handler.replace(anchor, "  if(action==='report'){\n" + redirect + "\n    if(value==='concrete_file')return sendStoredReportRequest(message.chat.id,identity,'concrete');", 1)
+          handler_path.write_text(handler, encoding='utf-8')
+          PY
+      - name: Validate behavior
+        shell: bash
+        run: |
+          set -euo pipefail
           node --check api/_lib/bot-reports.js
           node --check api/_lib/bot-commands.js
           node --check api/_lib/telegram-webhook-handler.js
-          node --test tests/dedicated-fuel-report-menu.test.mjs tests/fuel-reports-section.test.mjs tests/telegram-report-file-bridge.test.mjs
+          grep -F "text:'الديزل',callback_data:'report:fuel'" api/_lib/bot-reports.js
+          grep -F "if(value==='fuel')return showFuelMenu" api/_lib/telegram-webhook-handler.js
+          ! grep -F "kind:'fuel'" api/_lib/bot-commands.js
       - name: Publish fix
+        shell: bash
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -40,4 +70,4 @@ jobs:
           git commit -m "fix: keep diesel button and open modern fuel reports"
           git pull --rebase origin main
           git push origin HEAD:main
-# trigger: corrected-interpolation-2026-07-28
+# trigger: direct-fix-2026-07-28
