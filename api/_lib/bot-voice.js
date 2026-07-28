@@ -30,7 +30,7 @@ export async function transcribeTelegramVoice(buffer,contentType='audio/ogg',opt
   for(let index=0;index<models.length;index++){
     try{
       const text=await requestTranscription(buffer,contentType,models[index]);
-      if(text){if(options.chatId)enableTelegramVoiceReply(options.chatId);return{text,model:models[index],reason:''};}
+      if(text){enableTelegramVoiceReply(options.chatId);return{text,model:models[index],reason:''};}
       lastError=new Error('التسجيل لم يحتوي كلامًا واضحًا');
     }catch(error){lastError=error;if([401,403].includes(Number(error.status)))return{text:'',reason:'auth',detail:error.message};if(Number(error.status)===429)return{text:'',reason:'quota',detail:error.message};if(index<models.length-1)await sleep(250);}
   }
