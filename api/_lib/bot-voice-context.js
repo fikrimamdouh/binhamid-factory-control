@@ -23,8 +23,8 @@ export function markVoiceReplySent(chatId){
 }
 
 export function shouldSpeakTelegramText(chatId,text='',extra={}){
-  if(!voiceReplyPending(chatId))return false;
-  if(extra?.disable_voice_reply||extra?.voice_reply_result!==true)return false;
+  if(!voiceReplyPending(chatId)||extra?.disable_voice_reply)return false;
   const value=String(text||'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
-  return value.length>=12;
+  if(value.length<12)return false;
+  return !/^(تم استلام الرساله الصوتيه|تم استلام الرسالة الصوتية|تم فهم التسجيل|جاري |جارٍ |لحظه|لحظة|انتظر)/i.test(value);
 }
