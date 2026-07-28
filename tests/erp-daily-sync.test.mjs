@@ -3,15 +3,15 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 const entryPath=['..','api','erp','daily-report.js'].join('/');
-const implementationPath=['..','api','_lib','daily-report-v5.js'].join('/');
+const implementationPath=['..','api','_lib','daily-report-v6.js'].join('/');
 const dateHelpersPath=['..','api','_lib','daily-report-v3.js'].join('/');
 
-test('ERP folder sync routes through the immutable authenticated importer',async()=>{
+test('ERP folder sync routes through the current-day-first authenticated importer',async()=>{
   const [entry,source]=await Promise.all([
     readFile(new URL(entryPath,import.meta.url),'utf8'),
     readFile(new URL(implementationPath,import.meta.url),'utf8')
   ]);
-  assert.match(entry,/daily-report-v5\.js/);
+  assert.match(entry,/daily-report-v6\.js/);
   assert.match(source,/X-ERP|x-erp-sync-token/i);
   assert.match(source,/sha256\(buffer\)/);
   assert.match(source,/parseDailyWorkbook/);
@@ -21,7 +21,8 @@ test('ERP folder sync routes through the immutable authenticated importer',async
   assert.match(source,/buildFullSnapshot/);
   assert.match(source,/upgrade_daily_report_details/);
   assert.match(source,/collectionKey/);
-  assert.match(source,/invoiceGroups/);
+  assert.match(source,/currentInvoices/);
+  assert.match(source,/historicalInvoices/);
   assert.match(source,/erp-folder\/ranges/);
   assert.match(source,/committedDays:results/);
 });
@@ -29,7 +30,7 @@ test('ERP folder sync routes through the immutable authenticated importer',async
 test('ERP folder sync accepts parser evidence when generic classification misses the workbook',async()=>{
   const source=await readFile(new URL(implementationPath,import.meta.url),'utf8');
   assert.match(source,/dailyParserEvidence\(analysis\)/);
-  assert.match(source,/if\(evidence\.recognized\)return\{reportType:/);
+  assert.match(source,/if\(evidence\.recognized\)/);
   assert.match(source,/classification=resolveDailyReportType/);
 });
 
