@@ -1,4 +1,5 @@
 import { config } from './config.js';
+import { enableTelegramVoiceReply } from './bot-voice-context.js';
 
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
@@ -27,8 +28,11 @@ export async function transcribeTelegramVoice(buffer,contentType='audio/ogg'){
   const models=[config.transcribeModel,'gpt-4o-mini-transcribe','whisper-1'].filter((value,index,array)=>value&&array.indexOf(value)===index).slice(0,2);
   let lastError=null;
   for(let index=0;index<models.length;index++){
-    try{const text=await requestTranscription(buffer,contentType,models[index]);if(text)return{text,model:models[index],reason:''};lastError=new Error('التسجيل لم يحتوي كلامًا واضحًا');}
-    catch(error){lastError=error;if([401,403].includes(Number(error.status)))return{text:'',reason:'auth',detail:error.message};if(Number(error.status)===429)return{text:'',reason:'quota',detail:error.message};if(index<models.length-1)await sleep(250);}
+    try{
+      const text=await requestTranscription(buffer,contentType,models[index]);
+      if(text){enableTelegramVoiceReply();return{text,model:models[index],reason:''};}
+      lastError=new Error('التسجيل لم يحتوي كلامًا واضحًا');
+    }catch(error){lastError=error;if([401,403].includes(Number(error.status)))return{text:'',reason:'auth',detail:error.message};if(Number(error.status)===429)return{text:'',reason:'quota',detail:error.message};if(index<models.length-1)await sleep(250);}
   }
   return{text:'',reason:'transcription_failed',detail:lastError?.message||'تعذر فهم التسجيل'};
 }
