@@ -10,7 +10,7 @@ const isOwner=identity=>Boolean(identity?.active&&ownerId()&&String(identity.ext
 const audienceLabels={all:'جميع المستخدمين',admin:'الإدارة',accountant:'الحسابات',sales:'المبيعات والتحصيل',operations:'التشغيل'};
 const roleGroups={admin:new Set(['admin','manager']),accountant:new Set(['accountant']),sales:new Set(['block_sales','concrete_sales','collector']),operations:new Set(['mechanic','driver','employee','warehouse','fuel_operator','hr','procurement','quality'])};
 
-function field(text,label){const match=String(text||'').match(new RegExp(`(?:^|\n)\s*${label}\s*[:：-]\s*(.+)`,'i'));return match?.[1]?.trim()||'';}
+function field(text,label){const match=String(text||'').match(new RegExp(`(?:^|\\n)\\s*${label}\\s*[:：-]\\s*(.+)`,'i'));return match?.[1]?.trim()||'';}
 function parseAudience(value){const text=norm(value);if(/^(الكل|الجميع|جميع المستخدمين)$/.test(text))return'all';if(/^(الاداره|الإدارة|المديرين)$/.test(text))return'admin';if(/^(الحسابات|المحاسبين)$/.test(text))return'accountant';if(/^(المبيعات|التحصيل|المبيعات والتحصيل)$/.test(text))return'sales';if(/^(التشغيل|الموظفين|العمال)$/.test(text))return'operations';return'';}
 function parseDraft(text){return{title:field(text,'(?:العنوان|عنوان الاشعار|عنوان الإشعار)'),body:field(text,'(?:الرساله|الرسالة|النص|التفاصيل)'),audience:parseAudience(field(text,'(?:الفئه|الفئة|المستلمون|الى|إلى)'))};}
 function notificationText(draft){return `<b>إشعار النظام</b>\n\n<b>${esc(draft.title)}</b>\n${esc(draft.body)}\n\nالفئة: <b>${esc(audienceLabels[draft.audience]||draft.audience)}</b>\nصادر من إدارة مصنع بن حامد`;} 
