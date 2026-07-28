@@ -31,7 +31,7 @@ if(!handler.includes(modernFuelRedirect)){
   handler=replaceOnce(
     handler,
     "  if(action==='report'){\n    if(value==='concrete_file')return sendStoredReportRequest(message.chat.id,identity,'concrete');",
-    "  if(action==='report'){\n${modernFuelRedirect}\n    if(value==='concrete_file')return sendStoredReportRequest(message.chat.id,identity,'concrete');",
+    "  if(action==='report'){\n"+modernFuelRedirect+"\n    if(value==='concrete_file')return sendStoredReportRequest(message.chat.id,identity,'concrete');",
     'redirect report fuel callback to modern fuel menu'
   );
 }
