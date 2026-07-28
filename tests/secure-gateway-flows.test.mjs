@@ -16,14 +16,17 @@ test('webhook gateway intercepts every role-sensitive callback and session',asyn
   assert.match(gateway,/fail_telegram_update/);
 });
 
-test('procurement wrapper includes specialist roles and direct RFQ visibility',async()=>{
+test('procurement wrapper includes specialist roles and routes old RFQ commands to direct market search',async()=>{
   const secure=await read('api/_lib/bot-procurement-secure.js');
   const migration=await read('supabase/migrations/007_procurement_projection_and_permissions.sql');
   assert.match(secure,/procurement/);
   assert.match(secure,/warehouse/);
-  assert.match(secure,/purchase_requests/);
+  assert.match(secure,/startProductAssistant/);
+  assert.match(secure,/handleDirectBusinessSearchCommand/);
   assert.match(secure,/continueProcurementSession/);
   assert.match(secure,/handleProcurementCallback/);
+  assert.match(secure,/action==='product'\|\|action==='price'\|\|action==='rfq'\|\|action==='open'/);
+  assert.doesNotMatch(secure,/purchase_requests/);
   assert.match(migration,/project_supplier_quote_request/);
   assert.match(migration,/ref,'rfq'/);
   assert.match(migration,/supplier_quote_request_projection_trigger/);
