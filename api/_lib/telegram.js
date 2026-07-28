@@ -1,5 +1,7 @@
 import { config } from './config.js';
 import { upsert } from './supabase.js';
+import { synthesizeTelegramReply } from './bot-voice.js';
+import { markVoiceReplySent, shouldSpeakTelegramText } from './bot-voice-context.js';
 
 function ensure() { if (!config.telegramToken) throw Object.assign(new Error('Telegram Bot Token غير مضبوط'), { status: 503 }); }
 async function fetchRetry(url, options = {}, tries = 3) {
@@ -82,24 +84,25 @@ async function recordOutgoing(result, method, fallback = {}) {
     };
     await upsert('telegram_messages', [row], 'chat_id,message_id');
   } catch (error) {
-    // Conversation logging must never prevent the bot reply from reaching the user.
     console.warn('[telegram outgoing log]', error?.message || error);
   }
 }
 
-// Telegram لا يدعم tel: ضمن روابط HTML أو أزرار URL إلا بصيغ HTTP أو tg://.
-// إبقاء الرقم الدولي كنص عادي يجعل Telegram ينشئ كيان phone_number قابلًا للضغط،
-// فيفتح شاشة الاتصال مباشرة بدل ظهور الرقم كرابط مكسور أو كنص غير فعال.
 export function restoreTelegramPhoneLinks(text=''){
   return String(text??'').replace(/<a\s+href=(["'])tel:([^"']+)\1[^>]*>.*?<\/a>/gis,(_match,_quote,phone)=>String(phone||'').replace(/[^\d+]/g,''));
 }
 
 export async function sendMessage(chatId, text, extra = {}) {
-  const { action_name: actionName, action_payload: actionPayload, ...telegramExtra } = extra || {};
+  const { action_name: actionName, action_payload: actionPayload, disable_voice_reply: disableVoiceReply, ...telegramExtra } = extra || {};
   if(telegramExtra.reply_markup)telegramExtra.reply_markup=styleTelegramMarkup(telegramExtra.reply_markup);
   const telegramText=restoreTelegramPhoneLinks(text);
   const result = await telegram('sendMessage', { chat_id: chatId, text:telegramText, parse_mode: 'HTML', disable_web_page_preview: true, ...telegramExtra });
   await recordOutgoing(result, 'sendMessage', { text:telegramText, actionName, actionPayload });
+  if(shouldSpeakTelegramText(telegramText,{disable_voice_reply:disableVoiceReply})){
+    markVoiceReplySent();
+    const speech=await synthesizeTelegramReply(telegramText);
+    if(speech.buffer)await sendVoiceBuffer(chatId,speech.buffer).catch(error=>console.warn('[telegram voice reply]',{message:String(error?.message||'').slice(0,220)}));
+  }
   return result;
 }
 
