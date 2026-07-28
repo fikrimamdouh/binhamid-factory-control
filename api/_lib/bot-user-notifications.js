@@ -3,6 +3,7 @@ import { clearMaintenanceSession } from './bot-maintenance.js';
 import { esc, norm, setEnterpriseSession } from './bot-enterprise-store.js';
 import { config } from './config.js';
 import { insert, select } from './supabase.js';
+import { handleOwnerVoiceIntroCommand } from './bot-owner-voice-intro.js';
 
 const ownerId=()=>String(config.telegramOwnerId||'').trim();
 const isOwner=identity=>Boolean(identity?.active&&ownerId()&&String(identity.external_id||'')===ownerId());
@@ -60,5 +61,6 @@ export async function handleSystemNotificationCallback(message,from,identity,val
 }
 
 export async function handleSystemNotificationTextCommand(message,identity,text){
+  if(await handleOwnerVoiceIntroCommand(message,identity,text))return true;
   const value=norm(text);if(!/^(اشعار النظام|إشعار النظام|ارسال اشعار|إرسال إشعار|تحديث النظام للمستخدمين)$/.test(value))return false;await startSystemNotification(message,identity);return true;
 }

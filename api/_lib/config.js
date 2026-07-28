@@ -10,8 +10,11 @@ export const envSpec=Object.freeze({
   TELEGRAM_BOT_TOKEN:{requiredFor:['telegram'],secret:true,description:'Token البوت'},
   TELEGRAM_WEBHOOK_SECRET:{requiredFor:['telegram'],secret:true,description:'سر التحقق من Webhook'},
   TELEGRAM_OWNER_ID:{requiredFor:['telegram'],description:'معرف مالك البوت'},
-  OPENAI_API_KEY:{requiredFor:[],secret:true,description:'اختياري للصوت والذكاء الاصطناعي وبحث أسعار المنتجات'},
-  OPENAI_TEXT_MODEL:{requiredFor:[],description:'نموذج الردود النصية والصور؛ الافتراضي gpt-5-mini'},
+  OPENAI_API_KEY:{requiredFor:[],secret:true,description:'اختياري للصوت والذكاء الاصطناعي والبحث المتعمق'},
+  OPENAI_TEXT_MODEL:{requiredFor:[],description:'نموذج الردود النصية والبحث؛ الافتراضي gpt-5-mini'},
+  OPENAI_TRANSCRIBE_MODEL:{requiredFor:[],description:'نموذج فهم الرسائل الصوتية؛ الافتراضي gpt-4o-mini-transcribe'},
+  OPENAI_TTS_MODEL:{requiredFor:[],description:'نموذج إنشاء الرد الصوتي؛ الافتراضي gpt-4o-mini-tts'},
+  OPENAI_TTS_VOICE:{requiredFor:[],description:'صوت الرد في Telegram؛ الافتراضي coral'},
   GEMINI_API_KEY:{requiredFor:[],secret:true,description:'اختياري: بحث أسعار مجاني عبر Gemini بدل مفتاح OpenAI المدفوع'},
   GOOGLE_PLACES_API_KEY:{requiredFor:[],secret:true,description:'اختياري لبحث الموردين ودليل الأعمال'},
   CRON_SECRET:{requiredFor:['cron'],secret:true,description:'سر تشغيل المهام المجدولة'},
@@ -24,10 +27,10 @@ export const envSpec=Object.freeze({
   BACKUP_RETENTION_DAYS:{requiredFor:[],description:'مدة الاحتفاظ بالنسخ'},
   BACKUP_STORAGE_PREFIX:{requiredFor:[],description:'بادئة مسار النسخ'},
   MAX_IMPORT_FILE_BYTES:{requiredFor:[],description:'الحد الأقصى لملف الاستيراد'},
-  TELEGRAM_WEBAPP_MAX_AGE_SECONDS:{requiredFor:[],description:'عمر جلسة WebApp'}
-  ,MANAGER_BRIEF_HOUR:{requiredFor:[],description:'ساعة التقرير اليومي بتوقيت الرياض'}
-  ,WEEKLY_EXPORT_WEEKDAY:{requiredFor:[],description:'يوم التصدير الأسبوعي (0 الأحد)'}
-  ,WEEKLY_EXPORT_HOUR:{requiredFor:[],description:'ساعة التصدير الأسبوعي بتوقيت الرياض'}
+  TELEGRAM_WEBAPP_MAX_AGE_SECONDS:{requiredFor:[],description:'عمر جلسة WebApp'},
+  MANAGER_BRIEF_HOUR:{requiredFor:[],description:'ساعة التقرير اليومي بتوقيت الرياض'},
+  WEEKLY_EXPORT_WEEKDAY:{requiredFor:[],description:'يوم التصدير الأسبوعي (0 الأحد)'},
+  WEEKLY_EXPORT_HOUR:{requiredFor:[],description:'ساعة التصدير الأسبوعي بتوقيت الرياض'}
 });
 
 export const config=Object.freeze({
