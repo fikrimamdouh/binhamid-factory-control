@@ -8,6 +8,11 @@ function replaceOnce(content,before,after,label){
   if(content.indexOf(before,first+before.length)>=0)throw new Error(`Patch target is not unique: ${label}`);
   return content.slice(0,first)+after+content.slice(first+before.length);
 }
+function replaceRegexOnce(content,pattern,after,label){
+  const matches=[...content.matchAll(new RegExp(pattern.source,pattern.flags.includes('g')?pattern.flags:`${pattern.flags}g`))];
+  if(matches.length!==1)throw new Error(`Expected one regex target for ${label}, found ${matches.length}`);
+  return content.replace(pattern,after);
+}
 
 const routeFile='api/_lib/routes/fuel-sync.js';
 let route=read(routeFile);
@@ -23,10 +28,10 @@ route=replaceOnce(
   'return details.message_version===BALANCE_MESSAGE_VERSION&&Number(details.total)===balance.amount&&Number(details.account_balance)===balance.accountBalance&&Number(details.vehicle_count)===balance.vehicleCount;',
   'message-version duplicate check'
 );
-route=replaceOnce(
+route=replaceRegexOnce(
   route,
-  "const amount=balance.amount.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}),accountAmount=balance.accountBalance.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}),message=`رصيد الديزل غير المستخدم في السيارات: <b>${amount} ر.س</b>\nالرصيد الموجود في الحساب: <b>${accountAmount} ر.س</b>`;",
-  "const formatter=new Intl.NumberFormat('ar-SA-u-nu-latn',{minimumFractionDigits:2,maximumFractionDigits:2}),amount=formatter.format(balance.amount),accountAmount=formatter.format(balance.accountBalance),grandTotal=Number((balance.amount+balance.accountBalance).toFixed(2)),grandAmount=formatter.format(grandTotal),message=`<b>ملخص أرصدة الديزل</b>\n\nرصيد السيارات غير المستخدم: <b>${amount} ر.س</b>\nرصيد الحساب: <b>${accountAmount} ر.س</b>\n━━━━━━━━━━━━\n<b>إجمالي الرصيد المتاح: ${grandAmount} ر.س</b>`;",
+  /^  const amount=balance\.amount\.toLocaleString\('en-US'.*message=.*;$/m,
+  "  const formatter=new Intl.NumberFormat('ar-SA-u-nu-latn',{minimumFractionDigits:2,maximumFractionDigits:2}),amount=formatter.format(balance.amount),accountAmount=formatter.format(balance.accountBalance),grandTotal=Number((balance.amount+balance.accountBalance).toFixed(2)),grandAmount=formatter.format(grandTotal),message=['<b>ملخص أرصدة الديزل</b>','',`رصيد السيارات غير المستخدم: <b>${amount} ر.س</b>`,`رصيد الحساب: <b>${accountAmount} ر.س</b>`,'━━━━━━━━━━━━',`<b>إجمالي الرصيد المتاح: ${grandAmount} ر.س</b>`].join(String.fromCharCode(10));",
   'formatted Telegram message with total'
 );
 route=replaceOnce(
