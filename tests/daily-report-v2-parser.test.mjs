@@ -89,7 +89,7 @@ test('ERP route selects the latest movement date and posts full financial detail
   assert.equal(payload.cashMovements.find(row=>row.voucherNo==='573').treasuryCode,'105');
   assert.equal(payload.cashMovements.find(row=>row.voucherNo==='573').isCustomerCollection,true);
   assert.equal(payload.treasuries.length,2);
-  assert.equal(payload.summary.parserVersion,'daily-report-v2');
+  assert.equal(payload.summary.parserVersion,'daily-report-v3-aggregate-safe');
 });
 
 test('historical upgrade accepts a revised file only when its original invoices and customers still match',()=>{
