@@ -12,7 +12,7 @@ import { sendGpsFleetStatus } from './bot-gps.js';
 import { continueRegistrationSession, handleRegistrationCallback, handleRegistrationTextCommand, isRegistrationCommand } from './bot-registration.js';
 import { handleDriverRegistrationMedia } from './bot-driver-registration.js';
 import { transcribeTelegramVoice, voiceFailureMessage } from './bot-voice.js';
-import { detectExplicitIntent, shouldSwitchSession } from './bot-intent-switch.js';
+import { shouldSwitchSession } from './bot-intent-switch.js';
 import { sendReport, reportKeyboard } from './bot-reports.js';
 import { handleFuelTextCommand, showFuelMenu } from './bot-fuel-reports.js';
 import { handleEnterpriseTextCommand } from './bot-enterprise.js';
@@ -156,7 +156,9 @@ async function interceptMessage(update){
   }
   if(message.location&&(state.startsWith('driver_')||state.startsWith('attendance_')||message.location.live_period||message.edit_date)){if(!await logIntercepted(update,message,identity))return true;await handleAttendanceLocation(message,identity,session);return true;}
   if(message.photo?.length&&state==='driver_fuel_photo'){if(!await logIntercepted(update,message,identity))return true;await handleAttendancePhoto(message,identity,session);return true;}
-  if(message.document||message.photo?.length)return false;
+  // التسجيل الصوتي الناجح حُوّل أعلاه إلى نص وحُذفت خاصية voice؛ لذلك
+  // هذا الحارس يظل بعد مسارات وسائط التسجيل ولا يمنع فهم الأوامر الصوتية.
+  if(message.voice||message.document||message.photo?.length)return false;
 
   const raw=String(message.text||message.caption||'').trim(),normalized=norm(raw),switchDecision=shouldSwitchSession(state,raw);
   if(switchDecision.next.explicit){
