@@ -39,10 +39,42 @@ function replaceAcross(oldValue,newValue,extensions){
   return changed;
 }
 
-replaceAcross('portfolio-settlement-v3-cross-sector','portfolio-settlement-v4-cross-sector-sales',new Set(['.js','.mjs']));
-replaceAcross('2026.07.27-primary-owner-cross-sector-v2','2026.07.28-primary-owner-cross-sector-sales-v3',new Set(['.js','.mjs']));
-replaceAcross('exact-portfolio-metadata-bridge.js?v=20260727-primary-owner-1','exact-portfolio-metadata-bridge.js?v=20260728-cross-sector-count-1',new Set(['.html','.js','.mjs']));
-replaceAcross('customer-portfolio-range-control.js?v=20260727-primary-owner-2','customer-portfolio-range-control.js?v=20260728-cross-sector-sales-1',new Set(['.html','.js','.mjs']));
+replaceAcross('portfolio-settlement-v3-cross-sector','portfolio-settlement-v5-item-owner-authority',new Set(['.js','.mjs']));
+replaceAcross('portfolio-settlement-v4-cross-sector-sales','portfolio-settlement-v5-item-owner-authority',new Set(['.js','.mjs']));
+replaceAcross('2026.07.27-primary-owner-cross-sector-v2','2026.07.28-item-owner-authority-v4',new Set(['.js','.mjs']));
+replaceAcross('2026.07.28-primary-owner-cross-sector-sales-v3','2026.07.28-item-owner-authority-v4',new Set(['.js','.mjs']));
+replaceAcross('exact-portfolio-metadata-bridge.js?v=20260727-primary-owner-1','exact-portfolio-metadata-bridge.js?v=20260728-item-owner-2',new Set(['.html','.js','.mjs']));
+replaceAcross('customer-portfolio-range-control.js?v=20260727-primary-owner-2','customer-portfolio-range-control.js?v=20260728-item-owner-2',new Set(['.html','.js','.mjs']));
+replaceAcross('customer-portfolio-range-control.js?v=20260728-cross-sector-sales-1','customer-portfolio-range-control.js?v=20260728-item-owner-2',new Set(['.html','.js','.mjs']));
+replaceAcross('declarations-customer-ledger-fix.js?v=20260727-primary-owner-2','declarations-customer-ledger-fix.js?v=20260728-item-owner-2',new Set(['.html','.js','.mjs']));
+
+replaceExact('api/_lib/customer-settlement.js','export function saleTypeOf(row={}){return explicitSaleType(row)||itemSaleType(row);}','export function saleTypeOf(row={}){return itemSaleType(row)||explicitSaleType(row);}',{optional:true});
+
+replaceExact(
+  'assets/declarations-customer-ledger-fix.js',
+  "const kindOf=row=>sectorOf(row?.salesType||row?.sales_type||row?.kind)||sectorOf(row?.product||row?.item||row?.itemName||'');",
+  "const kindOf=row=>sectorOf(row?.product||row?.item||row?.itemName||'')||sectorOf(row?.salesType||row?.sales_type||row?.kind);",
+  {optional:true}
+);
+replaceExact(
+  'assets/declarations-customer-ledger-fix.js',
+  "    const segment=sectorOf(client?.seg||client?.segment||client?.costCenter);\n    if(segment)return segment;\n    const repIds=new Set([client?.rep,client?.repId,client?.salesRepId].map(clean).filter(Boolean)),rep=(D.emp||[]).find(employee=>repIds.has(clean(employee.id))||repIds.has(clean(employee.external_id))),repSector=employeeSector(rep);\n    if(repSector)return repSector;",
+  "    const repIds=new Set([client?.rep,client?.repId,client?.salesRepId].map(clean).filter(Boolean)),rep=(D.emp||[]).find(employee=>repIds.has(clean(employee.id))||repIds.has(clean(employee.external_id))),repSector=employeeSector(rep);\n    if(repSector)return repSector;\n    const segment=sectorOf(client?.seg||client?.segment||client?.costCenter);\n    if(segment)return segment;",
+  {optional:true}
+);
+replaceExact(
+  'assets/declarations-customer-ledger-fix.js',
+  "    for(const client of D.cli||[]){\n      if(sectorOf(client.seg||client.segment))continue;\n      const owner=primarySector(state,client);if(!owner)continue;",
+  "    for(const client of D.cli||[]){\n      const owner=primarySector(state,client);if(!owner)continue;",
+  {optional:true}
+);
+
+replaceExact(
+  'assets/customer-portfolio-range-control.js',
+  "const salesKind=row=>{const declared=clean(row?.salesType||row?.sales_type||row?.kind).toLowerCase();if(declared==='block'||declared==='concrete')return declared;const text=norm(row?.item||row?.itemName||row?.product||'');return /خرسان/.test(text)?'concrete':/(?:بلك|بلوك)/.test(text)?'block':'';};",
+  "const salesKind=row=>{const text=norm(row?.item||row?.itemName||row?.product||'');if(/خرسان/.test(text))return'concrete';if(/(?:بلك|بلوك)/.test(text))return'block';const declared=clean(row?.salesType||row?.sales_type||row?.kind).toLowerCase();return declared==='block'||declared==='concrete'?declared:'';};",
+  {optional:true}
+);
 
 replaceExact(
   'shared/customer-portfolio-declaration.js',
@@ -60,18 +92,20 @@ replaceExact(
 replaceExact('api/_lib/customer-portfolio-pdf.js',"['العملاء',totals.customers]","['العملاء الأساسيون',totals.customers],['عمليات لعملاء قطاع آخر',totals.crossSectorCount||0]",{optional:true});
 replaceExact('api/_lib/customer-portfolio-pdf.js',"['مبيعات التقرير',money(totals.reportSales)]","['مبيعات التقرير',money(totals.reportSales)],['منها لعملاء قطاع آخر',money(totals.crossSectorSales||0)],['مبيعات عملاء المحفظة',money(totals.primaryReportSales??totals.reportSales)]",{optional:true});
 replaceExact('api/_lib/customer-portfolio-pdf.js','const totals=aggregateSettlements(rows),documentRef=','const totals=combinePortfolioTotals(aggregateSettlements(rows),crossSectorPurchases),documentRef=',{optional:true});
-replaceExact('api/_lib/customer-portfolio-pdf.js','customers:rows,crossSectorPurchases,totals,createdAt:new Date().toISOString()','customers:rows,crossSectorPurchases,totals,primaryCustomerCount:rows.length,crossSectorCount:crossSectorPurchases.length,totalEntryCount:rows.length+crossSectorPurchases.length,createdAt:new Date().toISOString()',{optional:true});
+replaceExact('api/_lib/customer-portfolio-pdf.js','customers:rows,crossSectorPurchases,totals,createdAt:new Date().toISOString()','customers:rows,crossSectorPurchases,totals,primaryCustomerCount:rows.length,crossSectorCount:crossSectorPurchases.length,totalEntryCount:rows.length+crossSectorPurchases.length,crossSectorSalesIncluded:true,crossSectorSalesMarker:\'2026.07.28-cross-sector-sales-v1\',createdAt:new Date().toISOString()',{optional:true});
 replaceExact('api/_lib/customer-portfolio-pdf.js','customerCount=rows.length+crossSectorPurchases.length;','customerCount=rows.length,totalEntryCount=rows.length+crossSectorPurchases.length;',{optional:true});
 replaceExact('api/_lib/customer-portfolio-pdf.js','crossSectorCount:crossSectorPurchases.length,totalCustomerCount:customerCount,','crossSectorCount:crossSectorPurchases.length,totalCustomerCount:customerCount,totalEntryCount,',{optional:true});
 replaceExact('api/_lib/customer-portfolio-pdf.js','summary:aggregateSettlements(customers)','summary:combinePortfolioTotals(aggregateSettlements(customers),portfolio.crossSectorPurchases)',{optional:true});
 
 replaceExact('api/_lib/bot-portfolio-reports.js','||Number(pointer?.customerCount||0)<=0)return null;','||(Number(pointer?.customerCount||0)<=0&&Number(pointer?.crossSectorCount||0)<=0))return null;',{optional:true});
 
-replaceAcross('2026.07.27-exact-portfolio-metadata-primary-owner-v3','2026.07.28-exact-portfolio-metadata-cross-sector-v4',new Set(['.js']));
+replaceAcross('2026.07.27-exact-portfolio-metadata-primary-owner-v3','2026.07.28-exact-portfolio-metadata-item-owner-v5',new Set(['.js']));
+replaceAcross('2026.07.28-exact-portfolio-metadata-cross-sector-v4','2026.07.28-exact-portfolio-metadata-item-owner-v5',new Set(['.js']));
 replaceExact('assets/exact-portfolio-metadata-bridge.js',"function customerCount(employee,segment){try{const rows=typeof window.clientPortfolioForEmployee==='function'?(window.clientPortfolioForEmployee(employee,segment)||[]):[];return rows.length+(rows.crossSectorPurchases||[]).length;}catch{return 0;}}","function portfolioCounts(employee,segment){try{const rows=typeof window.clientPortfolioForEmployee==='function'?(window.clientPortfolioForEmployee(employee,segment)||[]):[];return{customerCount:rows.length,crossSectorCount:(rows.crossSectorPurchases||[]).length};}catch{return{customerCount:0,crossSectorCount:0};}}",{optional:true});
 replaceExact('assets/exact-portfolio-metadata-bridge.js',"return{documentType:'customer_portfolio',portfolioType:kind,periodMode:'daily',periodFrom:reportDate,periodTo:reportDate,reportDate,employeeId:clean(employee.id),employeeName:clean(employee.name),employeeNationalId:digits(employee.nid||employee.iqamaId||employee.nationalId||employee.no),customerCount:customerCount(employee,segment),sector:kind};","const counts=portfolioCounts(employee,segment);return{documentType:'customer_portfolio',portfolioType:kind,periodMode:'daily',periodFrom:reportDate,periodTo:reportDate,reportDate,employeeId:clean(employee.id),employeeName:clean(employee.name),employeeNationalId:digits(employee.nid||employee.iqamaId||employee.nationalId||employee.no),customerCount:counts.customerCount,crossSectorCount:counts.crossSectorCount,sector:kind};",{optional:true});
 
-replaceAcross('2026.07.27-customer-portfolio-primary-owner-cross-sector-v3','2026.07.28-customer-portfolio-cross-sector-sales-v4',new Set(['.js']));
+replaceAcross('2026.07.27-customer-portfolio-primary-owner-cross-sector-v3','2026.07.28-customer-portfolio-item-owner-v5',new Set(['.js']));
+replaceAcross('2026.07.28-customer-portfolio-cross-sector-sales-v4','2026.07.28-customer-portfolio-item-owner-v5',new Set(['.js']));
 replaceExact('assets/customer-portfolio-range-control.js',"if(bar){const title=bar.querySelector('h1');if(title)title.textContent='مبيعات لعملاء تابعين للقطاع الآخر';body.appendChild(bar);}","if(bar){const sellingLabel=clean(document.getElementById('pcSeg')?.value)==='خرسانة'?'الخرسانة':'البلوك',title=bar.querySelector('h1');if(title)title.textContent=`عملاء تابعون لقطاع آخر اشتروا من ${sellingLabel}`;body.appendChild(bar);}",{optional:true});
 replaceExact('assets/customer-portfolio-range-control.js','<span class="t">مبيعات لعملاء تابعين للقطاع الآخر</span>','<span class="t">عملاء تابعون لقطاع آخر اشتروا من ${clean(document.getElementById(\'pcSeg\')?.value)===\'خرسانة\'?\'الخرسانة\':\'البلوك\'}</span>',{optional:true});
 replaceExact('assets/customer-portfolio-range-control.js','لا تنشئ هذه العمليات عميلاً جديدًا ولا تنقل العميل من محفظته الأساسية.','تُحتسب هذه العمليات ضمن مبيعات ${clean(document.getElementById(\'pcSeg\')?.value)===\'خرسانة\'?\'الخرسانة\':\'البلوك\'}، ولا تنشئ عميلاً جديدًا ولا تنقل العميل من محفظته الأساسية.',{optional:true});
@@ -86,4 +120,5 @@ for(const file of ['shared/customer-portfolio-declaration.js','assets/customer-p
   if(read(file).includes('مبيعات لعملاء تابعين للقطاع الآخر'))throw new Error(`Old cross-sector title remains in ${file}`);
 }
 if(!read('api/_lib/customer-portfolio-pdf.js').includes('combinePortfolioTotals'))throw new Error('Cross-sector totals were not applied.');
-console.log('[BinHamid] cross-sector customer portfolio fix applied');
+if(!read('api/_lib/customer-settlement.js').includes('return itemSaleType(row)||explicitSaleType(row)'))throw new Error('Item description is not authoritative for sale type.');
+console.log('[BinHamid] cross-sector customer portfolio item/owner fix applied');
