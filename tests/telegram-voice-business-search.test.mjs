@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { mergeBusinessResults,businessSearchScope } from '../api/_lib/bot-business-directory.js';
 import { speechText } from '../api/_lib/bot-voice.js';
+import { detectExplicitIntent,shouldSwitchSession } from '../api/_lib/bot-intent-switch.js';
+import { extractDirectBusinessSearchQuery } from '../api/_lib/bot-business-directory-flow.js';
 
 const read=path=>readFile(new URL(`../${path}`,import.meta.url),'utf8');
 
@@ -33,13 +35,36 @@ test('deep business scope explicitly includes companies factories agents shops a
   assert.ok(scope.sourceTypes.length>=5);
 });
 
-test('Telegram procurement and voice contracts use the new deep-search and speech paths',async()=>{
-  const [secure,flow,directory,voice,telegram,context]=await Promise.all([
+test('an explicit search request extracts the product and overrides any stale open form',()=>{
+  const voiceText='انا محتاج تبحث لي على عمود كردان 50 سم';
+  assert.equal(extractDirectBusinessSearchQuery(voiceText),'عمود كردان 50 سم');
+  assert.deepEqual(detectExplicitIntent(voiceText),{intent:'business_search',module:'procurement',explicit:true});
+  const fromMaintenance=shouldSwitchSession('mechanic_waiting_plate',voiceText);
+  assert.equal(fromMaintenance.switch,true);
+  assert.equal(fromMaintenance.current,'workshop');
+  assert.equal(fromMaintenance.next.module,'procurement');
+  const fromReport=shouldSwitchSession('enterprise_search_query','ابحث لي عن عمود كردان 50 سم');
+  assert.equal(fromReport.switch,true);
+});
+
+test('explicit commands change modules while plain answers remain inside the current session',()=>{
+  assert.equal(shouldSwitchSession('supplier_city','نجران').switch,false);
+  assert.equal(shouldSwitchSession('sales_customer','شركة النور').switch,false);
+  assert.equal(shouldSwitchSession('supplier_city','هات تقرير اليوم').next.intent,'report');
+  assert.equal(shouldSwitchSession('supplier_city','هات تقرير اليوم').switch,true);
+  assert.equal(shouldSwitchSession('sales_customer','اعمل بلاغ عطل للمعدة 15').next.intent,'workshop');
+  assert.equal(shouldSwitchSession('sales_customer','اعمل بلاغ عطل للمعدة 15').switch,true);
+  assert.equal(shouldSwitchSession('mechanic_fault','هات تقرير الديزل').next.intent,'fuel');
+});
+
+test('Telegram procurement voice and gateway contracts use deep search speech and intent-first routing',async()=>{
+  const [secure,flow,directory,voice,telegram,context,gateway,core]=await Promise.all([
     read('api/_lib/bot-procurement-secure.js'),read('api/_lib/bot-business-directory-flow.js'),read('api/_lib/bot-business-directory.js'),
-    read('api/_lib/bot-voice.js'),read('api/_lib/telegram.js'),read('api/_lib/bot-voice-context.js')
+    read('api/_lib/bot-voice.js'),read('api/_lib/telegram.js'),read('api/_lib/bot-voice-context.js'),read('api/_lib/telegram-webhook-gateway.js'),read('api/_lib/bot-webhook-core.js')
   ]);
   assert.match(secure,/بحث شامل شركات ومحلات/);
-  assert.match(secure,/startDeepBusinessSearch/);
+  assert.match(secure,/لا توجد روابط خارجية/);
+  assert.match(secure,/handleDirectBusinessSearchCommand/);
   assert.match(flow,/searchComprehensiveBusinessDirectory/);
   assert.match(directory,/tools:\[\{type:'web_search',search_context_size:'high'/);
   assert.match(directory,/places\.googleapis\.com\/v1\/places:searchText/);
@@ -48,4 +73,9 @@ test('Telegram procurement and voice contracts use the new deep-search and speec
   assert.match(telegram,/shouldSpeakTelegramText/);
   assert.match(telegram,/sendVoiceBuffer\(chatId,speech\.buffer\)/);
   assert.match(context,/AsyncLocalStorage/);
+  assert.match(gateway,/shouldSwitchSession\(state,raw\)/);
+  assert.match(gateway,/clearMaintenanceSession/);
+  assert.match(gateway,/prepareVoiceMessage/);
+  assert.match(core,/_voice_transcription/);
+  assert.match(core,/_original_voice/);
 });
