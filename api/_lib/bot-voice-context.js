@@ -2,26 +2,23 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 
 const storage=new AsyncLocalStorage();
 
-export function enableTelegramVoiceReply(){
-  storage.enterWith({enabled:true,sent:false});
+export function enableTelegramVoiceReply(chatId){
+  storage.enterWith({enabled:true,sent:false,chatId:String(chatId||'')});
 }
 
-export function voiceReplyPending(){
-  const state=storage.getStore();
-  return Boolean(state?.enabled&&!state.sent);
+export function voiceReplyPending(chatId){
+  const state=storage.getStore(),target=String(chatId||'');
+  return Boolean(state?.enabled&&!state.sent&&state.chatId&&state.chatId===target);
 }
 
-export function markVoiceReplySent(){
-  const state=storage.getStore();
-  if(state)state.sent=true;
+export function markVoiceReplySent(chatId){
+  const state=storage.getStore(),target=String(chatId||'');
+  if(state?.chatId&&state.chatId===target)state.sent=true;
 }
 
-export function shouldSpeakTelegramText(text='',extra={}){
-  if(!voiceReplyPending())return false;
+export function shouldSpeakTelegramText(chatId,text='',extra={}){
+  if(!voiceReplyPending(chatId))return false;
+  if(extra?.disable_voice_reply||extra?.voice_reply_result!==true)return false;
   const value=String(text||'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
-  if(value.length<12)return false;
-  if(/^(تم استلام رسالتك الصوتية|تم فهم التسجيل|جارٍ|جاري|لحظة|انتظر)/.test(value))return false;
-  if(/^(اكتب|اختر|أرسل|ارسل|اضغط|حدد)\b/.test(value)&&value.length<240)return false;
-  if(extra?.disable_voice_reply)return false;
-  return true;
+  return value.length>=12;
 }
