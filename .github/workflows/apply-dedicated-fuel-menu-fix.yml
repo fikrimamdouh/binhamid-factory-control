@@ -37,7 +37,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           rm -f scripts/apply-dedicated-fuel-menu-patch.mjs .github/workflows/apply-dedicated-fuel-menu-fix.yml
           git add -A
-          git commit -m "fix: keep diesel reports in dedicated menu"
+          git commit -m "fix: keep diesel button and open modern fuel reports"
           git pull --rebase origin main
           git push origin HEAD:main
-# trigger: 2026-07-28T08:00:00+03:00
+# trigger: preserve-button-2026-07-28
