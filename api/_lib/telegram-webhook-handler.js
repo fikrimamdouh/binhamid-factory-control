@@ -16,7 +16,7 @@ import { sendExecutiveWorkshopStatus } from './bot-workshop-dashboard.js';
 import { handleSalesTextCommand, continueSalesSession, startSalesAction, confirmSalesOrder, cancelSalesDraft, showSalesMenu } from './bot-sales-accounting-guard.js';
 import { startGuidedSales, continueGuidedSales, handleGuidedSalesCallback } from './bot-sales-guided.js';
 import { handleFuelTextCommand, handleFuelCallback, showFuelMenu } from './bot-fuel-reports.js';
-import { directBusinessSearchRequested, handleDirectBusinessSearchCommand, handleProcurementTextCommand, continueProcurementSession, handleProcurementCallback, showProcurementMenu } from './bot-procurement-secure.js';
+import { handleProcurementTextCommand, continueProcurementSession, handleProcurementCallback, showProcurementMenu } from './bot-procurement.js';
 import { handleEnterpriseTextCommand, continueEnterpriseSession, handleEnterpriseCallback, showRoleHome } from './bot-enterprise.js';
 import { handleInvitationStart } from './bot-invitations.js';
 import { ensureTelegramGroup, ensureTelegramIdentity, storeTelegramMessage } from './bot-webhook-core.js';
@@ -26,7 +26,7 @@ import { handleInsightCommand } from './bot-insights.js';
 import { showAttendanceMenu, continueAttendanceSession, handleAttendanceLocation, handleAttendancePhoto, handleAttendanceCallback } from './bot-attendance.js';
 import { botMenuItem, botModuleAllowed, moduleForCallback, moduleForSession, moduleForText } from './bot-menu-permissions.js';
 
-const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#39;'}[char]));
+const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const norm=value=>String(value||'').toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ًٌٍَُِّْـ]/g,'').replace(/[؟?!.,،؛:]+/g,'').replace(/\s+/g,' ').trim();
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function denyBotModule(chatId,identity,moduleId){if(!moduleId||botMenuItem(moduleId)?.ownerOnly||await botModuleAllowed(identity,moduleId))return false;await sendMessage(chatId,'هذه الوحدة مخفية وموقوفة لحسابك من إعدادات صلاحيات البوت.');return true;}
@@ -64,14 +64,6 @@ async function handleText(message,group,identity,text,voicePath='',stored=null){
   if(builtIn){if(/^\/start(?:@\w+)?(?:\s+\w+)?$/i.test(raw)&&active)await showRoleHome(message,identity);return;}
   if(!active)return sendMessage(chatId,`مرحبًا ${esc(name)}. فهمت رسالتك وسجلتها، لكن حسابك غير معتمد لتنفيذ الإجراءات. أرسل رقمك من /whoami إلى مدير النظام.`);
   if(['group','supergroup'].includes(message.chat.type)&&!group.active)return sendMessage(chatId,'فهمت الرسالة وسجلتها، لكن المجموعة لم تعتمد بعد. يجب تحديد قسمها قبل التوجيه النهائي.');
-
-  // طلب البحث الصريح أمر مستقل وعالي الأولوية. لا يُسمح لأي جلسة مفتوحة
-  // (صيانة، تقرير، مورد، مبيعات أو مساعد عام) بابتلاعه أو إعادة تفسيره كسؤال توجيهي.
-  if(directBusinessSearchRequested(raw)){
-    if(await denyBotModule(chatId,identity,'procurement'))return;
-    if(await handleDirectBusinessSearchCommand(message,identity,raw))return;
-  }
-
   if(/^\/attendance(?:@\w+)?$/i.test(raw)||/^(الحضور والمواقع|تسجيل حضور|تسجيل انصراف|قائمه الحضور|قائمة الحضور|لوحه السائق|لوحة السائق)$/.test(normalized))return showAttendanceMenu(message,identity);
   if(/^(حاله الورشه|وضع الورشه|وضع الميكانيكي|ملخص اعمال الميكانيكي|تقرير تنفيذي للورشه)$/.test(normalized)){
     if(!['admin','manager','mechanic','accountant'].includes(role))return sendMessage(chatId,'عرض الحالة التنفيذية للورشة متاح لمدير النظام ومدير المصنع والمحاسب ومسؤول الورشة.');
@@ -88,7 +80,7 @@ async function handleText(message,group,identity,text,voicePath='',stored=null){
   if(await denyBotModule(chatId,identity,moduleForSession(session?.state)))return;
   if(session?.state?.startsWith('attendance_')||session?.state?.startsWith('driver_')){if(await continueAttendanceSession(message,identity,session,raw))return;}
   if(session?.state?.startsWith('enterprise_')){if(await continueEnterpriseSession(message,identity,session,raw))return;}
-  if(session?.state?.startsWith('supplier_')||session?.state?.startsWith('rfq_')||session?.state?.startsWith('business_search_')){if(await continueProcurementSession(message,identity,session,raw))return;}
+  if(session?.state?.startsWith('supplier_')||session?.state?.startsWith('rfq_')){if(await continueProcurementSession(message,identity,session,raw))return;}
   if(session?.state?.startsWith('guided_sales_')){if(await continueGuidedSales(message,identity,session,raw))return;}
   if(session?.state?.startsWith('sales_')){if(await continueSalesSession(message,identity,session,raw))return;}
   if(session?.state?.startsWith('mechanic_')){if(await continueMechanicSession(message,identity,session,raw))return;}
@@ -101,6 +93,7 @@ async function handleText(message,group,identity,text,voicePath='',stored=null){
   if(await handleEnterpriseTextCommand(message,identity,raw))return;
   if(await handleInsightCommand(message,identity,raw))return;
   if(await handleFuelTextCommand(message,identity,raw))return;
+  // أي رسالة ديزل غير مكتملة تفتح قائمة الاختيارات بدل رد تخميني طويل.
   if(/ديزل/.test(normalized))return showFuelMenu(message,identity);
   if(await handleProcurementTextCommand(message,identity,raw))return;
   if(await handleSalesTextCommand(message,identity,raw))return;
@@ -134,54 +127,107 @@ async function handleText(message,group,identity,text,voicePath='',stored=null){
 
 async function handleCallback(update){
   const query=update.callback_query,message=query.message,identity=await ensureTelegramIdentity(query.from),role=identity.role||'pending';
-  const group=await ensureTelegramGroup(message.chat),[action,value]=splitCallbackData(query.data);
-  if(await denyBotModule(message.chat.id,identity,moduleForCallback(action,value))){await answerCallback(query.id,'غير مسموح');return;}
-  if(await handleAttendanceCallback(message,query.from,identity,action,value)){await answerCallback(query.id,'تم');return;}
-  if(await handleGuidedSalesCallback(message,query.from,identity,action,value)){await answerCallback(query.id,'تم');return;}
-  if(await handleFuelCallback(message,query.from,identity,action,value)){await answerCallback(query.id,'تم');return;}
-  if(await handleProcurementCallback(message,query.from,identity,action,value)){await answerCallback(query.id,'تم');return;}
-  if(await handleEnterpriseCallback(message,query.from,identity,action,value)){await answerCallback(query.id,'تم');return;}
-  if(action==='report'){await answerCallback(query.id,'جارٍ تجهيز التقرير');return sendReport(message.chat.id,value);}
-  if(action==='stored_report'){await answerCallback(query.id,'جارٍ تجهيز الملف');return sendStoredReportFile(message.chat.id,value,identity);}
-  if(action==='stored_report_request'){await answerCallback(query.id,'جارٍ تجهيز التقرير');return sendStoredReportRequest(message.chat.id,value,identity);}
-  if(action==='mechanic'){await answerCallback(query.id,'تم');return startMechanicAction({...message,from:query.from},identity,value);}
-  if(action==='sales'){await answerCallback(query.id,'تم');return startSalesAction({...message,from:query.from},identity,value);}
-  if(action==='guided_sales_confirm'){await answerCallback(query.id,'تم');return confirmSalesOrder(message,identity,value);}
-  if(action==='guided_sales_cancel'){await answerCallback(query.id,'تم');return cancelSalesDraft(message,identity,value);}
-  if(action==='maintenance_confirm'){await answerCallback(query.id,'تم');return confirmMaintenance(message,identity,value);}
-  if(action==='maintenance_cancel'){await answerCallback(query.id,'تم');return cancelMaintenance(message,identity,value);}
-  if(action==='maintenance_vehicle'){await answerCallback(query.id,'تم');return chooseVehicle(message,identity,value);}
-  if(action==='spare_parts_confirm'){await answerCallback(query.id,'تم');return confirmSparePartsRequest(message,identity,value);}
-  await answerCallback(query.id,'تم');
+  await answerCallback(query.id);
+  if(!identity.active)return sendMessage(message.chat.id,'حسابك غير معتمد لتنفيذ هذا الإجراء.');
+  const[action,value]=splitCallbackData(query.data);
+  if(!['ent','entopt','entconfirm','entcancel','entstatus'].includes(action)&&await denyBotModule(message.chat.id,identity,moduleForCallback(action,value)))return;
+  if(action==='home'){
+    if(value==='workshop')return showMechanicMenu({...message,from:query.from},identity);
+    if(value==='sales')return showSalesMenu({...message,from:query.from},identity);
+    if(value==='suppliers')return showProcurementMenu({...message,from:query.from},identity);
+    if(value==='attendance')return showAttendanceMenu({...message,from:query.from},identity);
+    return showRoleHome({...message,from:query.from},identity);
+  }
+  if(['att','fuelconfirm','fuelcancel'].includes(action))return handleAttendanceCallback(message,query.from,identity,action,value);
+  if(['ent','entopt','entconfirm','entcancel','entstatus'].includes(action))return handleEnterpriseCallback(message,query.from,identity,action,value);
+  if(action==='doc')return sendOperationalDocument({...message,from:query.from},identity,value);
+  if(action==='gps')return sendGpsFleetStatus(message.chat.id,value==='fleet'?'':value);
+  if(action==='reportfile'){const[kind,id]=String(value||'').split('|');return sendStoredReportFile(message.chat.id,id,identity,kind||'daily');}
+  if(action==='report'){
+    if(value==='fuel')return showFuelMenu({...message,from:query.from},identity);
+    if(value==='concrete_file')return sendStoredReportRequest(message.chat.id,identity,'concrete');
+    if(value==='block_file')return sendStoredReportRequest(message.chat.id,identity,'block');
+    if(value==='daily_file')return sendStoredReportRequest(message.chat.id,identity,'daily');
+    const kind=String(value||'daily').split('|')[0];
+    if(!canReadDailyReport(role,kind))return sendMessage(message.chat.id,'ليست لديك صلاحية عرض هذا الجزء من التقرير اليومي.');
+    return sendReport(message.chat.id,value);
+  }
+  if(action==='sales'){
+    if(value==='new_block')return startGuidedSales({...message,from:query.from},identity,'block');
+    if(value==='new_concrete')return startGuidedSales({...message,from:query.from},identity,'concrete');
+    return startSalesAction({...message,from:query.from},identity,value);
+  }
+  if(['gs_item','gs_qty','gs_price','gs_date','gs_pay'].includes(action))return handleGuidedSalesCallback(message,query.from,identity,action,value);
+  if(action==='fuel')return handleFuelCallback(message,identity,value);
+  if(['proc','supplier_city','supplier_rfq','rfq_qty','rfq_urgency'].includes(action))return handleProcurementCallback(message,query.from,identity,action,value);
+  if(action==='sales_confirm')return confirmSalesOrder({...message,from:query.from},value,identity);
+  if(action==='sales_cancel')return cancelSalesDraft({...message,from:query.from},identity);
+  if(action==='mech')return startMechanicAction({...message,from:query.from},identity,value);
+  if(action==='parts_confirm')return confirmSparePartsRequest({...message,from:query.from},value,identity,role);
+  if(action==='maint_confirm')return confirmMaintenance({...message,from:query.from},value,identity,role);
+  if(action==='maint_cancel')return cancelMaintenance({...message,from:query.from},value,identity);
+  if(action==='vehicle')return chooseVehicle(message,value,query.from,identity);
+  if(action==='approve'){
+    if(!allowed(role,'approve'))return sendMessage(message.chat.id,'الاعتماد متاح للمدير ومدير النظام فقط.');
+    const result=await rpc('decide_approval',{p_approval_id:value,p_decision:'approved',p_decided_by:identity.user_id,p_note:'اعتماد من Telegram'});
+    return sendMessage(message.chat.id,`تم تسجيل الاعتماد الرسمي.\nالمرجع: <b>${esc(Array.isArray(result)?result[0]?.reference_no||value:value)}</b>`);
+  }
+  if(action==='reject'){
+    if(!allowed(role,'approve'))return sendMessage(message.chat.id,'الرفض متاح للمدير ومدير النظام فقط.');
+    await rpc('decide_approval',{p_approval_id:value,p_decision:'rejected',p_decided_by:identity.user_id,p_note:'رفض من Telegram'});
+    return sendMessage(message.chat.id,'تم تسجيل الرفض الرسمي.');
+  }
 }
 
 async function handleMessage(update){
-  const message=update.message||update.edited_message;if(!message)return;
-  const identity=await ensureTelegramIdentity(message.from),group=await ensureTelegramGroup(message.chat);
-  let stored=await storeTelegramMessage(update,message,identity,'incoming'),text=String(message.text||message.caption||'').trim(),voicePath='';
-  if(message.voice||message.audio){
-    const media=message.voice||message.audio,fileId=media.file_id;
-    try{
-      const downloaded=await downloadTelegramFile(fileId,{expectedSize:media.file_size,maxBytes:20*1024*1024});
-      voicePath=`telegram/${message.chat.id}/${message.message_id}-${sha256(downloaded.buffer).slice(0,16)}.ogg`;
-      await uploadObject(voicePath,downloaded.buffer,downloaded.contentType);
-      const transcription=await transcribeTelegramVoice(downloaded.buffer,downloaded.contentType);
-      if(transcription.text){text=transcription.text;stored=(await patch('telegram_messages',`chat_id=eq.${message.chat.id}&message_id=eq.${message.message_id}`,{transcription:text,file_path:voicePath}))?.[0]||stored;}
-      else await sendMessage(message.chat.id,voiceFailureMessage(transcription));
-    }catch(error){await sendMessage(message.chat.id,`تعذر معالجة الرسالة الصوتية: ${esc(error?.message||'خطأ غير معروف')}`);return;}
+  const message=update.message||update.edited_message;
+  if(!message?.from||message.from.is_bot)return;
+  const[group,identity]=await Promise.all([ensureTelegramGroup(message.chat),ensureTelegramIdentity(message.from)]),stored=await storeTelegramMessage(update.update_id,message,group,identity),session=await getBotSession(message.chat.id,message.from.id);
+  if(message.location){if(await denyBotModule(message.chat.id,identity,moduleForSession(session?.state)||'attendance'))return;if(await handleAttendanceLocation(message,identity,session))return;return handleText(message,group,identity,`الموقع ${message.location.latitude},${message.location.longitude}`,'',stored);}
+  if(message.document){const name=message.document.file_name||'';return /\.(xlsx|xls)$/i.test(name)||/spreadsheet|excel/i.test(message.document.mime_type||'')?handleExcel(message,group,identity,stored):handleAttachment(message,group,identity,stored);}
+  if(message.photo?.length){if(await denyBotModule(message.chat.id,identity,moduleForSession(session?.state)))return;if(await handleAttendancePhoto(message,identity,session))return;return handleAttachment(message,group,identity,stored);}
+  if(message.voice){
+    await sendMessage(message.chat.id,'تم استلام رسالتك الصوتية، جارٍ فهمها وتنفيذ طلبك...').catch(error=>console.warn('[telegram voice acknowledgement]',{message:String(error?.message||'').slice(0,200)}));
+    let downloaded;
+    try{downloaded=await downloadTelegramFile(message.voice.file_id);}
+    catch(error){console.warn('[telegram voice download]',{message:String(error?.message||'').slice(0,220)});return sendMessage(message.chat.id,'تم استلام الرسالة الصوتية، لكن تعذر تنزيلها من Telegram. أعد إرسال التسجيل مرة واحدة.');}
+    const hash=sha256(downloaded.buffer),path=`telegram/${group.department||'unassigned'}/${new Date().toISOString().slice(0,10)}/voice-${hash.slice(0,16)}.ogg`,contentType=message.voice.mime_type||downloaded.contentType;
+    const uploadTask=uploadObject(path,downloaded.buffer,contentType).then(()=>true).catch(error=>{console.warn('[telegram voice upload]',{message:String(error?.message||'').slice(0,220)});return false;});
+    const[result,uploaded]=await Promise.all([transcribeTelegramVoice(downloaded.buffer,contentType),Promise.race([uploadTask,delay(1200).then(()=>false)])]);
+    if(stored?.id){
+      const values={transcription:result.text||null,related_entity_type:result.text?'voice_transcribed':`voice_${result.reason||'failed'}`};
+      if(uploaded)values.file_path=path;
+      await patch('telegram_messages',`id=eq.${stored.id}`,values).catch(error=>console.warn('[telegram voice message patch]',{message:String(error?.message||'').slice(0,220)}));
+    }
+    if(result.text)await sendMessage(message.chat.id,`تم فهم التسجيل: <b>${esc(result.text).slice(0,500)}</b>\nجارٍ تنفيذ الطلب...`).catch(()=>{});
+    return result.text?handleText(message,group,identity,result.text,uploaded?path:'',stored):sendMessage(message.chat.id,voiceFailureMessage(result));
   }
-  if(message.document){if(await handleExcel(message,identity,group))return;if(await handleAttachment(message,identity,group))return;}
-  if(message.photo){if(await handleAttendancePhoto(message,identity))return;if(await handleAttachment(message,identity,group))return;}
-  if(message.location){if(await handleAttendanceLocation(message,identity))return;}
-  if(text)await handleText(message,group,identity,text,voicePath,stored);
+  const text=String(message.text||message.caption||'').trim();
+  return handleText(message,group,identity,text,'',stored);
+}
+
+async function markMessageOutcome(update,status){
+  const updateId=String(update?.update_id||'');
+  if(!updateId||!(update?.message||update?.edited_message))return;
+  await patch('telegram_messages',`update_id=eq.${encodeURIComponent(updateId)}`,{delivery_status:status}).catch(()=>{});
 }
 
 export default async function handler(req,res){
   if(!method(req,res,['POST']))return;
+  let update;
+  if(req.telegramGatewayManaged&&req.body)update=req.body;
+  else{
+    try{verifyTelegram(req);update=await body(req,2_000_000);}catch(error){return errorResponse(res,error);}
+  }
   try{
-    if(!verifyTelegram(req))return json(res,401,{ok:false,error:'unauthorized'});
-    const update=body(req);
-    if(update.callback_query)await handleCallback(update);else await handleMessage(update);
-    return json(res,200,{ok:true});
-  }catch(error){errorResponse(res,error);}
+    if(update.callback_query)await handleCallback(update);
+    else if(update.message||update.edited_message){await handleMessage(update);await markMessageOutcome(update,'delivered');}
+  }catch(error){
+    await markMessageOutcome(update,'failed');
+    if(req.telegramGatewayManaged)throw error;
+    console.error('[telegram webhook enterprise]',{code:String(error?.code||'PROCESSING_FAILED').slice(0,120),status:Number(error?.status||error?.upstreamStatus||0),message:String(error?.message||'').slice(0,300)});
+    return json(res,503,{ok:false,retryable:true,error:'تعذر إكمال معالجة تحديث Telegram مؤقتًا.'});
+  }
+  if(req.telegramGatewayManaged)return;
+  if(!res.headersSent)json(res,200,{ok:true});
 }
