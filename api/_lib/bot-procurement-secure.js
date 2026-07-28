@@ -3,6 +3,7 @@ import { sendMessage, keyboard } from './telegram.js';
 import { clearMaintenanceSession } from './bot-maintenance.js';
 import * as legacy from './bot-procurement.js';
 import { canUseProductAssistant, continueProductAssistant, handleProductTextCommand, startProductAssistant, startProductImageAssistant } from './bot-product-assistant.js';
+import { continueDeepBusinessSearch, handleDeepBusinessCallback, isDeepBusinessState, startDeepBusinessSearch } from './bot-business-directory-flow.js';
 
 const USE_ROLES=new Set(['admin','manager','accountant','mechanic','procurement','warehouse']);
 const CREATE_ROLES=new Set(['admin','manager','mechanic','procurement','warehouse']);
@@ -18,16 +19,17 @@ async function deny(message,identity,create=false){
 
 export function procurementMenu(){return keyboard([
   [{text:'بحث قطعة ومورد',callback_data:'proc:product'},{text:'بحث بصورة القطعة',callback_data:'proc:product_image'}],
-  [{text:'بحث دليل الموردين',callback_data:'proc:search'},{text:'طلب عرض سعر',callback_data:'proc:rfq'}],
+  [{text:'بحث شامل شركات ومحلات',callback_data:'proc:search'},{text:'طلب عرض سعر',callback_data:'proc:rfq'}],
   [{text:'طلبات الأسعار المفتوحة',callback_data:'proc:open'}]
 ]);}
 export async function showProcurementMenu(message,identity){
   if(!canUse(identity))return deny(message,identity,false);
-  return sendMessage(message.chat.id,'اختر العملية المطلوبة. النتائج تظهر داخل البوت فقط باسم المورد ورقم الاتصال والعنوان. لا توجد روابط خارجية، والسعر يتأكد بالاتصال.',procurementMenu());
+  return sendMessage(message.chat.id,'اختر العملية المطلوبة. البحث الشامل يجمع المواقع الرسمية للشركات والمصانع والوكلاء والأدلة التجارية مع دليل الأماكن، ثم يوحد النتائج داخل البوت.',procurementMenu());
 }
 export async function startProcurementAction(message,identity,action){
   if(action==='product')return startProductAssistant(message,identity);
   if(action==='product_image')return startProductImageAssistant(message,identity);
+  if(action==='search')return canCreate(identity)?startDeepBusinessSearch(message,identity):deny(message,identity,true);
   if(action==='open')return sendOpenQuoteRequests(message.chat.id,identity);
   if(!canCreate(identity))return deny(message,identity,true);
   return legacy.startProcurementAction(message,adaptedIdentity(identity),action);
@@ -37,6 +39,10 @@ export async function continueProcurementSession(message,identity,session,text){
     if(!canUseProductAssistant(identity))return deny(message,identity,false).then(()=>true);
     return continueProductAssistant(message,identity,session,text);
   }
+  if(isDeepBusinessState(session?.state)){
+    if(!canCreate(identity))return deny(message,identity,true).then(()=>true);
+    return continueDeepBusinessSearch(message,identity,session,text);
+  }
   if(!canCreate(identity))return deny(message,identity,true).then(()=>true);
   if(session?.context?.actualRoleAtStart&&session.context.actualRoleAtStart!==identity.role)return deny(message,identity,true).then(()=>true);
   return legacy.continueProcurementSession(message,adaptedIdentity(identity),session,text);
@@ -45,7 +51,9 @@ export async function handleProcurementCallback(message,from,identity,action,val
   const callbackMessage={...message,from};
   if(action==='proc'&&value==='product')return startProductAssistant(callbackMessage,identity);
   if(action==='proc'&&value==='product_image')return startProductImageAssistant(callbackMessage,identity);
+  if(action==='proc'&&value==='search')return canCreate(identity)?startDeepBusinessSearch(callbackMessage,identity):deny(callbackMessage,identity,true);
   if(action==='proc'&&value==='open')return canUse(identity)?sendOpenQuoteRequests(message.chat.id,identity):deny(callbackMessage,identity,false);
+  if(await handleDeepBusinessCallback(message,from,identity,action,value))return true;
   if(!canCreate(identity))return deny(callbackMessage,identity,true);
   return legacy.handleProcurementCallback(message,from,adaptedIdentity(identity),action,value);
 }
@@ -65,7 +73,12 @@ export async function handleProcurementTextCommand(message,identity,text){
   if(await handleProductTextCommand(message,identity,text))return true;
   const normalized=String(text||'').toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[؟?!.,،؛:]+/g,'').replace(/\s+/g,' ').trim();
   if(/^(طلبات الاسعار المفتوحه|طلبات الأسعار المفتوحة)$/.test(normalized)){await sendOpenQuoteRequests(message.chat.id,identity);return true;}
+  if(/^(بحث شامل|بحث شركات|بحث عن شركات|دليل الشركات|دليل المحلات|جميع الموردين|كل الشركات والمحلات)$/.test(normalized)){
+    if(!canCreate(identity)){await deny(message,identity,true);return true;}
+    await startDeepBusinessSearch(message,identity);return true;
+  }
   const isCreate=/^(بحث مورد|بحث عن مورد|بحث عن قطعه|بحث عن قطعة|ابحث عن قطعه|ابحث عن قطعة|قائمه الموردين|قائمة الموردين|طلب عرض سعر|طلب اسعار|طلب أسعار)$/.test(normalized);
   if(isCreate&&!canCreate(identity)){await deny(message,identity,true);return true;}
+  if(/^(بحث مورد|بحث عن مورد|قائمه الموردين|قائمة الموردين)$/.test(normalized)){await startDeepBusinessSearch(message,identity);return true;}
   return legacy.handleProcurementTextCommand(message,adaptedIdentity(identity),text);
 }
