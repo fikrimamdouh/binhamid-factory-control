@@ -13,7 +13,9 @@ test('Telegram AI uses strict structured output and model fallbacks',async()=>{
   assert.match(ai,/gpt-4\.1-mini/);
   assert.match(ai,/hollowReply/);
   assert.match(ai,/ممنوع الرد بقوالب هروب/);
-  assert.match(config,/textModel:text\('OPENAI_TEXT_MODEL'\)\|\|'gpt-5-mini'/);
+  // الافتراض الضعيف أُزيل من الإعداد؛ كل مستهلك يبني سلسلة نماذج تبدأ بالأقوى.
+  assert.match(config,/textModel:text\('OPENAI_TEXT_MODEL'\),/);
+  assert.match(ai,/String\(config\.textModel\|\|''\)\.trim\(\),'gpt-5-mini','gpt-4\.1-mini'/);
 });
 
 test('Telegram routing never returns the old generic acknowledgement',async()=>{

@@ -1,5 +1,5 @@
 import { config } from './config.js';
-import { assertResponseComplete, modelUnavailable, reasoningFor, responsesOutputText } from './openai-responses.js';
+import { assertResponseComplete, markModelUnavailable, modelUnavailable, reasoningFor, responsesOutputText, usableModels } from './openai-responses.js';
 
 const outputText=data=>responsesOutputText(data);
 const MISSING=/^(?:لا يوجد|غير واضح|غير محدد|غير ظاهر|none|unknown|n\/a|-)$/i;
@@ -66,10 +66,10 @@ async function analyze({imageUrl,model,caption,attempt,prior='',timeoutMs=18000}
 export const VISION_LIMITS=Object.freeze({totalMs:26000,firstPassMs:18000,secondPassMs:12000,minSecondPassMs:9000});
 
 // نجرب نموذج الرؤية المضبوط ثم نتدرج، فقراءة رقم محفور على ملصق تحتاج نموذجًا أقوى من نموذج النص.
+// قراءة رقم محفور على ملصق تحتاج نموذجًا أقوى من نموذج النص، فنبدأ بالأقوى وننزل.
+export const PREFERRED_VISION_MODELS=Object.freeze(['gpt-5.6','gpt-5.4-mini','gpt-5-mini']);
 export function visionModelCandidates(){
-  const configured=String(config.visionModel||'').trim(),text=String(config.textModel||'').trim();
-  const preferred=configured||(text==='gpt-5.4-mini'||!text?'gpt-5.6':text);
-  return[...new Set([preferred,text,'gpt-5-mini'].filter(Boolean))].slice(0,3);
+  return usableModels([String(config.visionModel||'').trim(),String(config.textModel||'').trim(),...PREFERRED_VISION_MODELS]).slice(0,4);
 }
 
 async function runFirstPass({imageUrl,caption,deadline}){
@@ -82,6 +82,7 @@ async function runFirstPass({imageUrl,caption,deadline}){
       lastError=error;
       console.warn('[product image first pass]',{model,status:Number(error?.status||0),code:String(error?.code||''),message:String(error?.message||'').slice(0,240)});
       if(!modelUnavailable(error))throw error;
+      markModelUnavailable(model);
     }
   }
   throw lastError||Object.assign(new Error('تعذر تحليل صورة القطعة بالذكاء الاصطناعي.'),{status:502,code:'PRODUCT_IMAGE_ANALYSIS_FAILED'});

@@ -193,3 +193,20 @@ test('the product flow announces itself once, not twice',async()=>{
   assert.match(flow,/sendDeepBusinessResults\(message,identity,query,city,\{announce=true\}=\{\}\)/);
   assert.match(flow,/if\(announce\)await sendMessage/);
 });
+
+test('the strongest model is tried first and a missing one is never retried',async()=>{
+  const { markModelUnavailable, usableModels, isModelKnownUnavailable }=await import('../api/_lib/openai-responses.js');
+  const { visionModelCandidates, PREFERRED_VISION_MODELS }=await import('../api/_lib/product-image-identification.js');
+  assert.equal(visionModelCandidates()[0],PREFERRED_VISION_MODELS[0]);
+  assert.ok(visionModelCandidates().length>1,'a fallback model must exist');
+  markModelUnavailable('__missing-model__');
+  assert.equal(isModelKnownUnavailable('__missing-model__'),true);
+  assert.deepEqual(usableModels(['__missing-model__','good-model']),['good-model']);
+  assert.deepEqual(usableModels(['__missing-model__']),['__missing-model__'],'never return an empty candidate list');
+  const vision=await read('api/_lib/product-image-identification.js');
+  assert.match(vision,/markModelUnavailable\(model\)/);
+  const fast=await read('api/_lib/product-market-research-fast.js');
+  assert.match(fast,/if\(modelUnavailable\(error\)\)\{markModelUnavailable\(model\);continue;\}/);
+  const configSource=await read('api/_lib/config.js');
+  assert.match(configSource,/textModel:text\('OPENAI_TEXT_MODEL'\),/);
+});

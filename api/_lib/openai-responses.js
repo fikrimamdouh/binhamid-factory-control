@@ -39,3 +39,17 @@ export function modelUnavailable(error={}){
   if(![400,403,404].includes(status))return false;
   return /model|not found|does not exist|unsupported|access/i.test(String(error?.message||''));
 }
+
+// نجرب النموذج الأقوى أولًا. لو ردّ المزود بأنه غير متاح، نحفظ ذلك لعمر هذه النسخة
+// من الدالة فلا نهدر محاولة فاشلة في كل طلب لاحق.
+const unavailable=new Set();
+
+export function markModelUnavailable(model){if(model)unavailable.add(String(model).trim());}
+export function isModelKnownUnavailable(model){return unavailable.has(String(model||'').trim());}
+
+// تُرجع القائمة بعد إسقاط ما ثبت أنه غير متاح، مع إبقاء الخيار الأخير كشبكة أمان.
+export function usableModels(list=[]){
+  const clean=[...new Set(list.map(value=>String(value||'').trim()).filter(Boolean))];
+  const usable=clean.filter(model=>!unavailable.has(model));
+  return usable.length?usable:clean.slice(-1);
+}
