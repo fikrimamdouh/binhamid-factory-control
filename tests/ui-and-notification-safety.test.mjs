@@ -30,13 +30,16 @@ test('notification outbox remains HTML-safe but is disconnected from proactive c
   assert.doesNotMatch(cron,/bot-notifications-safe\.js|processNotificationOutbox|retryFailedNotifications|sendMeaningfulAlerts/);
 });
 
-test('procurement specialists use the guarded workflow and RFQ projection',async()=>{
+test('procurement specialists use guarded direct price supplier and image research',async()=>{
   const secure=await read('api/_lib/bot-procurement-secure.js');
   const migration=await read('supabase/migrations/007_procurement_projection_and_permissions.sql');
   assert.match(secure,/adaptedIdentity/);
   assert.match(secure,/procurement/);
   assert.match(secure,/warehouse/);
+  assert.match(secure,/startProductAssistant/);
+  assert.match(secure,/startProductImageAssistant/);
+  assert.match(secure,/startDeepBusinessSearch/);
   assert.match(secure,/legacy\.startProcurementAction\(message,adaptedIdentity\(identity\),action\)/);
-  assert.match(secure,/purchase_requests/);
+  assert.doesNotMatch(secure,/purchase_requests/);
   assert.match(migration,/supplier_quote_request_projection_trigger/);
 });
