@@ -172,8 +172,8 @@ async function upload(filePath,fromDate,toDate,parsed,accountBalance,balanceCapt
   await fs.writeFile(path.join(artifacts,'upload-response.json'),JSON.stringify({status:response.status,data},null,2));
   if(!response.ok||!data?.ok)throw new Error(`Bin Hamid upload failed (${response.status}): ${compact(data?.error||data?.message||text).slice(0,500)}`);return data;
 }
-async function uploadVehicleBalance(summary){
-  const token=await githubOidcToken(),capturedAt=new Date().toISOString(),response=await fetch(UPLOAD_URL,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json','x-fuel-operation':'vehicle-balance-report'},body:JSON.stringify({total:summary.total,vehicleCount:summary.rows.length,capturedAt})}),text=await response.text();let data;try{data=text?JSON.parse(text):{};}catch{data={raw:text};}
+async function uploadVehicleBalance(summary,accountBalance){
+  const token=await githubOidcToken(),capturedAt=new Date().toISOString(),response=await fetch(UPLOAD_URL,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json','x-fuel-operation':'combined-balance-report'},body:JSON.stringify({total:summary.total,accountBalance,vehicleCount:summary.rows.length,capturedAt})}),text=await response.text();let data;try{data=text?JSON.parse(text):{};}catch{data={raw:text};}
   await fs.writeFile(path.join(artifacts,'vehicle-balance-response.json'),JSON.stringify({status:response.status,data},null,2));
   if(!response.ok||!data?.ok)throw new Error(`Vehicle balance delivery failed (${response.status}): ${compact(data?.error||text).slice(0,500)}`);return{...data,capturedAt};
 }
@@ -227,11 +227,11 @@ async function main(){
   const browser=await chromium.launch({headless:true}),context=await browser.newContext({acceptDownloads:true,locale:'ar-SA',timezoneId:'Asia/Riyadh'}),page=await context.newPage();
   try{
     if(syncMode==='vehicle-balance-report'){
-      await ensureLogin(page);await page.goto(VEHICLES_URL,{waitUntil:'domcontentloaded',timeout:60000});await page.waitForLoadState('networkidle',{timeout:30000}).catch(()=>null);await page.waitForTimeout(1200);
+      await ensureLogin(page);const accountBalance=await extractDieselBalance(page),accountBalanceCapturedAt=new Date().toISOString();await fs.writeFile(path.join(artifacts,'dashboard-balance.json'),JSON.stringify({accountBalance,capturedAt:accountBalanceCapturedAt,meaning:'station-current-account-balance'},null,2));if(accountBalance===null)throw new Error('لم يتم العثور على الرصيد الموجود في الحساب بصفحة الشركات.');await page.goto(VEHICLES_URL,{waitUntil:'domcontentloaded',timeout:60000});await page.waitForLoadState('networkidle',{timeout:30000}).catch(()=>null);await page.waitForTimeout(1200);
       if(/\/login/i.test(page.url())||await visible(page.locator('input[type="password"]')))throw new Error('Noor Khoy vehicles page requires a new login.');
       const snapshots=await allVehiclePageSnapshots(page),tables=snapshots.flatMap(snapshot=>snapshot.tables.map(table=>({headers:table.headers,rows:table.rows.map(row=>row.cells)})));await fs.writeFile(path.join(artifacts,'vehicle-balance-tables.json'),JSON.stringify(tables,null,2));await fs.writeFile(path.join(artifacts,'vehicle-balance-pages.json'),JSON.stringify(snapshots,null,2));
       const summary=vehicleBalanceSummary(tables);await fs.writeFile(path.join(artifacts,'vehicle-balances.json'),JSON.stringify(summary,null,2));
-      const delivery=await uploadVehicleBalance(summary);console.log(JSON.stringify({ok:true,mode:syncMode,total:summary.total,vehicleCount:summary.rows.length,balanceHeader:summary.header,delivery},null,2));return;
+      const delivery=await uploadVehicleBalance(summary,accountBalance);console.log(JSON.stringify({ok:true,mode:syncMode,total:summary.total,accountBalance,vehicleCount:summary.rows.length,balanceHeader:summary.header,delivery},null,2));return;
     }
     await ensureLogin(page);let accountBalance=null,balanceCapturedAt='';
     if(attachBalance){
