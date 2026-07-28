@@ -37,7 +37,8 @@ test('price research gets a token budget large enough to emit its offers',async(
   const source=await read('api/_lib/product-market-research-fast.js');
   const cap=Number((source.match(/max_output_tokens:(\d+)/)||[])[1]);
   assert.ok(cap>=4000,`max_output_tokens too small: ${cap}`);
-  assert.match(source,/\.\.\.reasoningFor\(model\)/);
+  assert.match(source,/\.\.\.reasoningFor\(model,'minimal'\)/);
+  assert.match(source,/search_context_size:'low'/);
   assert.match(source,/assertResponseComplete\(data,\{code:'PRODUCT_RESEARCH_FAST_TRUNCATED'/);
 });
 
@@ -72,7 +73,7 @@ test('whisper prompt stays under the 224 token cap while richer models keep the 
 
 test('transcription allows a full recording and retries without forcing Arabic',async()=>{
   const source=await read('api/_lib/bot-voice.js');
-  assert.ok(TRANSCRIBE_TIMEOUT_MS>=20000,`transcription timeout too short: ${TRANSCRIBE_TIMEOUT_MS}`);
+  assert.ok(TRANSCRIBE_TIMEOUT_MS>=15000,`transcription timeout too short: ${TRANSCRIBE_TIMEOUT_MS}`);
   assert.match(source,/index===0\?primary:''/);
   assert.match(source,/if\(language\)form\.append\('language',language\)/);
   assert.match(source,/reason:'empty_audio'/);
@@ -141,4 +142,54 @@ test('a bare part photo is understood without pressing a button first',async()=>
   const assistant=await read('api/_lib/bot-product-assistant.js');
   assert.match(assistant,/ابعت صورة القطعة أو الملصق/);
   assert.doesNotMatch(assistant,/سيحللها/);
+});
+
+test('one invocation deadline is shared by every stage of the webhook',async()=>{
+  const { budgetFor, remainingMs, startInvocation, INVOCATION_LIMIT_MS, SAFETY_MARGIN_MS }=await import('../api/_lib/bot-deadline.js');
+  assert.equal(INVOCATION_LIMIT_MS,60000);
+  startInvocation();
+  const left=remainingMs();
+  assert.ok(left<=INVOCATION_LIMIT_MS-SAFETY_MARGIN_MS&&left>40000,`unexpected remaining: ${left}`);
+  assert.equal(budgetFor(5000),5000);
+  assert.equal(budgetFor(90000,50000),Math.min(90000,left-50000));
+  assert.equal(budgetFor(5000,999999),0);
+  const gateway=await read('api/_lib/telegram-webhook-gateway.js');
+  assert.match(gateway,/export default async function handler\(req,res\)\{\s*startInvocation\(\);/);
+  const telegram=await read('api/_lib/telegram.js');
+  assert.match(telegram,/&&remainingMs\(\)>12000/);
+});
+
+test('the price stage leaves room for the summary and the spoken reply',async()=>{
+  const { PRICE_RESEARCH_BUDGET_MS, SUMMARY_RESERVE_MS, IMAGE_PRICE_BUDGET_MS, IMAGE_VISION_BUDGET_MS }=await import('../api/_lib/bot-product-assistant.js');
+  const { FAST_RESEARCH_LIMITS }=await import('../api/_lib/product-market-research-fast.js');
+  const { TRANSCRIBE_TIMEOUT_MS, TTS_TIMEOUT_MS }=await import('../api/_lib/bot-voice.js');
+  assert.ok(FAST_RESEARCH_LIMITS.totalMs<=PRICE_RESEARCH_BUDGET_MS);
+  assert.ok(SUMMARY_RESERVE_MS>=TTS_TIMEOUT_MS);
+  const voiceFlow=TRANSCRIBE_TIMEOUT_MS+PRICE_RESEARCH_BUDGET_MS+TTS_TIMEOUT_MS;
+  assert.ok(voiceFlow<60000,`voice flow ${voiceFlow}ms exceeds the function limit`);
+  assert.ok(IMAGE_VISION_BUDGET_MS+IMAGE_PRICE_BUDGET_MS+TTS_TIMEOUT_MS<60000);
+});
+
+test('conversational filler never reaches the search engine',async()=>{
+  const { stripConversationalFiller }=await import('../api/_lib/bot-query-clean.js');
+  assert.equal(stripConversationalFiller('يعني أنت مش عارف تبحث على رمان بلي'),'تبحث على رمان بلي');
+  assert.equal(stripConversationalFiller('رمان بلي 6205 SKF'),'رمان بلي 6205 SKF');
+  const { extractProductMarketQuery }=await import('../api/_lib/bot-product-assistant.js');
+  assert.equal(extractProductMarketQuery('يعني أنت مش عارف تبحث على رمان بلي'),'رمان بلي');
+});
+
+test('a vision description is cut down to a query a search engine can match',async()=>{
+  const { shortPhrase }=await import('../api/_lib/product-image-identification.js');
+  const blob='KBC bearings محامل كيه بي سي محمل كراتي مغلق (sealed) / deep groove ball bearing معدات صناعية عامة';
+  const query=shortPhrase(blob,90);
+  assert.ok(query.length<=90,`query too long: ${query.length}`);
+  assert.doesNotMatch(query,/[/()]/);
+  assert.equal(shortPhrase('معدات صناعية عامة / محركات وناقلات حركة',30),'معدات صناعية عامة');
+});
+
+test('the product flow announces itself once, not twice',async()=>{
+  const [assistant,flow]=await Promise.all([read('api/_lib/bot-product-assistant.js'),read('api/_lib/bot-business-directory-flow.js')]);
+  assert.match(assistant,/sendDeepBusinessResults\(message,identity,clean,city,\{announce:false\}\)/);
+  assert.match(flow,/sendDeepBusinessResults\(message,identity,query,city,\{announce=true\}=\{\}\)/);
+  assert.match(flow,/if\(announce\)await sendMessage/);
 });

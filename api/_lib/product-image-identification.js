@@ -3,6 +3,13 @@ import { assertResponseComplete, modelUnavailable, reasoningFor, responsesOutput
 
 const outputText=data=>responsesOutputText(data);
 const MISSING=/^(?:لا يوجد|غير واضح|غير محدد|غير ظاهر|none|unknown|n\/a|-)$/i;
+// نقتطع عند أول فاصل بنيوي (شرطة مائلة، قوس، فاصلة، سطر) ثم عند حد الكلمة.
+export function shortPhrase(value='',max=90){
+  const head=String(value||'').split(/[\/(\n،,]/)[0].replace(/\s+/g,' ').trim();
+  if(head.length<=max)return head;
+  const cut=head.slice(0,max),space=cut.lastIndexOf(' ');
+  return(space>Math.floor(max*0.5)?cut.slice(0,space):cut).trim();
+}
 function field(text,name){const value=(text.match(new RegExp(`^${name}:\\s*(.+)$`,'mi'))||[])[1]?.trim()||'';return MISSING.test(value)?'':value;}
 function parseVision(text=''){
   const query=field(text,'SEARCH_QUERY');
@@ -97,17 +104,19 @@ export async function identifyProductImage(buffer,mimeType='image/jpeg',caption=
     }catch(error){console.warn('[product image second pass]',{model,message:String(error?.message||'').slice(0,240)});}
   }
   const codes=usefulCodes(best.codes).join('، ')||'لا توجد أكواد مؤكدة';
+  // النموذج يعيد أحيانًا وصفًا طويلًا بقوائم بين أقواس؛ إدخاله كما هو في محرك البحث
+  // ينتج استعلامًا لا يطابق شيئًا. نأخذ المقطع الأول القصير فقط.
   // نضمن حضور الماركة ونوع المعدة داخل عبارة البحث حتى لو أغفلهما النموذج،
   // فهما الفارق بين نتيجة قابلة للشراء ونتيجة عامة.
-  let query=String(best.query||'').trim();
-  const brand=String(best.brand||'').trim(),equipment=String(best.equipment||'').trim();
+  let query=shortPhrase(best.query,90);
+  const brand=shortPhrase(best.brand,30),equipment=shortPhrase(best.equipment,30);
   const has=value=>value&&query.toLowerCase().includes(value.toLowerCase());
   if(brand&&!has(brand))query=`${brand} ${query}`.trim();
   if(equipment&&!has(equipment))query=`${query} ${equipment}`.trim();
   if(query.length<2){
-    const fallback=[best.identification,...usefulCodes(best.codes),caption].filter(Boolean).join(' ');
+    const fallback=[shortPhrase(best.identification,60),...usefulCodes(best.codes).slice(0,2),shortPhrase(caption,40)].filter(Boolean).join(' ');
     query=fallback.trim();
   }
   if(query.length<2)throw Object.assign(new Error('لم أستطع تكوين عبارة بحث من الصورة. أرسلها كملف صورة أصلي أو أرفق اسم المعدة.'),{status:422,code:'PRODUCT_IMAGE_QUERY_EMPTY'});
-  return{query:query.slice(0,260),identification:String(best.identification||'قطعة غير محددة').slice(0,500),brand,equipment,codes:codes.slice(0,400),confidence:best.confidence,analysisPasses:passes,needsMoreDetail:weak(best)};
+  return{query:shortPhrase(query,120),identification:String(best.identification||'قطعة غير محددة').slice(0,500),brand,equipment,codes:codes.slice(0,400),confidence:best.confidence,analysisPasses:passes,needsMoreDetail:weak(best)};
 }

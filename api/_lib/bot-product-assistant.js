@@ -6,12 +6,16 @@ import { researchProductMarket } from './product-market-research-fast.js';
 import { researchProductMarketFree } from './product-market-research-free.js';
 import { directBusinessSearchCity, sendDeepBusinessResults } from './bot-business-directory-flow.js';
 import { config } from './config.js';
+import { budgetFor } from './bot-deadline.js';
+import { stripConversationalFiller } from './bot-query-clean.js';
 
 // ميزانية زمنية واحدة للبحث كله. حد دالة Vercel هو 60 ثانية، وتجاوزه يقتل الطلب
 // قبل أن تصل أي نتيجة للمستخدم — وهو ما ظهر فعلًا في سجلات الإنتاج.
-export const PRICE_RESEARCH_BUDGET_MS=32000;
+export const PRICE_RESEARCH_BUDGET_MS=24000;
+// نحجز وقتًا للخلاصة والرد الصوتي حتى لا تُقتل الدالة قبل أن تصل النتيجة.
+export const SUMMARY_RESERVE_MS=17000;
 // تدفق الصورة يشغّل تحليل الرؤية ثم بحث السعر داخل نفس الدالة، فتُقسم الميزانية بينهما.
-export const IMAGE_VISION_BUDGET_MS=18000;
+export const IMAGE_VISION_BUDGET_MS=15000;
 export const IMAGE_PRICE_BUDGET_MS=18000;
 
 async function researchPrices(query,city,budgetMs=PRICE_RESEARCH_BUDGET_MS){
@@ -47,7 +51,7 @@ async function setSession(chatId,userId,state,context={}){
 }
 
 function stripSearchNoise(value=''){
-  return String(value||'').trim()
+  return stripConversationalFiller(value)
     .replace(/^[\s:،,-]+|[\s؟?!.,،؛:]+$/g,'')
     .replace(/^(?:(?:انا|إنا)\s+)?(?:(?:محتاج|عاوز|عايز|اريد|أريد|ابغى|أبغى)\s+)?(?:(?:انك|إنك|عاوزك|عايزك|محتاجك|اريدك|أريدك|ابغاك|أبغاك)\s+)?(?:(?:تبحث|ابحث|إبحث|دور|دوّر|فتش|فتّش|شوف|هات|هاتلي|هات لي|جيب|جيبلي|جيب لي)\s*)?(?:لي|لنا)?\s*(?:عن|على|في)?\s*/i,'')
     .replace(/^(?:السعر|سعر|اسعار|أسعار|ثمن|تكلفة|تكلفه|قارن\s+اسعار|قارن\s+أسعار|سعر\s+السوق)\s*(?:لـ?|عن|على)?\s*/i,'')
@@ -109,12 +113,12 @@ export async function sendProductResearch(message,identity,query,city='كل ال
   await clearMaintenanceSession(message.chat.id,identity.external_id||message.from.id).catch(()=>{});
   await sendMessage(message.chat.id,`<b>جارٍ البحث الذكي عن أسعار وموردين: ${esc(clean)}</b>\n<i>أفحص الأسعار المنشورة بالتوازي مع الشركات والمحلات والموردين.</i>`,{disable_voice_reply:true});
 
-  const supplierPromise=sendDeepBusinessResults(message,identity,clean,city).catch(error=>{
+  const supplierPromise=sendDeepBusinessResults(message,identity,clean,city,{announce:false}).catch(error=>{
     console.warn('[product supplier research]',{message:String(error?.message||error).slice(0,220)});
     return[];
   });
   let research=null;
-  try{research=await researchPrices(clean,city,budgetMs);}
+  try{research=await researchPrices(clean,city,budgetFor(budgetMs,SUMMARY_RESERVE_MS));}
   catch(error){
     console.warn('[product price research]',{message:String(error?.message||error).slice(0,220)});
     await sendMessage(message.chat.id,'لم يكتمل رصد أسعار منشورة موثوقة الآن. يستمر البحث الذكي عن المحلات والموردين وأرقام الاتصال.');

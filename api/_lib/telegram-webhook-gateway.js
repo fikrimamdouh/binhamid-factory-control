@@ -6,6 +6,7 @@ import { ensureTelegramGroup, ensureTelegramIdentity, storeTelegramMessage } fro
 import { getBotSession, clearMaintenanceSession } from './bot-maintenance.js';
 import { directBusinessSearchRequested, handleDirectBusinessSearchCommand, showProcurementMenu, continueProcurementSession, handleProcurementCallback, handleProcurementTextCommand } from './bot-procurement-secure.js';
 import { canUseProductAssistant, handleProductTextCommand } from './bot-product-assistant.js';
+import { startInvocation } from './bot-deadline.js';
 import { showSalesMenu, startSalesAction, continueSalesSession, confirmSalesOrder, cancelSalesDraft, handleSalesTextCommand, startGuidedSales, continueGuidedSales, handleGuidedSalesCallback, isStructuredSalesOrder, isNaturalSalesMessage, handleStructuredSalesOrder, handleNaturalSalesMessage } from './bot-sales-secure.js';
 import { showMechanicMenu, startMechanicAction, continueMechanicSession, confirmSparePartsRequest, handleMechanicTextCommand } from './bot-mechanic-secure.js';
 import { showAttendanceMenu, continueAttendanceSession, handleAttendanceLocation, handleAttendancePhoto, handleAttendanceCallback } from './bot-attendance-secure.js';
@@ -206,6 +207,7 @@ async function interceptMessage(update){
 }
 
 export default async function handler(req,res){
+  startInvocation();
   if(!method(req,res,['POST']))return;
   let update;try{verifyTelegram(req);update=await body(req,2_000_000);}catch(error){return errorResponse(res,error);}
   const updateId=String(update?.update_id??'');

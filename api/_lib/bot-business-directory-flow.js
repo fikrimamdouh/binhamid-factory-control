@@ -2,6 +2,7 @@ import { insert,select } from './supabase.js';
 import { sendMessage,keyboard } from './telegram.js';
 import { clearMaintenanceSession } from './bot-maintenance.js';
 import { searchComprehensiveBusinessDirectory } from './bot-business-directory.js';
+import { stripConversationalFiller } from './bot-query-clean.js';
 
 const clean=(value,max=500)=>String(value??'').trim().slice(0,max);
 const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
@@ -33,7 +34,7 @@ function stripLocation(value=''){
     .trim();
 }
 function trimSearchQuery(value=''){
-  return stripLocation(clean(value,300)
+  return stripLocation(stripConversationalFiller(clean(value,300))
     .replace(/^[\s:،,-]+|[\s؟?!.,،؛:]+$/g,'')
     .replace(/^(?:عروض?\s+أسعار?|عرض\s+سعر)\s+(?:(?:عايزك|عاوزك|محتاجك)\s+)?(?:(?:تبحث|ابحث|إبحث|دور|دوّر)\s*)?(?:لي\s*)?(?:عن|على)?\s*/i,'')
     .replace(/\s+(?:لو سمحت|من فضلك|بالله|كده|كذا)$/i,'')).trim();
@@ -112,8 +113,8 @@ async function logSearch(message,identity,query,city,result){
   return insert('audit_log',[{actor_type:'telegram',actor_id:String(identity?.user_id||identity?.external_id||message.from.id),action:'deep_business_search',entity_type:'business_directory',entity_id:'',details:{query,city,result_count:result.businesses.length,sources_used:result.sourcesUsed,web_source_count:result.webSources.length,google_query_count:result.googleQueries.length,chat_id:String(message.chat.id),message_id:String(message.message_id||'')},created_at:now()}]);
 }
 
-export async function sendDeepBusinessResults(message,identity,query,city){
-  await sendMessage(message.chat.id,`جارٍ البحث المتعمق عن <b>${esc(query)}</b> في <b>${esc(city)}</b>...\nأفحص الشركات والمصانع والوكلاء والأدلة المتخصصة، وليس خرائط Google فقط.`,{disable_voice_reply:true});
+export async function sendDeepBusinessResults(message,identity,query,city,{announce=true}={}){
+  if(announce)await sendMessage(message.chat.id,`جارٍ البحث المتعمق عن <b>${esc(query)}</b> في <b>${esc(city)}</b>...\nأفحص الشركات والمصانع والوكلاء والأدلة المتخصصة، وليس خرائط Google فقط.`,{disable_voice_reply:true});
   let result;
   try{result=await searchComprehensiveBusinessDirectory(query,{city});}
   catch(error){return sendMessage(message.chat.id,`<b>تعذر إكمال البحث الشامل.</b>\n${esc(error?.message||'تعذر الوصول إلى مصادر دليل الأعمال.')}`,keyboard([[{text:'إعادة البحث',callback_data:'proc:search'}]]));}

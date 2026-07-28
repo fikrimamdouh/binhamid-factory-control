@@ -1,6 +1,7 @@
 import { config } from './config.js';
 import { upsert } from './supabase.js';
 import { synthesizeTelegramReply } from './bot-voice.js';
+import { remainingMs } from './bot-deadline.js';
 import { markVoiceReplySent, shouldSpeakTelegramText } from './bot-voice-context.js';
 
 function ensure() { if (!config.telegramToken) throw Object.assign(new Error('Telegram Bot Token غير مضبوط'), { status: 503 }); }
@@ -98,7 +99,7 @@ export async function sendMessage(chatId, text, extra = {}) {
   const telegramText=restoreTelegramPhoneLinks(text);
   const result = await telegram('sendMessage', { chat_id: chatId, text:telegramText, parse_mode: 'HTML', disable_web_page_preview: true, ...telegramExtra });
   await recordOutgoing(result, 'sendMessage', { text:telegramText, actionName, actionPayload });
-  if(shouldSpeakTelegramText(chatId,telegramText,{disable_voice_reply:disableVoiceReply})){
+  if(shouldSpeakTelegramText(chatId,telegramText,{disable_voice_reply:disableVoiceReply})&&remainingMs()>12000){
     markVoiceReplySent(chatId);
     const speech=await synthesizeTelegramReply(telegramText);
     if(speech.buffer)await sendVoiceBuffer(chatId,speech.buffer).catch(error=>console.warn('[telegram voice reply]',{message:String(error?.message||'').slice(0,220)}));

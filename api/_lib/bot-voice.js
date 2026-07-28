@@ -22,7 +22,7 @@ function buildForm(buffer,contentType,model,language){
   return form;
 }
 
-export const TRANSCRIBE_TIMEOUT_MS=22000;
+export const TRANSCRIBE_TIMEOUT_MS=18000;
 
 // «سعر» و«شعر» متقاربتان صوتيًا وتُنتجان بحثًا عن صالونات شعر بدل قطع الغيار.
 // نصحّحهما فقط عند وجود مصطلح ميكانيكي في نفس الجملة حتى لا نفسد كلامًا مشروعًا.
@@ -79,7 +79,7 @@ export function speechText(value='',max=SPEECH_MAX_CHARS){
   return(boundary>Math.floor(max*0.6)?cut.slice(0,boundary):cut).trim();
 }
 
-export const TTS_TIMEOUT_MS=15000;
+export const TTS_TIMEOUT_MS=12000;
 
 export async function synthesizeTelegramReply(text){
   const input=speechText(text);
