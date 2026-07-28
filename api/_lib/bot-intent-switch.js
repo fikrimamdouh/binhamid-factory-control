@@ -30,8 +30,8 @@ export function detectExplicitIntent(text=''){
   if(directBusinessSearchRequested(raw)||(imperative&&SEARCH_ITEM.test(raw)&&!REPORT.test(raw)&&!FUEL.test(raw)))return{intent:'business_search',module:'procurement',explicit:true};
   if((imperative||slash)&&GPS.test(raw))return{intent:'gps',module:'fleet',explicit:true};
   if((imperative||slash)&&ATTENDANCE.test(raw))return{intent:'attendance',module:'attendance',explicit:true};
-  if((imperative||slash)&&REPORT.test(raw))return{intent:'report',module:'reports',explicit:true};
   if((imperative||slash)&&FUEL.test(raw))return{intent:'fuel',module:'fuel',explicit:true};
+  if((imperative||slash)&&REPORT.test(raw))return{intent:'report',module:'reports',explicit:true};
   if((imperative||slash)&&SALES.test(raw))return{intent:'sales',module:'sales',explicit:true};
   if((imperative||slash)&&WORKSHOP.test(raw))return{intent:'workshop',module:'workshop',explicit:true};
   if((imperative||slash)&&ENTERPRISE.test(raw))return{intent:'enterprise',module:moduleForText(raw)||'enterprise',explicit:true};
