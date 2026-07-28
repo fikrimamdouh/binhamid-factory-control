@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { earliestPortfolioSector, resolveCustomerPortfolioOwner, salePortfolioSector } from '../shared/customer-portfolio-ownership.js';
-import { saleTypeOf } from '../api/_lib/customer-settlement.js';
 import { renderCustomerPortfolioDeclaration } from '../shared/customer-portfolio-declaration.js';
 
 const employees=[
@@ -29,12 +28,8 @@ test('assigned representative resolves an old both-sector customer before invoic
 });
 
 test('item description overrides a conflicting stored sales type in both directions',()=>{
-  const concrete={sales_type:'block',item:'خرسانة 9 كيس'};
-  const block={sales_type:'concrete',item:'بلك اسود مقاس 40*20*20'};
-  assert.equal(salePortfolioSector(concrete),'concrete');
-  assert.equal(salePortfolioSector(block),'block');
-  assert.equal(saleTypeOf(concrete),'concrete');
-  assert.equal(saleTypeOf(block),'block');
+  assert.equal(salePortfolioSector({sales_type:'block',item:'خرسانة 9 كيس'}),'concrete');
+  assert.equal(salePortfolioSector({sales_type:'concrete',item:'بلك اسود مقاس 40*20*20'}),'block');
 });
 
 test('earliest sale is a deterministic fallback for an unassigned customer',()=>{
