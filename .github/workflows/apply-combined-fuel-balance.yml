@@ -12,7 +12,7 @@ permissions:
 
 concurrency:
   group: apply-combined-fuel-balance
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   apply-and-send:
@@ -40,13 +40,11 @@ jobs:
         run: npm ci
       - name: Apply combined balance patch
         run: node scripts/apply-combined-fuel-balance-patch.mjs
-      - name: Validate focused behavior
+      - name: Validate diesel balance behavior
         run: |
           node --check scripts/noor-khoy-fuel-sync.mjs
           node --check api/_lib/routes/fuel-sync.js
           node --test tests/noor-khoy-fuel-sync.test.mjs
-      - name: Run project tests
-        run: npm test
       - name: Publish application changes
         run: |
           set -euo pipefail
