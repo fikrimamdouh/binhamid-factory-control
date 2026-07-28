@@ -1,7 +1,7 @@
 const clean=value=>String(value??'').trim();
 const norm=value=>clean(value).toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ًٌٍَُِّْـ]/g,'').replace(/[^a-z0-9\u0600-\u06ff]+/gi,' ').replace(/\s+/g,' ').trim();
 
-export const CUSTOMER_PORTFOLIO_OWNERSHIP_VERSION='2026.07.27-primary-owner-cross-sector-v1';
+export const CUSTOMER_PORTFOLIO_OWNERSHIP_VERSION='2026.07.28-owner-before-segment-item-authority-v2';
 
 export function portfolioSector(value=''){
   const text=norm(value);
@@ -15,9 +15,9 @@ export function employeePortfolioSector(employee={}){
 }
 
 export function salePortfolioSector(row={}){
-  const declared=portfolioSector(row.salesType||row.sales_type||row.kind||row.type||row.segment);
-  if(declared)return declared;
-  return portfolioSector(row.item||row.itemName||row.item_name||row.product);
+  const item=portfolioSector(row.item||row.itemName||row.item_name||row.product);
+  if(item)return item;
+  return portfolioSector(row.salesType||row.sales_type||row.kind||row.type||row.segment);
 }
 
 function employeeIds(employee={}){
@@ -39,10 +39,10 @@ export function earliestPortfolioSector(sales=[]){
 export function resolveCustomerPortfolioOwner({customer={},employees=[],historySales=[],fallbackSector=''}={}){
   const explicit=portfolioSector(customer.primarySector)||portfolioSector(customer.primary_sector)||portfolioSector(customer.ownerSector)||portfolioSector(customer.owner_sector);
   if(explicit)return{sector:explicit,source:'explicit_primary_sector',employee:assignedEmployee(customer,employees)};
-  const segment=portfolioSector(customer.seg)||portfolioSector(customer.segment)||portfolioSector(customer.costCenter)||portfolioSector(customer.cost_center);
-  if(segment)return{sector:segment,source:'customer_segment',employee:assignedEmployee(customer,employees)};
   const employee=assignedEmployee(customer,employees),employeeSector=employeePortfolioSector(employee||{});
   if(employeeSector)return{sector:employeeSector,source:'assigned_representative',employee};
+  const segment=portfolioSector(customer.seg)||portfolioSector(customer.segment)||portfolioSector(customer.costCenter)||portfolioSector(customer.cost_center);
+  if(segment)return{sector:segment,source:'customer_segment',employee:null};
   const firstSale=earliestPortfolioSector(historySales);
   if(firstSale)return{sector:firstSale,source:'first_historical_sale',employee:null};
   const fallback=portfolioSector(fallbackSector);
