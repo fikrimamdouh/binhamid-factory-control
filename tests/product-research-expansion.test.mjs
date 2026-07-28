@@ -14,19 +14,19 @@ test('legacy market research module remains isolated and source-aware',async()=>
   assert.match(source,/الهاتف غير منشور/);
 });
 
-test('Telegram product flow no longer quotes observed web prices or exposes sources',async()=>{
+test('Telegram product flow searches observed prices and suppliers automatically without external links',async()=>{
   const source=await read('api/_lib/product-market-research.js');
   const assistant=await read('api/_lib/bot-product-assistant.js');
   assert.match(source,/function buildPriceLevel/);
-  // القرار السابق كان إخفاء أسعار الويب؛ المالك طلبها صراحةً، فأُعيدت مع وسم
-  // واضح بأنها استرشادية وعرض المصادر، ومسار الموردين يبقى بعدها.
   assert.match(assistant,/researchProductMarket/);
   assert.doesNotMatch(assistant,/🔗/);
-  assert.match(assistant,/الأسعار استرشادية/);
-  assert.match(assistant,/supplier_search_city/);
+  assert.match(assistant,/الأسعار المنشورة استرشادية/);
+  assert.match(assistant,/sendDeepBusinessResults/);
+  assert.match(assistant,/supplierPromise=sendDeepBusinessResults/);
+  assert.doesNotMatch(assistant,/يلزم طلب عرض سعر مباشر/);
 });
 
-test('Telegram image search identifies the item then routes to copyable supplier lookup',async()=>{
+test('Telegram image search uses ChatGPT vision then starts price and supplier research automatically',async()=>{
   const source=await read('api/_lib/bot-product-assistant.js');
   const vision=await read('api/_lib/product-image-identification.js');
   assert.match(source,/startProductImageAssistant/);
@@ -34,7 +34,11 @@ test('Telegram image search identifies the item then routes to copyable supplier
   assert.match(source,/product_image_waiting/);
   assert.match(source,/<code>\$1<\/code>/);
   assert.match(source,/callback_data:'proc:product_image'/);
-  assert.match(source,/supplier_search_city/);
+  assert.match(source,/تحليل ChatGPT للصورة/);
+  assert.match(source,/await sendProductResearch\(message,identity,query/);
+  assert.match(vision,/api\.openai\.com\/v1\/responses/);
+  assert.match(vision,/type:'input_image'/);
+  assert.match(vision,/detail:'high'/);
   assert.match(vision,/attempt:2/);
   assert.match(vision,/second pass/);
   assert.match(vision,/needsMoreDetail/);
