@@ -119,7 +119,8 @@ test('price research prefers the free provider and falls back without dying', as
   assert.match(assistant, /if\(config\.openaiKey\)providers\.push\(\['openai'/);
   assert.match(assistant, /if\(config\.geminiKey\)providers\.push\(\['gemini'/);
   assert.ok(assistant.indexOf("providers.push(['openai'") < assistant.indexOf("providers.push(['gemini'"));
-  assert.match(assistant, /const DEADLINE=Date\.now\(\)\+45000/);
+  assert.match(assistant, /PRICE_RESEARCH_BUDGET_MS=32000/);
+  assert.match(assistant, /const DEADLINE=Date\.now\(\)\+Math\.max\(8000,Math\.min\(PRICE_RESEARCH_BUDGET_MS/);
   assert.match(assistant, /if\(remaining<6000\)break/);
   assert.match(assistant, /for\(const\[name,run\]of providers\)/);
   assert.match(configSource, /geminiKey:text\('GEMINI_API_KEY'\)/);

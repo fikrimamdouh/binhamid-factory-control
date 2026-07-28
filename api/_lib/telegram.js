@@ -102,6 +102,7 @@ export async function sendMessage(chatId, text, extra = {}) {
     markVoiceReplySent(chatId);
     const speech=await synthesizeTelegramReply(telegramText);
     if(speech.buffer)await sendVoiceBuffer(chatId,speech.buffer).catch(error=>console.warn('[telegram voice reply]',{message:String(error?.message||'').slice(0,220)}));
+    else console.warn('[telegram voice synthesis]',{reason:String(speech?.reason||'unknown'),detail:String(speech?.detail||'').slice(0,220)});
   }
   return result;
 }
@@ -155,16 +156,25 @@ export async function downloadTelegramFile(fileId,options={}) {
 export function keyboard(rows) { return { reply_markup: styleTelegramMarkup({ inline_keyboard: rows }) }; }
 export function replyKeyboard(rows, options = {}) { return { reply_markup: styleTelegramMarkup({ keyboard: rows, resize_keyboard: true, one_time_keyboard: Boolean(options.oneTime), selective: true }) }; }
 
+// تيليغرام يعرض الرسائل الصوتية أصلًا بصيغة OGG/OPUS؛ إرسال mp3 يجبره على إعادة ترميز
+// تخفض وضوح الصوت. نتعرف على الصيغة من بصمة الملف بدل افتراضها.
+export function detectVoiceFormat(buffer) {
+  const head = Buffer.isBuffer(buffer) ? buffer.subarray(0, 4) : Buffer.from(buffer || []).subarray(0, 4);
+  if (head.length >= 4 && head.toString('latin1') === 'OggS') return { contentType: 'audio/ogg', filename: 'reply.ogg' };
+  return { contentType: 'audio/mpeg', filename: 'reply.mp3' };
+}
+
 export async function sendVoiceBuffer(chatId, buffer, caption = '') {
   ensure();
+  const { contentType, filename } = detectVoiceFormat(buffer);
   const form = new FormData();
   form.append('chat_id', String(chatId));
   if (caption) form.append('caption', caption);
-  form.append('voice', new Blob([buffer], { type: 'audio/mpeg' }), 'reply.mp3');
+  form.append('voice', new Blob([buffer], { type: contentType }), filename);
   const response = await fetchRetry(`https://api.telegram.org/bot${config.telegramToken}/sendVoice`, { method: 'POST', body: form });
   const data = await response.json();
   if (!data.ok) throw Object.assign(new Error(data.description || 'تعذر إرسال الرد الصوتي'), { status: 502 });
-  await recordOutgoing(data.result, 'sendVoice', { caption, filename: 'reply.mp3', contentType: 'audio/mpeg' });
+  await recordOutgoing(data.result, 'sendVoice', { caption, filename, contentType });
   return data.result;
 }
 

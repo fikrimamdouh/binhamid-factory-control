@@ -7,10 +7,17 @@ import { researchProductMarketFree } from './product-market-research-free.js';
 import { directBusinessSearchCity, sendDeepBusinessResults } from './bot-business-directory-flow.js';
 import { config } from './config.js';
 
-async function researchPrices(query,city){
-  const DEADLINE=Date.now()+45000;
+// ميزانية زمنية واحدة للبحث كله. حد دالة Vercel هو 60 ثانية، وتجاوزه يقتل الطلب
+// قبل أن تصل أي نتيجة للمستخدم — وهو ما ظهر فعلًا في سجلات الإنتاج.
+export const PRICE_RESEARCH_BUDGET_MS=32000;
+// تدفق الصورة يشغّل تحليل الرؤية ثم بحث السعر داخل نفس الدالة، فتُقسم الميزانية بينهما.
+export const IMAGE_VISION_BUDGET_MS=18000;
+export const IMAGE_PRICE_BUDGET_MS=18000;
+
+async function researchPrices(query,city,budgetMs=PRICE_RESEARCH_BUDGET_MS){
+  const DEADLINE=Date.now()+Math.max(8000,Math.min(PRICE_RESEARCH_BUDGET_MS,Number(budgetMs)||PRICE_RESEARCH_BUDGET_MS));
   const providers=[];
-  if(config.openaiKey)providers.push(['openai',()=>researchProductMarket(query,{city})]);
+  if(config.openaiKey)providers.push(['openai',remaining=>researchProductMarket(query,{city,budgetMs:remaining})]);
   if(config.geminiKey)providers.push(['gemini',remaining=>researchProductMarketFree(query,{city,budgetMs:remaining})]);
   if(!providers.length)throw Object.assign(new Error('بحث الأسعار غير مفعّل. اضبط OPENAI_API_KEY أو GEMINI_API_KEY.'),{status:503,code:'PRICE_RESEARCH_NOT_CONFIGURED'});
   let lastError=null;
@@ -81,7 +88,7 @@ function cleanResearchText(value=''){
     .trim();
 }
 
-export async function sendProductResearch(message,identity,query,city='كل السعودية'){
+export async function sendProductResearch(message,identity,query,city='كل السعودية',{budgetMs=PRICE_RESEARCH_BUDGET_MS}={}){
   if(!canUseProductAssistant(identity))return sendMessage(message.chat.id,'بحث الأسعار والقطع والموردين غير متاح لدورك الحالي.');
   const clean=String(query||'').trim();
   if(clean.length<2)return sendMessage(message.chat.id,'اكتب اسم الصنف أو رقم القطعة بصورة أوضح.');
@@ -93,7 +100,7 @@ export async function sendProductResearch(message,identity,query,city='كل ال
     return[];
   });
   let research=null;
-  try{research=await researchPrices(clean,city);}
+  try{research=await researchPrices(clean,city,budgetMs);}
   catch(error){
     console.warn('[product price research]',{message:String(error?.message||error).slice(0,220)});
     await sendMessage(message.chat.id,'لم يكتمل رصد أسعار منشورة موثوقة الآن. يستمر البحث الذكي عن المحلات والموردين وأرقام الاتصال.');
@@ -113,7 +120,7 @@ export async function handleProductImage(message,identity,buffer,mimeType='image
   if(!canUseProductAssistant(identity))return false;
   await sendMessage(message.chat.id,'تم استلام الصورة. ChatGPT يحلل شكل القطعة والملصق والأرقام والماركة الآن...',{disable_voice_reply:true});
   let identified;
-  try{identified=await identifyProductImage(buffer,mimeType,message.caption||'');}
+  try{identified=await identifyProductImage(buffer,mimeType,message.caption||'',{budgetMs:IMAGE_VISION_BUDGET_MS});}
   catch(error){await sendMessage(message.chat.id,esc(error.message||'تعذر تحليل صورة القطعة بالذكاء الاصطناعي.'));return true;}
   const confidence={high:'عالية',medium:'متوسطة',low:'محدودة'}[identified.confidence]||identified.confidence;
   const query=String(identified.query||identified.identification||identified.codes||'').trim();
@@ -130,7 +137,7 @@ export async function handleProductImage(message,identity,buffer,mimeType='image
     'بدأ الآن بحث الأسعار والمحلات والموردين تلقائيًا.'
   ].filter(Boolean).join('\n');
   await sendMessage(message.chat.id,body);
-  await sendProductResearch(message,identity,query,directBusinessSearchCity(message.caption||'',query));
+  await sendProductResearch(message,identity,query,directBusinessSearchCity(message.caption||'',query),{budgetMs:IMAGE_PRICE_BUDGET_MS});
   return true;
 }
 

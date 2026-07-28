@@ -49,6 +49,8 @@ export const config=Object.freeze({
   openaiKey:text('OPENAI_API_KEY'),
   transcribeModel:text('OPENAI_TRANSCRIBE_MODEL')||'gpt-4o-mini-transcribe',
   textModel:text('OPENAI_TEXT_MODEL')||'gpt-5-mini',
+  visionModel:text('OPENAI_VISION_MODEL'),
+  transcribeLanguage:text('OPENAI_TRANSCRIBE_LANGUAGE')||'ar',
   ttsModel:text('OPENAI_TTS_MODEL')||'gpt-4o-mini-tts',
   ttsVoice:text('OPENAI_TTS_VOICE')||'coral',
   placesKey:text('GOOGLE_PLACES_API_KEY')||text('PLACES_DIRECTORY_KEY'),

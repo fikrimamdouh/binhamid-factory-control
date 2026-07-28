@@ -53,7 +53,10 @@ test('voice messages acknowledge immediately, transcribe within budget and enter
   assert.ok(acknowledgement>0&&acknowledgement<download);
   assert.match(handler,/Promise\.all\(\[transcribeTelegramVoice/);
   assert.match(handler,/result\.text\?handleText\(message,group,identity,result\.text/);
-  assert.match(voice,/AbortSignal\.timeout\(8500\)/);
+  assert.match(voice,/TRANSCRIBE_TIMEOUT_MS=22000/);
+  assert.match(voice,/AbortSignal\.timeout\(TRANSCRIBE_TIMEOUT_MS\)/);
+  assert.match(voice,/if\(language\)form\.append\('language',language\)/);
+  assert.match(voice,/index===0\?primary:''/);
   for(const phrase of ['تقرير مسبق','تقرير اليوم','احتياجات الخرسانة','ميزان مراجعة','دفتر أستاذ'])assert.match(voice,new RegExp(phrase));
 });
 

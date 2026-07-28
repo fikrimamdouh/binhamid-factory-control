@@ -1,9 +1,7 @@
 import { config } from './config.js';
+import { assertResponseComplete, modelUnavailable, reasoningFor, responsesOutputText } from './openai-responses.js';
 
-function outputText(data={}){
-  if(data.output_text)return String(data.output_text).trim();
-  return(data.output||[]).flatMap(item=>item.content||[]).map(part=>part.text||'').join('\n').trim();
-}
+const outputText=data=>responsesOutputText(data);
 const MISSING=/^(?:لا يوجد|غير واضح|غير محدد|غير ظاهر|none|unknown|n\/a|-)$/i;
 function field(text,name){const value=(text.match(new RegExp(`^${name}:\\s*(.+)$`,'mi'))||[])[1]?.trim()||'';return MISSING.test(value)?'':value;}
 function parseVision(text=''){
@@ -31,7 +29,7 @@ function score(result={}){
   const identification=/غير محدد|unknown/i.test(result.identification||'')?0:15;
   return confidence+codes+query+identification;
 }
-async function analyze({imageUrl,model,caption,attempt,prior=''}){
+async function analyze({imageUrl,model,caption,attempt,prior='',timeoutMs=18000}){
   const retry=attempt>1;
   const instructions=retry
     ?`أعد فحص صورة قطعة الغيار بصورة مستقلة ودقيقة. القراءة الأولى كانت ضعيفة، فلا تكرر عبارة «الصورة غير واضحة» لمجرد أن بعض النص صغير. افحص الشعار، شكل القطعة، نقاط التثبيت، ألوان الملصق، التغليف، الأرقام الجزئية، الحروف المعكوسة أو المائلة، والمقاسات. كوّن عبارة بحث مفيدة حتى عند غياب رقم كامل، مستخدمًا وصفًا بصريًا محددًا وأي كود جزئي. لا تخمن رقمًا غير ظاهر. اقرأ الشعار المحفور أو المطبوع لتحديد الماركة (Caterpillar، Volvo، Komatsu، JCB، Hyundai، Doosan، SANY، Shacman، Howo، Scania، MAN، Mercedes، Iveco، Renault، Hino، Isuzu، Fuso، Kamaz، XCMG، Putzmeister، Schwing، Cummins، Perkins، Deutz، Bosch، Donaldson…) واستنتج نوع المعدة إن ظهر (شيول، حفار، خلاطة خرسانة، مضخة خرسانة، قلاب، كسارة، بلدوزر، رافعة). أخرج ست سطور فقط وبنفس العناوين الإنجليزية: SEARCH_QUERY، IDENTIFICATION، BRAND، EQUIPMENT، READABLE_CODES، CONFIDENCE. اكتب «لا يوجد» في الماركة أو المعدة إن لم تظهر، ولا تخمّن.`
@@ -42,34 +40,61 @@ async function analyze({imageUrl,model,caption,attempt,prior=''}){
     body:JSON.stringify({
       model,
       store:false,
-      max_output_tokens:700,
+      max_output_tokens:3000,
+      ...reasoningFor(model),
       instructions,
       input:[{role:'user',content:[
         {type:'input_text',text:`حلل صورة القطعة للبحث الشرائي. وصف المستخدم: ${String(caption||'لا يوجد').slice(0,300)}${prior?`\nالقراءة السابقة للاستفادة النقدية فقط، لا لتكرارها: ${String(prior).slice(0,1000)}`:''}`},
         {type:'input_image',image_url:imageUrl,detail:'high'}
       ]}]
     }),
-    signal:AbortSignal.timeout(30000)
+    signal:AbortSignal.timeout(timeoutMs)
   });
   const data=await response.json().catch(()=>({}));
-  if(!response.ok)throw Object.assign(new Error(data?.error?.message||'تعذر تحليل صورة القطعة.'),{status:502,code:'PRODUCT_IMAGE_ANALYSIS_FAILED'});
+  if(!response.ok)throw Object.assign(new Error(data?.error?.message||'تعذر تحليل صورة القطعة.'),{status:Number(response.status)||502,code:'PRODUCT_IMAGE_ANALYSIS_FAILED',model});
+  assertResponseComplete(data,{code:'PRODUCT_IMAGE_TRUNCATED',model});
   return parseVision(outputText(data));
 }
 
-export async function identifyProductImage(buffer,mimeType='image/jpeg',caption=''){
+export const VISION_LIMITS=Object.freeze({totalMs:26000,firstPassMs:18000,secondPassMs:12000,minSecondPassMs:9000});
+
+// نجرب نموذج الرؤية المضبوط ثم نتدرج، فقراءة رقم محفور على ملصق تحتاج نموذجًا أقوى من نموذج النص.
+export function visionModelCandidates(){
+  const configured=String(config.visionModel||'').trim(),text=String(config.textModel||'').trim();
+  const preferred=configured||(text==='gpt-5.4-mini'||!text?'gpt-5.6':text);
+  return[...new Set([preferred,text,'gpt-5-mini'].filter(Boolean))].slice(0,3);
+}
+
+async function runFirstPass({imageUrl,caption,deadline}){
+  let lastError=null;
+  for(const model of visionModelCandidates()){
+    const remaining=deadline-Date.now();
+    if(remaining<6000)break;
+    try{return{result:await analyze({imageUrl,model,caption,attempt:1,timeoutMs:Math.min(VISION_LIMITS.firstPassMs,remaining-1000)}),model};}
+    catch(error){
+      lastError=error;
+      console.warn('[product image first pass]',{model,status:Number(error?.status||0),code:String(error?.code||''),message:String(error?.message||'').slice(0,240)});
+      if(!modelUnavailable(error))throw error;
+    }
+  }
+  throw lastError||Object.assign(new Error('تعذر تحليل صورة القطعة بالذكاء الاصطناعي.'),{status:502,code:'PRODUCT_IMAGE_ANALYSIS_FAILED'});
+}
+
+export async function identifyProductImage(buffer,mimeType='image/jpeg',caption='',{budgetMs=0}={}){
   if(!config.openaiKey)throw Object.assign(new Error('البحث بالصورة غير مفعّل. يلزم ضبط OPENAI_API_KEY في Vercel.'),{status:503,code:'PRODUCT_IMAGE_NOT_CONFIGURED'});
   if(!buffer?.length)throw Object.assign(new Error('الصورة فارغة أو تعذر تنزيلها.'),{status:400,code:'PRODUCT_IMAGE_EMPTY'});
   if(buffer.length>12*1024*1024)throw Object.assign(new Error('حجم صورة القطعة أكبر من الحد المسموح للبحث.'),{status:413,code:'PRODUCT_IMAGE_TOO_LARGE'});
   const safeMime=/^image\/(jpeg|png|webp|gif)$/i.test(String(mimeType||''))?String(mimeType).toLowerCase():'image/jpeg';
   const imageUrl=`data:${safeMime};base64,${Buffer.from(buffer).toString('base64')}`;
-  const configured=String(config.textModel||'').trim(),model=configured==='gpt-5.4-mini'||!configured?'gpt-5.6':configured;
-  const first=await analyze({imageUrl,model,caption,attempt:1});
+  const deadline=Date.now()+Math.max(8000,Math.min(VISION_LIMITS.totalMs,Number(budgetMs)>0?Number(budgetMs):VISION_LIMITS.totalMs));
+  const{result:first,model}=await runFirstPass({imageUrl,caption,deadline});
   let best=first,passes=1;
-  if(weak(first)){
+  const secondPassBudget=deadline-Date.now();
+  if(weak(first)&&secondPassBudget>=VISION_LIMITS.minSecondPassMs){
     try{
-      const second=await analyze({imageUrl,model,caption,attempt:2,prior:first.raw});
+      const second=await analyze({imageUrl,model,caption,attempt:2,prior:first.raw,timeoutMs:Math.min(VISION_LIMITS.secondPassMs,secondPassBudget-1000)});
       passes=2;if(score(second)>score(first))best=second;
-    }catch(error){console.warn('[product image second pass]',{message:String(error?.message||'').slice(0,240)});}
+    }catch(error){console.warn('[product image second pass]',{model,message:String(error?.message||'').slice(0,240)});}
   }
   const codes=usefulCodes(best.codes).join('، ')||'لا توجد أكواد مؤكدة';
   // نضمن حضور الماركة ونوع المعدة داخل عبارة البحث حتى لو أغفلهما النموذج،
