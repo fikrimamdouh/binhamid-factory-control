@@ -60,6 +60,7 @@ export async function handleProcurementCallback(message,from,identity,action,val
   if(action==='proc'&&value==='product_image')return startProductImageAssistant(callbackMessage,identity);
   if(action==='proc'&&value==='search')return canCreate(identity)?startDeepBusinessSearch(callbackMessage,identity):deny(callbackMessage,identity,true);
   if(action==='proc'&&value==='open')return canUse(identity)?sendOpenQuoteRequests(message.chat.id,identity):deny(callbackMessage,identity,false);
+  if(action==='supplier_city'&&!canCreate(identity))return deny(callbackMessage,identity,true);
   if(await handleDeepBusinessCallback(message,from,identity,action,value))return true;
   if(!canCreate(identity))return deny(callbackMessage,identity,true);
   return legacy.handleProcurementCallback(message,from,adaptedIdentity(identity),action,value);
