@@ -3,7 +3,7 @@ import { sendMessage, keyboard } from './telegram.js';
 import { clearMaintenanceSession } from './bot-maintenance.js';
 import * as legacy from './bot-procurement.js';
 import { canUseProductAssistant, continueProductAssistant, handleProductTextCommand, startProductAssistant, startProductImageAssistant } from './bot-product-assistant.js';
-import { continueDeepBusinessSearch, handleDeepBusinessCallback, isDeepBusinessState, startDeepBusinessSearch } from './bot-business-directory-flow.js';
+import { continueDeepBusinessSearch, extractDirectBusinessSearchQuery, handleDeepBusinessCallback, handleDirectBusinessSearch, isDeepBusinessState, startDeepBusinessSearch } from './bot-business-directory-flow.js';
 
 const USE_ROLES=new Set(['admin','manager','accountant','mechanic','procurement','warehouse']);
 const CREATE_ROLES=new Set(['admin','manager','mechanic','procurement','warehouse']);
@@ -25,6 +25,12 @@ export function procurementMenu(){return keyboard([
 export async function showProcurementMenu(message,identity){
   if(!canUse(identity))return deny(message,identity,false);
   return sendMessage(message.chat.id,'اختر العملية المطلوبة. البحث الشامل يجمع المواقع الرسمية للشركات والمصانع والوكلاء والأدلة التجارية مع دليل الأماكن، ثم يوحد النتائج داخل البوت. لا توجد روابط خارجية؛ تظهر الأسماء وأرقام الاتصال والعناوين والمصدر داخل المحادثة.',procurementMenu());
+}
+export function directBusinessSearchRequested(text=''){return Boolean(extractDirectBusinessSearchQuery(text));}
+export async function handleDirectBusinessSearchCommand(message,identity,text){
+  if(!directBusinessSearchRequested(text))return false;
+  if(!canCreate(identity)){await deny(message,identity,true);return true;}
+  return handleDirectBusinessSearch(message,identity,text);
 }
 export async function startProcurementAction(message,identity,action){
   if(action==='product')return startProductAssistant(message,identity);
@@ -70,6 +76,7 @@ export async function sendOpenQuoteRequests(chatId,identity){
   return legacy.sendOpenQuoteRequests(chatId,adaptedIdentity(identity));
 }
 export async function handleProcurementTextCommand(message,identity,text){
+  if(await handleDirectBusinessSearchCommand(message,identity,text))return true;
   if(await handleProductTextCommand(message,identity,text))return true;
   const normalized=String(text||'').toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[؟?!.,،؛:]+/g,'').replace(/\s+/g,' ').trim();
   if(/^(طلبات الاسعار المفتوحه|طلبات الأسعار المفتوحة)$/.test(normalized)){await sendOpenQuoteRequests(message.chat.id,identity);return true;}
