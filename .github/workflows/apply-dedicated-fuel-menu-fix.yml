@@ -1,0 +1,42 @@
+name: Apply dedicated fuel menu fix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/apply-dedicated-fuel-menu-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Apply patch
+        run: node scripts/apply-dedicated-fuel-menu-patch.mjs
+      - name: Validate
+        run: |
+          node --check api/_lib/bot-reports.js
+          node --check api/_lib/bot-commands.js
+          node --check api/_lib/telegram-webhook-handler.js
+          node --test tests/dedicated-fuel-report-menu.test.mjs tests/fuel-reports-section.test.mjs tests/telegram-report-file-bridge.test.mjs
+      - name: Publish fix
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm -f scripts/apply-dedicated-fuel-menu-patch.mjs .github/workflows/apply-dedicated-fuel-menu-fix.yml
+          git add -A
+          git commit -m "fix: keep diesel reports in dedicated menu"
+          git pull --rebase origin main
+          git push origin HEAD:main
