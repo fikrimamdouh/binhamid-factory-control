@@ -1,0 +1,67 @@
+{
+  "outcome": "success",
+  "run_id": "30332231230",
+  "commit": "5cba7579e1f231528ac4e700072207f84e72e52e",
+  "checked_at": "2026-07-28T05:40:12.652538+00:00",
+  "upload_response": {
+    "status": 200,
+    "data": {
+      "ok": true,
+      "duplicate": true,
+      "ledger": {
+        "stored": 0,
+        "skipped": 16,
+        "failed": 0,
+        "reason": "",
+        "rows": 16
+      },
+      "period": {
+        "start": "2026-07-27",
+        "end": "2026-07-27"
+      },
+      "reportDate": "2026-07-27",
+      "accountBalance": 1740,
+      "balanceDate": "2026-07-27",
+      "balanceCapturedAt": "2026-07-28T05:39:45.686Z",
+      "fileHash": "69793ff28b038f1f5eaf7307c2584dfcdd2215eb543bb89148aaf5b544e4c883",
+      "importId": "a9eabd23-b86b-43ae-bfa9-2fcc845cfc13",
+      "storagePath": "noor-khoy-fuel/2026-07-27/767fe2a6dcad3f45-noor-khoy-fuel-2026-07-27.xlsx",
+      "storedRows": 16,
+      "summary": {
+        "rows": 16,
+        "plateCount": 16,
+        "liters": 2927.02,
+        "amount": 5286.02,
+        "categories": {
+          "diesel": {
+            "rows": 13,
+            "liters": 2829.62,
+            "amount": 5065
+          },
+          "petrol": {
+            "rows": 3,
+            "liters": 97.4,
+            "amount": 221.02
+          }
+        }
+      },
+      "cleanup": {
+        "removed": 0,
+        "skipped": true
+      },
+      "storage": "imports_registry",
+      "telegram": {
+        "duplicate": true,
+        "reports": [
+          "diesel-report-2026-07-27.pdf",
+          "petrol-report-2026-07-27.pdf"
+        ],
+        "recipients": 2,
+        "messageFailures": 0,
+        "documentFailures": 0
+      }
+    }
+  },
+  "execution_log_tail": "{\n  \"ok\": true,\n  \"fromDate\": \"2026-07-27\",\n  \"toDate\": \"2026-07-27\",\n  \"periodCheck\": {\n    \"minDate\": \"2026-07-27\",\n    \"maxDate\": \"2026-07-27\",\n    \"datedRows\": 16\n  },\n  \"accountBalance\": 1740,\n  \"balanceAttached\": true,\n  \"notify\": true,\n  \"file\": \"noor-khoy-fuel-2026-07-27.xlsx\",\n  \"rows\": 16,\n  \"duplicate\": true,\n  \"stored\": 16,\n  \"summary\": {\n    \"rows\": 16,\n    \"plateCount\": 16,\n    \"liters\": 2927.02,\n    \"amount\": 5286.02,\n    \"categories\": {\n      \"diesel\": {\n        \"rows\": 13,\n        \"liters\": 2829.62,\n        \"amount\": 5065\n      },\n      \"petrol\": {\n        \"rows\": 3,\n        \"liters\": 97.4,\n        \"amount\": 221.02\n      }\n    }\n  },\n  \"telegram\": {\n    \"duplicate\": true,\n    \"reports\": [\n      \"diesel-report-2026-07-27.pdf\",\n      \"petrol-report-2026-07-27.pdf\"\n    ],\n    \"recipients\": 2,\n    \"messageFailures\": 0,\n    \"documentFailures\": 0\n  }\n}",
+  "code_diagnostics": "=== exact report strings ===\napi/_lib/bot-profile.js:5:const REPORT_LABELS={fuel:'تقرير الديزل والوقود',payroll:'مسير الرواتب',block_collections:'تحصيلات البلوك',concrete_collections:'تحصيلات الخرسانة',collections:'التحصيلات العامة',block_daily_movement:'التقرير اليومي للبلوك',concrete_daily_movement:'التقرير اليومي للخرسانة',daily_movement:'التقرير اليومي للمبيعات والتحصيل والمخزون',financial_document:'مستند مالي',unknown_excel:'ملف Excel يحتاج تحديد النوع',quotation:'عرض سعر',invoice:'فاتورة',unclassified_document:'مستند يحتاج تصنيف'};\napi/_lib/bot-reports.js:166:  if(kind==='fuel')return sendMessage(chatId,`<b>تقرير الديزل — اليوم</b>\\n\\nاللترات: <b>${num(s.fuelLitersToday,2)}</b>\\nالقيمة: <b>${money(s.fuelCostToday)}</b>`);\napi/_lib/bot-commands.js:158:    {re:/^(تقرير الديزل|ديزل اليوم|وقود اليوم|تقرير الوقود)$/,kind:'fuel'},\napi/_lib/bot-insights-fleet.js:25:  let text=`<b>سجل المركبة أو الأصل خلال 90 يومًا</b>\\n\\nالمرجع: <b>${esc(plate)}</b>\\nتعبئات الديزل: <b>${fuel.length}</b>\\nإجمالي اللترات: <b>${liters.toLocaleString('en-US')}</b>\\nتكلفة الديزل: <b>${formatAmount(fuelCost)} ر.س</b>\\nالمسافة المسجلة: <b>${distance.toFixed(1)} كم</b>\\nحركات التسليم: <b>${deliveries.length}</b>\\nأوامر الصيانة: <b>${central.length+maintenanceFallback.length}</b>\\nتكلفة الصيانة المسجلة: <b>${formatAmount(maintenanceCost)} ر.س</b>`;\napi/_lib/bot-fuel-reports.js:345:  if(/^\\/(fuel_today|diesel_today)$/i.test(raw)||/^(تقرير الديزل اليوم|تقرير اليوم للديزل|تقرير اليوم ديزل|مسحوبات امس|مسحوبات الديزل امس|تقرير الديزل امس|ديزل امس|سحب امس|سحوبات امس)$/.test(value))\napi/_lib/routes/fuel-sync.js:43:  const label=periodLabel(period),prefix=duplicate?`تم إعادة إرسال إقرار الوقود للفترة ${label}.`:`تم رفع إقرار الوقود للفترة ${label}.`,detail=categorySummary(summary),balanceLine=Number.isFinite(accountBalance)?`\\nرصيد خزنة المحطة المتبقي بنهاية يوم <b>${reportDate}</b>: <b>${Number(accountBalance).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})} ر.س</b>`:'',message=`${prefix}\\nإجمالي الحركات: <b>${summary.rows}</b>\\nإجمالي اللترات: <b>${summary.liters}</b>\\nإجمالي المبلغ: <b>${summary.amount} ر.س</b>${balanceLine}${detail?`\\n\\n${detail}`:''}\\nالملف: <b>${clean(sourceFile,150)}</b>`;\ntests/fuel-reports-section.test.mjs:162:  for (const phrase of ['تقرير الديزل اليوم', 'مسحوبات امس', 'كشف حساب المركبات']) assert.ok(section.includes(phrase), `missing ${phrase}`);\n\n=== workflow schedule ===\nname: Noor Khoy daily fuel sync\n\non:\n  workflow_dispatch:\n    inputs:\n      report_date:\n        description: Optional single report date (YYYY-MM-DD)\n        required: false\n        type: string\n      start_date:\n        description: Optional period start date (YYYY-MM-DD)\n        required: false\n        type: string\n      end_date:\n        description: Optional period end date (YYYY-MM-DD)\n        required: false\n        type: string\n      run_vehicle_balance:\n        description: Send the vehicle diesel balance report instead of the daily fuel import\n        required: false\n        default: false\n        type: boolean\n  schedule:\n    - cron: '0 5 * * *'\n    - cron: '0 16 * * *'\n\npermissions:\n  contents: read\n  id-token: write\n\nconcurrency:\n  group: noor-khoy-daily-fuel-sync\n  cancel-in-progress: true\n\njobs:\n  sync:\n    if: github.event.schedule != '0 16 * * *' && !(github.event_name == 'workflow_dispatch' && inputs.run_vehicle_balance)\n    runs-on: ubuntu-latest\n    timeout-minutes: 20\n    env:\n      NOOR_KHOY_USERNAME: ${{ secrets.NOOR_KHOY_USERNAME }}\n      NOOR_KHOY_PASSWORD: ${{ secrets.NOOR_KHOY_PASSWORD }}\n      NOOR_KHOY_LOGIN_URL: https://www.norkhoysa.com/companies/login\n      NOOR_KHOY_DASHBOARD_URL: https://www.norkhoysa.com/companies\n      NOOR_KHOY_REPORT_URL: https://www.norkhoysa.com/companies/fuels?fueltype=all\n      BINHAMID_FUEL_UPLOAD_URL: https://binhamid-factory-control.vercel.app/api/fuel/daily-report\n      REPORT_DATE: ${{ inputs.report_date }}\n      REPORT_START_DATE: ${{ inputs.start_date }}\n      REPORT_END_DATE: ${{ inputs.end_date }}\n      FUEL_REPORT_DATE_OFFSET_DAYS: '-1'\n      FUEL_SEND_BALANCE: 'true'\n      FUEL_NOTIFY: 'true'\n      FUEL_SYNC_ARTIFACT_DIR: artifacts/noor-khoy-fuel\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: '24'\n          cache: npm\n      - name: Install project dependencies\n        run: npm ci\n      - name: Install browser automation\n        run: |\n          npm install --no-save --no-package-lock playwright@1.55.0\n          npx playwright install --with-deps chromium\n      - name: Download and upload fuel report\n        id: fuel_import\n        continue-on-error: true\n        shell: bash\n        run: |\n          set -euo pipefail\n          mkdir -p artifacts/noor-khoy-fuel\n          node scripts/noor-khoy-fuel-sync.mjs 2>&1 | tee artifacts/noor-khoy-fuel/execution.log\n      - name: Write execution summary\n        if: always()\n        shell: bash\n        env:\n          IMPORT_OUTCOME: ${{ steps.fuel_import.outcome }}\n        run: |\n          {\n            echo \"## Noor Khoy fuel sync\"\n            echo\n            echo \"- Outcome: ${IMPORT_OUTCOME}\"\n            echo \"- Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}\"\n            echo \"- Commit: ${GITHUB_SHA}\"\n          } >> \"$GITHUB_STEP_SUMMARY\"\n      - name: Keep fuel workbook and diagnostics\n        if: always()\n        uses: actions/upload-artifact@v4\n        with:\n          name: noor-khoy-fuel-${{ github.run_id }}\n          path: artifacts/noor-khoy-fuel/\n          if-no-files-found: ignore\n          retention-days: 7\n      - name: Fail when fuel import failed\n        if: steps.fuel_import.outcome != 'success'\n        run: exit 1\n\n  vehicle-balance-report:\n    if: github.event.schedule == '0 16 * * *' || (github.event_name == 'workflow_dispatch' && inputs.run_vehicle_balance)\n    runs-on: ubuntu-latest\n    timeout-minutes: 12\n    env:\n      NOOR_KHOY_USERNAME: ${{ secrets.NOOR_KHOY_USERNAME }}\n      NOOR_KHOY_PASSWORD: ${{ secrets.NOOR_KHOY_PASSWORD }}\n      NOOR_KHOY_LOGIN_URL: https://www.norkhoysa.com/companies/login\n      NOOR_KHOY_DASHBOARD_URL: https://www.norkhoysa.com/companies\n      NOOR_KHOY_VEHICLES_URL: https://www.norkhoysa.com/companies/vehicles\n      BINHAMID_FUEL_UPLOAD_URL: https://binhamid-factory-control.vercel.app/api/fuel/daily-report\n      FUEL_SYNC_MODE: vehicle-balance-report\n      FUEL_SYNC_ARTIFACT_DIR: artifacts/noor-khoy-vehicle-balance\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: '24'\n          cache: npm\n      - name: Install project dependencies\n        run: npm ci\n      - name: Install browser automation\n        run: |\n          npm install --no-save --no-package-lock playwright@1.55.0\n          npx playwright install --with-deps chromium\n      - name: Sum vehicle diesel balances and send Telegram report\n        run: node scripts/noor-khoy-fuel-sync.mjs\n      - name: Keep balance evidence\n        if: always()\n        uses: actions/upload-artifact@v4\n        with:\n          name: noor-khoy-vehicle-balance-${{ github.run_id }}\n          path: artifacts/noor-khoy-vehicle-balance/\n          if-no-files-found: ignore\n          retention-days: 7\n"
+}
