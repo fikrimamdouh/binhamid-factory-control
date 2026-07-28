@@ -93,5 +93,5 @@ test('portfolio preparation uses dated analytics and persists fixed snapshots af
   assert.match(dailyPdf,/currentBatch:options\?\.currentBatch!==false/);
   assert.match(route,/prepareErpSuccessDelivery\(\{analysis,sourceFile:originalName,reportDate\}\)/);
   assert.match(route,/sendErpDuplicateNotice/);
-  assert.match(route,/prepared\)/);
+  assert.match(route,/posting:result\.posting,prepared/);
 });
