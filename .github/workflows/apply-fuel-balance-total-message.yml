@@ -1,0 +1,81 @@
+name: Apply fuel balance total message
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/apply-fuel-balance-total-message.yml
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: apply-fuel-balance-total-message
+  cancel-in-progress: true
+
+jobs:
+  apply-and-send:
+    if: ${{ !contains(github.event.head_commit.message, '[fuel-balance-total-applied]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NOOR_KHOY_USERNAME: ${{ secrets.NOOR_KHOY_USERNAME }}
+      NOOR_KHOY_PASSWORD: ${{ secrets.NOOR_KHOY_PASSWORD }}
+      NOOR_KHOY_LOGIN_URL: https://www.norkhoysa.com/companies/login
+      NOOR_KHOY_DASHBOARD_URL: https://www.norkhoysa.com/companies
+      NOOR_KHOY_VEHICLES_URL: https://www.norkhoysa.com/companies/vehicles
+      BINHAMID_FUEL_UPLOAD_URL: https://binhamid-factory-control.vercel.app/api/fuel/daily-report
+      FUEL_SYNC_MODE: vehicle-balance-report
+      FUEL_SYNC_ARTIFACT_DIR: artifacts/noor-khoy-vehicle-balance
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Apply message patch
+        run: node scripts/apply-fuel-balance-total-message.mjs
+      - name: Validate fuel balance behavior
+        run: |
+          node --check api/_lib/routes/fuel-sync.js
+          node --test tests/noor-khoy-fuel-sync.test.mjs
+      - name: Publish application changes
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm -f scripts/apply-fuel-balance-total-message.mjs .github/workflows/apply-fuel-balance-total-message.yml
+          git add -A
+          git commit -m "feat: add total to fuel balance message [fuel-balance-total-applied]"
+          git pull --rebase origin main
+          git push origin HEAD:main
+      - name: Install browser automation
+        run: |
+          npm install --no-save --no-package-lock playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Send updated Telegram balance message
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p "$FUEL_SYNC_ARTIFACT_DIR"
+          for attempt in $(seq 1 24); do
+            echo "Fuel balance total delivery attempt ${attempt}" | tee -a "$FUEL_SYNC_ARTIFACT_DIR/deployment-retry.log"
+            if node scripts/noor-khoy-fuel-sync.mjs 2>&1 | tee -a "$FUEL_SYNC_ARTIFACT_DIR/execution.log"; then
+              exit 0
+            fi
+            sleep 15
+          done
+          exit 1
+      - name: Keep delivery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuel-balance-total-${{ github.run_id }}
+          path: artifacts/noor-khoy-vehicle-balance/
+          if-no-files-found: ignore
+          retention-days: 7
