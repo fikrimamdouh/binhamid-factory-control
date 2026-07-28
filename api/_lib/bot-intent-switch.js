@@ -11,6 +11,7 @@ const ATTENDANCE=/تسجيل حضور|تسجيل انصراف|الحضور وا�
 const SALES=/امر بيع|أمر بيع|سجل بيع|تسجيل بيع|بيع بلوك|بيع خرسان|طلب توريد|العميل.*(?:عاوز|يريد|طلب|محتاج).*(?:بلوك|خرسان)/i;
 const WORKSHOP=/بلاغ عطل|عطل معد|صيانه|صيانة|طلب قطع غيار|فحص معد|امر اصلاح|أمر إصلاح|الورشه|الورشة/i;
 const ENTERPRISE=/سجل سداد|تسجيل سداد|سجل قبض|تسجيل قبض|سجل صرف|تسجيل صرف|فاتوره مورد|فاتورة مورد|عهدة|طلب موافق|اعتماد|اقتراح|مشكله ادار|مشكلة إدار|مهمه جديد|مهمة جديدة|موظف|راتب|تكلفه|تكلفة|مديونيه|مديونية/i;
+const VOICE_INTRO=/^\/(voice_intro|intro_voice|welcome_voice)(?:@\w+)?$|^(ابعت|ارسل|ابعث|شغل|قول) (لي )?(رساله|رسالة)? ?(ال)?ترحيب (ال)?صوتي(ه)?$|^(عرف نفسك|رحب بيا|كلمني) بصوت$/i;
 
 export function sessionModule(state=''){
   const value=String(state||'');
@@ -26,10 +27,9 @@ export function sessionModule(state=''){
 export function detectExplicitIntent(text=''){
   const raw=String(text||'').trim(),value=normalize(raw);
   if(!value)return{intent:'',module:'',explicit:false};
+  if(VOICE_INTRO.test(raw)||VOICE_INTRO.test(value))return{intent:'enterprise',module:'enterprise',explicit:true};
   const slash=/^\/\w+/.test(raw),imperative=START.test(raw),command=imperative||slash;
 
-  // المسارات التشغيلية المحددة تُحسم أولًا. هذا يمنع عبارات مثل
-  // «هات تقرير اليوم» من أن تُفسر كبحث سوق لمجرد بدايتها بكلمة «هات».
   if(command&&GPS.test(raw))return{intent:'gps',module:'fleet',explicit:true};
   if(command&&ATTENDANCE.test(raw))return{intent:'attendance',module:'attendance',explicit:true};
   if(command&&FUEL.test(raw))return{intent:'fuel',module:'fuel',explicit:true};
