@@ -68,8 +68,8 @@ export async function startProductAssistant(message,identity){
 
 export async function startProductImageAssistant(message,identity){
   if(!canUseProductAssistant(identity))return sendMessage(message.chat.id,'البحث بصورة القطعة غير متاح لدورك الحالي.');
-  await setSession(message.chat.id,identity.external_id||message.from.id,'product_image_waiting',{startedAt:now()});
-  return sendMessage(message.chat.id,'أرسل صورة القطعة أو الملصق. سأستخرج الاسم والرقم ثم أبحث تلقائيًا عن الأسعار والموردين.');
+  await setSession(message.chat.id,identity.external_id||message.from.id,'product_image_waiting',{startedAt:now(),source:'chatgpt_vision'});
+  return sendMessage(message.chat.id,'أرسل صورة واضحة للقطعة أو الملصق. سيحللها ChatGPT بالذكاء الاصطناعي لاستخراج اسم القطعة والماركة ورقمها ونوع المعدة، ثم يبدأ تلقائيًا بحث الأسعار والمحلات والموردين. يمكنك كتابة المقاس أو اسم المعدة مع الصورة لزيادة الدقة.');
 }
 
 function cleanResearchText(value=''){
@@ -86,7 +86,7 @@ export async function sendProductResearch(message,identity,query,city='كل ال
   const clean=String(query||'').trim();
   if(clean.length<2)return sendMessage(message.chat.id,'اكتب اسم الصنف أو رقم القطعة بصورة أوضح.');
   await clearMaintenanceSession(message.chat.id,identity.external_id||message.from.id).catch(()=>{});
-  await sendMessage(message.chat.id,`<b>جارٍ البحث عن أسعار وموردين: ${esc(clean)}</b>\n<i>أفحص الأسعار المنشورة والمتاجر والموردين والمحلات.</i>`,{disable_voice_reply:true});
+  await sendMessage(message.chat.id,`<b>جارٍ البحث الذكي عن أسعار وموردين: ${esc(clean)}</b>\n<i>يفحص ChatGPT الأسعار المنشورة بالتوازي مع الشركات والمحلات والموردين.</i>`,{disable_voice_reply:true});
 
   const supplierPromise=sendDeepBusinessResults(message,identity,clean,city).catch(error=>{
     console.warn('[product supplier research]',{message:String(error?.message||error).slice(0,220)});
@@ -96,7 +96,7 @@ export async function sendProductResearch(message,identity,query,city='كل ال
   try{research=await researchPrices(clean,city);}
   catch(error){
     console.warn('[product price research]',{message:String(error?.message||error).slice(0,220)});
-    await sendMessage(message.chat.id,'لم يكتمل رصد أسعار منشورة موثوقة الآن. يستمر البحث عن المحلات والموردين وأرقام الاتصال.');
+    await sendMessage(message.chat.id,'لم يكتمل رصد أسعار منشورة موثوقة الآن. يستمر البحث الذكي عن المحلات والموردين وأرقام الاتصال.');
   }
 
   if(research){
@@ -111,21 +111,23 @@ export async function sendProductResearch(message,identity,query,city='كل ال
 
 export async function handleProductImage(message,identity,buffer,mimeType='image/jpeg'){
   if(!canUseProductAssistant(identity))return false;
-  await sendMessage(message.chat.id,'تم استلام صورة القطعة. جارٍ قراءة الاسم والأرقام...',{disable_voice_reply:true});
+  await sendMessage(message.chat.id,'تم استلام الصورة. ChatGPT يحلل شكل القطعة والملصق والأرقام والماركة الآن...',{disable_voice_reply:true});
   let identified;
   try{identified=await identifyProductImage(buffer,mimeType,message.caption||'');}
-  catch(error){await sendMessage(message.chat.id,esc(error.message||'تعذر تحليل صورة القطعة.'));return true;}
+  catch(error){await sendMessage(message.chat.id,esc(error.message||'تعذر تحليل صورة القطعة بالذكاء الاصطناعي.'));return true;}
   const confidence={high:'عالية',medium:'متوسطة',low:'محدودة'}[identified.confidence]||identified.confidence;
   const query=String(identified.query||identified.identification||identified.codes||'').trim();
-  if(query.length<2){await sendMessage(message.chat.id,'لم أستطع استخراج اسم أو رقم كافٍ من الصورة. أرسل صورة أوضح للملصق أو اكتب رقم القطعة.');return true;}
+  if(query.length<2){await sendMessage(message.chat.id,'لم يستطع ChatGPT استخراج اسم أو رقم كافٍ من الصورة. أرسل صورة أوضح للملصق أو اكتب رقم القطعة.');return true;}
   const body=[
-    '<b>قراءة الصورة</b>','━━━━━━━━━━━━━━━',
+    '<b>تحليل ChatGPT للصورة</b>','━━━━━━━━━━━━━━━',
     `القطعة: <b>${esc(identified.identification)}</b>`,
     identified.brand?`الماركة: <b>${esc(identified.brand)}</b>`:null,
     identified.equipment?`المعدة: <b>${esc(identified.equipment)}</b>`:null,
     `الأكواد: ${copyable(identified.codes||'لم يظهر رقم كامل')}`,
     `الثقة: <b>${esc(confidence)}</b>`,
-    '━━━━━━━━━━━━━━━','سأبدأ البحث بالبيانات الظاهرة في الصورة.'
+    identified.analysisPasses?`مراحل التحليل: <b>${Number(identified.analysisPasses)}</b>`:null,
+    '━━━━━━━━━━━━━━━',`عبارة البحث الذكي: <b>${esc(query)}</b>`,
+    'بدأ الآن بحث الأسعار والمحلات والموردين تلقائيًا.'
   ].filter(Boolean).join('\n');
   await sendMessage(message.chat.id,body);
   await sendProductResearch(message,identity,query,directBusinessSearchCity(message.caption||'',query));
