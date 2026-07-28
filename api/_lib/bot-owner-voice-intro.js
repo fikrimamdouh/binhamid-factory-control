@@ -23,11 +23,16 @@ export async function handleOwnerVoiceIntroCommand(message,identity,text){
     return true;
   }
   await sendMessage(message.chat.id,`<b>المساعد الشخصي لمصنع بن حامد</b>\n\n${OWNER_VOICE_INTRO_TEXT}`,{disable_voice_reply:true});
-  const speech=await synthesizeTelegramReply(OWNER_VOICE_INTRO_TEXT);
-  if(!speech.buffer){
-    await sendMessage(message.chat.id,`تعذر إنشاء التسجيل الصوتي الآن${speech.detail?`: ${String(speech.detail).slice(0,180)}`:'.'}`,{disable_voice_reply:true});
-    return true;
+  try{
+    const speech=await synthesizeTelegramReply(OWNER_VOICE_INTRO_TEXT);
+    if(!speech.buffer){
+      await sendMessage(message.chat.id,`تعذر إنشاء التسجيل الصوتي الآن${speech.detail?`: ${String(speech.detail).slice(0,180)}`:'.'}`,{disable_voice_reply:true}).catch(()=>{});
+      return true;
+    }
+    await sendVoiceBuffer(message.chat.id,speech.buffer);
+  }catch(error){
+    console.warn('[telegram owner voice intro]',{message:String(error?.message||error).slice(0,220)});
+    await sendMessage(message.chat.id,'تم إرسال النص، لكن تعذر إرسال التسجيل الصوتي الآن.',{disable_voice_reply:true}).catch(()=>{});
   }
-  await sendVoiceBuffer(message.chat.id,speech.buffer);
   return true;
 }
