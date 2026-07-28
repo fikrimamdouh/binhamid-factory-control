@@ -1,4 +1,4 @@
-# deployment-trigger: fuel-balance-total-v2
+# deployment-trigger: fuel-balance-total-v3
 name: Apply fuel balance total message
 
 on:
