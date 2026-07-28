@@ -23,7 +23,7 @@ test('Telegram product flow searches observed prices and suppliers automatically
   assert.match(assistant,/الأسعار المنشورة استرشادية/);
   assert.match(assistant,/sendDeepBusinessResults/);
   assert.match(assistant,/supplierPromise=sendDeepBusinessResults/);
-  assert.doesNotMatch(assistant,/يلزم طلب عرض سعر مباشر/);
+  assert.match(assistant,/لم يظهر سعر منشور موثوق؛ راجع الموردين والمحلات أدناه/);
 });
 
 test('Telegram image search uses ChatGPT vision then starts price and supplier research automatically',async()=>{
