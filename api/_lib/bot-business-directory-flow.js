@@ -21,8 +21,16 @@ const CITY_PATTERNS=[
 ];
 const GENERIC_REFERENCE=/^(?:سعر|سعره|سعرها|اسعاره|أسعاره|عرض سعر|عروض اسعار|عروض أسعار|القطعه|القطعة|المنتج|نفسه|نفسها|له|لها)$/i;
 
+// التفريغ الصوتي يضيف نقطة في نهاية الجملة، وكانت تمنع مطابقة اسم المدينة كليًا
+// فيتحول «في نجران.» إلى بحث على كل السعودية.
+const dropPunctuation=value=>String(value||'').replace(/[.,،؛:!؟]+/g,' ').replace(/\s+/g,' ').trim();
+const FILLER=/\s+(?:يكون|تكون|بيكون|يكونوا|عايزك|عاوزك|محتاجك)\s*$/i;
+
 function stripLocation(value=''){
-  return clean(value,300).replace(/\s+(?:في\s+)?(?:نجران|خميس\s+مشيط|الرياض|جده|جدة|الدمام|كل\s+السعوديه|كل\s+السعودية|السعودية|السعوديه)\s*$/i,'').trim();
+  return clean(value,300)
+    .replace(/\s+(?:في\s+)?(?:نجران|خميس\s+مشيط|الرياض|جده|جدة|الدمام|كل\s+السعوديه|كل\s+السعودية|السعودية|السعوديه)\s*[.،؛:!؟]*\s*$/i,'')
+    .replace(FILLER,'')
+    .trim();
 }
 function trimSearchQuery(value=''){
   return stripLocation(clean(value,300)
@@ -39,7 +47,7 @@ export function extractDirectBusinessSearchQuery(text=''){
   return'';
 }
 export function directBusinessSearchCity(text='',query=''){
-  const raw=clean(text,600);
+  const raw=dropPunctuation(clean(text,600));
   for(const[city,pattern]of CITY_PATTERNS)if(pattern.test(raw))return city;
   return'كل السعودية';
 }
@@ -122,14 +130,17 @@ export async function sendDeepBusinessResults(message,identity,query,city){
       '━━━━━━━━━━━━━━━'
     ].filter(Boolean).join('\n');
     const last=page===pages.length-1,footer=last?'\n━━━━━━━━━━━━━━━\n<i>النتائج المنشورة لا تعني حصر السوق بالكامل؛ تحقق بالاتصال والسجل التجاري قبل التعاقد.</i>':'',buttons=last?[[{text:'بحث جديد',callback_data:'proc:search'},{text:'مدينة أخرى',callback_data:'supplier_city:other'}]]:[];
-    await sendMessage(message.chat.id,`${header}\n${pages[page].join('\n\n')}${footer}`,keyboard(buttons));
+    await sendMessage(message.chat.id,`${header}\n${pages[page].join('\n\n')}${footer}`,{...keyboard(buttons),disable_voice_reply:true});
   }
   return result.businesses;
 }
 
 export async function handleDirectBusinessSearch(message,identity,text){
   const userId=identity?.external_id||message.from.id,session=await getSession(message.chat.id,userId),priorQuery=clean(session?.context?.query,300);
-  const extracted=extractDirectBusinessSearchQuery(text),query=GENERIC_REFERENCE.test(extracted)?priorQuery:extracted||priorQuery;
+  // نص جديد يذكر قطعة أو نشاطًا يجب ألا يُستبدل بالاستعلام السابق، وإلا تكرر البحث القديم.
+  const extracted=extractDirectBusinessSearchQuery(text),fresh=trimSearchQuery(text);
+  const fallback=PROCUREMENT_HINT.test(fresh)&&!NON_MARKET_HINT.test(fresh)?fresh:priorQuery;
+  const query=GENERIC_REFERENCE.test(extracted)?priorQuery:extracted||fallback;
   if(!query)return false;
   const city=directBusinessSearchCity(text,query);
   await clearMaintenanceSession(message.chat.id,userId).catch(()=>{});

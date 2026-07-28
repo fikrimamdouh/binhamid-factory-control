@@ -5,7 +5,7 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
 // حد الـ prompt في whisper-1 هو 224 توكن، وما يزيد عليه يُقص صامتًا ويشوّه الناتج.
 // لذلك نرسل معجمًا مختصرًا لـwhisper-1 والمعجم الكامل لنماذج gpt-4o التي لا تقيّد الطول.
-const CORE_TERMS='تقرير مسبق، تقرير اليوم، احتياجات الخرسانة، ميزان مراجعة، دفتر أستاذ، مدير مالي، طلب ميزانية، التزام مورد، مطالبة مصروف، كنية الموظف';
+const CORE_TERMS='سعر، أسعار، عمود كردان، خلاطة، تقرير مسبق، تقرير اليوم، احتياجات الخرسانة، ميزان مراجعة، دفتر أستاذ، مدير مالي، طلب ميزانية، التزام مورد، مطالبة مصروف، كنية الموظف';
 const EXTRA_TERMS='بلوك، خرسانة جاهزة، خلاطات، مضخات، إنتاج البلوك، ديزل، وقود، لوحة سيارة، معدة، سائق، فاتورة، تحصيل، مبيعات، محاسبة، سيولة، مديونية، مخاطر مالية، قرار إداري، محضر اجتماع، عهدة، عقد وتجديد، صيانة، عطل، أمر إصلاح، قطع غيار، رواتب، موردون، موزعون، وكلاء';
 const SHORT_HINT=`مصطلحات مصنع بن حامد: ${CORE_TERMS}. اكتب الأرقام والتواريخ بوضوح.`;
 const FULL_HINT=`مصطلحات مصنع بن حامد: ${CORE_TERMS}، ${EXTRA_TERMS}. اكتب الأرقام والتواريخ والكميات بوضوح.`;
@@ -23,6 +23,16 @@ function buildForm(buffer,contentType,model,language){
 }
 
 export const TRANSCRIBE_TIMEOUT_MS=22000;
+
+// «سعر» و«شعر» متقاربتان صوتيًا وتُنتجان بحثًا عن صالونات شعر بدل قطع الغيار.
+// نصحّحهما فقط عند وجود مصطلح ميكانيكي في نفس الجملة حتى لا نفسد كلامًا مشروعًا.
+const MECHANICAL_CONTEXT=/عمود|كردان|فلتر|رولمان|بلي|مضخ|خلاط|محرك|موتور|سير|بطاري|هيدروليك|قطع غيار|جربوكس|كلتش|فرامل|صمام|بلف|ترس|خرطوم|كمبروسر|معده|معدة|شيول|حفار|قلاب/i;
+
+export function correctTranscription(text=''){
+  const value=String(text||'');
+  if(!MECHANICAL_CONTEXT.test(value))return value;
+  return value.replace(/(^|[\s،.:؛])شعر(?=[\s،.:؛]|$)/g,'$1سعر');
+}
 
 async function requestTranscription(buffer,contentType,model,language){
   const response=await fetch('https://api.openai.com/v1/audio/transcriptions',{
@@ -45,7 +55,7 @@ export async function transcribeTelegramVoice(buffer,contentType='audio/ogg',opt
     const{model,language}=attempts[index];
     try{
       const text=await requestTranscription(buffer,contentType,model,language);
-      if(text){enableTelegramVoiceReply(options.chatId);return{text,model,language:language||'auto',reason:''};}
+      if(text){enableTelegramVoiceReply(options.chatId);return{text:correctTranscription(text),model,language:language||'auto',reason:''};}
       lastError=new Error('التسجيل لم يحتوي كلامًا واضحًا');
     }catch(error){lastError=error;if([401,403].includes(Number(error.status)))return{text:'',reason:'auth',detail:error.message};if(Number(error.status)===429)return{text:'',reason:'quota',detail:error.message};if(index<attempts.length-1)await sleep(250);}
   }

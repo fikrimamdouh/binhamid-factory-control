@@ -21,7 +21,7 @@ test('product text and image searches run price and supplier research automatica
   assert.match(source,/sendDeepBusinessResults/);
   assert.match(source,/supplierPromise=sendDeepBusinessResults/);
   assert.match(source,/product_image_waiting/);
-  assert.match(source,/تحليل ChatGPT للصورة/);
+  assert.match(source,/تحليل الصورة/);
   assert.doesNotMatch(source,/supplier_search_city/);
 });
 
@@ -78,7 +78,7 @@ test('search widens by equipment type and brand so results are purchasable', asy
   assert.ok(queries.indexOf(queries.find(q => /Volvo/.test(q))) < queries.length - 1);
 });
 
-test('image reading reports ChatGPT brand equipment codes confidence and automatic search', async () => {
+test('image reading reports brand equipment codes confidence and automatic search', async () => {
   const vision = await read('api/_lib/product-image-identification.js');
   const assistant = await read('api/_lib/bot-product-assistant.js');
   assert.match(vision, /BRAND/);
@@ -86,7 +86,8 @@ test('image reading reports ChatGPT brand equipment codes confidence and automat
   assert.match(vision, /if\(brand&&!has\(brand\)\)query=/);
   assert.match(vision, /if\(equipment&&!has\(equipment\)\)query=/);
   assert.match(vision, /analysisPasses:passes/);
-  assert.match(assistant, /تحليل ChatGPT للصورة/);
+  assert.match(assistant, /تحليل الصورة/);
+  assert.doesNotMatch(assistant, /ChatGPT/);
   assert.match(assistant, /الماركة:/);
   assert.match(assistant, /المعدة:/);
   assert.match(assistant, /مراحل التحليل:/);

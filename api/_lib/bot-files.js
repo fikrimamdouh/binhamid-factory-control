@@ -14,7 +14,7 @@ import { commitDailyReportFromTelegram } from './routes/daily-report.js';
 import { requestDailyBackup } from './daily-backup-trigger.js';
 import { reportTypeLabel, reportDestination } from './bot-profile.js';
 import { capabilityAllowed } from './permissions.js';
-import { handleProductImage } from './bot-product-assistant.js';
+import { canUseProductAssistant, handleProductImage } from './bot-product-assistant.js';
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const plain=v=>String(v??'').replace(/<[^>]+>/g,'');
 // Supabase Storage object keys must be ASCII-safe. Arabic (or any non-ASCII)
@@ -228,9 +228,17 @@ export async function handleExcel(message,group,identity,stored){
   return result;
 }
 
+// صورة مصحوبة بوصف مستند تبقى في مسار الأرشفة، لا في بحث قطع الغيار.
+const DOCUMENT_CAPTION=/فاتور|عرض سعر|عروض اسعار|عروض أسعار|مستند|تقرير|كشف حساب|سند|شيك|عقد|اذن|إذن|بوليصه|بوليصة/i;
+const PHOTO_SEARCH_STATES=new Set(['','product_image_waiting','product_market_query','supplier_search_query','business_search_query','business_search_results']);
+
 export async function handleAttachment(message,group,identity,stored){
   const file=message.document||message.photo?.at(-1),downloaded=await downloadTelegramFile(file.file_id),caption=message.caption||'',session=message.photo?.length?(await select('bot_sessions',`channel=eq.telegram&chat_id=eq.${encodeURIComponent(String(message.chat.id))}&external_user_id=eq.${encodeURIComponent(String(identity.external_id||message.from.id))}&select=state&limit=1`).catch(()=>[]))?.[0]:null;
-  if(message.photo?.length&&(session?.state==='product_image_waiting'||/(بحث|ابحث).*(صوره|صورة).*(قطعه|قطعة|منتج)|قطعه.*بحث|قطعة.*بحث/i.test(caption))){return handleProductImage(message,identity,downloaded.buffer,message.document?.mime_type||downloaded.contentType);}
+  // مساعد شخصي: صورة قطعة تُفهم مباشرة بلا ضغط زر ولا رسالة تعليمات مسبقة.
+  const photoState=String(session?.state||'');
+  const askedByCaption=/(بحث|ابحث).*(صوره|صورة).*(قطعه|قطعة|منتج)|قطعه.*بحث|قطعة.*بحث/i.test(caption);
+  const impliedPartPhoto=canUseProductAssistant(identity)&&!DOCUMENT_CAPTION.test(caption)&&PHOTO_SEARCH_STATES.has(photoState);
+  if(message.photo?.length&&(photoState==='product_image_waiting'||askedByCaption||impliedPartPhoto)){return handleProductImage(message,identity,downloaded.buffer,message.document?.mime_type||downloaded.contentType);}
   const hash=sha256(downloaded.buffer),name=message.document?.file_name||`photo-${message.message_id}.jpg`,path=`telegram/${group.department||'unassigned'}/${new Date().toISOString().slice(0,10)}/${hash.slice(0,16)}-${safeFile(name)}`;await uploadObject(path,downloaded.buffer,message.document?.mime_type||downloaded.contentType);
   const reportType=/عرض سعر/.test(caption+name)?'quotation':/فاتور/.test(caption+name)?'invoice':'unclassified_document',rows=await insert('imports',[{source:'telegram',department:group.department||'unassigned',report_type:reportType,status:'received',original_name:name,mime_type:message.document?.mime_type||downloaded.contentType,file_path:path,file_hash:hash,row_count:0,error_count:0,warning_count:reportType==='unclassified_document'?1:0,summary:{caption},submitted_by:identity.user_id,source_chat_id:String(message.chat.id),source_message_id:String(message.message_id)}]);
   if(stored?.id&&rows?.[0]?.id)await patch('telegram_messages',`id=eq.${stored.id}`,{file_path:path,related_entity_type:'import',related_entity_id:rows[0].id}).catch(error=>console.warn('[telegram attachment message link]',error?.message||error));const text=`فهمت المستند وحفظت نسخته الأصلية.\nالنوع: <b>${esc(reportTypeLabel(reportType))}</b>\nالمسار: <b>${esc(reportDestination(reportType,group.department))}</b>\nالحالة: محفوظ للمراجعة ولم يُعتمد نهائيًا.`;await Promise.all([sendMessage(message.chat.id,text),relayToOwner(message.chat.id,downloaded.buffer,name,message.document?.mime_type||downloaded.contentType,`مستند وارد من Telegram\n${text}`,{importId:rows?.[0]?.id})]);return rows?.[0]||null;

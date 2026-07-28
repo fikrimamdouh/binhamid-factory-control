@@ -26,7 +26,7 @@ test('Telegram product flow searches observed prices and suppliers automatically
   assert.match(assistant,/لم يظهر سعر منشور موثوق؛ راجع الموردين والمحلات أدناه/);
 });
 
-test('Telegram image search uses ChatGPT vision then starts price and supplier research automatically',async()=>{
+test('Telegram image search uses vision then starts price and supplier research automatically',async()=>{
   const source=await read('api/_lib/bot-product-assistant.js');
   const vision=await read('api/_lib/product-image-identification.js');
   assert.match(source,/startProductImageAssistant/);
@@ -34,7 +34,8 @@ test('Telegram image search uses ChatGPT vision then starts price and supplier r
   assert.match(source,/product_image_waiting/);
   assert.match(source,/<code>\$1<\/code>/);
   assert.match(source,/callback_data:'proc:product_image'/);
-  assert.match(source,/تحليل ChatGPT للصورة/);
+  assert.match(source,/تحليل الصورة/);
+  assert.doesNotMatch(source,/ChatGPT/);
   assert.match(source,/await sendProductResearch\(message,identity,query/);
   assert.match(vision,/api\.openai\.com\/v1\/responses/);
   assert.match(vision,/type:'input_image'/);

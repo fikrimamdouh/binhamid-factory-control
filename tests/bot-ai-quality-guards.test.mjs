@@ -91,3 +91,54 @@ test('voice replies are short, spoken as native Telegram audio, and never fail s
   assert.deepEqual(detectVoiceFormat(Buffer.from([0xff,0xfb,0x90,0x00])),{contentType:'audio/mpeg',filename:'reply.mp3'});
   assert.match(telegram,/telegram voice synthesis/);
 });
+
+test('a price request reaches the price assistant instead of being swallowed by the directory',async()=>{
+  const gateway=await read('api/_lib/telegram-webhook-gateway.js');
+  assert.match(gateway,/canUseProductAssistant\(identity\)&&await handleProductTextCommand\(message,identity,raw\)/);
+  const productAt=gateway.indexOf('handleProductTextCommand(message,identity,raw)');
+  const directoryAt=gateway.indexOf('return handleDirectBusinessSearchCommand(message,identity,raw)');
+  assert.ok(productAt>0&&productAt<directoryAt,'price assistant must be tried before the directory');
+});
+
+test('a city survives the full stop that speech transcription adds',async()=>{
+  const { directBusinessSearchCity }=await import('../api/_lib/bot-business-directory-flow.js');
+  assert.equal(directBusinessSearchCity('ابحث لي على سعر عمود كردان يكون في نجران.'),'نجران');
+  assert.equal(directBusinessSearchCity('سعر عمود كردان في جدة!'),'جدة');
+  assert.equal(directBusinessSearchCity('سعر عمود كردان'),'كل السعودية');
+});
+
+test('a homophone is only corrected inside a mechanical sentence',async()=>{
+  const { correctTranscription }=await import('../api/_lib/bot-voice.js');
+  assert.match(correctTranscription('ابحث لي على شعر عمود كردان خمسين سنتي.'),/سعر عمود كردان/);
+  assert.equal(correctTranscription('مركز تركيب الشعر الطبيعي'),'مركز تركيب الشعر الطبيعي');
+  assert.equal(correctTranscription('صالون شعر في نجران'),'صالون شعر في نجران');
+});
+
+test('a new part name is never replaced by the previous search',async()=>{
+  const flow=await read('api/_lib/bot-business-directory-flow.js');
+  assert.match(flow,/const fallback=PROCUREMENT_HINT\.test\(fresh\)&&!NON_MARKET_HINT\.test\(fresh\)\?fresh:priorQuery/);
+  assert.match(flow,/const query=GENERIC_REFERENCE\.test\(extracted\)\?priorQuery:extracted\|\|fallback/);
+});
+
+test('the bot never names its AI provider to the user and speaks only the closing summary',async()=>{
+  const [assistant,flow]=await Promise.all([read('api/_lib/bot-product-assistant.js'),read('api/_lib/bot-business-directory-flow.js')]);
+  assert.doesNotMatch(assistant,/ChatGPT/);
+  assert.doesNotMatch(flow,/ChatGPT/);
+  const { voiceSummary }=await import('../api/_lib/bot-product-assistant.js');
+  const priced=voiceSummary('عمود كردان',{priceLevel:{available:true,overall:{typical:1250,typicalLow:900,typicalHigh:1600,sampleCount:6}}},[1,2,3]);
+  assert.match(priced,/1,250 ريال/);
+  assert.match(priced,/3 جهة/);
+  assert.match(voiceSummary('عمود كردان',null,[]),/لم أجد سعرًا منشورًا/);
+  assert.match(flow,/\{\.\.\.keyboard\(buttons\),disable_voice_reply:true\}/);
+  assert.match(assistant,/body\.slice\(0,3900\),\{disable_voice_reply:true\}/);
+});
+
+test('a bare part photo is understood without pressing a button first',async()=>{
+  const files=await read('api/_lib/bot-files.js');
+  assert.match(files,/impliedPartPhoto=canUseProductAssistant\(identity\)&&!DOCUMENT_CAPTION\.test\(caption\)&&PHOTO_SEARCH_STATES\.has\(photoState\)/);
+  assert.match(files,/photoState==='product_image_waiting'\|\|askedByCaption\|\|impliedPartPhoto/);
+  assert.match(files,/فاتور\|عرض سعر/);
+  const assistant=await read('api/_lib/bot-product-assistant.js');
+  assert.match(assistant,/ابعت صورة القطعة أو الملصق/);
+  assert.doesNotMatch(assistant,/سيحللها/);
+});

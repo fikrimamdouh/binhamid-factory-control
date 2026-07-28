@@ -21,6 +21,8 @@ test('Storage failure does not discard an already parsed workbook',async()=>{
 
 test('product photos route through image identification instead of generic attachment storage',async()=>{
   const source=await read('api/_lib/bot-files.js');
-  assert.match(source,/session\?\.state==='product_image_waiting'/);
+  assert.match(source,/photoState==='product_image_waiting'/);
+  assert.match(source,/impliedPartPhoto=canUseProductAssistant\(identity\)/);
+  assert.match(source,/DOCUMENT_CAPTION/);
   assert.match(source,/return handleProductImage\(message,identity,downloaded\.buffer/);
 });

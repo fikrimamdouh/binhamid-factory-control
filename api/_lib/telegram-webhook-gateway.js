@@ -5,6 +5,7 @@ import { sendMessage, answerCallback, downloadTelegramFile } from './telegram.js
 import { ensureTelegramGroup, ensureTelegramIdentity, storeTelegramMessage } from './bot-webhook-core.js';
 import { getBotSession, clearMaintenanceSession } from './bot-maintenance.js';
 import { directBusinessSearchRequested, handleDirectBusinessSearchCommand, showProcurementMenu, continueProcurementSession, handleProcurementCallback, handleProcurementTextCommand } from './bot-procurement-secure.js';
+import { canUseProductAssistant, handleProductTextCommand } from './bot-product-assistant.js';
 import { showSalesMenu, startSalesAction, continueSalesSession, confirmSalesOrder, cancelSalesDraft, handleSalesTextCommand, startGuidedSales, continueGuidedSales, handleGuidedSalesCallback, isStructuredSalesOrder, isNaturalSalesMessage, handleStructuredSalesOrder, handleNaturalSalesMessage } from './bot-sales-secure.js';
 import { showMechanicMenu, startMechanicAction, continueMechanicSession, confirmSparePartsRequest, handleMechanicTextCommand } from './bot-mechanic-secure.js';
 import { showAttendanceMenu, continueAttendanceSession, handleAttendanceLocation, handleAttendancePhoto, handleAttendanceCallback } from './bot-attendance-secure.js';
@@ -95,7 +96,12 @@ async function prepareVoiceMessage(message){
 
 async function executeExplicitIntent(intent,message,identity,raw){
   const role=identity.role||'pending',value=norm(raw);
-  if(intent.intent==='business_search')return handleDirectBusinessSearchCommand(message,identity,raw);
+  // طلب فيه اسم قطعة أو كلمة سعر يجب أن يمر على مساعد الأسعار أولًا، وهو نفسه يشغّل
+  // بحث الموردين بالتوازي. قبل هذا كان دليل الشركات يبتلع الطلب فلا يظهر أي سعر إطلاقًا.
+  if(intent.intent==='business_search'){
+    if(canUseProductAssistant(identity)&&await handleProductTextCommand(message,identity,raw))return true;
+    return handleDirectBusinessSearchCommand(message,identity,raw);
+  }
   if(intent.intent==='gps'){if(!GPS_ROLES.has(role)){await sendMessage(message.chat.id,'ليست لديك صلاحية عرض GPS.');return true;}await sendGpsFleetStatus(message.chat.id,'',identity);return true;}
   if(intent.intent==='attendance'){await showAttendanceMenu(message,identity);return true;}
   if(intent.intent==='fuel'){if(await handleFuelTextCommand(message,identity,raw))return true;await showFuelMenu(message,identity);return true;}
