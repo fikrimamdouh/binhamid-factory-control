@@ -144,6 +144,7 @@ async function handleCallback(update){
   if(action==='gps')return sendGpsFleetStatus(message.chat.id,value==='fleet'?'':value);
   if(action==='reportfile'){const[kind,id]=String(value||'').split('|');return sendStoredReportFile(message.chat.id,id,identity,kind||'daily');}
   if(action==='report'){
+    if(value==='fuel')return showFuelMenu({...message,from:query.from},identity);
     if(value==='concrete_file')return sendStoredReportRequest(message.chat.id,identity,'concrete');
     if(value==='block_file')return sendStoredReportRequest(message.chat.id,identity,'block');
     if(value==='daily_file')return sendStoredReportRequest(message.chat.id,identity,'daily');
