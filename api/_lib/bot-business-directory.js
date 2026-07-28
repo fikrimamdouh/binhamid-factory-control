@@ -42,17 +42,17 @@ const BUSINESS_SCHEMA={
 };
 
 function normalizeBusiness(row={},index=0){
-  const website=safeUrl(row.website),sourceUrl=safeUrl(row.source_url);
+  const website=safeUrl(row.website),sourceUrl=safeUrl(row.source_url||row.sourceUrl);
   return{
     id:clean(row.id||`web-${index}`,120),name:clean(row.name||'شركة أو مورد',180),category:clean(row.category,140),city:clean(row.city,100),address:clean(row.address,260),phone:clean(row.phone,100),
-    website,sourceUrl,sourceType:clean(row.source_type||'other',80),confidence:clean(row.confidence||'low',20),evidence:clean(row.evidence,300),
+    website,sourceUrl,sourceType:clean(row.source_type||row.sourceType||'other',80),confidence:clean(row.confidence||'low',20),evidence:clean(row.evidence,300),
     rating:Number(row.rating||0),reviews:Number(row.reviews||0),businessStatus:clean(row.businessStatus||'',60),matchRank:Number(row.matchRank??1),origin:clean(row.origin||'web',30)
   };
 }
 
 export function mergeBusinessResults(places=[],webBusinesses=[]){
   const rows=[
-    ...(places||[]).map((row,index)=>normalizeBusiness({...row,source_type:'google_places',source_url:row.sourceUrl||'',origin:'places',confidence:row.phone?'high':'medium'},index)),
+    ...(places||[]).map((row,index)=>normalizeBusiness({...row,source_type:'google_places',origin:'places',confidence:row.phone?'high':'medium'},index)),
     ...(webBusinesses||[]).map((row,index)=>normalizeBusiness({...row,origin:'web'},index))
   ];
   const merged=[];
@@ -109,4 +109,41 @@ export async function researchBusinessDirectory(query,{city='نجران'}={}){
   const businesses=(parsed.businesses||[]).map(normalizeBusiness).filter(row=>row.name&&row.name!=='شركة أو مورد').slice(0,35);
   const sources=(data.output||[]).filter(item=>item.type==='web_search_call').flatMap(item=>item.action?.sources||[]).map(source=>({url:safeUrl(source.url),title:clean(source.title||'',160)})).filter(source=>source.url);
   return{businesses,scopeNote:clean(parsed.scope_note,500),sources:sources.slice(0,30),configured:true};
+}
+
+function googleQueries(query,city){
+  const location=city==='كل السعودية'?'السعودية':`${city} السعودية`;
+  return [...new Set([
+    `${query} ${location}`,
+    `شركة مؤسسة مصنع وكيل موزع مورد ${query} ${location}`,
+    `متجر محل ورشة مستودع ${query} ${location}`
+  ])];
+}
+async function googleTextSearch(textQuery,matchRank){
+  const response=await fetch('https://places.googleapis.com/v1/places:searchText',{
+    method:'POST',headers:{'Content-Type':'application/json','X-Goog-Api-Key':config.placesKey,'X-Goog-FieldMask':'places.id,places.displayName,places.formattedAddress,places.nationalPhoneNumber,places.internationalPhoneNumber,places.rating,places.userRatingCount,places.businessStatus,places.primaryTypeDisplayName,places.websiteUri'},
+    body:JSON.stringify({textQuery,pageSize:20,languageCode:'ar',regionCode:'SA',includePureServiceAreaBusinesses:true}),signal:AbortSignal.timeout(9000)
+  });
+  const data=await response.json().catch(()=>({}));
+  if(!response.ok)throw Object.assign(new Error(data?.error?.message||'تعذر الوصول إلى Google Places.'),{status:Number(response.status)||502,code:'GOOGLE_BUSINESS_DIRECTORY_FAILED'});
+  return(data.places||[]).filter(place=>place.businessStatus!=='CLOSED_PERMANENTLY').map(place=>({
+    id:place.id||'',name:place.displayName?.text||'جهة تجارية',category:place.primaryTypeDisplayName?.text||'',address:place.formattedAddress||'',phone:place.internationalPhoneNumber||place.nationalPhoneNumber||'',website:place.websiteUri||'',
+    rating:Number(place.rating||0),reviews:Number(place.userRatingCount||0),businessStatus:place.businessStatus||'',matchRank,sourceType:'google_places',confidence:place.internationalPhoneNumber||place.nationalPhoneNumber?'high':'medium',origin:'places'
+  }));
+}
+export async function searchGoogleBusinessDirectory(query,{city='نجران'}={}){
+  if(!config.placesKey)return{businesses:[],queries:[],configured:false};
+  const queries=googleQueries(query,city),attempts=await Promise.allSettled(queries.map((text,index)=>googleTextSearch(text,index))),businesses=attempts.filter(item=>item.status==='fulfilled').flatMap(item=>item.value);
+  if(!businesses.length&&attempts.every(item=>item.status==='rejected'))throw attempts.find(item=>item.status==='rejected')?.reason||new Error('تعذر دليل الأماكن');
+  return{businesses,queries,configured:true};
+}
+
+export async function searchComprehensiveBusinessDirectory(query,{city='نجران'}={}){
+  const attempts=await Promise.allSettled([searchGoogleBusinessDirectory(query,{city}),researchBusinessDirectory(query,{city})]);
+  const google=attempts[0].status==='fulfilled'?attempts[0].value:{businesses:[],queries:[],configured:Boolean(config.placesKey),error:attempts[0].reason};
+  const web=attempts[1].status==='fulfilled'?attempts[1].value:{businesses:[],sources:[],scopeNote:'',configured:Boolean(config.openaiKey),error:attempts[1].reason};
+  if(!google.configured&&!web.configured)throw Object.assign(new Error('البحث الشامل غير مفعّل. يلزم OPENAI_API_KEY أو GOOGLE_PLACES_API_KEY.'),{status:503,code:'BUSINESS_DIRECTORY_NOT_CONFIGURED'});
+  const businesses=mergeBusinessResults(google.businesses,web.businesses).slice(0,30);
+  if(!businesses.length&&google.error&&web.error)throw Object.assign(new Error('تعذر الوصول إلى مصادر دليل الأعمال الآن.'),{status:502,code:'BUSINESS_DIRECTORY_ALL_SOURCES_FAILED',causes:[google.error?.message,web.error?.message].filter(Boolean)});
+  return{businesses,googleQueries:google.queries||[],webSources:web.sources||[],scopeNote:web.scopeNote||'',sourcesUsed:[google.businesses?.length?'Google Places':'',web.businesses?.length?'المواقع والأدلة على الويب':''].filter(Boolean)};
 }
