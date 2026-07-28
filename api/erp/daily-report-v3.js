@@ -111,7 +111,7 @@ export function payloadFromAnalysis(analysis,reportDate){
 const saleCoreKey=row=>[clean(row?.invoiceNo??row?.invoice_no??row?.invoice,120),clean(row?.customerCode??row?.customer_code,120),erpSaleType({salesType:row?.salesType??row?.sales_type,kind:row?.kind,item:row?.item??row?.item_name})].join('|');
 const cashCoreKey=row=>{
   const treasury=clean(row?.treasuryCode??row?.treasury_code,40),account=clean(row?.accountCode??row?.account_code,120),voucher=clean(row?.voucherNo??row?.voucher_no??row?.receipt,120),type=norm(row?.movementType??row?.movement_type??row?.type);
-  if(voucher)return['voucher',treasury,account,voucher,type].join('|');
+  if(voucher)return['voucher',treasury,account,voucher].join('|');
   return['fallback',treasury,account,type,norm(row?.description??row?.notes),money(row?.debit??row?.amount),money(row?.credit)].join('|');
 };
 const saleValuesEqual=(a,b)=>qty(a?.quantity)===qty(b?.quantity)&&money(a?.amount)===money(b?.amount);
@@ -212,8 +212,8 @@ async function ensureImport({fileHash,storagePath,originalName,reportType,summar
 
 async function processAggregate({buffer,originalName,sourceHash,workbook,analysis,classification,reportType}){
   const split=splitAggregatedAnalysis(analysis);
-  if(split.undated.length)throw Object.assign(new Error(`الملف المجمع يحتوي ${split.undated.length} حركة مبيعات أو خزينة بلا تاريخ داخل السطر. لم يُرحّل شيء.`),{status:422,code:'ERP_AGGREGATE_UNDATED_TRANSACTIONS',details:split.undated.slice(0,50)});
   if(split.sourceDates.length<2)return null;
+  if(split.undated.length)throw Object.assign(new Error(`الملف المجمع يحتوي ${split.undated.length} حركة مبيعات أو خزينة بلا تاريخ داخل السطر. لم يُرحّل شيء.`),{status:422,code:'ERP_AGGREGATE_UNDATED_TRANSACTIONS',details:split.undated.slice(0,50)});
   const plans=[];
   for(const group of split.groups){const batch=await postedBatch(group.reportDate),existingRows=await rowsForBatch(batch?.id),plan=buildReconciliationPlan(existingRows.sales,existingRows.cash,group.analysis,batch?.id||'');plans.push({...group,batch,existingRows,plan});}
   const conflicts=plans.flatMap(item=>item.plan.conflicts.map(conflict=>({reportDate:item.reportDate,...conflict})));
@@ -237,7 +237,7 @@ async function processAggregate({buffer,originalName,sourceHash,workbook,analysi
     if(!posting?.ok)throw Object.assign(new Error(clean(posting?.reason,500)||`فشل ترحيل يوم ${item.reportDate}`),{status:422,code:'ERP_AGGREGATE_DAY_FAILED',details:{reportDate:item.reportDate,posting}});
     results.push({reportDate:item.reportDate,status:posting.duplicate?'duplicate':'posted',batchId:posting.postedBatchId||posting.existingImportId||null,matchedSales:0,matchedCash:0,datesCorrected:0,addedSales:item.analysis.sales.length,addedCash:item.analysis.cashMovements.length});
   }
-  return{ok:true,aggregate:true,fileHash:sourceHash,storagePath,baseline:split.baseline,sourceDates:split.sourceDates,days:results,totals:results.reduce((out,row)=>{out.matched+=row.matchedSales+row.matchedCash;out.added+=row.addedSales+row.addedCash;out.datesCorrected+=row.datesCorrected;return out;},{matched:0,added:0,datesCorrected:0})};
+  return{ok:true,aggregate:true,duplicate:false,upgraded:true,reportDate:split.sourceDates.at(-1),fileHash:sourceHash,storagePath,baseline:split.baseline,sourceDates:split.sourceDates,days:results,totals:results.reduce((out,row)=>{out.matched+=row.matchedSales+row.matchedCash;out.added+=row.addedSales+row.addedCash;out.datesCorrected+=row.datesCorrected;return out;},{matched:0,added:0,datesCorrected:0})};
 }
 
 export default async function handler(req,res){
