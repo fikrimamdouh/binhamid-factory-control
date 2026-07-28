@@ -59,16 +59,26 @@ function sourceLabel(type,origin){
 }
 function confidenceLabel(value){return({high:'مرتفعة',medium:'متوسطة',low:'محدودة'}[String(value||'').toLowerCase()]||'محدودة');}
 function resultCard(row,index){
-  const tel=callable(row.phone),phone=tel?`📞 <a href="tel:${esc(tel)}">${esc(row.phone)}</a>`:'📞 الهاتف غير منشور';
+  const tel=callable(row.phone),phone=tel?`📞 <a href="tel:${esc(tel)}">${esc(clean(row.phone,50))}</a>`:'📞 الهاتف غير منشور';
   const rating=row.rating?`⭐ ${Number(row.rating).toFixed(1)}${row.reviews?` (${row.reviews})`:''}`:'';
   return[
-    `<b>${index}. ${esc(row.name)}</b>${rating?` — ${rating}`:''}`,
-    row.category?`🏷️ ${esc(row.category)}`:null,
+    `<b>${index}. ${esc(clean(row.name,100))}</b>${rating?` — ${rating}`:''}`,
+    row.category?`🏷️ ${esc(clean(row.category,80))}`:null,
     phone,
-    row.address?`📍 ${esc(row.address)}`:row.city?`📍 ${esc(row.city)}`:null,
+    row.address?`📍 ${esc(clean(row.address,160))}`:row.city?`📍 ${esc(clean(row.city,80))}`:null,
     `🔎 ${esc(sourceLabel(row.sourceType,row.origin))} — ثقة ${esc(confidenceLabel(row.confidence))}`,
-    row.evidence?`<i>${esc(row.evidence).slice(0,180)}</i>`:null
+    row.evidence?`<i>${esc(clean(row.evidence,130))}</i>`:null
   ].filter(Boolean).join('\n');
+}
+function groupResultCards(rows){
+  const pages=[];let current=[],length=0;
+  for(let index=0;index<rows.length;index++){
+    const card=resultCard(rows[index],index+1),added=(current.length?2:0)+card.length;
+    if(current.length&&length+added>2850){pages.push(current);current=[];length=0;}
+    current.push(card);length+=(current.length>1?2:0)+card.length;
+  }
+  if(current.length)pages.push(current);
+  return pages;
 }
 function cityKeyboard(){return keyboard([
   [{text:'نجران',callback_data:'supplier_city:najran'},{text:'خميس مشيط',callback_data:'supplier_city:khamis'}],
@@ -102,18 +112,17 @@ export async function sendDeepBusinessResults(message,identity,query,city){
   await logSearch(message,identity,query,city,result).catch(()=>{});
   await setSession(message.chat.id,identity?.external_id||message.from.id,'business_search_results',{query,city,businesses:result.businesses.slice(0,30),sourcesUsed:result.sourcesUsed,startedAt:now()});
   if(!result.businesses.length)return sendMessage(message.chat.id,'لم أجد جهة منشورة يمكن التحقق منها. وسّع المدينة أو اكتب النشاط والماركة بصورة أدق.',keyboard([[{text:'بحث في كل السعودية',callback_data:'supplier_city:saudi'},{text:'بحث جديد',callback_data:'proc:search'}]]));
-  const chunks=[];for(let index=0;index<result.businesses.length;index+=5)chunks.push(result.businesses.slice(index,index+5));
-  for(let page=0;page<chunks.length;page++){
-    const start=page*5,header=[
-      `<b>نتائج البحث الشامل: ${esc(query)}</b>`,
-      `📍 ${esc(city)} — <b>${result.businesses.length}</b> جهة${chunks.length>1?` — صفحة ${page+1}/${chunks.length}`:''}`,
-      page===0&&result.sourcesUsed.length?`المصادر: ${esc(result.sourcesUsed.join(' + '))}`:null,
-      page===0&&result.scopeNote?`<i>${esc(result.scopeNote).slice(0,350)}</i>`:null,
+  const pages=groupResultCards(result.businesses);
+  for(let page=0;page<pages.length;page++){
+    const header=[
+      `<b>نتائج البحث الشامل: ${esc(clean(query,180))}</b>`,
+      `📍 ${esc(clean(city,80))} — <b>${result.businesses.length}</b> جهة${pages.length>1?` — صفحة ${page+1}/${pages.length}`:''}`,
+      page===0&&result.sourcesUsed.length?`المصادر: ${esc(clean(result.sourcesUsed.join(' + '),180))}`:null,
+      page===0&&result.scopeNote?`<i>${esc(clean(result.scopeNote,260))}</i>`:null,
       '━━━━━━━━━━━━━━━'
     ].filter(Boolean).join('\n');
-    const body=chunks[page].map((row,index)=>resultCard(row,start+index+1)).join('\n\n');
-    const last=page===chunks.length-1,buttons=last?[[{text:'بحث جديد',callback_data:'proc:search'},{text:'مدينة أخرى',callback_data:'supplier_city:other'}]]:[];
-    await sendMessage(message.chat.id,`${header}\n${body}${last?'\n━━━━━━━━━━━━━━━\n<i>النتائج المنشورة لا تعني حصر السوق بالكامل؛ تحقق بالاتصال والسجل التجاري قبل التعاقد.</i>':''}`.slice(0,3900),keyboard(buttons));
+    const last=page===pages.length-1,footer=last?'\n━━━━━━━━━━━━━━━\n<i>النتائج المنشورة لا تعني حصر السوق بالكامل؛ تحقق بالاتصال والسجل التجاري قبل التعاقد.</i>':'',buttons=last?[[{text:'بحث جديد',callback_data:'proc:search'},{text:'مدينة أخرى',callback_data:'supplier_city:other'}]]:[];
+    await sendMessage(message.chat.id,`${header}\n${pages[page].join('\n\n')}${footer}`,keyboard(buttons));
   }
   return result.businesses;
 }
