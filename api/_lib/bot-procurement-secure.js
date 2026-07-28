@@ -12,6 +12,7 @@ const urgencyLabel=value=>({normal:'عادي',urgent:'عاجل',critical:'حرج
 const canUse=identity=>Boolean(identity?.active&&USE_ROLES.has(identity.role));
 const canCreate=identity=>Boolean(identity?.active&&CREATE_ROLES.has(identity.role));
 const adaptedIdentity=identity=>['procurement','warehouse'].includes(identity?.role)?{...identity,role:'mechanic',actual_role:identity.role}:identity;
+const NATURAL_MARKET_REQUEST=/(?:ابحث|إبحث|تبحث|دور|دوّر|عاوز|عايز|محتاج|هات|جيب).*(?:عمود|كردان|قطعه|قطعة|فلتر|رولمان|بلي|سير|بطاري|كاوتش|كفر|اطار|إطار|خرطوم|هيدروليك|طلمب|مضخ|موتور|محرك|صمام|بلف|ترس|جربوكس|جير|كلتش|فرامل|كمبروسر|شركة|شركه|مصنع|مورد|وكيل|موزع|محل|ورشه|ورشة|سعر|اسعار|أسعار|عرض سعر|عروض اسعار|عروض أسعار)/i;
 async function deny(message,identity,create=false){
   await clearMaintenanceSession(message.chat.id,identity?.external_id||message.from?.id).catch(()=>{});
   return sendMessage(message.chat.id,create?'إنشاء البحث وطلبات عرض السعر متاح للمشتريات والمخزن والورشة والإدارة.':'عرض الموردين وطلبات الأسعار متاح للمشتريات والمخزن والورشة والإدارة والمحاسب.');
@@ -26,7 +27,7 @@ export async function showProcurementMenu(message,identity){
   if(!canUse(identity))return deny(message,identity,false);
   return sendMessage(message.chat.id,'اختر العملية المطلوبة. البحث الشامل يجمع المواقع الرسمية للشركات والمصانع والوكلاء والأدلة التجارية مع دليل الأماكن، ثم يوحد النتائج داخل البوت. لا توجد روابط خارجية؛ تظهر الأسماء وأرقام الاتصال والعناوين والمصدر داخل المحادثة. السعر يتأكد بالاتصال قبل الشراء.',procurementMenu());
 }
-export function directBusinessSearchRequested(text=''){return Boolean(extractDirectBusinessSearchQuery(text));}
+export function directBusinessSearchRequested(text=''){return Boolean(extractDirectBusinessSearchQuery(text)||NATURAL_MARKET_REQUEST.test(String(text||'')));}
 export async function handleDirectBusinessSearchCommand(message,identity,text){
   if(!directBusinessSearchRequested(text))return false;
   if(!canCreate(identity)){await deny(message,identity,true);return true;}
