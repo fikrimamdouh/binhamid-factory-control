@@ -23,14 +23,14 @@ async function requestTranscription(buffer,contentType,model){
   return String(data?.text||'').trim();
 }
 
-export async function transcribeTelegramVoice(buffer,contentType='audio/ogg'){
+export async function transcribeTelegramVoice(buffer,contentType='audio/ogg',options={}){
   if(!config.openaiKey)return{text:'',reason:'missing_key',detail:'OPENAI_API_KEY غير مضبوط في Vercel'};
   const models=[config.transcribeModel,'gpt-4o-mini-transcribe','whisper-1'].filter((value,index,array)=>value&&array.indexOf(value)===index).slice(0,2);
   let lastError=null;
   for(let index=0;index<models.length;index++){
     try{
       const text=await requestTranscription(buffer,contentType,models[index]);
-      if(text){enableTelegramVoiceReply();return{text,model:models[index],reason:''};}
+      if(text){if(options.chatId)enableTelegramVoiceReply(options.chatId);return{text,model:models[index],reason:''};}
       lastError=new Error('التسجيل لم يحتوي كلامًا واضحًا');
     }catch(error){lastError=error;if([401,403].includes(Number(error.status)))return{text:'',reason:'auth',detail:error.message};if(Number(error.status)===429)return{text:'',reason:'quota',detail:error.message};if(index<models.length-1)await sleep(250);}
   }
