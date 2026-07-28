@@ -1,0 +1,43 @@
+name: Diagnose upload report menu
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/diagnose-upload-report-menu.yml
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Locate upload and report menu paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .github/diagnostics
+          {
+            echo '=== exact menu text ==='
+            grep -RIn --exclude-dir=node_modules --exclude-dir=.git -E 'اختر قسم التقارير|التقارير اليومية|التقارير المالية|تقارير العملاء|تقارير الديزل' api scripts public tests || true
+            echo
+            echo '=== document handlers ==='
+            grep -RIn --exclude-dir=node_modules --exclude-dir=.git -E 'message\.document|document\?\.|document\)|getFile|file_id|reportKeyboard\(|reportsKeyboard|report_menu|reports_menu' api scripts public tests || true
+            echo
+            echo '=== report keyboard calls ==='
+            grep -RIn --exclude-dir=node_modules --exclude-dir=.git -E 'reportKeyboard\(|اختر التقرير|قسم التقارير' api scripts public tests || true
+          } > .github/diagnostics/upload-report-menu.txt
+      - name: Save diagnosis
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm -f .github/workflows/diagnose-upload-report-menu.yml
+          git add .github/diagnostics/upload-report-menu.txt .github/workflows/diagnose-upload-report-menu.yml
+          git commit -m "chore: record upload report menu diagnosis [skip ci]"
+          git pull --rebase origin main
+          git push origin HEAD:main
