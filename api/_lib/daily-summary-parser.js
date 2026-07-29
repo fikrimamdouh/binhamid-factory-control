@@ -110,7 +110,7 @@ const cashColumns=row=>isCashHeader(row)?{
   debit:headerIndex(row,['مدين']),credit:headerIndex(row,['دائن']),accountName:headerIndex(row,['اسم الحساب']),accountType:headerIndex(row,['نوع الحساب','توع الحساب']),accountCode:headerIndex(row,['رقم الحساب','كود العميل','رقم العميل']),description:headerIndex(row,['البيان']),movementType:headerIndex(row,['نوع الحركة']),voucherNo:headerIndex(row,['رقم الاذن','رقم الإذن','رقم السند']),movementDate:headerIndex(row,['التاريخ','تاريخ الحركة'])
 }:null;
 function parseTreasurySection(rows,sheetName){
-  const movements=[],treasuries=[];let treasuryCode='',treasuryName='',opening=null,columns=null,currentBankCode='',currentBankName='';
+  const movements=[],treasuries=[];let treasuryCode='',treasuryName='',opening=null,columns=null,currentBankName='';
   const saveTreasury=closing=>{
     if(!treasuryCode)return;
     const key=[treasuryCode,opening,closing].join('|');
@@ -127,8 +127,8 @@ function parseTreasurySection(rows,sheetName){
     const debit=number(row[columns.debit])||0,credit=number(row[columns.credit])||0;if(debit<=0&&credit<=0)continue;
     const accountName=clean(row[columns.accountName],500),accountType=clean(row[columns.accountType],150),accountCode=code(row[columns.accountCode]),description=clean(row[columns.description],1000),movementType=clean(row[columns.movementType],180),voucherNo=code(row[columns.voucherNo]),movementDate=dateValue(row[columns.movementDate],true)||dateInRow(row),isBank=includes(movementType,'بنك')||includes(accountType,'بنك');
     if(!accountName&&!movementType)continue;
-    if(isBank&&includes(accountType,'بنك')&&accountCode){currentBankCode=accountCode;currentBankName=accountName;}
-    const effectiveCode=isBank?(currentBankCode||accountCode||'BANK'):treasuryCode,effectiveName=isBank?(currentBankName||'حركات بنكية'):treasuryName;
+    if(isBank&&includes(accountType,'بنك')&&accountName)currentBankName=accountName;
+    const effectiveCode=isBank?'105':treasuryCode,effectiveName=isBank?(currentBankName||'البنك'):treasuryName;
     const isCustomer=includes(accountType,'عميل'),isCustomerCollection=isCustomer&&debit>0&&credit===0&&includes(movementType,'استلام','مدين','بنك');
     movements.push({sheet:sheetName,row:index+1,reportDate:movementDate,treasuryCode:effectiveCode,treasuryName:effectiveName,debit:round(debit,2),credit:round(credit,2),accountName,accountType,accountCode,description,movementType,voucherNo,movementDate,paymentMethod:isBank?'bank':effectiveCode==='104'?'pos':'cash',isBank,isCustomerCollection});
   }
