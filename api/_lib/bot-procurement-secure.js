@@ -1,7 +1,7 @@
 import { sendMessage, keyboard } from './telegram.js';
 import { clearMaintenanceSession } from './bot-maintenance.js';
 import * as legacy from './bot-procurement.js';
-import { canUseProductAssistant, continueProductAssistant, handleProductTextCommand, startProductAssistant, startProductImageAssistant } from './bot-product-assistant.js';
+import { canUseProductAssistant, continueProductAssistant, handleProductTextCommand, sendProductResearch, startProductAssistant, startProductImageAssistant } from './bot-product-assistant.js';
 import { continueDeepBusinessSearch, extractDirectBusinessSearchQuery, handleDeepBusinessCallback, handleDirectBusinessSearch, isDeepBusinessState, startDeepBusinessSearch } from './bot-business-directory-flow.js';
 
 const USE_ROLES=new Set(['admin','manager','accountant','mechanic','procurement','warehouse']);
@@ -59,6 +59,13 @@ export async function handleProcurementCallback(message,from,identity,action,val
   const callbackMessage={...message,from};
   if(action==='proc'&&['product','price','rfq','open'].includes(value))return startProductAssistant(callbackMessage,identity);
   if(action==='proc'&&value==='product_image')return startProductImageAssistant(callbackMessage,identity);
+  // التوسع للخليج باختيار صريح من المستخدم، فالافتراضي هو السوق السعودي وحده.
+  if(action==='market_scope'){
+    if(!canUseProductAssistant(identity))return deny(callbackMessage,identity,true);
+    const query=decodeURIComponent(String(value||'')).trim();
+    if(!query)return startProductAssistant(callbackMessage,identity);
+    return sendProductResearch(callbackMessage,identity,query,'كل السعودية',{scope:'gulf'});
+  }
   if(action==='proc'&&value==='search')return canCreate(identity)?startDeepBusinessSearch(callbackMessage,identity):deny(callbackMessage,identity,true);
   if(action==='supplier_city'&&!canCreate(identity))return deny(callbackMessage,identity,true);
   if(await handleDeepBusinessCallback(message,from,identity,action,value))return true;

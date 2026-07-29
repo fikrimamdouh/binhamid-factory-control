@@ -131,7 +131,7 @@ test('the bot never names its AI provider to the user and speaks only the closin
   assert.match(priced,/3 جهة/);
   assert.match(voiceSummary('عمود كردان',null,[]),/لم أجد سعرًا منشورًا/);
   assert.match(flow,/\{\.\.\.keyboard\(buttons\),disable_voice_reply:true\}/);
-  assert.match(assistant,/body\.slice\(0,3900\),\{disable_voice_reply:true\}/);
+  assert.match(assistant,/body\.slice\(0,3900\),\{\.\.\.\(gulfButton\|\|\{\}\),disable_voice_reply:true\}/);
 });
 
 test('a bare part photo is understood without pressing a button first',async()=>{
@@ -370,4 +370,19 @@ test('a school, a kindergarten and a poultry shop never appear in a bearings sea
   assert.equal(relevanceScore({name:'رجلاء',category:'مدرسة'},terms),-1);
   const flow=await read('api/_lib/bot-business-directory-flow.js');
   assert.match(flow,/لا يوجد في/,'an empty result must be stated honestly');
+});
+
+test('the price search stays inside Saudi Arabia unless the user asks to widen',async()=>{
+  const fast=await read('api/_lib/product-market-research-fast.js');
+  assert.match(fast,/scope==='gulf'/,'the scope must be a real branch, not a fixed instruction');
+  assert.match(fast,/داخل السوق السعودي فقط/);
+  assert.match(fast,/لا تدرج بائعًا خارج السعودية إطلاقًا/);
+  assert.doesNotMatch(fast,/if\(parsed\.scope_note\)lines\.push/,'the search narration must not be printed');
+  const assistant=await read('api/_lib/bot-product-assistant.js');
+  assert.match(assistant,/scope==='gulf'\?null:keyboard/,'the widen button hides once already widened');
+  assert.match(assistant,/market_scope:/);
+  const procurement=await read('api/_lib/bot-procurement-secure.js');
+  assert.match(procurement,/action==='market_scope'/);
+  assert.match(procurement,/\{scope:'gulf'\}/);
+  assert.match(procurement,/canUseProductAssistant\(identity\)/,'the widen action must respect permissions');
 });

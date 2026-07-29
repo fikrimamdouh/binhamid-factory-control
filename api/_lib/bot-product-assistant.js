@@ -19,10 +19,10 @@ export const SUMMARY_RESERVE_MS=17000;
 export const IMAGE_VISION_BUDGET_MS=15000;
 export const IMAGE_PRICE_BUDGET_MS=18000;
 
-async function researchPrices(query,city,budgetMs=PRICE_RESEARCH_BUDGET_MS){
+async function researchPrices(query,city,budgetMs=PRICE_RESEARCH_BUDGET_MS,scope='saudi'){
   const DEADLINE=Date.now()+Math.max(8000,Math.min(PRICE_RESEARCH_BUDGET_MS,Number(budgetMs)||PRICE_RESEARCH_BUDGET_MS));
   const providers=[];
-  if(config.openaiKey)providers.push(['openai',remaining=>researchProductMarket(query,{city,budgetMs:remaining})]);
+  if(config.openaiKey)providers.push(['openai',remaining=>researchProductMarket(query,{city,budgetMs:remaining,scope})]);
   if(config.geminiKey)providers.push(['gemini',remaining=>researchProductMarketFree(query,{city,budgetMs:remaining})]);
   if(!providers.length)throw Object.assign(new Error('بحث الأسعار غير مفعّل. اضبط OPENAI_API_KEY أو GEMINI_API_KEY.'),{status:503,code:'PRICE_RESEARCH_NOT_CONFIGURED'});
   let lastError=null;
@@ -128,7 +128,7 @@ export function voiceSummary(query,research,businesses,marketplace){
   return lines.join('\n');
 }
 
-export async function sendProductResearch(message,identity,query,city='كل السعودية',{budgetMs=PRICE_RESEARCH_BUDGET_MS}={}){
+export async function sendProductResearch(message,identity,query,city='كل السعودية',{budgetMs=PRICE_RESEARCH_BUDGET_MS,scope='saudi'}={}){
   if(!canUseProductAssistant(identity))return sendMessage(message.chat.id,'بحث الأسعار والقطع والموردين غير متاح لدورك الحالي.');
   const clean=String(query||'').trim();
   if(clean.length<2)return sendMessage(message.chat.id,'اكتب اسم الصنف أو رقم القطعة بصورة أوضح.');
@@ -145,7 +145,7 @@ export async function sendProductResearch(message,identity,query,city='كل ال
     return{listings:[],note:''};
   });
   let research=null;
-  try{research=await researchPrices(clean,city,budgetFor(budgetMs,SUMMARY_RESERVE_MS));}
+  try{research=await researchPrices(clean,city,budgetFor(budgetMs,SUMMARY_RESERVE_MS),scope);}
   catch(error){
     console.warn('[product price research]',{message:String(error?.message||error).slice(0,220)});
     await sendMessage(message.chat.id,'لم يكتمل رصد أسعار منشورة موثوقة الآن. يستمر البحث الذكي عن المحلات والموردين وأرقام الاتصال.');
@@ -154,7 +154,9 @@ export async function sendProductResearch(message,identity,query,city='كل ال
   if(research){
     const priced=cleanResearchText(research.text||'');
     const body=['<b>أسعار السوق المنشورة</b>','━━━━━━━━━━━━━━━',`<b>${esc(clean)}</b>`,'',esc(priced).slice(0,3000),'━━━━━━━━━━━━━━━','<i>الأسعار المنشورة استرشادية وقد تتغير حسب المواصفة والتوفر والشحن.</i>'].filter(Boolean).join('\n');
-    await sendMessage(message.chat.id,body.slice(0,3900),{disable_voice_reply:true});
+    // البحث محصور في السعودية افتراضيًا. التوسع للخليج باختيار المستخدم، لا تلقائيًا.
+    const gulfButton=scope==='gulf'?null:keyboard([[{text:'🌍 وسّع البحث للخليج',callback_data:`market_scope:${encodeURIComponent(clean.slice(0,48))}`}]]);
+    await sendMessage(message.chat.id,body.slice(0,3900),{...(gulfButton||{}),disable_voice_reply:true});
   }
 
   const businesses=await supplierPromise;
