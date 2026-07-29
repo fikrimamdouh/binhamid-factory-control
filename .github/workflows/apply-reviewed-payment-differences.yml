@@ -9,6 +9,7 @@ on:
       - '.github/workflows/apply-reviewed-payment-differences.yml'
       - 'scripts/apply-reviewed-payment-differences.mjs'
       - 'ops/reconciliation/erp-payment-differences-2026-07-19-to-27.json.gz.b64'
+      - 'supabase/migrations/033_customer_payment_collection_id_type.sql'
 
 permissions:
   contents: read
@@ -37,6 +38,7 @@ jobs:
           set -euo pipefail
           node --check scripts/apply-reviewed-payment-differences.mjs
           node scripts/apply-reviewed-payment-differences.mjs
+          grep -q "v_collection_id public.collection_events.id%type;" supabase/migrations/033_customer_payment_collection_id_type.sql
 
       - name: Install PostgreSQL 17 client
         shell: bash
@@ -59,15 +61,15 @@ jobs:
           CONNECTION_DIAGNOSTIC_PATH: reviewed-payment-connection.json
         run: node scripts/resolve-supabase-connection.mjs
 
-      - name: Verify schema 32 and reconciliation function
+      - name: Verify schema 32 or 33 and reconciliation function
         shell: bash
         run: |
           set -euo pipefail
           version="$(psql "$SUPABASE_DB_URL" -X -t -A -v ON_ERROR_STOP=1 -c "select coalesce(max(version),0) from public.migration_history;")"
           function_count="$(psql "$SUPABASE_DB_URL" -X -t -A -v ON_ERROR_STOP=1 -c "select count(*) from pg_proc where oid=to_regprocedure('public.append_daily_report_customer_payments(date,text,jsonb,text,text)');")"
-          test "$version" = '32'
+          case "$version" in 32|33) ;; *) echo "Expected schema 32 or 33, found $version" >&2; exit 1 ;; esac
           test "$function_count" = '1'
-          printf '{"schemaVersion":%s,"functionReady":true}\n' "$version" > reviewed-payment-preflight.json
+          printf '{"schemaVersion":%s,"targetVersion":33,"functionReady":true}\n' "$version" > reviewed-payment-preflight.json
 
       - name: Create and verify encrypted pre-reconciliation backup
         env:
@@ -87,6 +89,51 @@ jobs:
           BACKUP_VERIFICATION_FILE=pre-reviewed-payment-backup-verification.json \
           BACKUP_MANIFEST_ENV_NAME=PRE_REVIEWED_PAYMENT_MANIFEST \
           node scripts/verify-backup-files.mjs
+
+      - name: Validate migration 033 in a rollback-only transaction
+        shell: bash
+        run: |
+          set -euo pipefail
+          current_version="$(node -e "const x=require('./reviewed-payment-preflight.json');process.stdout.write(String(x.schemaVersion))")"
+          if [ "$current_version" = '32' ]; then
+            cat > migration-033-smoke.sql <<'SQL'
+          begin;
+          \i supabase/migrations/033_customer_payment_collection_id_type.sql
+          select public.append_daily_report_customer_payments(
+            '2026-07-26'::date,
+            'migration-033-rollback-smoke',
+            '[{"accountCode":"MIGRATION-SMOKE","accountName":"Migration rollback smoke","voucherNo":"MIGRATION-033-SMOKE","treasuryCode":"101","treasuryName":"Smoke","debit":0.01,"credit":0,"movementType":"receipt","description":"rollback-only smoke test","paymentMethod":"cash"}]'::jsonb,
+            'migration-033-rollback-smoke',
+            'rollback-only smoke test'
+          );
+          rollback;
+          SQL
+            psql "$SUPABASE_DB_URL" -X -v ON_ERROR_STOP=1 --file migration-033-smoke.sql
+            rm -f migration-033-smoke.sql
+          else
+            echo 'Schema 33 already present; rollback smoke test skipped.'
+          fi
+
+      - name: Apply migration 033 atomically
+        shell: bash
+        run: |
+          set -euo pipefail
+          current_version="$(node -e "const x=require('./reviewed-payment-preflight.json');process.stdout.write(String(x.schemaVersion))")"
+          if [ "$current_version" = '32' ]; then
+            psql "$SUPABASE_DB_URL" -X -v ON_ERROR_STOP=1 --single-transaction --file supabase/migrations/033_customer_payment_collection_id_type.sql
+          else
+            echo 'Production is already at schema 33.'
+          fi
+
+      - name: Verify schema 33 and corrected reconciliation function
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(psql "$SUPABASE_DB_URL" -X -t -A -v ON_ERROR_STOP=1 -c "select coalesce(max(version),0) from public.migration_history;")"
+          function_definition="$(psql "$SUPABASE_DB_URL" -X -t -A -v ON_ERROR_STOP=1 -c "select pg_get_functiondef(to_regprocedure('public.append_daily_report_customer_payments(date,text,jsonb,text,text)'));")"
+          test "$version" = '33'
+          printf '%s' "$function_definition" | grep -q "v_collection_id public.collection_events.id%type;"
+          printf '{"schemaVersion":%s,"collectionIdTypeCorrected":true}\n' "$version" > reviewed-payment-migration-verification.json
 
       - name: Apply reviewed payment differences atomically
         env:
@@ -110,7 +157,7 @@ jobs:
           BACKUP_OUTPUT_DIR=post-reviewed-payment-backup \
           BACKUP_VERIFICATION_FILE=post-reviewed-payment-backup-verification.json \
           BACKUP_MANIFEST_ENV_NAME=POST_REVIEWED_PAYMENT_MANIFEST \
-          EXPECTED_SCHEMA_VERSION=32 \
+          EXPECTED_SCHEMA_VERSION=33 \
           node scripts/verify-backup-files.mjs
 
       - name: Upload reconciliation evidence
@@ -122,6 +169,7 @@ jobs:
             reviewed-payment-validation.json
             reviewed-payment-connection.json
             reviewed-payment-preflight.json
+            reviewed-payment-migration-verification.json
             reviewed-payment-differences-result.json
             pre-reviewed-payment-backup-verification.json
             post-reviewed-payment-backup-verification.json
