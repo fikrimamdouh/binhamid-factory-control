@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: resume-reviewed-erp-20260728
@@ -46,15 +46,48 @@ jobs:
           if(telegramErrors.length||threeDayErrors.length){
             throw new Error(`Telegram delivery errors: ${JSON.stringify({telegramErrors,threeDayErrors})}`);
           }
-          console.log(JSON.stringify({
+          const evidence={
             ok:true,
             alreadyCompleted:Boolean(result.alreadyCompleted),
             reportDate:result.reportDate,
-            batchId:result.batch.id,
-            validation:actual,
-            telegram:delivery.telegram||null,
-            threeDay:delivery.threeDay||null
-          },null,2));
+            batch:result.batch,
+            posting:result.posting||null,
+            validation:result.validation,
+            storedBytes:result.storedBytes||null,
+            delivery,
+            verifiedAt:new Date().toISOString(),
+            workflowRunId:process.env.GITHUB_RUN_ID,
+            sourceCommit:process.env.GITHUB_SHA
+          };
+          fs.writeFileSync('reviewed-erp-evidence.json',JSON.stringify(evidence,null,2)+'\n');
+          console.log(JSON.stringify(evidence,null,2));
+          NODE
+
+      - name: Publish execution evidence to repository
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          node <<'NODE'
+          const fs=require('fs');
+          const path='ops/reconciliation/reviewed-erp-20260728-result.json';
+          const content=fs.readFileSync('reviewed-erp-evidence.json');
+          const response=await fetch(`https://api.github.com/repos/${process.env.REPOSITORY}/contents/${path}`,{
+            method:'PUT',
+            headers:{
+              Accept:'application/vnd.github+json',
+              Authorization:`Bearer ${process.env.GITHUB_TOKEN}`,
+              'X-GitHub-Api-Version':'2022-11-28',
+              'Content-Type':'application/json'
+            },
+            body:JSON.stringify({
+              message:'Record reviewed ERP 28 July execution evidence',
+              content:content.toString('base64'),
+              branch:'main'
+            })
+          });
+          if(!response.ok)throw new Error(`Evidence publication failed: HTTP ${response.status} ${await response.text()}`);
+          console.log('Evidence published:',path);
           NODE
 
       - name: Upload execution evidence
@@ -62,6 +95,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: reviewed-erp-20260728-result-${{ github.run_id }}
-          path: reviewed-erp-result.json
+          path: |
+            reviewed-erp-result.json
+            reviewed-erp-evidence.json
           if-no-files-found: warn
           retention-days: 14
