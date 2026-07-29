@@ -5,15 +5,19 @@ import { readFile } from 'node:fs/promises';
 const entryPath=['..','api','erp','daily-report.js'].join('/');
 const implementationPath=['..','api','_lib','daily-report-v6.js'].join('/');
 const wrapperPath=['..','api','_lib','daily-report-v7.js'].join('/');
+const reviewedWrapperPath=['..','api','_lib','daily-report-v8.js'].join('/');
 const dateHelpersPath=['..','api','_lib','daily-report-v3.js'].join('/');
 
-test('ERP folder sync routes through the safe v7 repair wrapper and preserved v6 importer',async()=>{
-  const [entry,source,wrapper]=await Promise.all([
+test('ERP folder sync routes through the reviewed v8 wrapper, safe v7 repair and preserved v6 importer',async()=>{
+  const [entry,source,wrapper,reviewedWrapper]=await Promise.all([
     readFile(new URL(entryPath,import.meta.url),'utf8'),
     readFile(new URL(implementationPath,import.meta.url),'utf8'),
-    readFile(new URL(wrapperPath,import.meta.url),'utf8')
+    readFile(new URL(wrapperPath,import.meta.url),'utf8'),
+    readFile(new URL(reviewedWrapperPath,import.meta.url),'utf8')
   ]);
-  assert.match(entry,/daily-report-v7\.js/);
+  assert.match(entry,/daily-report-v8\.js/);
+  assert.match(reviewedWrapper,/daily-report-v7\.js/);
+  assert.match(reviewedWrapper,/resume-reviewed-2026-07-28/);
   assert.match(wrapper,/currentDailyReport/);
   assert.match(wrapper,/planSingleDayRepair/);
   assert.match(source,/X-ERP|x-erp-sync-token/i);
