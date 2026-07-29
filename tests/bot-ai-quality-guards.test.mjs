@@ -386,3 +386,26 @@ test('the price search stays inside Saudi Arabia unless the user asks to widen',
   assert.match(procurement,/\{scope:'gulf'\}/);
   assert.match(procurement,/canUseProductAssistant\(identity\)/,'the widen action must respect permissions');
 });
+
+test('a cardboard factory and a gift shop never survive a bearings search',async()=>{
+  const { filterRelevant, OUTSIDE_LIMIT, OUTSIDE_STRONG_MATCH }=await import('../api/_lib/bot-business-directory.js');
+  const terms=['رمان بلي','محامل ومحمل صناعي'];
+  const rows=[
+    {name:'شركة مصادر الحركة موزع معتمد رمان بلي SKF',category:'موّردون',phone:'1',inCity:false},
+    {name:'شركة الغدير محامل لقطع الغيار',category:'موّردون',phone:'1',inCity:false},
+    {name:'إتش بي للتحف والهدايا',category:'محل هدايا',phone:'1',inCity:false},
+    {name:'زاوية الروشن للكرتون',category:'مصنع',phone:'1',inCity:false},
+    {name:'Najran Doors',category:'مصنع',phone:'1',inCity:true},
+    {name:'وكالة نمران قطع غيار تويوتا',category:'متجر قطع غيار سيارات',phone:'1',inCity:true}
+  ];
+  const kept=filterRelevant(rows,terms).map(row=>row.name);
+  for(const bad of ['إتش بي للتحف والهدايا','زاوية الروشن للكرتون','Najran Doors'])
+    assert.ok(!kept.includes(bad),`${bad} must be filtered out`);
+  assert.equal(kept[0],'وكالة نمران قطع غيار تويوتا','in-city results lead');
+  assert.ok(kept.includes('شركة مصادر الحركة موزع معتمد رمان بلي SKF'));
+  assert.equal(OUTSIDE_STRONG_MATCH,2,'out-of-city needs a real match, not a generic type');
+  const many=Array.from({length:40},(_,i)=>({name:`محامل رقم ${i}`,category:'موّردون',phone:'1',inCity:false}));
+  assert.equal(filterRelevant(many,terms).length,OUTSIDE_LIMIT,'the out-of-city tail must be capped');
+  const directory=await read('api/_lib/bot-business-directory.js');
+  assert.doesNotMatch(directory,/مستودع\|مصنع\|توريد/,'a generic factory type must not imply relevance');
+});

@@ -37,11 +37,12 @@ const STRONG_SELLER=/قطع\s*غيار|قطع\s*الغيار|توريد|موزع
 // جوجل لا يعيد «لا نتائج» أبدًا: حين لا يوجد متخصص في المدينة يعيد أي جهة قريبة،
 // فظهرت مدرسة وروضة أطفال ومبنى سكني ومحل دواجن ضمن نتائج بحث عن رمان بلي.
 // نوع المكان يصل من جوجل ولم يكن مستخدَمًا؛ نستخدمه لاستبعاد ما لا صلة له.
-const IRRELEVANT_TYPE=/مدرسة|مدرسه|روضة|روضه|حضانة|حضانه|جامعة|جامعه|معهد|مبنى\s*سكني|شقة|شقه|فندق|مسجد|مستشفى|عيادة|عياده|صيدلية|صيدليه|مطعم|مقهى|كافيه|مخبز|حلويات|بقالة|بقاله|سوبرماركت|تموينات|متجر\s*أطعمة|أطعمة|دواجن|لحوم|خضار|صالون|حلاق|تجميل|قاعة\s*مناسبات|مناسبات|أثاث|مفروشات|مكتبة|مكتبه|قرطاسية|قرطاسيه|ملابس|أحذية|عطور|مجوهرات|ذهب|جوالات|ألعاب|رياض\s*أطفال|مكتب\s*حكومي|جمعية|جمعيه|منظمة|منظمه|بنك|صراف|مدني|school|kindergarten|mosque|hotel|restaurant|cafe|pharmacy|furniture|grocery/i;
+const IRRELEVANT_TYPE=/مدرسة|مدرسه|روضة|روضه|حضانة|حضانه|جامعة|جامعه|معهد|مبنى\s*سكني|شقة|شقه|فندق|مسجد|مستشفى|عيادة|عياده|صيدلية|صيدليه|مطعم|مقهى|كافيه|مخبز|حلويات|بقالة|بقاله|سوبرماركت|تموينات|متجر\s*أطعمة|أطعمة|دواجن|لحوم|خضار|صالون|حلاق|تجميل|قاعة\s*مناسبات|مناسبات|أثاث|مفروشات|مكتبة|مكتبه|قرطاسية|قرطاسيه|ملابس|أحذية|عطور|مجوهرات|ذهب|جوالات|ألعاب|رياض\s*أطفال|مكتب\s*حكومي|جمعية|جمعيه|منظمة|منظمه|بنك|صراف|مدني|هدايا|تحف|توزيعات|كرتون|ورق|أبواب|ابواب|نجارة|نجاره|مطابع|مطبعة|دعاية|إعلان|كوافير|مغسلة|مغسله|بقاله|مخبز|school|kindergarten|mosque|hotel|restaurant|cafe|pharmacy|furniture|grocery/i;
 
 // أنواع تجارية تدل بذاتها على البيع أو التوريد.
 // «متجر» وحدها ضعيفة مثل «مؤسسة»: مكتبة ومحل أثاث كلاهما «متجر».
-const COMMERCIAL_TYPE=/قطع\s*غيار|موّردون|موردون|تاجر\s*جملة|مستودع|مصنع|توريد|معدات|صناعي|hardware|supplier|wholesal|spare|parts/i;
+// «مصنع» عامة مثل «متجر» و«مؤسسة»: مصنع كرتون ومصنع أبواب كلاهما «مصنع».
+const COMMERCIAL_TYPE=/قطع\s*غيار|موّردون|موردون|تاجر\s*جملة|مستودع|توريد|hardware|supplier|wholesal|spare|parts/i;
 
 export function relevanceScore(row={},terms=[]){
   const text=norm(`${row.name||''} ${row.category||''}`);
@@ -56,11 +57,19 @@ export function relevanceScore(row={},terms=[]){
 
 // نُسقط ما لا صلة له نهائيًا، ولا نُبقي عديم الإشارة إلا عند شح النتائج،
 // فقائمة قصيرة صادقة أنفع من قائمة طويلة فيها مدرسة وروضة.
-export function filterRelevant(rows=[],terms=[]){
-  return (rows||[])
-    .map(row=>({...row,relevance:relevanceScore(row,terms)}))
-    .filter(row=>row.relevance>=1)
-    .sort((a,b)=>Number(b.relevance||0)-Number(a.relevance||0));
+// داخل المدينة نقبل محل قطع غيار عام لأنك تستطيع الاتصال به وسؤاله.
+// خارجها لا نقبل إلا من ثبتت صلته بالصنف نفسه، وإلا امتلأت القائمة بمصانع كرتون.
+export const OUTSIDE_STRONG_MATCH=2;
+export const OUTSIDE_LIMIT=10;
+
+export function filterRelevant(rows=[],terms=[],{limitOutside=true}={}){
+  const scored=(rows||[]).map(row=>({...row,relevance:relevanceScore(row,terms)}));
+  const local=scored.filter(row=>row.inCity!==false&&row.relevance>=1);
+  const outsideAll=scored.filter(row=>row.inCity===false&&row.relevance>=OUTSIDE_STRONG_MATCH);
+  // جهة بلا هاتف لا قيمة لها عمليًا، فتنزل حتى لو تساوت صلتها.
+  const byScore=(a,b)=>Number(b.relevance||0)-Number(a.relevance||0)||Number(Boolean(b.phone))-Number(Boolean(a.phone))||kindRank(a.kind)-kindRank(b.kind);
+  const outside=limitOutside?outsideAll.sort(byScore).slice(0,OUTSIDE_LIMIT):outsideAll.sort(byScore);
+  return[...local.sort(byScore),...outside];
 }
 
 export function supplierKind(row={}){
