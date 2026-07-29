@@ -6,6 +6,7 @@ on:
       - fix/erp-payments-2026-07-29
     paths:
       - scripts/apply-erp-r2-patch.mjs
+      - .github/workflows/apply-erp-r2.yml
 
 permissions:
   contents: write
