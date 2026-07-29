@@ -1,0 +1,32 @@
+name: Verify Vercel Build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'package.json'
+      - 'scripts/**'
+      - 'api/_lib/**'
+      - '.github/workflows/verify-vercel-build.yml'
+  workflow_dispatch:
+
+jobs:
+  verify-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Apply Vercel build patches
+        run: npm run vercel-build
+      - name: Check generated Telegram modules
+        run: |
+          node --check api/_lib/bot-invitations.js
+          node --check api/_lib/bot-accountant-preview.js
+          node --check api/_lib/bot-enterprise.js
+          node --check api/_lib/telegram-webhook-gateway.js
