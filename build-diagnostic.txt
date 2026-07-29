@@ -1,14 +1,13 @@
-Commit: b38739c7f6a8095d2e3d67e9d2245da1f2cd754c
-Started: 2026-07-29T19:51:49Z
+Commit: 8ff1820bbf1057b536704a03cab5701c36a9e818
+Started: 2026-07-29T19:52:11Z
 
 
 > binhamid-factory-control@1.1.0 vercel-build
-> node scripts/apply-customer-portfolio-cross-sector-fix.mjs && node scripts/apply-faisal-accountant-preview.mjs && node scripts/apply-faisal-full-name-fix.mjs
+> node scripts/apply-customer-portfolio-cross-sector-fix.mjs && node scripts/apply-faisal-accountant-preview.mjs
 
 [BinHamid] cross-sector customer portfolio item/owner fix applied
 Applied one-time Faisal employee invitation, office attendance and accountant preview.
-Applied one-time Telegram invitation bound to Faisal Sayed Ahmed with office attendance and accountant preview.
 
 vercel-build exit: 0
 node checks: 0,0,0,0
-Finished: 2026-07-29T19:51:50Z
+Finished: 2026-07-29T19:52:11Z
