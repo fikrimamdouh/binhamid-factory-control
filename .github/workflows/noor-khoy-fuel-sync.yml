@@ -1,11 +1,6 @@
 name: Noor Khoy daily fuel sync
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - .github/workflows/noor-khoy-fuel-sync.yml
   workflow_dispatch:
     inputs:
       report_date:
