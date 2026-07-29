@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
+// Driver invitation build patch: name-to-plate one-time linking.
 const root=join(dirname(fileURLToPath(import.meta.url)),'..');
 const path=join(root,'api/_lib/bot-invitations.js');
 let content=readFileSync(path,'utf8');
