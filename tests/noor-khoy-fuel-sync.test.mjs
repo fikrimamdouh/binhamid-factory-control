@@ -21,7 +21,7 @@ test('workflow runs daily and imports a selected period without mutating main',(
   assert.match(workflow,/contents:\s*read/);
   assert.match(workflow,/secrets\.NOOR_KHOY_USERNAME/);
   assert.match(workflow,/secrets\.NOOR_KHOY_PASSWORD/);
-  assert.match(workflow,/cron:\s*'0 5 \* \* \*'/);
+  assert.match(workflow,/cron:\s*'7 5 \* \* \*'/);
   assert.match(workflow,/REPORT_START_DATE:/);
   assert.match(workflow,/REPORT_END_DATE:/);
   assert.match(workflow,/cancel-in-progress:\s*true/);
@@ -83,7 +83,7 @@ test('the existing fuel sync sends verified vehicle balances at 7 PM Riyadh',()=
   const workflow=read('.github/workflows/noor-khoy-fuel-sync.yml');
   const script=read('scripts/noor-khoy-fuel-sync.mjs');
   const route=read('api/_lib/routes/fuel-sync.js');
-  assert.match(workflow,/cron:\s*'0 16 \* \* \*'/);
+  assert.match(workflow,/cron:\s*'7 16 \* \* \*'/);
   assert.match(workflow,/FUEL_SYNC_MODE: vehicle-balance-report/);
   assert.match(workflow,/NOOR_KHOY_VEHICLES_URL/);
   assert.match(script,/vehicleBalanceSummary/);
