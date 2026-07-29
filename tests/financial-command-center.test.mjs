@@ -35,14 +35,16 @@ test('financial control requests notify management and administrative forms enfo
   for(const phrase of ['مدير مالي','طلب ميزانية','التزام مورد','مطالبة مصروف','كنية الموظف'])assert.match(voice,new RegExp(phrase));
 });
 
-test('schema readiness includes employee nickname and persistent employee asset master',async()=>{
-  const [migration24,migration26,audit,runtime]=await Promise.all([read('supabase/migrations/024_employee_nickname_and_financial_command_center.sql'),read('supabase/migrations/026_persistent_employee_asset_identity_link.sql'),read('scripts/audit-migrations.mjs'),read('api/_lib/routes/system-runtime.js')]);
+test('schema readiness includes employee nickname, persistent master data and payment reconciliation',async()=>{
+  const [migration24,migration26,migration32,audit,runtime]=await Promise.all([read('supabase/migrations/024_employee_nickname_and_financial_command_center.sql'),read('supabase/migrations/026_persistent_employee_asset_identity_link.sql'),read('supabase/migrations/032_customer_payment_reconciliation.sql'),read('scripts/audit-migrations.mjs'),read('api/_lib/routes/system-runtime.js')]);
   assert.match(migration24,/values\(24,'024_employee_nickname_and_financial_command_center'\)/);
   assert.match(migration26,/values\(26,'026_persistent_employee_asset_identity_link'\)/);
-  assert.match(audit,/const latest=31/);
+  assert.match(migration32,/append_daily_report_customer_payments/);
+  assert.match(audit,/const latest=32/);
   assert.match(audit,/version===24/);
   assert.match(audit,/version===26/);
-  assert.match(runtime,/LATEST_REQUIRED_VERSION=31/);
+  assert.match(audit,/version===32/);
+  assert.match(runtime,/LATEST_REQUIRED_VERSION=32/);
   assert.match(runtime,/app_users:\['nickname'\]/);
   assert.match(runtime,/employees:\['nickname','national_id','site'/);
   assert.match(runtime,/user_invitations:\['nickname'\]/);
@@ -52,4 +54,5 @@ test('schema readiness includes employee nickname and persistent employee asset 
   assert.match(runtime,/administrativeControlCenter:true/);
   assert.match(runtime,/persistentEmployeeMaster:true/);
   assert.match(runtime,/telegramIdentityAutoLink:true/);
+  assert.match(runtime,/erpPaymentReconciliation:true/);
 });
