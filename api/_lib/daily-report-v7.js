@@ -11,6 +11,7 @@ import { rpc,select } from './supabase.js';
 import { prepareErpSuccessDelivery,sendErpDuplicateNotice,sendErpSuccessDelivery } from './erp-telegram-delivery.js';
 
 const TOKEN_SHA='b4ba6180ffc5d0ce658168f76b3362b69b7e930b998e8304fa6afe68da8289a0';
+const ROW_ANCHOR='__ERP_ROW_ANCHOR__';
 const clean=(value,max=1000)=>String(value??'').trim().slice(0,max);
 const label=value=>clean(value,300).toLowerCase().replace(/[أإآٱ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ً-ْـ]/g,'').replace(/\s+/g,' ');
 const round=value=>Math.round((Number(value||0)+Number.EPSILON)*100)/100;
@@ -45,6 +46,23 @@ function filename(req){
 }
 function capture(){return{statusCode:200,headers:{},body:'',setHeader(name,value){this.headers[String(name).toLowerCase()]=value;},end(value=''){this.body=Buffer.isBuffer(value)?value.toString('utf8'):String(value??'');}};}
 function forward(res,out){res.statusCode=out.statusCode||200;for(const [name,value] of Object.entries(out.headers||{}))res.setHeader(name,value);res.end(out.body||'');}
+
+export function anchorBlankRows(workbook){
+  for(const sheetName of workbook?.SheetNames||[]){
+    const sheet=workbook.Sheets[sheetName];
+    if(!sheet?.['!ref'])continue;
+    const range=XLSX.utils.decode_range(sheet['!ref']);
+    for(let row=range.s.r;row<=range.e.r;row++){
+      let populated=false;
+      for(let col=range.s.c;col<=range.e.c;col++){
+        const cell=sheet[XLSX.utils.encode_cell({r:row,c:col})];
+        if(cell&&cell.v!==null&&cell.v!==undefined&&String(cell.v).trim()!==''){populated=true;break;}
+      }
+      if(!populated)sheet[XLSX.utils.encode_cell({r:row,c:range.s.c})]={t:'s',v:ROW_ANCHOR};
+    }
+  }
+  return workbook;
+}
 
 export function planSingleDayRepair(analysis={},reportDate){
   const cash=(analysis.cashMovements||[]).map(row=>dateOf(row)?row:{...row,movementDate:reportDate,reportDate});
@@ -112,7 +130,10 @@ async function repaired(req,res,buffer){
   auth(req);
   if(!buffer.length)throw Object.assign(new Error('ERP file is missing'),{status:400,code:'ERP_SYNC_FILE_REQUIRED'});
   if(buffer[0]!==0x50||buffer[1]!==0x4b)throw Object.assign(new Error('ERP file is not valid XLSX'),{status:415,code:'ERP_SYNC_XLSX_REQUIRED'});
-  const sourceFile=filename(req),workbook=XLSX.read(buffer,{type:'buffer',cellDates:true}),analysis=parseDailyWorkbook(workbook,XLSX);
+  const sourceFile=filename(req);
+  const workbook=XLSX.read(buffer,{type:'buffer',cellDates:true});
+  const coordinateWorkbook=anchorBlankRows(XLSX.read(buffer,{type:'buffer',cellDates:true}));
+  const analysis=parseDailyWorkbook(coordinateWorkbook,XLSX);
   const explicit=[...new Set((analysis.reportDates||[]).filter(value=>/^\d{4}-\d{2}-\d{2}$/.test(value)))];
   if(explicit.length>1){req.body=buffer;return currentDailyReport(req,res);}
   const reportDate=resolveReportDate(req,workbook,sourceFile,analysis),plan=planSingleDayRepair(analysis,reportDate);
@@ -131,7 +152,7 @@ async function repaired(req,res,buffer){
   }
   const enabled=String(req.headers?.['x-erp-send-reports']??'1')!=='0';
   const telegram=await notify({analysis:plan.analysis,sourceFile,reportDate,payload,appendResult,enabled}).catch(error=>({errors:[String(error?.message||error)]}));
-  return json(res,200,{...payload,ok:true,reportDate,summary:plan.analysis.summary,telegram,repair:{applied:true,undatedRowsAssigned:plan.undatedRows.length,voucherSeparated:plan.appendRows.length,exactDuplicatesIgnored:plan.exactDuplicates.length,append:appendResult}});
+  return json(res,200,{...payload,ok:true,reportDate,summary:plan.analysis.summary,telegram,repair:{applied:true,dateRule:'single-day-report-date',undatedRowsAssigned:plan.undatedRows.length,voucherSeparated:plan.appendRows.length,exactDuplicatesIgnored:plan.exactDuplicates.length,append:appendResult}});
 }
 export default async function handler(req,res){
   const mode=clean(req?.headers?.['x-erp-mode']??req?.query?.mode,80).toLowerCase();
