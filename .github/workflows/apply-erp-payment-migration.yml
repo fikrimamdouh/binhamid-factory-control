@@ -52,6 +52,7 @@ jobs:
           set -euo pipefail
           npm install --ignore-scripts --no-audit --no-fund
           node --check scripts/resolve-supabase-connection.mjs
+          node --check scripts/ensure-isolated-supabase-roles.mjs
           node --check api/_lib/daily-report-v7.js
           node --check api/_lib/customer-payment-reconciliation-handler.js
           npm run audit:migrations
@@ -119,6 +120,11 @@ jobs:
       - name: Prepare isolated PostgreSQL extensions
         run: psql "$LOCAL_DATABASE_URL" -X -v ON_ERROR_STOP=1 -c 'create extension if not exists pgcrypto;'
 
+      - name: Prepare isolated Supabase roles
+        env:
+          ISOLATED_ROLE_RESULT: erp-payment-isolated-roles.json
+        run: node scripts/ensure-isolated-supabase-roles.mjs
+
       - name: Apply and verify migration 032 on isolated clone
         shell: bash
         run: |
@@ -183,6 +189,7 @@ jobs:
             erp-payment-connection.json
             erp-payment-preflight.json
             erp-payment-isolated-restore.json
+            erp-payment-isolated-roles.json
             erp-payment-production-verification.json
             pre-erp-payment-backup-verification.json
             post-erp-payment-backup-verification.json
