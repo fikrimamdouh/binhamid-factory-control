@@ -251,3 +251,40 @@ test('the directory web search is one call, not two chained thirty second calls'
   assert.match(directory,/const plan=await buildSupplierSearchPlan\(query\)/);
   assert.match(directory,/planPlaceQueries\(plan,city,\{maxQueries:18\}\)/);
 });
+
+test('generic company words never decide whether a place sells or repairs',async()=>{
+  const { supplierKind, KIND_LABEL }=await import('../api/_lib/bot-business-directory.js');
+  assert.equal(supplierKind({name:'مؤسسة الرياض التجارية',category:'شركة'}),'other','generic words must not mean seller');
+  assert.equal(supplierKind({name:'محل قطع غيار النور',category:'متجر'}),'seller');
+  assert.equal(supplierKind({name:'مخرطة عامود كردان',category:'تصليح سيارات'}),'repair');
+  assert.equal(supplierKind({name:'شركة الابتسام لاعمدة الكردان',category:'مركز صيانة سيارات'}),'repair');
+  assert.equal(supplierKind({name:'مؤسسة الخير لقطع الغيار وورشة الصيانة',category:''}),'mixed');
+  assert.equal(KIND_LABEL.mixed,'بائع وورشة');
+});
+
+test('classified listings keep only real links and rank priced ones first',async()=>{
+  const { normalizeListings, MARKETPLACE_SITES }=await import('../api/_lib/marketplace-listings.js');
+  assert.ok(MARKETPLACE_SITES.includes('haraj.com.sa'));
+  const rows=normalizeListings([
+    {title:'بدون سعر',price:0,url:'https://haraj.com.sa/1'},
+    {title:'مستعمل',price:800,contact:'0501234567',url:'https://haraj.com.sa/2'},
+    {title:'مكرر',price:900,url:'https://haraj.com.sa/2'},
+    {title:'رابط مزيف',price:500,url:'javascript:alert(1)'},
+    {title:'بلا رابط',price:400,url:''}
+  ]);
+  assert.equal(rows.length,2,'invalid and duplicate links must be dropped');
+  assert.equal(rows[0].price,800,'a priced listing outranks one without a price');
+  assert.ok(rows.every(row=>row.url.startsWith('https://')));
+});
+
+test('classified prices are shown as their own section and never mixed with supplier quotes',async()=>{
+  const { renderMarketplace, voiceSummary }=await import('../api/_lib/bot-product-assistant.js');
+  assert.equal(renderMarketplace({listings:[]}),'','no section when there is nothing to show');
+  const body=renderMarketplace({listings:[{title:'كردان',price:800,currency:'ريال',city:'الرياض',condition:'مستعمل',posted:'',contact:'0501234567',url:'https://haraj.com.sa/2',site:'haraj.com.sa'}],note:''});
+  assert.match(body,/مواقع الإعلانات/);
+  assert.match(body,/افتح الرابط وتأكد/,'the user must be warned to verify');
+  assert.match(body,/https:\/\/haraj\.com\.sa\/2/);
+  assert.match(voiceSummary('كردان',null,[],{listings:[{price:800}]}),/إعلان مستعمل بسعر معلن/);
+  const assistant=await read('api/_lib/bot-product-assistant.js');
+  assert.match(assistant,/searchMarketplaceListings\(clean,\{city\}\)\.catch/,'a failing marketplace must not break the search');
+});

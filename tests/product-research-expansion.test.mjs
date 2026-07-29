@@ -19,7 +19,11 @@ test('Telegram product flow searches observed prices and suppliers automatically
   const assistant=await read('api/_lib/bot-product-assistant.js');
   assert.match(source,/function buildPriceLevel/);
   assert.match(assistant,/researchProductMarket/);
-  assert.doesNotMatch(assistant,/🔗/);
+  // القاعدة الأصلية: لا روابط خارجية في جدول الأسعار ولا في قائمة الموردين.
+  // الاستثناء الوحيد المقصود هو قسم الإعلانات المبوبة، فالرابط هو وسيلة التواصل نفسها.
+  const priceAndSupplierBody=assistant.slice(0,assistant.indexOf('export function renderMarketplace'));
+  assert.doesNotMatch(priceAndSupplierBody,/🔗/);
+  assert.equal((assistant.match(/🔗/g)||[]).length,1,'links belong only to the classified listings section');
   assert.match(assistant,/الأسعار المنشورة استرشادية/);
   assert.match(assistant,/sendDeepBusinessResults/);
   assert.match(assistant,/supplierPromise=sendDeepBusinessResults/);

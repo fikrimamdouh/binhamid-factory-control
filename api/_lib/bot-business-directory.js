@@ -29,18 +29,21 @@ function sourceRank(value=''){
 }
 // النتائج كانت تخلط بائعي القطع بورش التصليح. الورشة لا تبيع لك القطعة،
 // فنفرزها للأسفل ونضع عليها علامة واضحة بدل أن تتصدر القائمة.
-const REPAIR_HINT=/ورشه|ورشة|تصليح|إصلاح|اصلاح|مخرطة|مخرطه|صيانة|صيانه|repair|workshop|service\s*cent/i;
-const SELLER_HINT=/قطع\s*غيار|متجر|محل|مورد|موزع|وكيل|مؤسسة|مؤسسه|شركة|شركه|مصنع|مستودع|تجار|بيع|store|parts|supplier|wholesal|trading|spare/i;
+// الكلمات العامة مثل «مؤسسة» و«شركة» و«محل» موجودة في كل اسم تقريبًا، فلا تصلح
+// للتصنيف. نعتمد على إشارات قاطعة فقط: «ورشة/تصليح» مقابل «قطع غيار/توريد/وكيل».
+const STRONG_REPAIR=/ورش|تصليح|تصليج|إصلاح|اصلاح|مخرطة|مخرطه|سمكرة|سمكره|صيانة|صيانه|repair|workshop|garage/i;
+const STRONG_SELLER=/قطع\s*غيار|قطع\s*الغيار|توريد|موزع|وكيل|وكالة|مستودع|تجارة\s*قطع|بيع\s*قطع|spare|auto\s*parts|parts|supplier|wholesal|distribut|trading/i;
 
 export function supplierKind(row={}){
   const text=`${row.name||''} ${row.category||''}`;
-  const seller=SELLER_HINT.test(text),repair=REPAIR_HINT.test(text);
+  const seller=STRONG_SELLER.test(text),repair=STRONG_REPAIR.test(text);
+  if(seller&&repair)return'mixed';
   if(seller)return'seller';
   if(repair)return'repair';
   return'other';
 }
-export const KIND_LABEL=Object.freeze({seller:'بائع قطع',repair:'ورشة تصليح',other:'جهة تجارية'});
-const kindRank=kind=>({seller:0,other:1,repair:2}[kind]??1);
+export const KIND_LABEL=Object.freeze({seller:'بائع قطع',mixed:'بائع وورشة',repair:'ورشة تصليح',other:'جهة تجارية'});
+const kindRank=kind=>({seller:0,mixed:1,other:2,repair:3}[kind]??2);
 
 function confidenceRank(value=''){return({high:0,medium:1,low:2}[String(value||'').toLowerCase()]??3);}
 function webSources(data={}){

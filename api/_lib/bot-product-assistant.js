@@ -8,6 +8,7 @@ import { directBusinessSearchCity, sendDeepBusinessResults } from './bot-busines
 import { config } from './config.js';
 import { budgetFor } from './bot-deadline.js';
 import { stripConversationalFiller } from './bot-query-clean.js';
+import { searchMarketplaceListings } from './marketplace-listings.js';
 
 // ميزانية زمنية واحدة للبحث كله. حد دالة Vercel هو 60 ثانية، وتجاوزه يقتل الطلب
 // قبل أن تصل أي نتيجة للمستخدم — وهو ما ظهر فعلًا في سجلات الإنتاج.
@@ -96,13 +97,34 @@ function cleanResearchText(value=''){
 const money=value=>Number(value||0).toLocaleString('en-US',{maximumFractionDigits:0});
 
 // الرسائل الطويلة لا تصلح للقراءة الصوتية، فنختم بملخص قصير هو ما يُنطق للمستخدم.
-export function voiceSummary(query,research,businesses){
+// قسم منفصل واضح: هذه أسعار معلنة من إعلانات، وليست عروض موردين رسمية.
+export function renderMarketplace(marketplace){
+  const listings=marketplace?.listings||[];
+  if(!listings.length)return'';
+  const lines=['<b>🏷️ عروض معلنة على مواقع الإعلانات</b>','<i>أسعار من إعلانات أفراد ومحلات — افتح الرابط وتأكد قبل التحويل.</i>',''];
+  listings.forEach((row,index)=>{
+    const price=row.price?`<b>${money(row.price)} ${esc(row.currency)}</b>`:'بدون سعر معلن';
+    const where=[row.city,row.condition!=='غير محدد'?row.condition:''].filter(Boolean).join(' — ');
+    lines.push(`${index+1}. ${esc(row.title)}`);
+    lines.push(`   💰 ${price}${where?` · ${esc(where)}`:''}`);
+    if(row.contact)lines.push(`   📞 <code>${esc(row.contact)}</code>`);
+    if(row.posted)lines.push(`   🗓️ ${esc(row.posted)}`);
+    lines.push(`   🔗 ${esc(row.url)}`);
+    lines.push('');
+  });
+  if(marketplace?.note)lines.push(`<i>${esc(marketplace.note)}</i>`);
+  return lines.join('\n').slice(0,3900);
+}
+
+export function voiceSummary(query,research,businesses,marketplace){
   const band=research?.priceLevel?.available?research.priceLevel.overall:null;
   const count=Array.isArray(businesses)?businesses.length:0;
   const lines=[`<b>الخلاصة: ${esc(query)}</b>`];
   if(band)lines.push(`السعر المعتاد نحو ${money(band.typical)} ريال، ومعظم الأسعار بين ${money(band.typicalLow)} و${money(band.typicalHigh)} ريال، من ${band.sampleCount} عرضًا منشورًا.`);
   else lines.push('لم أجد سعرًا منشورًا موثوقًا لهذا الصنف.');
   lines.push(count?`ووجدت ${count} جهة يمكن الاتصال بها، أرقامها في الرسالة السابقة.`:'ولم أجد جهة منشورة يمكن التحقق منها.');
+  const priced=(marketplace?.listings||[]).filter(row=>row.price>0);
+  if(priced.length)lines.push(`وفيه ${priced.length} إعلان مستعمل بسعر معلن، أرخصها ${money(priced[0].price)} ريال.`);
   return lines.join('\n');
 }
 
@@ -116,6 +138,11 @@ export async function sendProductResearch(message,identity,query,city='كل ال
   const supplierPromise=sendDeepBusinessResults(message,identity,clean,city,{announce:false}).catch(error=>{
     console.warn('[product supplier research]',{message:String(error?.message||error).slice(0,220)});
     return[];
+  });
+  // إعلانات المستعمل هي المصدر الوحيد لسعر معلن يمكن فتحه والتحقق منه.
+  const marketplacePromise=searchMarketplaceListings(clean,{city}).catch(error=>{
+    console.warn('[marketplace listings]',{message:String(error?.message||error).slice(0,220)});
+    return{listings:[],note:''};
   });
   let research=null;
   try{research=await researchPrices(clean,city,budgetFor(budgetMs,SUMMARY_RESERVE_MS));}
@@ -131,9 +158,12 @@ export async function sendProductResearch(message,identity,query,city='كل ال
   }
 
   const businesses=await supplierPromise;
-  const summary=voiceSummary(clean,research,businesses);
+  const marketplace=await marketplacePromise;
+  const marketplaceBody=renderMarketplace(marketplace);
+  if(marketplaceBody)await sendMessage(message.chat.id,marketplaceBody,{disable_voice_reply:true});
+  const summary=voiceSummary(clean,research,businesses,marketplace);
   if(summary)await sendMessage(message.chat.id,summary);
-  return{research,businesses};
+  return{research,businesses,marketplace};
 }
 
 export async function handleProductImage(message,identity,buffer,mimeType='image/jpeg'){
