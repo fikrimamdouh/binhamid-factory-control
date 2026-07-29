@@ -74,6 +74,7 @@ const BUSINESS_SCHEMA={
 function normalizeBusiness(row={},index=0){
   const website=safeUrl(row.website),sourceUrl=safeUrl(row.source_url||row.sourceUrl);
   return{
+    inCity:row.inCity!==false,
     id:clean(row.id||`web-${index}`,120),name:clean(row.name||'شركة أو مورد',180),category:clean(row.category,140),city:clean(row.city,100),address:clean(row.address,260),phone:clean(row.phone,100),
     website,sourceUrl,sourceType:clean(row.source_type||row.sourceType||'other',80),confidence:clean(row.confidence||'low',20),evidence:clean(row.evidence,300),
     rating:Number(row.rating||0),reviews:Number(row.reviews||0),businessStatus:clean(row.businessStatus||'',60),matchRank:Number(row.matchRank??1),origin:clean(row.origin||'web',30),
@@ -106,7 +107,7 @@ export function mergeBusinessResults(places=[],webBusinesses=[]){
     });
   }
   return merged.sort((a,b)=>
-    kindRank(a.kind)-kindRank(b.kind)||Number(Boolean(b.phone))-Number(Boolean(a.phone))||sourceRank(a.sourceType)-sourceRank(b.sourceType)||confidenceRank(a.confidence)-confidenceRank(b.confidence)||
+    Number(b.inCity!==false)-Number(a.inCity!==false)||kindRank(a.kind)-kindRank(b.kind)||Number(Boolean(b.phone))-Number(Boolean(a.phone))||sourceRank(a.sourceType)-sourceRank(b.sourceType)||confidenceRank(a.confidence)-confidenceRank(b.confidence)||
     Number(a.matchRank??99)-Number(b.matchRank??99)||Number(b.rating||0)-Number(a.rating||0)||Number(b.reviews||0)-Number(a.reviews||0)
   );
 }
@@ -142,8 +143,12 @@ export async function researchBusinessDirectory(query,{city='نجران',plan=nu
 
 // كان يرسل كلام المستخدم حرفيًا فيطابق أسماء الورش. الآن يبحث بالفئة التجارية
 // عبر مراكز التوريد الحقيقية، فيتسع العدد ويصح النوع.
-function googleQueries(query,city,plan){
-  return planPlaceQueries(plan,city,{maxQueries:18});
+// أقل عدد نتائج محلية نقبله قبل التوسع خارج المدينة المختارة.
+export const LOCAL_RESULT_FLOOR=10;
+
+function cityMatches(row={},city=''){
+  if(!city||city==='كل السعودية')return true;
+  return norm(`${row.address||''} ${row.city||''}`).includes(norm(city));
 }
 async function googleTextSearch(textQuery,matchRank){
   const response=await fetch('https://places.googleapis.com/v1/places:searchText',{
@@ -157,11 +162,29 @@ async function googleTextSearch(textQuery,matchRank){
     rating:Number(place.rating||0),reviews:Number(place.userRatingCount||0),businessStatus:place.businessStatus||'',matchRank,sourceType:'google_places',confidence:place.internationalPhoneNumber||place.nationalPhoneNumber?'high':'medium',origin:'places'
   }));
 }
+async function runPlaceQueries(queries,offset=0){
+  const attempts=await Promise.allSettled(queries.map((text,index)=>googleTextSearch(text,offset+index)));
+  const businesses=attempts.filter(item=>item.status==='fulfilled').flatMap(item=>item.value);
+  const failed=attempts.length>0&&attempts.every(item=>item.status==='rejected');
+  return{businesses,failure:failed?attempts.find(item=>item.status==='rejected')?.reason:null};
+}
+
 export async function searchGoogleBusinessDirectory(query,{city='نجران',plan=null}={}){
   if(!config.placesKey)return{businesses:[],queries:[],configured:false};
-  const queries=googleQueries(query,city,plan),attempts=await Promise.allSettled(queries.map((text,index)=>googleTextSearch(text,index))),businesses=attempts.filter(item=>item.status==='fulfilled').flatMap(item=>item.value);
-  if(!businesses.length&&attempts.every(item=>item.status==='rejected'))throw attempts.find(item=>item.status==='rejected')?.reason||new Error('تعذر دليل الأماكن');
-  return{businesses,queries,configured:true};
+  // المدينة المختارة أولًا ووحدها.
+  const queries=planPlaceQueries(plan,city,{maxQueries:18});
+  const primary=await runPlaceQueries(queries);
+  let businesses=primary.businesses.map(row=>({...row,inCity:cityMatches(row,city)}));
+  const local=businesses.filter(row=>row.inCity);
+  let expandedQueries=[];
+  // لا نتوسع خارج المدينة إلا عند ضعف الحصيلة المحلية، والنتائج تُوسم بأنها خارجها.
+  if(city!=='كل السعودية'&&local.length<LOCAL_RESULT_FLOOR){
+    expandedQueries=planPlaceQueries(plan,city,{maxQueries:12,expand:true});
+    const extra=await runPlaceQueries(expandedQueries,queries.length);
+    businesses=businesses.concat(extra.businesses.map(row=>({...row,inCity:cityMatches(row,city)})));
+  }
+  if(!businesses.length&&primary.failure)throw primary.failure;
+  return{businesses,queries:[...queries,...expandedQueries],configured:true};
 }
 
 export async function searchComprehensiveBusinessDirectory(query,{city='نجران'}={}){

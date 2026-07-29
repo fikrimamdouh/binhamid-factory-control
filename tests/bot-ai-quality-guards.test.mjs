@@ -220,10 +220,14 @@ test('supplier search asks for the trade category, not the literal part name',as
   const bearings=fallbackPlan('رمان بلي 6205');
   assert.ok(bearings.categoriesAr.some(term=>/محامل/.test(term)));
   const queries=planPlaceQueries(bearings,'نجران');
-  assert.ok(queries.length>=8,`too few queries: ${queries.length}`);
-  assert.ok(queries[0].includes('نجران'),'the requested city comes first');
-  assert.ok(SUPPLY_HUBS.some(hub=>queries.some(q=>q.includes(hub))),'must sweep the supply hubs');
-  assert.ok(new Set(queries).size===queries.length,'queries must be unique');
+  assert.ok(queries.length>0,'a chosen city must still produce queries');
+  assert.ok(queries.every(q=>q.includes('نجران')),'a chosen city must not be diluted by other cities');
+  const wider=planPlaceQueries(bearings,'نجران',{expand:true});
+  assert.ok(wider.every(q=>!q.includes('نجران')),'expansion covers only the other hubs');
+  assert.ok(SUPPLY_HUBS.some(hub=>wider.some(q=>q.includes(hub))));
+  const nationwide=planPlaceQueries(bearings,'كل السعودية');
+  assert.ok(nationwide.length>=8,`too few nationwide queries: ${nationwide.length}`);
+  assert.ok(new Set(nationwide).size===nationwide.length,'queries must be unique');
   const generic=planPlaceQueries(fallbackPlan('حاجة غريبة'),'كل السعودية');
   assert.ok(generic.length>0,'an unknown part still produces queries');
 });
@@ -303,4 +307,21 @@ test('minimal reasoning is never sent together with a built-in tool',async()=>{
     const minimalCalls=source.match(/reasoningFor\([^)]*'minimal'[^)]*\)/g)||[];
     for(const call of minimalCalls)assert.match(call,/withTools:true/,`${file} sends minimal effort with a built-in tool`);
   }
+});
+
+test('a chosen city is honoured and anything outside it is labelled',async()=>{
+  const { LOCAL_RESULT_FLOOR, mergeBusinessResults }=await import('../api/_lib/bot-business-directory.js');
+  assert.ok(LOCAL_RESULT_FLOOR>0);
+  const merged=mergeBusinessResults([
+    {name:'مؤسسة قطع غيار الرياض',phone:'0500000001',category:'متجر',inCity:false},
+    {name:'مؤسسة قطع غيار نجران',phone:'0500000002',category:'متجر',inCity:true}
+  ],[]);
+  assert.equal(merged[0].name,'مؤسسة قطع غيار نجران','in-city results must come first');
+  assert.equal(merged[1].inCity,false);
+  const directory=await read('api/_lib/bot-business-directory.js');
+  assert.match(directory,/planPlaceQueries\(plan,city,\{maxQueries:18\}\)/);
+  assert.match(directory,/local\.length<LOCAL_RESULT_FLOOR/,'widen only when local results are thin');
+  const flow=await read('api/_lib/bot-business-directory-flow.js');
+  assert.match(flow,/خارج \$\{esc\(clean\(city,40\)\)\}/);
+  assert.match(flow,/من مدن أخرى/);
 });

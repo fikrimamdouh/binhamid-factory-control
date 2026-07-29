@@ -98,14 +98,20 @@ export async function buildSupplierSearchPlan(query,{timeoutMs=8000}={}){
   }
 }
 
-// نبني عبارات بحث الأماكن: كل فئة في كل مدينة توريد، بدل استعلام واحد بكلام المستخدم.
-export function planPlaceQueries(plan,city='كل السعودية',{maxQueries=18}={}){
-  const hubs=city&&city!=='كل السعودية'?[city,...SUPPLY_HUBS.filter(hub=>hub!==city)]:[...SUPPLY_HUBS];
-  const terms=uniq([...(plan?.categoriesAr||[]),...(plan?.brands||[]).map(brand=>`${brand} ${plan.part||''}`)]).slice(0,4);
-  const safeTerms=terms.length?terms:[...GENERIC_CATEGORIES];
+// اختيار المستخدم للمدينة يُحترم أولًا: نبحث فيها وحدها. التوسع لمراكز التوريد
+// الأخرى لا يحدث إلا إذا كانت الحصيلة المحلية ضعيفة، ويُعرض موسومًا بأنه خارج المدينة.
+export function planTerms(plan){
+  const terms=uniq([...(plan?.categoriesAr||[]),...(plan?.brands||[]).map(brand=>`${brand} ${plan?.part||''}`)]).slice(0,4);
+  return terms.length?terms:[...GENERIC_CATEGORIES];
+}
+
+export function planPlaceQueries(plan,city='كل السعودية',{maxQueries=18,expand=false}={}){
+  const terms=planTerms(plan),specific=Boolean(city)&&city!=='كل السعودية';
+  if(specific&&!expand)return terms.map(term=>`${term} ${city}`).slice(0,maxQueries);
+  const hubs=specific?SUPPLY_HUBS.filter(hub=>hub!==city):[...SUPPLY_HUBS];
   const queries=[];
   for(const hub of hubs){
-    for(const term of safeTerms){
+    for(const term of terms){
       if(queries.length>=maxQueries)return queries;
       queries.push(`${term} ${hub}`);
     }

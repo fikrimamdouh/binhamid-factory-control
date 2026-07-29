@@ -67,7 +67,7 @@ function sourceLabel(type,origin){
   return({official_company:'موقع الشركة',official_registry:'سجل رسمي',chamber:'غرفة تجارية',industry_directory:'دليل صناعي',business_directory:'دليل أعمال',marketplace:'منصة متخصصة',social:'صفحة موثقة',google_places:'دليل الأماكن'}[type]||'مصدر ويب منشور');
 }
 function confidenceLabel(value){return({high:'مرتفعة',medium:'متوسطة',low:'محدودة'}[String(value||'').toLowerCase()]||'محدودة');}
-function resultCard(row,index){
+function resultCard(row,index,city=''){
   const tel=callable(row.phone),phone=tel?`📞 <a href="tel:${esc(tel)}">${esc(clean(row.phone,50))}</a>`:'📞 الهاتف غير منشور';
   const rating=row.rating?`⭐ ${Number(row.rating).toFixed(1)}${row.reviews?` (${row.reviews})`:''}`:'';
   return[
@@ -75,14 +75,15 @@ function resultCard(row,index){
     `🏷️ <b>${esc(KIND_LABEL[row.kind]||KIND_LABEL.other)}</b>${row.category?` — ${esc(clean(row.category,70))}`:''}`,
     phone,
     row.address?`📍 ${esc(clean(row.address,160))}`:row.city?`📍 ${esc(clean(row.city,80))}`:null,
+    row.inCity===false&&city&&city!=='كل السعودية'?`🌍 <i>خارج ${esc(clean(city,40))}</i>`:null,
     `🔎 ${esc(sourceLabel(row.sourceType,row.origin))} — ثقة ${esc(confidenceLabel(row.confidence))}`,
     row.evidence?`<i>${esc(clean(row.evidence,130))}</i>`:null
   ].filter(Boolean).join('\n');
 }
-function groupResultCards(rows){
+function groupResultCards(rows,city=''){
   const pages=[];let current=[],length=0;
   for(let index=0;index<rows.length;index++){
-    const card=resultCard(rows[index],index+1),added=(current.length?2:0)+card.length;
+    const card=resultCard(rows[index],index+1,city),added=(current.length?2:0)+card.length;
     if(current.length&&length+added>2850){pages.push(current);current=[];length=0;}
     current.push(card);length+=(current.length>1?2:0)+card.length;
   }
@@ -121,11 +122,13 @@ export async function sendDeepBusinessResults(message,identity,query,city,{annou
   await logSearch(message,identity,query,city,result).catch(()=>{});
   await setSession(message.chat.id,identity?.external_id||message.from.id,'business_search_results',{query,city,businesses:result.businesses.slice(0,30),sourcesUsed:result.sourcesUsed,startedAt:now()});
   if(!result.businesses.length)return sendMessage(message.chat.id,'لم أجد جهة منشورة يمكن التحقق منها. وسّع المدينة أو اكتب النشاط والماركة بصورة أدق.',keyboard([[{text:'بحث في كل السعودية',callback_data:'supplier_city:saudi'},{text:'بحث جديد',callback_data:'proc:search'}]]));
-  const pages=groupResultCards(result.businesses);
+  const pages=groupResultCards(result.businesses,city);
+  const localCount=result.businesses.filter(row=>row.inCity!==false).length;
+  const outsideCount=result.businesses.length-localCount;
   for(let page=0;page<pages.length;page++){
     const header=[
       `<b>نتائج البحث الشامل: ${esc(clean(query,180))}</b>`,
-      `📍 ${esc(clean(city,80))} — <b>${result.businesses.length}</b> جهة${pages.length>1?` — صفحة ${page+1}/${pages.length}`:''}`,
+      `📍 ${esc(clean(city,80))} — <b>${localCount}</b> جهة${outsideCount?` · و<b>${outsideCount}</b> من مدن أخرى`:''}${pages.length>1?` — صفحة ${page+1}/${pages.length}`:''}`,
       page===0&&result.sourcesUsed.length?`المصادر: ${esc(clean(result.sourcesUsed.join(' + '),180))}`:null,
       page===0&&result.scopeNote?`<i>${esc(clean(result.scopeNote,260))}</i>`:null,
       '━━━━━━━━━━━━━━━'
