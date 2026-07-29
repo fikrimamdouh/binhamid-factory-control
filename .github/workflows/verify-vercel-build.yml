@@ -10,6 +10,9 @@ on:
       - '.github/workflows/verify-vercel-build.yml'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   verify-build:
     runs-on: ubuntu-latest
@@ -22,11 +25,39 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
-      - name: Apply Vercel build patches
-        run: npm run vercel-build
-      - name: Check generated Telegram modules
+      - name: Run and persist Vercel-equivalent build
+        shell: bash
         run: |
-          node --check api/_lib/bot-invitations.js
-          node --check api/_lib/bot-accountant-preview.js
-          node --check api/_lib/bot-enterprise.js
-          node --check api/_lib/telegram-webhook-gateway.js
+          set +e
+          {
+            echo "Commit: $GITHUB_SHA"
+            echo "Started: $(date -u +%FT%TZ)"
+            echo
+            npm run vercel-build
+            build_code=$?
+            echo
+            echo "vercel-build exit: $build_code"
+            if [ "$build_code" -eq 0 ]; then
+              node --check api/_lib/bot-invitations.js
+              check1=$?
+              node --check api/_lib/bot-accountant-preview.js
+              check2=$?
+              node --check api/_lib/bot-enterprise.js
+              check3=$?
+              node --check api/_lib/telegram-webhook-gateway.js
+              check4=$?
+              echo "node checks: $check1,$check2,$check3,$check4"
+              if [ "$check1" -ne 0 ] || [ "$check2" -ne 0 ] || [ "$check3" -ne 0 ] || [ "$check4" -ne 0 ]; then
+                build_code=1
+              fi
+            fi
+            echo "Finished: $(date -u +%FT%TZ)"
+          } > build-diagnostic.txt 2>&1
+
+          cat build-diagnostic.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add build-diagnostic.txt
+          git commit -m "chore: record build diagnostic [skip ci]" || true
+          git push || true
+          exit "$build_code"
