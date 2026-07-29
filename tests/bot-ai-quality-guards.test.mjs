@@ -329,6 +329,12 @@ test('a chosen city is honoured and anything outside it is labelled',async()=>{
 test('a new request replaces the previous one instead of piling onto it',async()=>{
   const { isSearchRefinement }=await import('../api/_lib/bot-business-directory-flow.js');
   assert.equal(isSearchRefinement('SKF','رمان بلي 6205'),true,'a short brand narrows the previous search');
+  assert.equal(isSearchRefinement('6205','رمان بلي'),true,'a part number narrows');
+  assert.equal(isSearchRefinement('2RS','رمان بلي 6205'),true,'a spec suffix narrows');
+  assert.equal(isSearchRefinement('اصلي','رمان بلي 6205'),true,'original vs aftermarket narrows');
+  assert.equal(isSearchRefinement('ديزل','رمان بلي 6205'),false,'another commodity is a new search, not a refinement');
+  assert.equal(isSearchRefinement('زيت','رمان بلي 6205'),false);
+  assert.equal(isSearchRefinement('مضخة','رمان بلي 6205'),false);
   assert.equal(isSearchRefinement('عمود كردان 50 سم','رمان بلي 6205'),false,'a full request is a new search');
   assert.equal(isSearchRefinement('فلتر زيت','رمان بلي 6205'),false,'naming another part is a new search');
   assert.equal(isSearchRefinement('SKF',''),false,'nothing to refine');

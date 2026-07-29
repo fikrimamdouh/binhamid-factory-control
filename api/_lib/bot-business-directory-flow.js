@@ -15,7 +15,7 @@ const DIRECT_SEARCH_PATTERNS=[
   /^(?:فين|وين)\s+(?:الاقي|ألاقي|اجد|أجد|احصل|أحصل)\s*(?:على)?\s+(.{2,})$/i,
   /^(?:هات|هاتلي|هات لي|جيب|جيبلي|جيب لي)\s+(?:(?:شركات|محلات|مصانع|موردين|وكلاء|موزعين)\s*)?(?:عن|لـ?|بتوع)?\s*(.{2,})$/i
 ];
-const PROCUREMENT_HINT=/عمود|كردان|قطعه|قطعة|فلتر|رولمان|بلي|سير|بطاري|كاوتش|كفر|اطار|إطار|خرطوم|هيدروليك|طلمب|مضخ|موتور|محرك|صمام|بلف|ترس|جربوكس|جير|كلتش|فرامل|مسمار|صامول|لحام|كمبروسر|شركة|شركه|مصنع|مورد|وكيل|موزع|محل|ورشه|ورشة|اشتري|شراء|سعر|اسعار|أسعار|عرض سعر|عروض اسعار|عروض أسعار/i;
+const PROCUREMENT_HINT=/ديزل|بنزين|وقود|زيت|شحم|اسمنت|أسمنت|رمل|حديد|عمود|كردان|قطعه|قطعة|فلتر|رولمان|بلي|سير|بطاري|كاوتش|كفر|اطار|إطار|خرطوم|هيدروليك|طلمب|مضخ|موتور|محرك|صمام|بلف|ترس|جربوكس|جير|كلتش|فرامل|مسمار|صامول|لحام|كمبروسر|شركة|شركه|مصنع|مورد|وكيل|موزع|محل|ورشه|ورشة|اشتري|شراء|سعر|اسعار|أسعار|عرض سعر|عروض اسعار|عروض أسعار/i;
 const NON_MARKET_HINT=/تقرير|اقرار|إقرار|كشف حساب|رصيد|تحصيل|سداد|فاتور|عميل|خزين|بنك|ديزل|وقود|حضور|انصراف|اعتماد|خطاب|ميزاني|مديوني|محفظه|محفظة/i;
 const CITY_PATTERNS=[
   ['نجران',/(?:^|\s)(?:في\s+)?نجران(?:\s|$)/i],['خميس مشيط',/(?:^|\s)(?:في\s+)?خميس\s+مشيط(?:\s|$)/i],['الرياض',/(?:^|\s)(?:في\s+)?الرياض(?:\s|$)/i],['جدة',/(?:^|\s)(?:في\s+)?(?:جده|جدة)(?:\s|$)/i],['الدمام',/(?:^|\s)(?:في\s+)?الدمام(?:\s|$)/i],['كل السعودية',/(?:^|\s)(?:في\s+)?(?:كل\s+السعوديه|كل\s+السعودية|السعودية|السعوديه)(?:\s|$)/i]
@@ -158,11 +158,19 @@ export async function handleDirectBusinessSearch(message,identity,text){
 // القديم، ولا نضيف إلا إذا كانت كلمة أو كلمتين لا تذكر صنفًا جديدًا.
 const REFINEMENT_MAX_WORDS=2;
 
+// التضييق في مجال قطع الغيار يكون بماركة أو رقم أو مواصفة: SKF، 6205، 2RS، أصلي.
+// أي كلمة عربية أخرى مثل «ديزل» هي صنف جديد، وكانت تُلصق على الطلب السابق.
+const SPEC_TOKEN=/^[A-Za-z0-9][A-Za-z0-9\-\/.]*$/;
+const KNOWN_BRAND=/^(?:skf|fag|nsk|ntn|koyo|timken|ina|nachi|bosch|denso|hino|isuzu|cat|caterpillar|komatsu|volvo|man|mercedes|toyota|nissan)$/i;
+const SPEC_WORD=/^(?:اصلي|أصلي|بديل|متوافق|مستعمل|جديد|صيني|ياباني|الماني|ألماني|كوري|امريكي|أمريكي|تايواني|هندي)$/i;
+
 export function isSearchRefinement(value='',priorQuery=''){
   const text=String(value||'').trim();
   if(!String(priorQuery||'').trim()||!text)return false;
-  if(text.split(/\s+/).filter(Boolean).length>REFINEMENT_MAX_WORDS)return false;
-  return !PROCUREMENT_HINT.test(text);
+  const words=text.split(/\s+/).filter(Boolean);
+  if(!words.length||words.length>REFINEMENT_MAX_WORDS)return false;
+  if(PROCUREMENT_HINT.test(text))return false;
+  return words.every(word=>SPEC_TOKEN.test(word)||KNOWN_BRAND.test(word)||SPEC_WORD.test(word));
 }
 
 // نفس قاعدة البوابة: طلب فيه اسم صنف يستحق الأسعار والإعلانات، لا قائمة موردين فقط.
