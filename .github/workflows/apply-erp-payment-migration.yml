@@ -1,0 +1,213 @@
+name: Apply ERP Payment Reconciliation Migration
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/apply-erp-payment-migration.yml'
+      - 'supabase/migrations/032_customer_payment_reconciliation.sql'
+      - 'scripts/audit-migrations.mjs'
+      - 'api/_lib/routes/system-runtime.js'
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: binhamid-production-database-migrations
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: erp_payment_clone
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d erp_payment_clone"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      LOCAL_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/erp_payment_clone
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+
+      - name: Validate migration contracts
+        run: |
+          set -euo pipefail
+          npm install --ignore-scripts --no-audit --no-fund
+          node --check scripts/resolve-supabase-connection.mjs
+          node --check api/_lib/daily-report-v7.js
+          node --check api/_lib/customer-payment-reconciliation-handler.js
+          npm run audit:migrations
+          node --test tests/customer-payment-reconciliation.test.mjs tests/customer-payment-handler-static.test.mjs tests/erp-daily-r2-fix.test.mjs
+
+      - name: Install PostgreSQL 17 client
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y curl ca-certificates
+          sudo install -d -m 0755 /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          . /etc/os-release
+          printf '%s\n' 'Types: deb' 'URIs: https://apt.postgresql.org/pub/repos/apt' "Suites: ${VERSION_CODENAME}-pgdg" 'Components: main' 'Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc' | sudo tee /etc/apt/sources.list.d/pgdg.sources > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client-17
+          echo '/usr/lib/postgresql/17/bin' >> "$GITHUB_PATH"
+
+      - name: Resolve protected database connection
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          SUPABASE_POOLER_HOST: ${{ vars.SUPABASE_POOLER_HOST }}
+          CONNECTION_DIAGNOSTIC_PATH: erp-payment-connection.json
+        run: node scripts/resolve-supabase-connection.mjs
+
+      - name: Verify production starts at schema 31 or 32
+        shell: bash
+        run: |
+          set -euo pipefail
+          current_version="$(psql "$SUPABASE_DB_URL" -X -t -A -v ON_ERROR_STOP=1 -c "select coalesce(max(version),0) from public.migration_history;")"
+          case "$current_version" in
+            31|32) ;;
+            *) echo "Expected production schema 31 or 32, found $current_version" >&2; exit 1 ;;
+          esac
+          printf '{"currentVersion":%s,"targetVersion":32}\n' "$current_version" > erp-payment-preflight.json
+
+      - name: Create and verify encrypted pre-migration backup
+        env:
+          BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+          BACKUP_ENVIRONMENT: production-pre-erp-payment-32
+          BACKUP_OUTPUT_DIR: pre-erp-payment-backup
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf pre-erp-payment-backup
+          mkdir -p pre-erp-payment-backup
+          : > pre-erp-payment-backup-result.jsonl
+          node scripts/backup-supabase.mjs | tee pre-erp-payment-backup-result.jsonl
+          test "${PIPESTATUS[0]}" -eq 0
+          BACKUP_RESULT_FILE=pre-erp-payment-backup-result.jsonl \
+          BACKUP_OUTPUT_DIR=pre-erp-payment-backup \
+          BACKUP_VERIFICATION_FILE=pre-erp-payment-backup-verification.json \
+          BACKUP_MANIFEST_ENV_NAME=PRE_ERP_PAYMENT_MANIFEST \
+          node scripts/verify-backup-files.mjs
+
+      - name: Restore production backup to isolated PostgreSQL 17
+        env:
+          BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+          RESTORE_ARTIFACT_DIR: pre-erp-payment-backup
+          RESTORE_DRILL_RESULT: erp-payment-isolated-restore.json
+          SUPABASE_DB_URL: ''
+        run: node scripts/restore-drill.mjs
+
+      - name: Prepare isolated PostgreSQL extensions
+        run: psql "$LOCAL_DATABASE_URL" -X -v ON_ERROR_STOP=1 -c 'create extension if not exists pgcrypto;'
+
+      - name: Apply and verify migration 032 on isolated clone
+        shell: bash
+        run: |
+          set -euo pipefail
+          isolated_version="$(psql "$LOCAL_DATABASE_URL" -X -t -A -v ON_ERROR_STOP=1 -c "select coalesce(max(version),0) from public.migration_history;")"
+          if [ "$isolated_version" = '31' ]; then
+            psql "$LOCAL_DATABASE_URL" -X -v ON_ERROR_STOP=1 --single-transaction --file supabase/migrations/032_customer_payment_reconciliation.sql
+          elif [ "$isolated_version" != '32' ]; then
+            echo "Isolated schema must be 31 or 32; found $isolated_version" >&2
+            exit 1
+          fi
+          test "$(psql "$LOCAL_DATABASE_URL" -X -t -A -v ON_ERROR_STOP=1 -c "select coalesce(max(version),0) from public.migration_history;")" = '32'
+          test "$(psql "$LOCAL_DATABASE_URL" -X -t -A -v ON_ERROR_STOP=1 -c "select count(*) from pg_proc where oid=to_regprocedure('public.append_daily_report_customer_payments(date,text,jsonb,text,text)');")" = '1'
+
+      - name: Apply migration 032 to production atomically
+        shell: bash
+        run: |
+          set -euo pipefail
+          current_version="$(node -e "const x=require('./erp-payment-preflight.json');process.stdout.write(String(x.currentVersion))")"
+          if [ "$current_version" = '31' ]; then
+            psql "$SUPABASE_DB_URL" -X -v ON_ERROR_STOP=1 --single-transaction --file supabase/migrations/032_customer_payment_reconciliation.sql
+          else
+            echo 'Production is already at schema 32; no migration replayed.'
+          fi
+
+      - name: Verify production schema 32 and reconciliation function
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(psql "$SUPABASE_DB_URL" -X -t -A -v ON_ERROR_STOP=1 -c "select coalesce(max(version),0) from public.migration_history;")"
+          function_count="$(psql "$SUPABASE_DB_URL" -X -t -A -v ON_ERROR_STOP=1 -c "select count(*) from pg_proc where oid=to_regprocedure('public.append_daily_report_customer_payments(date,text,jsonb,text,text)');")"
+          test "$version" = '32'
+          test "$function_count" = '1'
+          printf '{"schemaVersion":%s,"functionReady":true}\n' "$version" > erp-payment-production-verification.json
+
+      - name: Create and verify encrypted post-migration backup
+        env:
+          BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+          BACKUP_ENVIRONMENT: production-post-erp-payment-32
+          BACKUP_OUTPUT_DIR: post-erp-payment-backup
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf post-erp-payment-backup
+          mkdir -p post-erp-payment-backup
+          : > post-erp-payment-backup-result.jsonl
+          node scripts/backup-supabase.mjs | tee post-erp-payment-backup-result.jsonl
+          test "${PIPESTATUS[0]}" -eq 0
+          BACKUP_RESULT_FILE=post-erp-payment-backup-result.jsonl \
+          BACKUP_OUTPUT_DIR=post-erp-payment-backup \
+          BACKUP_VERIFICATION_FILE=post-erp-payment-backup-verification.json \
+          BACKUP_MANIFEST_ENV_NAME=POST_ERP_PAYMENT_MANIFEST \
+          EXPECTED_SCHEMA_VERSION=32 \
+          node scripts/verify-backup-files.mjs
+
+      - name: Upload migration evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: erp-payment-migration-32-${{ github.run_id }}
+          path: |
+            erp-payment-connection.json
+            erp-payment-preflight.json
+            erp-payment-isolated-restore.json
+            erp-payment-production-verification.json
+            pre-erp-payment-backup-verification.json
+            post-erp-payment-backup-verification.json
+            pre-erp-payment-backup/*.enc
+            pre-erp-payment-backup/*.manifest.json
+            post-erp-payment-backup/*.enc
+            post-erp-payment-backup/*.manifest.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Publish migration status
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          node <<'NODE'
+          const success=process.env.JOB_STATUS==='success';
+          const response=await fetch(`https://api.github.com/repos/${process.env.REPOSITORY}/statuses/${process.env.HEAD_SHA}`,{
+            method:'POST',
+            headers:{Accept:'application/vnd.github+json',Authorization:`Bearer ${process.env.GITHUB_TOKEN}`,'X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'},
+            body:JSON.stringify({state:success?'success':'failure',context:'erp-payment-migration-32',target_url:process.env.RUN_URL,description:success?'Schema 32 and payment reconciliation verified in production.':'ERP payment migration stopped before acceptance.'})
+          });
+          if(!response.ok)throw new Error(`Status publication failed with HTTP ${response.status}`);
+          NODE
