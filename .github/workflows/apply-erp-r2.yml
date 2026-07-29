@@ -1,0 +1,61 @@
+name: Apply ERP payment reconciliation R2
+
+on:
+  push:
+    branches:
+      - fix/erp-payments-2026-07-29
+    paths:
+      - scripts/apply-erp-r2-patch.mjs
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout patch branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/erp-payments-2026-07-29
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply strict source patch
+        run: node scripts/apply-erp-r2-patch.mjs
+
+      - name: Syntax checks
+        run: |
+          node --check api/_lib/daily-report-v6.js
+          node --check api/_lib/daily-report-v7.js
+          node --check api/_lib/customer-payment-reconciliation.js
+          node --check api/_lib/customer-payment-reconciliation-handler.js
+
+      - name: Regression tests
+        run: |
+          node --test \
+            tests/customer-payment-reconciliation.test.mjs \
+            tests/customer-payment-handler-static.test.mjs \
+            tests/erp-daily-r2-fix.test.mjs \
+            tests/erp-daily-sync.test.mjs
+
+      - name: Validate diff
+        run: git diff --check
+
+      - name: Commit generated patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add api/_lib/daily-report-v6.js api/erp/daily-report.js
+          git diff --cached --quiet && exit 0
+          git commit -m "Fix ERP undated payments and voucher matching"
+          git push origin HEAD:fix/erp-payments-2026-07-29
