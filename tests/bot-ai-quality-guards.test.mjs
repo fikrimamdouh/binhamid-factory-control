@@ -345,3 +345,29 @@ test('the button flow reaches prices and listings, exactly like typing a part na
   assert.match(flow,/await import\('\.\/bot-product-assistant\.js'\)/,'dynamic import avoids the circular dependency');
   assert.equal((flow.match(/await runSearch\(/g)||[]).length,3,'every search entry point must share one route');
 });
+
+test('a school, a kindergarten and a poultry shop never appear in a bearings search',async()=>{
+  const { filterRelevant, relevanceScore }=await import('../api/_lib/bot-business-directory.js');
+  const terms=['رمان بلي','محامل ومحمل صناعي'];
+  const junk=[
+    {name:'المشواف لقطع غيار السيارات',category:'متجر قطع غيار سيارات'},
+    {name:'مراطة للدواجن',category:'متجر أطعمة'},
+    {name:'رجلاء',category:'مدرسة'},
+    {name:'الروضة الأربعون',category:'رياض أطفال'},
+    {name:'الشرفه',category:'مبنى سكني'},
+    {name:'مكتبة أنوار',category:'متجر'},
+    {name:'بارك للأثاث المكتبي',category:'متجر'},
+    {name:'عذبة الوادي لفلاتر المياه',category:'قاعة مناسبات'},
+    {name:'شركة الوابل للمضخات',category:'موّردون'}
+  ];
+  const kept=filterRelevant(junk,terms);
+  const names=kept.map(row=>row.name);
+  for(const bad of ['رجلاء','الروضة الأربعون','الشرفه','مراطة للدواجن','مكتبة أنوار','بارك للأثاث المكتبي','عذبة الوادي لفلاتر المياه'])
+    assert.ok(!names.includes(bad),`${bad} must be filtered out`);
+  assert.ok(names.includes('المشواف لقطع غيار السيارات'));
+  assert.ok(names.includes('شركة الوابل للمضخات'));
+  assert.ok(relevanceScore({name:'محامل الرياض',category:'موّردون'},terms)>relevanceScore({name:'مؤسسة عامة',category:'موّردون'},terms),'a name matching the part ranks higher');
+  assert.equal(relevanceScore({name:'رجلاء',category:'مدرسة'},terms),-1);
+  const flow=await read('api/_lib/bot-business-directory-flow.js');
+  assert.match(flow,/لا يوجد في/,'an empty result must be stated honestly');
+});

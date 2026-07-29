@@ -34,6 +34,35 @@ function sourceRank(value=''){
 const STRONG_REPAIR=/ورش|تصليح|تصليج|إصلاح|اصلاح|مخرطة|مخرطه|سمكرة|سمكره|صيانة|صيانه|repair|workshop|garage/i;
 const STRONG_SELLER=/قطع\s*غيار|قطع\s*الغيار|توريد|موزع|وكيل|وكالة|مستودع|تجارة\s*قطع|بيع\s*قطع|spare|auto\s*parts|parts|supplier|wholesal|distribut|trading/i;
 
+// جوجل لا يعيد «لا نتائج» أبدًا: حين لا يوجد متخصص في المدينة يعيد أي جهة قريبة،
+// فظهرت مدرسة وروضة أطفال ومبنى سكني ومحل دواجن ضمن نتائج بحث عن رمان بلي.
+// نوع المكان يصل من جوجل ولم يكن مستخدَمًا؛ نستخدمه لاستبعاد ما لا صلة له.
+const IRRELEVANT_TYPE=/مدرسة|مدرسه|روضة|روضه|حضانة|حضانه|جامعة|جامعه|معهد|مبنى\s*سكني|شقة|شقه|فندق|مسجد|مستشفى|عيادة|عياده|صيدلية|صيدليه|مطعم|مقهى|كافيه|مخبز|حلويات|بقالة|بقاله|سوبرماركت|تموينات|متجر\s*أطعمة|أطعمة|دواجن|لحوم|خضار|صالون|حلاق|تجميل|قاعة\s*مناسبات|مناسبات|أثاث|مفروشات|مكتبة|مكتبه|قرطاسية|قرطاسيه|ملابس|أحذية|عطور|مجوهرات|ذهب|جوالات|ألعاب|رياض\s*أطفال|مكتب\s*حكومي|جمعية|جمعيه|منظمة|منظمه|بنك|صراف|مدني|school|kindergarten|mosque|hotel|restaurant|cafe|pharmacy|furniture|grocery/i;
+
+// أنواع تجارية تدل بذاتها على البيع أو التوريد.
+// «متجر» وحدها ضعيفة مثل «مؤسسة»: مكتبة ومحل أثاث كلاهما «متجر».
+const COMMERCIAL_TYPE=/قطع\s*غيار|موّردون|موردون|تاجر\s*جملة|مستودع|مصنع|توريد|معدات|صناعي|hardware|supplier|wholesal|spare|parts/i;
+
+export function relevanceScore(row={},terms=[]){
+  const text=norm(`${row.name||''} ${row.category||''}`);
+  const both=`${row.category||''} ${row.name||''}`;
+  if(IRRELEVANT_TYPE.test(both)&&!/قطع\s*غيار/i.test(both))return -1;
+  const words=[...new Set((terms||[]).flatMap(term=>norm(term).split(' ')).filter(word=>word.length>2))];
+  const hits=words.filter(word=>text.includes(word)).length;
+  if(hits)return 2+hits;
+  if(COMMERCIAL_TYPE.test(both))return 1;
+  return 0;
+}
+
+// نُسقط ما لا صلة له نهائيًا، ولا نُبقي عديم الإشارة إلا عند شح النتائج،
+// فقائمة قصيرة صادقة أنفع من قائمة طويلة فيها مدرسة وروضة.
+export function filterRelevant(rows=[],terms=[]){
+  return (rows||[])
+    .map(row=>({...row,relevance:relevanceScore(row,terms)}))
+    .filter(row=>row.relevance>=1)
+    .sort((a,b)=>Number(b.relevance||0)-Number(a.relevance||0));
+}
+
 export function supplierKind(row={}){
   const text=`${row.name||''} ${row.category||''}`;
   const seller=STRONG_SELLER.test(text),repair=STRONG_REPAIR.test(text);
@@ -173,9 +202,11 @@ export async function searchGoogleBusinessDirectory(query,{city='نجران',pla
   if(!config.placesKey)return{businesses:[],queries:[],configured:false};
   // المدينة المختارة أولًا ووحدها.
   const queries=planPlaceQueries(plan,city,{maxQueries:18});
+  const terms=[plan?.part||'',...(plan?.categoriesAr||[]),...(plan?.brands||[])].filter(Boolean);
   const primary=await runPlaceQueries(queries);
   let businesses=primary.businesses.map(row=>({...row,inCity:cityMatches(row,city)}));
-  const local=businesses.filter(row=>row.inCity);
+  // نقيس الحصيلة بعد استبعاد ما لا صلة له، وإلا بدت المدينة عامرة بنتائج لا تنفع.
+  const local=filterRelevant(businesses.filter(row=>row.inCity),terms);
   let expandedQueries=[];
   // لا نتوسع خارج المدينة إلا عند ضعف الحصيلة المحلية، والنتائج تُوسم بأنها خارجها.
   if(city!=='كل السعودية'&&local.length<LOCAL_RESULT_FLOOR){
@@ -193,7 +224,9 @@ export async function searchComprehensiveBusinessDirectory(query,{city='نجرا
   const google=attempts[0].status==='fulfilled'?attempts[0].value:{businesses:[],queries:[],configured:Boolean(config.placesKey),error:attempts[0].reason};
   const web=attempts[1].status==='fulfilled'?attempts[1].value:{businesses:[],sources:[],scopeNote:'',configured:Boolean(config.openaiKey),error:attempts[1].reason};
   if(!google.configured&&!web.configured)throw Object.assign(new Error('البحث الشامل غير مفعّل. يلزم OPENAI_API_KEY أو GOOGLE_PLACES_API_KEY.'),{status:503,code:'BUSINESS_DIRECTORY_NOT_CONFIGURED'});
-  const businesses=mergeBusinessResults(google.businesses,web.businesses).slice(0,45);
+  const terms=[plan?.part||'',...(plan?.categoriesAr||[]),...(plan?.brands||[])].filter(Boolean);
+  const relevant=filterRelevant(mergeBusinessResults(google.businesses,web.businesses),terms);
+  const businesses=relevant.slice(0,45);
   if(!businesses.length&&google.error&&web.error)throw Object.assign(new Error('تعذر الوصول إلى مصادر دليل الأعمال الآن.'),{status:502,code:'BUSINESS_DIRECTORY_ALL_SOURCES_FAILED',causes:[google.error?.message,web.error?.message].filter(Boolean)});
   return{businesses,plan,googleQueries:google.queries||[],webSources:web.sources||[],scopeNote:web.scopeNote||'',sourcesUsed:[google.businesses?.length?'Google Places':'',web.businesses?.length?'المواقع والأدلة على الويب':''].filter(Boolean)};
 }

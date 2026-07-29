@@ -121,7 +121,8 @@ export async function sendDeepBusinessResults(message,identity,query,city,{annou
   catch(error){return sendMessage(message.chat.id,`<b>تعذر إكمال البحث الشامل.</b>\n${esc(error?.message||'تعذر الوصول إلى مصادر دليل الأعمال.')}`,keyboard([[{text:'إعادة البحث',callback_data:'proc:search'}]]));}
   await logSearch(message,identity,query,city,result).catch(()=>{});
   await setSession(message.chat.id,identity?.external_id||message.from.id,'business_search_results',{query,city,businesses:result.businesses.slice(0,30),sourcesUsed:result.sourcesUsed,startedAt:now()});
-  if(!result.businesses.length)return sendMessage(message.chat.id,'لم أجد جهة منشورة يمكن التحقق منها. وسّع المدينة أو اكتب النشاط والماركة بصورة أدق.',keyboard([[{text:'بحث في كل السعودية',callback_data:'supplier_city:saudi'},{text:'بحث جديد',callback_data:'proc:search'}]]));
+  // إجابة صادقة أنفع من قائمة محشوة: نقول إن لا متخصص هنا بدل عرض مدرسة ومحل أثاث.
+  if(!result.businesses.length)return sendMessage(message.chat.id,`لا يوجد في <b>${esc(clean(city,60))}</b> جهة متخصصة في هذا الصنف حسب المصادر المنشورة.\nجرّب البحث في كل السعودية، أو اكتب اسم الماركة ورقم القطعة لتضييق البحث.`,keyboard([[{text:'بحث في كل السعودية',callback_data:'supplier_city:saudi'},{text:'بحث جديد',callback_data:'proc:search'}]]));
   const pages=groupResultCards(result.businesses,city);
   const localCount=result.businesses.filter(row=>row.inCity!==false).length;
   const outsideCount=result.businesses.length-localCount;
