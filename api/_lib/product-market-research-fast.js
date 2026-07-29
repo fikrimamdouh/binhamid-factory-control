@@ -36,18 +36,39 @@ export function buildFastPriceLevel(offers=[]){
   for(const tier of ['original','aftermarket','compatible']){const band=buildBand(offers.filter(row=>row.quality_tier===tier));if(band)byTier.push({tier,label:tierLabel(tier),...band});}
   return{available:Boolean(overall),currency:'SAR',sampleCount:overall?.sampleCount||0,scopeCount:1,overall,byTier};
 }
+// النموذج يُلحق أحيانًا اسم النطاق بين قوسين داخل النص، وتطول الحقول حتى تلتصق
+// ببعضها فيبدو السطر ممزقًا. نقصّ كل حقل ونزيل هذه الزوائد قبل العرض.
+const field=(value,max=90)=>String(value??'')
+  .replace(/\((?:[\w-]+\.)+[a-z]{2,}[^)]*\)/gi,' ')
+  .replace(/https?:\/\/\S+/g,' ')
+  .replace(/\s{2,}/g,' ')
+  .trim()
+  .slice(0,max)
+  .trim();
+
 function renderOffer(offer){
   const price=offer.price_sar>0?`${money(offer.price_sar)} ر.س${offer.price&&offer.currency&&offer.currency!=='SAR'?` (${money(offer.price)} ${offer.currency})`:''}`:'السعر غير منشور';
-  return `• ${offer.seller||'بائع غير محدد'} — ${offer.location||'الموقع غير محدد'}\n  السعر: ${price} — ${offer.unit_basis||'الوحدة غير محددة'}\n  الفئة: ${tierLabel(offer.quality_tier)} — التوفر: ${offer.availability||'غير معلوم'}\n  الضريبة والشحن: ${offer.vat_shipping||'غير موضح'}\n  الهاتف/WhatsApp: ${offer.phone||'الهاتف غير منشور'}${offer.note?`\n  ملاحظة: ${offer.note}`:''}`;
+  const lines=[
+    `• ${field(offer.seller,70)||'بائع غير محدد'} — ${field(offer.location,45)||'الموقع غير محدد'}`,
+    `  السعر: ${price} — ${field(offer.unit_basis,35)||'الوحدة غير محددة'}`,
+    `  الفئة: ${tierLabel(offer.quality_tier)} — التوفر: ${field(offer.availability,45)||'غير معلوم'}`,
+    `  الهاتف: ${field(offer.phone,25)||'غير منشور'}`
+  ];
+  const vat=field(offer.vat_shipping,45);
+  if(vat&&!/^(?:غير|contact|n\/a|-)/i.test(vat))lines.push(`  الضريبة والشحن: ${vat}`);
+  const note=field(offer.note,110);
+  if(note)lines.push(`  ملاحظة: ${note}`);
+  return lines.join('\n');
 }
 function renderResult(parsed,offers,level){
   const lines=[];
   if(level.available){const band=level.overall;lines.push(`السعر المعتاد: نحو ${money(band.typical)} ر.س`,`معظم الأسعار: ${money(band.typicalLow)}–${money(band.typicalHigh)} ر.س`,`النطاق الكامل: ${money(band.min)}–${money(band.max)} ر.س`,`أفضل سعر منشور: ${money(band.bestPrice)} ر.س — ${band.bestSeller||'بائع غير محدد'}`);}
   else lines.push('لم يظهر سعر منشور كافٍ؛ ستظهر المحلات والموردون المتاحون للتواصل المباشر.');
-  if(parsed.identification)lines.push(`تعريف الصنف: ${parsed.identification}`);
-  if(parsed.critical_specs?.length)lines.push(`المواصفات الحرجة: ${parsed.critical_specs.join('، ')}`);
+  if(parsed.identification)lines.push(`تعريف الصنف: ${field(parsed.identification,120)}`);
+  if(parsed.critical_specs?.length)lines.push(`المواصفات الحرجة: ${parsed.critical_specs.slice(0,4).map(spec=>field(spec,70)).filter(Boolean).join('، ')}`);
   if(offers.length)lines.push(offers.slice(0,8).map(renderOffer).join('\n'));
-  if(parsed.best_choices?.length)lines.push(`أفضل الخيارات: ${parsed.best_choices.join(' | ')}`);
+  // كانت تُدمج بشرطات فتصير سطرًا واحدًا طويلًا غير مقروء.
+  if(parsed.best_choices?.length)lines.push(['أفضل الخيارات:',...parsed.best_choices.slice(0,3).map(choice=>`- ${field(choice,120)}`).filter(row=>row.length>3)].join('\n'));
   // scope_note كان سردًا عن رحلة البحث نفسها، لا معلومة تفيد المشتري.
   return cleanProductResearchText(lines.join('\n\n'));
 }

@@ -446,3 +446,14 @@ test('relevance is judged per candidate instead of by an endless keyword list',a
   assert.match(relevance,/reasoningFor\(model,'minimal'\)/,'no built-in tool here, so minimal effort is allowed');
   assert.doesNotMatch(relevance,/type:'web_search'/);
 });
+
+test('a price offer renders as clean short lines, not a torn run-on',async()=>{
+  const fast=await read('api/_lib/product-market-research-fast.js');
+  assert.match(fast,/const field=\(value,max=90\)/,'every offer field must be trimmed before display');
+  assert.match(fast,/\\\(\(\?:\[\\w-\]\+\\\.\)\+\[a-z\]\{2,\}\[\^\)\]\*\\\)/,'a bare source domain in parentheses must be stripped');
+  assert.doesNotMatch(fast,/best_choices\.join\(' \| '\)/,'choices must not be flattened into one long line');
+  assert.match(fast,/parsed\.best_choices\.slice\(0,3\)/,'cap the number of choices shown');
+  assert.doesNotMatch(fast,/\$\{offer\.seller\|\|'بائع غير محدد'\}/,'the raw seller field must go through the trimmer');
+  const directory=await read('api/_lib/bot-business-directory.js');
+  assert.doesNotMatch(directory,/export const LOCAL_RESULT_FLOOR/,'dead threshold removed with its condition');
+});

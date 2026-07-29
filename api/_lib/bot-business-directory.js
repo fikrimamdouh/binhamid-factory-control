@@ -182,9 +182,6 @@ export async function researchBusinessDirectory(query,{city='نجران',plan=nu
 
 // كان يرسل كلام المستخدم حرفيًا فيطابق أسماء الورش. الآن يبحث بالفئة التجارية
 // عبر مراكز التوريد الحقيقية، فيتسع العدد ويصح النوع.
-// أقل عدد نتائج محلية نقبله قبل التوسع خارج المدينة المختارة.
-export const LOCAL_RESULT_FLOOR=10;
-
 function cityMatches(row={},city=''){
   if(!city||city==='كل السعودية')return true;
   return norm(`${row.address||''} ${row.city||''}`).includes(norm(city));
