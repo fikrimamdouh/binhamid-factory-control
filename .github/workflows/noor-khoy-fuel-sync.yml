@@ -1,6 +1,11 @@
 name: Noor Khoy daily fuel sync
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/noor-khoy-fuel-sync.yml
   workflow_dispatch:
     inputs:
       report_date:
@@ -21,8 +26,8 @@ on:
         default: false
         type: boolean
   schedule:
-    - cron: '0 5 * * *'
-    - cron: '0 16 * * *'
+    - cron: '7 5 * * *'
+    - cron: '7 16 * * *'
 
 permissions:
   contents: read
@@ -34,7 +39,7 @@ concurrency:
 
 jobs:
   sync:
-    if: github.event.schedule != '0 16 * * *' && !(github.event_name == 'workflow_dispatch' && inputs.run_vehicle_balance)
+    if: github.event.schedule != '7 16 * * *' && !(github.event_name == 'workflow_dispatch' && inputs.run_vehicle_balance)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -97,7 +102,7 @@ jobs:
         run: exit 1
 
   vehicle-balance-report:
-    if: github.event.schedule == '0 16 * * *' || (github.event_name == 'workflow_dispatch' && inputs.run_vehicle_balance)
+    if: github.event.schedule == '7 16 * * *' || (github.event_name == 'workflow_dispatch' && inputs.run_vehicle_balance)
     runs-on: ubuntu-latest
     timeout-minutes: 12
     env:
