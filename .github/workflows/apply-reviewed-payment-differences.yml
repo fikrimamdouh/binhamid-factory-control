@@ -1,0 +1,152 @@
+name: Apply Reviewed ERP Payment Differences
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/apply-reviewed-payment-differences.yml'
+      - 'scripts/apply-reviewed-payment-differences.mjs'
+      - 'ops/reconciliation/erp-payment-differences-2026-07-19-to-27.json.gz.b64'
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: binhamid-production-database-migrations
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+
+      - name: Validate reviewed payload and script
+        env:
+          REVIEWED_PAYMENT_VALIDATE_ONLY: '1'
+          REVIEWED_PAYMENT_RESULT: reviewed-payment-validation.json
+        run: |
+          set -euo pipefail
+          node --check scripts/apply-reviewed-payment-differences.mjs
+          node scripts/apply-reviewed-payment-differences.mjs
+
+      - name: Install PostgreSQL 17 client
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y curl ca-certificates
+          sudo install -d -m 0755 /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          . /etc/os-release
+          printf '%s\n' 'Types: deb' 'URIs: https://apt.postgresql.org/pub/repos/apt' "Suites: ${VERSION_CODENAME}-pgdg" 'Components: main' 'Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc' | sudo tee /etc/apt/sources.list.d/pgdg.sources > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client-17
+          echo '/usr/lib/postgresql/17/bin' >> "$GITHUB_PATH"
+
+      - name: Resolve protected database connection
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          SUPABASE_POOLER_HOST: ${{ vars.SUPABASE_POOLER_HOST }}
+          CONNECTION_DIAGNOSTIC_PATH: reviewed-payment-connection.json
+        run: node scripts/resolve-supabase-connection.mjs
+
+      - name: Verify schema 32 and reconciliation function
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(psql "$SUPABASE_DB_URL" -X -t -A -v ON_ERROR_STOP=1 -c "select coalesce(max(version),0) from public.migration_history;")"
+          function_count="$(psql "$SUPABASE_DB_URL" -X -t -A -v ON_ERROR_STOP=1 -c "select count(*) from pg_proc where oid=to_regprocedure('public.append_daily_report_customer_payments(date,text,jsonb,text,text)');")"
+          test "$version" = '32'
+          test "$function_count" = '1'
+          printf '{"schemaVersion":%s,"functionReady":true}\n' "$version" > reviewed-payment-preflight.json
+
+      - name: Create and verify encrypted pre-reconciliation backup
+        env:
+          BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+          BACKUP_ENVIRONMENT: production-pre-reviewed-payment-differences
+          BACKUP_OUTPUT_DIR: pre-reviewed-payment-backup
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf pre-reviewed-payment-backup
+          mkdir -p pre-reviewed-payment-backup
+          : > pre-reviewed-payment-backup-result.jsonl
+          node scripts/backup-supabase.mjs | tee pre-reviewed-payment-backup-result.jsonl
+          test "${PIPESTATUS[0]}" -eq 0
+          BACKUP_RESULT_FILE=pre-reviewed-payment-backup-result.jsonl \
+          BACKUP_OUTPUT_DIR=pre-reviewed-payment-backup \
+          BACKUP_VERIFICATION_FILE=pre-reviewed-payment-backup-verification.json \
+          BACKUP_MANIFEST_ENV_NAME=PRE_REVIEWED_PAYMENT_MANIFEST \
+          node scripts/verify-backup-files.mjs
+
+      - name: Apply reviewed payment differences atomically
+        env:
+          REVIEWED_PAYMENT_RESULT: reviewed-payment-differences-result.json
+        run: node scripts/apply-reviewed-payment-differences.mjs
+
+      - name: Create and verify encrypted post-reconciliation backup
+        env:
+          BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+          BACKUP_ENVIRONMENT: production-post-reviewed-payment-differences
+          BACKUP_OUTPUT_DIR: post-reviewed-payment-backup
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf post-reviewed-payment-backup
+          mkdir -p post-reviewed-payment-backup
+          : > post-reviewed-payment-backup-result.jsonl
+          node scripts/backup-supabase.mjs | tee post-reviewed-payment-backup-result.jsonl
+          test "${PIPESTATUS[0]}" -eq 0
+          BACKUP_RESULT_FILE=post-reviewed-payment-backup-result.jsonl \
+          BACKUP_OUTPUT_DIR=post-reviewed-payment-backup \
+          BACKUP_VERIFICATION_FILE=post-reviewed-payment-backup-verification.json \
+          BACKUP_MANIFEST_ENV_NAME=POST_REVIEWED_PAYMENT_MANIFEST \
+          EXPECTED_SCHEMA_VERSION=32 \
+          node scripts/verify-backup-files.mjs
+
+      - name: Upload reconciliation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reviewed-payment-differences-${{ github.run_id }}
+          path: |
+            reviewed-payment-validation.json
+            reviewed-payment-connection.json
+            reviewed-payment-preflight.json
+            reviewed-payment-differences-result.json
+            pre-reviewed-payment-backup-verification.json
+            post-reviewed-payment-backup-verification.json
+            pre-reviewed-payment-backup/*.enc
+            pre-reviewed-payment-backup/*.manifest.json
+            post-reviewed-payment-backup/*.enc
+            post-reviewed-payment-backup/*.manifest.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Publish reviewed payment status
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          node <<'NODE'
+          const success=process.env.JOB_STATUS==='success';
+          const response=await fetch(`https://api.github.com/repos/${process.env.REPOSITORY}/statuses/${process.env.HEAD_SHA}`,{
+            method:'POST',
+            headers:{Accept:'application/vnd.github+json',Authorization:`Bearer ${process.env.GITHUB_TOKEN}`,'X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'},
+            body:JSON.stringify({state:success?'success':'failure',context:'reviewed-payment-differences',target_url:process.env.RUN_URL,description:success?'Reviewed ERP payment differences committed and verified.':'Reviewed ERP payment transaction stopped before acceptance.'})
+          });
+          if(!response.ok)throw new Error(`Status publication failed with HTTP ${response.status}`);
+          NODE
