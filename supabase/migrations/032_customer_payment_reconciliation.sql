@@ -60,9 +60,23 @@ begin
   for update;
   if not found then raise exception 'ERP_PAYMENT_TARGET_BATCH_MISSING:%',p_report_date; end if;
 
-  select coalesce(max(source_row_no),0) into v_next_row
-  from public.daily_report_cash_movements
-  where batch_id=v_batch.id;
+  select greatest(
+    coalesce((
+      select max(source_row_no)
+      from public.daily_report_cash_movements
+      where batch_id=v_batch.id
+    ),0),
+    coalesce((
+      select max((substring(reference_no from '([0-9]+)$'))::integer)
+      from public.finance_events
+      where reference_no like concat('DR-',to_char(p_report_date,'YYYYMMDD'),'-F-%')
+    ),0),
+    coalesce((
+      select max((substring(reference_no from '([0-9]+)$'))::integer)
+      from public.collection_events
+      where reference_no like concat('DR-',to_char(p_report_date,'YYYYMMDD'),'-C-%')
+    ),0)
+  ) into v_next_row;
 
   for v_row in select value from jsonb_array_elements(p_payments) loop
     v_customer:=nullif(trim(coalesce(v_row->>'accountCode',v_row->>'customerCode','')),'');
