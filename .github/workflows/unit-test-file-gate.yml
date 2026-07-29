@@ -30,6 +30,16 @@ jobs:
           node --check api/_lib/bot-invitations.js
           node --check api/_lib/telegram-webhook-gateway.js
           node --input-type=module -e "await import('./api/_lib/bot-driver-pool-registration.js'); await import('./api/_lib/bot-invitations.js'); await import('./api/_lib/telegram-webhook-gateway.js');"
+      - name: Inspect failed Vercel driver deployment
+        continue-on-error: true
+        shell: bash
+        run: |
+          echo '--- deployment metadata ---'
+          curl -sS 'https://api.vercel.com/v13/deployments/9HonfQzJFxJwLGup7nJjZScRjW6c' | tee /tmp/vercel-deployment.json
+          echo
+          echo '--- deployment events ---'
+          curl -sS 'https://api.vercel.com/v2/deployments/9HonfQzJFxJwLGup7nJjZScRjW6c/events?builds=1&limit=100' | tee /tmp/vercel-events.json
+          echo
       - name: Run each test file
         shell: bash
         run: |
