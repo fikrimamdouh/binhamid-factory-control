@@ -310,8 +310,8 @@ test('minimal reasoning is never sent together with a built-in tool',async()=>{
 });
 
 test('a chosen city is honoured and anything outside it is labelled',async()=>{
-  const { LOCAL_RESULT_FLOOR, mergeBusinessResults }=await import('../api/_lib/bot-business-directory.js');
-  assert.ok(LOCAL_RESULT_FLOOR>0);
+  const { mergeBusinessResults }=await import('../api/_lib/bot-business-directory.js');
+
   const merged=mergeBusinessResults([
     {name:'مؤسسة قطع غيار الرياض',phone:'0500000001',category:'متجر',inCity:false},
     {name:'مؤسسة قطع غيار نجران',phone:'0500000002',category:'متجر',inCity:true}
@@ -320,7 +320,8 @@ test('a chosen city is honoured and anything outside it is labelled',async()=>{
   assert.equal(merged[1].inCity,false);
   const directory=await read('api/_lib/bot-business-directory.js');
   assert.match(directory,/planPlaceQueries\(plan,city,\{maxQueries:18\}\)/);
-  assert.match(directory,/local\.length<LOCAL_RESULT_FLOOR/,'widen only when local results are thin');
+  assert.doesNotMatch(directory,/local\.length<LOCAL_RESULT_FLOOR/,'a full local list must not hide the real specialist elsewhere');
+  assert.match(directory,/await Promise\.all\(\[\s*runPlaceQueries\(queries\)/,'both sweeps run together, not one after the other');
   const flow=await read('api/_lib/bot-business-directory-flow.js');
   assert.match(flow,/خارج \$\{esc\(clean\(city,40\)\)\}/);
   assert.match(flow,/من مدن أخرى/);

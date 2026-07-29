@@ -213,17 +213,15 @@ export async function searchGoogleBusinessDirectory(query,{city='نجران',pla
   // المدينة المختارة أولًا ووحدها.
   const queries=planPlaceQueries(plan,city,{maxQueries:18});
   const terms=[plan?.part||'',...(plan?.categoriesAr||[]),...(plan?.brands||[])].filter(Boolean);
-  const primary=await runPlaceQueries(queries);
-  let businesses=primary.businesses.map(row=>({...row,inCity:cityMatches(row,city)}));
-  // نقيس الحصيلة بعد استبعاد ما لا صلة له، وإلا بدت المدينة عامرة بنتائج لا تنفع.
-  const local=filterRelevant(businesses.filter(row=>row.inCity),terms);
-  let expandedQueries=[];
-  // لا نتوسع خارج المدينة إلا عند ضعف الحصيلة المحلية، والنتائج تُوسم بأنها خارجها.
-  if(city!=='كل السعودية'&&local.length<LOCAL_RESULT_FLOOR){
-    expandedQueries=planPlaceQueries(plan,city,{maxQueries:12,expand:true});
-    const extra=await runPlaceQueries(expandedQueries,queries.length);
-    businesses=businesses.concat(extra.businesses.map(row=>({...row,inCity:cityMatches(row,city)})));
-  }
+  // الاعتماد على عدد النتائج المحلية كان يمنع التوسع حين تمتلئ المدينة بمحلات عامة،
+  // فيضيع المتخصص الحقيقي في الرياض أو جدة. نبحث في الاتجاهين معًا ونترك الفرز يحكم:
+  // المحلي العام يبقى لأنك تستطيع الاتصال به، والخارجي لا يمر إلا إن كان يبيع الصنف.
+  const expandedQueries=city!=='كل السعودية'?planPlaceQueries(plan,city,{maxQueries:12,expand:true}):[];
+  const [primary,extra]=await Promise.all([
+    runPlaceQueries(queries),
+    expandedQueries.length?runPlaceQueries(expandedQueries,queries.length):Promise.resolve({businesses:[],failure:null})
+  ]);
+  const businesses=[...primary.businesses,...extra.businesses].map(row=>({...row,inCity:cityMatches(row,city)}));
   if(!businesses.length&&primary.failure)throw primary.failure;
   return{businesses,queries:[...queries,...expandedQueries],configured:true};
 }

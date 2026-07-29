@@ -12,7 +12,7 @@ import { searchMarketplaceListings } from './marketplace-listings.js';
 
 // ميزانية زمنية واحدة للبحث كله. حد دالة Vercel هو 60 ثانية، وتجاوزه يقتل الطلب
 // قبل أن تصل أي نتيجة للمستخدم — وهو ما ظهر فعلًا في سجلات الإنتاج.
-export const PRICE_RESEARCH_BUDGET_MS=24000;
+export const PRICE_RESEARCH_BUDGET_MS=30000;
 // نحجز وقتًا للخلاصة والرد الصوتي حتى لا تُقتل الدالة قبل أن تصل النتيجة.
 export const SUMMARY_RESERVE_MS=17000;
 // تدفق الصورة يشغّل تحليل الرؤية ثم بحث السعر داخل نفس الدالة، فتُقسم الميزانية بينهما.

@@ -2,7 +2,7 @@ import { config } from './config.js';
 import { cleanProductResearchText, collectResearchSources, validateProductQuery } from './product-market-research.js';
 import { assertResponseComplete, markModelUnavailable, modelUnavailable, reasoningFor, responsesOutputText, usableModels } from './openai-responses.js';
 
-export const FAST_RESEARCH_LIMITS=Object.freeze({totalMs:24000,attemptMs:21000,minRetryMs:7000});
+export const FAST_RESEARCH_LIMITS=Object.freeze({totalMs:30000,attemptMs:27000,minRetryMs:7000});
 
 const safeUrl=value=>{try{const url=new URL(String(value||''));return url.protocol==='https:'?url.toString():'';}catch{return'';}};
 const num=value=>{const parsed=Number(value);return Number.isFinite(parsed)&&parsed>0?parsed:0;};

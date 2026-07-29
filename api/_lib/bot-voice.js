@@ -22,7 +22,7 @@ function buildForm(buffer,contentType,model,language){
   return form;
 }
 
-export const TRANSCRIBE_TIMEOUT_MS=18000;
+export const TRANSCRIBE_TIMEOUT_MS=15000;
 
 // «سعر» و«شعر» متقاربتان صوتيًا وتُنتجان بحثًا عن صالونات شعر بدل قطع الغيار.
 // نصحّحهما فقط عند وجود مصطلح ميكانيكي في نفس الجملة حتى لا نفسد كلامًا مشروعًا.
