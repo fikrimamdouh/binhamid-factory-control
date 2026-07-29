@@ -325,3 +325,23 @@ test('a chosen city is honoured and anything outside it is labelled',async()=>{
   assert.match(flow,/خارج \$\{esc\(clean\(city,40\)\)\}/);
   assert.match(flow,/من مدن أخرى/);
 });
+
+test('a new request replaces the previous one instead of piling onto it',async()=>{
+  const { isSearchRefinement }=await import('../api/_lib/bot-business-directory-flow.js');
+  assert.equal(isSearchRefinement('SKF','رمان بلي 6205'),true,'a short brand narrows the previous search');
+  assert.equal(isSearchRefinement('عمود كردان 50 سم','رمان بلي 6205'),false,'a full request is a new search');
+  assert.equal(isSearchRefinement('فلتر زيت','رمان بلي 6205'),false,'naming another part is a new search');
+  assert.equal(isSearchRefinement('SKF',''),false,'nothing to refine');
+  const flow=await read('api/_lib/bot-business-directory-flow.js');
+  assert.doesNotMatch(flow,/const merged=`\$\{context\.query\|\|''\} \$\{value\}`/,'the unbounded append must not return');
+  assert.match(flow,/refining\?`\$\{context\.query\} \$\{value\}`\.trim\(\)\.slice\(0,160\):value/);
+  assert.match(flow,/'طلب جديد'/,'the user must see which of the two happened');
+});
+
+test('the button flow reaches prices and listings, exactly like typing a part name',async()=>{
+  const flow=await read('api/_lib/bot-business-directory-flow.js');
+  assert.match(flow,/async function runSearch\(message,identity,query,city\)/);
+  assert.match(flow,/assistant\.sendProductResearch\(message,identity,query,city\)/);
+  assert.match(flow,/await import\('\.\/bot-product-assistant\.js'\)/,'dynamic import avoids the circular dependency');
+  assert.equal((flow.match(/await runSearch\(/g)||[]).length,3,'every search entry point must share one route');
+});

@@ -148,8 +148,29 @@ export async function handleDirectBusinessSearch(message,identity,text){
   if(!query)return false;
   const city=directBusinessSearchCity(text,query);
   await clearMaintenanceSession(message.chat.id,userId).catch(()=>{});
-  await sendDeepBusinessResults(message,identity,query,city);
+  await runSearch(message,identity,query,city);
   return true;
+}
+
+// كل رسالة جديدة كانت تُضاف على الاستعلام السابق بلا حد، فبعد سبع رسائل صار
+// البحث عن سبعة أصناف ملتصقة ولا يطابق شيئًا. الافتراض الآن: طلب جديد يستبدل
+// القديم، ولا نضيف إلا إذا كانت كلمة أو كلمتين لا تذكر صنفًا جديدًا.
+const REFINEMENT_MAX_WORDS=2;
+
+export function isSearchRefinement(value='',priorQuery=''){
+  const text=String(value||'').trim();
+  if(!String(priorQuery||'').trim()||!text)return false;
+  if(text.split(/\s+/).filter(Boolean).length>REFINEMENT_MAX_WORDS)return false;
+  return !PROCUREMENT_HINT.test(text);
+}
+
+// نفس قاعدة البوابة: طلب فيه اسم صنف يستحق الأسعار والإعلانات، لا قائمة موردين فقط.
+async function runSearch(message,identity,query,city){
+  if(PROCUREMENT_HINT.test(String(query||''))&&!NON_MARKET_HINT.test(String(query||''))){
+    const assistant=await import('./bot-product-assistant.js');
+    if(assistant.canUseProductAssistant(identity))return assistant.sendProductResearch(message,identity,query,city);
+  }
+  return sendDeepBusinessResults(message,identity,query,city);
 }
 
 export async function continueDeepBusinessSearch(message,identity,session,text){
@@ -162,13 +183,15 @@ export async function continueDeepBusinessSearch(message,identity,session,text){
     await sendMessage(message.chat.id,'اختر نطاق البحث:',cityKeyboard());return true;
   }
   if(session.state==='business_search_city'||session.state==='business_search_results'){
-    const merged=`${context.query||''} ${value}`.trim().slice(0,300);
+    const refining=isSearchRefinement(value,context.query);
+    const merged=refining?`${context.query} ${value}`.trim().slice(0,160):value;
     await setSession(message.chat.id,userId,'business_search_city',{...context,query:merged,startedAt:now()});
-    await sendMessage(message.chat.id,`تم تدقيق الطلب: <b>${esc(merged)}</b>\nاختر نطاق البحث:`,cityKeyboard());return true;
+    const label=refining?'تم تدقيق الطلب':'طلب جديد';
+    await sendMessage(message.chat.id,`${label}: <b>${esc(merged)}</b>\nاختر نطاق البحث:`,cityKeyboard());return true;
   }
   if(session.state==='business_search_custom_city'){
     if(value.length<2){await sendMessage(message.chat.id,'اكتب اسم مدينة واضحًا.');return true;}
-    await sendDeepBusinessResults(message,identity,context.query,value);return true;
+    await runSearch(message,identity,context.query,value);return true;
   }
   return false;
 }
@@ -183,5 +206,5 @@ export async function handleDeepBusinessCallback(message,from,identity,action,va
     await sendMessage(message.chat.id,'اكتب اسم المدينة أو المنطقة.');return true;
   }
   if(!context.query){await startDeepBusinessSearch({...message,from},identity);return true;}
-  await sendDeepBusinessResults({...message,from},identity,context.query,CITY_LABELS[value]||value);return true;
+  await runSearch({...message,from},identity,context.query,CITY_LABELS[value]||value);return true;
 }
