@@ -38,6 +38,7 @@ jobs:
           set -euo pipefail
           node --check scripts/apply-reviewed-payment-differences.mjs
           node scripts/apply-reviewed-payment-differences.mjs
+          grep -q "v_cash_id public.daily_report_cash_movements.id%type;" supabase/migrations/033_customer_payment_collection_id_type.sql
           grep -q "v_collection_id public.collection_events.id%type;" supabase/migrations/033_customer_payment_collection_id_type.sql
 
       - name: Install PostgreSQL 17 client
@@ -132,8 +133,9 @@ jobs:
           version="$(psql "$SUPABASE_DB_URL" -X -t -A -v ON_ERROR_STOP=1 -c "select coalesce(max(version),0) from public.migration_history;")"
           function_definition="$(psql "$SUPABASE_DB_URL" -X -t -A -v ON_ERROR_STOP=1 -c "select pg_get_functiondef(to_regprocedure('public.append_daily_report_customer_payments(date,text,jsonb,text,text)'));")"
           test "$version" = '33'
+          printf '%s' "$function_definition" | grep -q "v_cash_id public.daily_report_cash_movements.id%type;"
           printf '%s' "$function_definition" | grep -q "v_collection_id public.collection_events.id%type;"
-          printf '{"schemaVersion":%s,"collectionIdTypeCorrected":true}\n' "$version" > reviewed-payment-migration-verification.json
+          printf '{"schemaVersion":%s,"cashIdTypeCorrected":true,"collectionIdTypeCorrected":true}\n' "$version" > reviewed-payment-migration-verification.json
 
       - name: Apply reviewed payment differences atomically
         env:
