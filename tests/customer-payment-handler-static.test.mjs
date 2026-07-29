@@ -37,8 +37,9 @@ test('existing daily import metadata is preserved during reconciliation',()=>{
 test('database function is idempotent, uses a never-reused reference and posts accounting',()=>{
   assert.match(migration,/account_code=v_customer/);
   assert.match(migration,/voucher_no,''\)=v_voucher/);
-  assert.match(migration,/finance_events[\s\S]*substring\(reference_no from/);
-  assert.match(migration,/collection_events[\s\S]*substring\(reference_no from/);
+  assert.match(migration,/from public\.finance_events/);
+  assert.match(migration,/from public\.collection_events/);
+  assert.equal((migration.match(/substring\(reference_no from/g)||[]).length,2);
   assert.match(migration,/allocate_collection_fifo/);
   assert.match(migration,/post_daily_report_accounting/);
   assert.match(migration,/daily_report_customer_payments_reconciled/);
