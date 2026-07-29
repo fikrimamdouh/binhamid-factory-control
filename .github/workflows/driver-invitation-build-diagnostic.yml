@@ -1,0 +1,60 @@
+name: Driver Invitation Build Diagnostic
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'package.json'
+      - 'scripts/apply-driver-plate-invitations.mjs'
+      - '.github/workflows/driver-invitation-build-diagnostic.yml'
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Run Vercel build chain
+        id: build
+        shell: bash
+        run: |
+          set +e
+          npm run vercel-build > driver-build.log 2>&1
+          code=$?
+          cat driver-build.log
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Publish failure diagnostic
+        if: steps.build.outputs.code != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          tail -n 120 driver-build.log > driver-build-tail.log
+          {
+            echo '## Driver invitation build failure'
+            echo
+            echo "Commit: \`${GITHUB_SHA}\`"
+            echo
+            echo '```text'
+            cat driver-build-tail.log
+            echo '```'
+          } > issue-body.md
+          existing=$(gh issue list --state open --search 'Driver invitation build diagnostic in:title' --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue edit "$existing" --body-file issue-body.md
+          else
+            gh issue create --title 'Driver invitation build diagnostic' --body-file issue-body.md
+          fi
+      - name: Fail after publishing
+        if: steps.build.outputs.code != '0'
+        run: exit 1
