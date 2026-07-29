@@ -1,0 +1,67 @@
+name: Resume Reviewed ERP 2026-07-28 Once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/resume-reviewed-erp-20260728-once.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: resume-reviewed-erp-20260728
+  cancel-in-progress: false
+
+jobs:
+  resume:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Resume reviewed report and deliver Telegram reports
+        env:
+          RESUME_TOKEN: ijIjySXn55hgX6Zy96IqzTmTUwaFDa5LVltjaDWAknI
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$RESUME_TOKEN"
+          curl --silent --show-error --fail-with-body --max-time 600 \
+            "https://binhamid-factory-control.vercel.app/api/erp/daily-report?action=resume-reviewed-2026-07-28&token=${RESUME_TOKEN}" \
+            --output reviewed-erp-result.json
+          cat reviewed-erp-result.json
+          node <<'NODE'
+          const fs=require('fs');
+          const result=JSON.parse(fs.readFileSync('reviewed-erp-result.json','utf8'));
+          if(!result.ok)throw new Error(`ERP resume returned ok=false: ${JSON.stringify(result)}`);
+          const actual=result.validation?.actual||{};
+          const expected={invoiceCount:18,salesTotal:53721,blockSales:5920,concreteSales:47801,collectionCount:12,collectionTotal:24627,cashMovementCount:24};
+          for(const [key,value] of Object.entries(expected)){
+            if(Number(actual[key])!==value)throw new Error(`Validation mismatch ${key}: ${actual[key]} != ${value}`);
+          }
+          if(!result.batch?.id)throw new Error('Approved batch id is missing');
+          const delivery=result.delivery||{};
+          const telegramErrors=delivery.telegram?.errors||[];
+          const threeDayErrors=delivery.threeDay?.errors||[];
+          if(telegramErrors.length||threeDayErrors.length){
+            throw new Error(`Telegram delivery errors: ${JSON.stringify({telegramErrors,threeDayErrors})}`);
+          }
+          console.log(JSON.stringify({
+            ok:true,
+            alreadyCompleted:Boolean(result.alreadyCompleted),
+            reportDate:result.reportDate,
+            batchId:result.batch.id,
+            validation:actual,
+            telegram:delivery.telegram||null,
+            threeDay:delivery.threeDay||null
+          },null,2));
+          NODE
+
+      - name: Upload execution evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reviewed-erp-20260728-result-${{ github.run_id }}
+          path: reviewed-erp-result.json
+          if-no-files-found: warn
+          retention-days: 14
