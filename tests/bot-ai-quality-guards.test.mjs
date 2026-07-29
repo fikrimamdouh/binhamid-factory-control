@@ -415,3 +415,33 @@ test('a cardboard factory and a gift shop never survive a bearings search',async
   const directory=await read('api/_lib/bot-business-directory.js');
   assert.doesNotMatch(directory,/مستودع\|مصنع\|توريد/,'a generic factory type must not imply relevance');
 });
+
+test('relevance is judged per candidate instead of by an endless keyword list',async()=>{
+  const { applyVerdicts, candidatePayload, MAX_CANDIDATES, VERDICTS }=await import('../api/_lib/supplier-relevance.js');
+  const rows=[
+    {name:'موزع SKF معتمد',inCity:false,phone:'1'},
+    {name:'زاوية الروشن للكرتون',inCity:false,phone:'1'},
+    {name:'وكالة نمران قطع غيار',inCity:true,phone:'1'},
+    {name:'الروضة الأربعون',inCity:true,phone:'1'},
+    {name:'محل قطع غيار جدة',inCity:false,phone:'1'}
+  ];
+  const verdicts=new Map([[0,'sells'],[1,'no'],[2,'maybe'],[3,'no'],[4,'maybe']]);
+  const kept=applyVerdicts(rows,verdicts,{city:'نجران'});
+  const names=kept.map(row=>row.name);
+  assert.ok(!names.includes('زاوية الروشن للكرتون'));
+  assert.ok(!names.includes('الروضة الأربعون'));
+  assert.ok(!names.includes('محل قطع غيار جدة'),'a weak match outside the city is dropped');
+  assert.equal(names[0],'وكالة نمران قطع غيار','in-city leads');
+  assert.ok(names.includes('موزع SKF معتمد'));
+  // غياب الحكم لا يعني الحذف
+  assert.equal(applyVerdicts([{name:'بلا حكم',inCity:true}],new Map(),{city:'نجران'})[0].verdict,VERDICTS.MAYBE);
+  assert.equal(applyVerdicts(rows,null),null,'a failed judgement must fall back, not empty the list');
+  assert.equal(candidatePayload(rows)[0].i,0);
+  assert.ok(MAX_CANDIDATES>=25);
+  const directory=await read('api/_lib/bot-business-directory.js');
+  assert.match(directory,/const judged=applyVerdicts\(merged,verdicts,\{city\}\)/);
+  assert.match(directory,/const relevant=judged\|\|filterRelevant\(merged,terms\)/,'the keyword filter stays as a safety net');
+  const relevance=await read('api/_lib/supplier-relevance.js');
+  assert.match(relevance,/reasoningFor\(model,'minimal'\)/,'no built-in tool here, so minimal effort is allowed');
+  assert.doesNotMatch(relevance,/type:'web_search'/);
+});

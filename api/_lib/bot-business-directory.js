@@ -1,5 +1,6 @@
 import { config } from './config.js';
 import { buildSupplierSearchPlan, planPlaceQueries } from './supplier-search-plan.js';
+import { applyVerdicts, judgeSupplierRelevance } from './supplier-relevance.js';
 
 const clean=(value,max=500)=>String(value??'').trim().slice(0,max);
 const norm=value=>clean(value,1000).toLowerCase().replace(/[أإآٱ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ً-ْـ]/g,'').replace(/[^\p{L}\p{N}]+/gu,' ').replace(/\s+/g,' ').trim();
@@ -234,8 +235,13 @@ export async function searchComprehensiveBusinessDirectory(query,{city='نجرا
   const web=attempts[1].status==='fulfilled'?attempts[1].value:{businesses:[],sources:[],scopeNote:'',configured:Boolean(config.openaiKey),error:attempts[1].reason};
   if(!google.configured&&!web.configured)throw Object.assign(new Error('البحث الشامل غير مفعّل. يلزم OPENAI_API_KEY أو GOOGLE_PLACES_API_KEY.'),{status:503,code:'BUSINESS_DIRECTORY_NOT_CONFIGURED'});
   const terms=[plan?.part||'',...(plan?.categoriesAr||[]),...(plan?.brands||[])].filter(Boolean);
-  const relevant=filterRelevant(mergeBusinessResults(google.businesses,web.businesses),terms);
-  const businesses=relevant.slice(0,45);
+  const merged=mergeBusinessResults(google.businesses,web.businesses);
+  // الحكم الذكي أولًا: هل تبيع هذه الجهة الصنف المطلوب؟ وفلتر الكلمات يبقى شبكة أمان
+  // إن تعذر النداء، فلا يفشل البحث كله لأن مرحلة الفرز سقطت.
+  const verdicts=await judgeSupplierRelevance(plan?.part||query,merged);
+  const judged=applyVerdicts(merged,verdicts,{city});
+  const relevant=judged||filterRelevant(merged,terms);
+  const businesses=relevant.slice(0,25);
   if(!businesses.length&&google.error&&web.error)throw Object.assign(new Error('تعذر الوصول إلى مصادر دليل الأعمال الآن.'),{status:502,code:'BUSINESS_DIRECTORY_ALL_SOURCES_FAILED',causes:[google.error?.message,web.error?.message].filter(Boolean)});
-  return{businesses,plan,googleQueries:google.queries||[],webSources:web.sources||[],scopeNote:web.scopeNote||'',sourcesUsed:[google.businesses?.length?'Google Places':'',web.businesses?.length?'المواقع والأدلة على الويب':''].filter(Boolean)};
+  return{businesses,plan,relevanceSource:judged?'model':'keywords',googleQueries:google.queries||[],webSources:web.sources||[],scopeNote:web.scopeNote||'',sourcesUsed:[google.businesses?.length?'Google Places':'',web.businesses?.length?'المواقع والأدلة على الويب':''].filter(Boolean)};
 }
