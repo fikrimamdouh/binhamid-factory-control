@@ -109,7 +109,8 @@ export function groupCustomerPayments(analysis={},fallbackDate){
 }
 
 async function ensureImport({hash,storagePath,originalName,summary,rowCount}){
-  let imp=(await select('imports',`file_hash=eq.${hash}&select=id,status,file_path,file_hash,summary&limit=1`))?.[0]||null;
+  const existing=(await select('imports',`file_hash=eq.${hash}&select=id,status,file_path,file_hash,summary,source,report_type,original_name,posted_batch_id&limit=1`))?.[0]||null;
+  if(existing)return{imp:existing,preserveExisting:true};
   const values={
     source:'erp-folder',department:'finance',report_type:'customer_payment_reconciliation',
     status:'ready',original_name:originalName,
@@ -117,10 +118,9 @@ async function ensureImport({hash,storagePath,originalName,summary,rowCount}){
     file_path:storagePath,file_hash:hash,row_count:rowCount,error_count:0,warning_count:0,
     summary,last_error_code:null,last_error_message:null
   };
-  if(!imp)imp=(await insert('imports',[values]))?.[0];
-  else imp=(await patch('imports',`id=eq.${encodeURIComponent(imp.id)}`,values))?.[0]||{...imp,...values};
+  const imp=(await insert('imports',[values]))?.[0];
   if(!imp?.id)throw Object.assign(new Error('تعذر تسجيل ملف استكمال السداد'),{status:502,code:'ERP_PAYMENT_IMPORT_REGISTER_FAILED'});
-  return imp;
+  return{imp,preserveExisting:false};
 }
 
 export async function previewCustomerPaymentReconciliation(analysis={},fallbackDate){
@@ -183,13 +183,24 @@ export default async function customerPaymentReconciliation(req,res){
       });
     }
 
+    if(previewTotals.conflicts>0){
+      return json(res,409,{
+        ok:false,action,committed:false,code:'ERP_PAYMENT_PREVIEW_CONFLICT',
+        error:`يوجد ${previewTotals.conflicts} تعارضًا في السداد؛ لم يتم ترحيل أي حركة.`,
+        originalName,fileHash:hash,fallbackDate,totals:previewTotals,
+        days:preview.results.map(row=>({...row,payments:undefined})),
+        ignoredCount:preview.prepared.ignored.length,invalidCount:preview.prepared.invalid.length
+      });
+    }
+
     const storagePath=`erp-folder/customer-payment-reconciliation/${fallbackDate}/${hash.slice(0,16)}-${safeFile(originalName)}`;
     const existingImport=(await select('imports',`file_hash=eq.${hash}&select=id,file_path,status&limit=1`))?.[0]||null;
-    if(!existingImport?.file_path)await uploadObject(storagePath,buffer,'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    const imp=await ensureImport({
-      hash,storagePath:existingImport?.file_path||storagePath,originalName,rowCount:analysis.rowCount,
+    if(!existingImport)await uploadObject(storagePath,buffer,'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    const importAudit=await ensureImport({
+      hash,storagePath,originalName,rowCount:analysis.rowCount,
       summary:{source:{kind:'customer-payment-reconciliation',fallbackDate},preview:previewTotals}
     });
+    const imp=importAudit.imp;
 
     const committed=[];
     for(const row of preview.results){
@@ -206,15 +217,17 @@ export default async function customerPaymentReconciliation(req,res){
       out.conflicts+=Number(row.conflictCount||0);out.insertedAmount=money(out.insertedAmount+Number(row.insertedAmount||0));
       return out;
     },{inserted:0,matched:0,conflicts:0,insertedAmount:0});
-    await patch('imports',`id=eq.${encodeURIComponent(imp.id)}`,{
-      status:'posted',warning_count:totals.conflicts,
-      summary:{source:{kind:'customer-payment-reconciliation',fallbackDate,committedAt:new Date().toISOString()},preview:previewTotals,commit:totals,days:committed},
-      last_error_code:null,last_error_message:null
-    });
+    if(!importAudit.preserveExisting){
+      await patch('imports',`id=eq.${encodeURIComponent(imp.id)}`,{
+        status:'posted',warning_count:totals.conflicts,
+        summary:{source:{kind:'customer-payment-reconciliation',fallbackDate,committedAt:new Date().toISOString()},preview:previewTotals,commit:totals,days:committed},
+        last_error_code:null,last_error_message:null
+      });
+    }
 
     return json(res,200,{
       ok:true,action,committed:true,originalName,fileHash:hash,importId:imp.id,
-      fallbackDate,totals,days:committed,
+      importPreserved:importAudit.preserveExisting,fallbackDate,totals,days:committed,
       ignoredCount:preview.prepared.ignored.length,invalidCount:preview.prepared.invalid.length,
       partial:totals.conflicts>0
     });
