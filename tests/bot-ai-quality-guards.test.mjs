@@ -210,3 +210,44 @@ test('the strongest model is tried first and a missing one is never retried',asy
   const configSource=await read('api/_lib/config.js');
   assert.match(configSource,/textModel:text\('OPENAI_TEXT_MODEL'\),/);
 });
+
+test('supplier search asks for the trade category, not the literal part name',async()=>{
+  const { fallbackPlan, placeSafeTerm, planPlaceQueries, SUPPLY_HUBS }=await import('../api/_lib/supplier-search-plan.js');
+  assert.equal(placeSafeTerm('عمود كردان 50 سم'),'عمود كردان','sizes must not reach a place-name search');
+  const plan=fallbackPlan('عمود كردان 50 سم');
+  assert.ok(plan.categoriesAr.some(term=>/معدات ثقيلة|كردان/.test(term)));
+  assert.ok(plan.categoriesAr.every(term=>!/\d/.test(term)),'no digits in a place query');
+  const bearings=fallbackPlan('رمان بلي 6205');
+  assert.ok(bearings.categoriesAr.some(term=>/محامل/.test(term)));
+  const queries=planPlaceQueries(bearings,'نجران');
+  assert.ok(queries.length>=8,`too few queries: ${queries.length}`);
+  assert.ok(queries[0].includes('نجران'),'the requested city comes first');
+  assert.ok(SUPPLY_HUBS.some(hub=>queries.some(q=>q.includes(hub))),'must sweep the supply hubs');
+  assert.ok(new Set(queries).size===queries.length,'queries must be unique');
+  const generic=planPlaceQueries(fallbackPlan('حاجة غريبة'),'كل السعودية');
+  assert.ok(generic.length>0,'an unknown part still produces queries');
+});
+
+test('parts sellers outrank repair workshops',async()=>{
+  const { supplierKind, mergeBusinessResults, KIND_LABEL }=await import('../api/_lib/bot-business-directory.js');
+  assert.equal(supplierKind({name:'ورشة عبد الرحمن إصلاح عمود كردان',category:'تصليح سيارات'}),'repair');
+  assert.equal(supplierKind({name:'مخرطة عامود كردان',category:''}),'repair');
+  assert.equal(supplierKind({name:'مؤسسة النور لقطع الغيار',category:'متجر'}),'seller');
+  const merged=mergeBusinessResults([
+    {name:'ورشة تصليح كردان',phone:'0500000001',category:'تصليح سيارات'},
+    {name:'مؤسسة قطع غيار النور',phone:'0500000002',category:'متجر'}
+  ],[]);
+  assert.equal(merged[0].kind,'seller','a seller must come first');
+  assert.equal(merged[1].kind,'repair');
+  assert.equal(KIND_LABEL.repair,'ورشة تصليح');
+  const flow=await read('api/_lib/bot-business-directory-flow.js');
+  assert.match(flow,/KIND_LABEL\[row\.kind\]/,'the list must label each entry');
+});
+
+test('the directory web search is one call, not two chained thirty second calls',async()=>{
+  const directory=await read('api/_lib/bot-business-directory.js');
+  assert.equal((directory.match(/await openAiResponse\(/g)||[]).length,1,'a second chained call reintroduces the 60s timeout');
+  assert.doesNotMatch(directory,/,30000\)/);
+  assert.match(directory,/const plan=await buildSupplierSearchPlan\(query\)/);
+  assert.match(directory,/planPlaceQueries\(plan,city,\{maxQueries:18\}\)/);
+});

@@ -87,8 +87,12 @@ test('Telegram procurement voice and gateway contracts use deep search speech an
   assert.match(flow,/disable_voice_reply:true/);
   assert.match(flow,/groupResultCards/);
   assert.doesNotMatch(flow,/slice\(0,3900\)/);
-  assert.match(directory,/tools:\[\{type:'web_search',search_context_size:'high'/);
-  assert.match(directory,/research_summary:researchText/);
+  // خُفض السياق إلى medium ودُمج النداءان في واحد، لأن نداءين بثلاثين ثانية
+  // لكل منهما كانا يستهلكان حد الدالة كاملًا قبل وصول أي نتيجة.
+  assert.match(directory,/tools:\[\{type:'web_search',search_context_size:'medium'/);
+  // مرحلة التنسيق صارت داخل النداء نفسه عبر json_schema بدل تمرير ملخص لنداء ثانٍ.
+  assert.match(directory,/name:'saudi_business_directory'/);
+  assert.match(directory,/input:JSON\.stringify\(\{\.\.\.scope,plan,searched_at/);
   assert.match(directory,/max_output_tokens:6000/);
   assert.match(directory,/places\.googleapis\.com\/v1\/places:searchText/);
   assert.match(voice,/audio\/speech/);

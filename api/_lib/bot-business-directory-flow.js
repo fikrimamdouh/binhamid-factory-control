@@ -1,7 +1,7 @@
 import { insert,select } from './supabase.js';
 import { sendMessage,keyboard } from './telegram.js';
 import { clearMaintenanceSession } from './bot-maintenance.js';
-import { searchComprehensiveBusinessDirectory } from './bot-business-directory.js';
+import { KIND_LABEL, searchComprehensiveBusinessDirectory } from './bot-business-directory.js';
 import { stripConversationalFiller } from './bot-query-clean.js';
 
 const clean=(value,max=500)=>String(value??'').trim().slice(0,max);
@@ -72,7 +72,7 @@ function resultCard(row,index){
   const rating=row.rating?`⭐ ${Number(row.rating).toFixed(1)}${row.reviews?` (${row.reviews})`:''}`:'';
   return[
     `<b>${index}. ${esc(clean(row.name,100))}</b>${rating?` — ${rating}`:''}`,
-    row.category?`🏷️ ${esc(clean(row.category,80))}`:null,
+    `🏷️ <b>${esc(KIND_LABEL[row.kind]||KIND_LABEL.other)}</b>${row.category?` — ${esc(clean(row.category,70))}`:''}`,
     phone,
     row.address?`📍 ${esc(clean(row.address,160))}`:row.city?`📍 ${esc(clean(row.city,80))}`:null,
     `🔎 ${esc(sourceLabel(row.sourceType,row.origin))} — ثقة ${esc(confidenceLabel(row.confidence))}`,
