@@ -18,6 +18,25 @@ test('single-day ERP assigns the report date to undated cash movements',async()=
   assert.equal(plan.undatedRows.length,1);
 });
 
+test('bank debit notices use treasury 105 instead of the customer account code',()=>{
+  const workbook=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook,XLSX.utils.aoa_to_sheet([
+    ['حركه الخزن'],
+    ['', '', 'الخزينة',104,'خزينة نقاط البيع'],
+    ['مدين','دائن','اسم الحساب','نوع الحساب','رقم الحساب','البيان','نوع الحركة','رقم الاذن','التاريخ'],
+    [1800,0,'عبدالله محمد ابو عارف','عميل',13204,'','إشعار مدين - بنك',589,'28-07-2026'],
+    [0,8000,'كسارة ركائز التطور','مورد',40054,'','إشعار دائن - بنك',968,'28-07-2026']
+  ]),'Sheet1');
+  const analysis=parseDailyWorkbook(workbook,XLSX);
+  assert.equal(analysis.cashMovements.length,2);
+  assert.equal(analysis.cashMovements[0].treasuryCode,'105');
+  assert.equal(analysis.cashMovements[0].paymentMethod,'bank');
+  assert.equal(analysis.cashMovements[0].accountCode,'13204');
+  assert.equal(analysis.cashMovements[0].isCustomerCollection,true);
+  assert.equal(analysis.cashMovements[1].treasuryCode,'105');
+  assert.equal(analysis.cashMovements[1].isCustomerCollection,false);
+});
+
 test('repaired date is written to the detected date column, not fixed column I',async()=>{
   const { planSingleDayRepair,repairSingleDayWorkbook }=await import(new URL(implementationPath,import.meta.url));
   const workbook=XLSX.utils.book_new();
