@@ -8,11 +8,11 @@ const exists=path=>fs.existsSync(new URL(`../${path}`,import.meta.url));
 test('automatic device bootstrap grants no business-data capability',()=>{
   const source=read('api/_lib/device-session.js');
   assert.match(source,/DEVICE_CAPABILITIES=Object\.freeze\(\[\]\)/);
-  for(const capability of ['state.write','state.read','dashboard.manager','imports.manage','daily_report.import','daily_report.approve','accounting.view'])assert.doesNotMatch(source,new RegExp(capability.replace('.','\\.')));
+  for(const capability of ['state.write','state.read','dashboard.manager','imports.manage','daily_report.import','daily_report.approve','accounting.view'])assert.doesNotMatch(source,new RegExp(capability.replace('.','\.')));
   assert.match(source,/DEVICE_CAPABILITY_REQUIRED/);
 });
 
-test('accounting acceptance stays schema 24 while production readiness advances to schema 32',()=>{
+test('accounting acceptance stays schema 24 while production readiness advances to schema 33',()=>{
   const workflow=read('.github/workflows/production-readiness.yml');
   const accountingMigrations=read('.github/workflows/apply-pending-migrations.yml');
   const masterMigrations=read('.github/workflows/apply-persistent-master-migration.yml');
@@ -23,7 +23,7 @@ test('accounting acceptance stays schema 24 while production readiness advances 
   const runtime=read('api/_lib/routes/system-runtime.js');
   assert.doesNotMatch(workflow,/directOperationsSchema\)!==15|expected schema 15|schema 15/);
   assert.match(workflow,/directOperationsSchema\)!==24|directOperationsSchema\)===24|directOperationsSchema===24/);
-  assert.match(runtime,/LATEST_REQUIRED_VERSION=32/);
+  assert.match(runtime,/LATEST_REQUIRED_VERSION=33/);
   assert.match(runtime,/directOperationsSchema:24/);
   assert.match(runtime,/erpPaymentReconciliation:true/);
   assert.match(accountingMigrations,/024_employee_nickname_and_financial_command_center\.sql/);
