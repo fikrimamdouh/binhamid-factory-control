@@ -24,5 +24,19 @@ if(!content.includes('async function getBotSession(chatId,userId){')){
   if(!content.includes(anchor))throw new Error('Driver lightweight session anchor missing');
   content=content.replace(anchor,replacement);
 }
+
+content=content.replace(
+  "return (employees||[]).filter(row=>driverRole(row.role)&&!linked.has(String(row.external_id))).map(row=>({",
+  "return (employees||[]).filter(row=>!linked.has(String(row.external_id))).map(row=>({"
+);
+content=content.replace(
+  "if(employees.length!==1||!driverRole(employees[0].role))return null;",
+  "if(employees.length!==1)return null;"
+);
+content=content.replace(
+  'لا توجد أسماء سائقين متاحة الآن؛ كل السائقين المسجلين مرتبطون بحسابات أو وظائفهم غير مسجلة كسائق.',
+  'لا توجد أسماء موظفين متاحة الآن؛ كل الموظفين الفعالين مرتبطون بحسابات Telegram.'
+);
+
 writeFileSync(path,content,'utf8');
-console.log('Removed bot-maintenance dependency from driver registration module.');
+console.log('Prepared lightweight driver registration module with all unlinked active employees.');
