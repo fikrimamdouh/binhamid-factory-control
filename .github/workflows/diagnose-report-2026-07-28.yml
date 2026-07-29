@@ -6,6 +6,11 @@ on:
       - diagnose/report-2026-07-28
     paths:
       - '.github/workflows/diagnose-report-2026-07-28.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/diagnose-report-2026-07-28.yml'
 
 permissions:
   contents: read
