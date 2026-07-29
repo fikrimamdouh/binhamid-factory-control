@@ -12,6 +12,7 @@ import { prepareErpSuccessDelivery,sendErpDuplicateNotice,sendErpSuccessDelivery
 
 const TOKEN_SHA='b4ba6180ffc5d0ce658168f76b3362b69b7e930b998e8304fa6afe68da8289a0';
 const clean=(value,max=1000)=>String(value??'').trim().slice(0,max);
+const label=value=>clean(value,300).toLowerCase().replace(/[أإآٱ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ً-ْـ]/g,'').replace(/\s+/g,' ');
 const round=value=>Math.round((Number(value||0)+Number.EPSILON)*100)/100;
 const dateOf=row=>clean(row?.movementDate??row?.movement_date_text??row?.reportDate,10);
 const customer=row=>clean(row?.accountCode??row?.account_code??row?.customerCode??row?.customer_code,120);
@@ -72,10 +73,23 @@ function blankRow(workbook,row){
   const range=XLSX.utils.decode_range(sheet['!ref']);
   for(let col=range.s.c;col<=range.e.c;col++)delete sheet[XLSX.utils.encode_cell({r:rowNo-1,c:col})];
 }
+function detectedDateColumn(workbook,row){
+  const sheet=workbook.Sheets[clean(row?.sheet,200)],rowNo=Number(row?.row||0);
+  if(!sheet||!Number.isInteger(rowNo)||rowNo<1)return 8;
+  const rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:'',raw:true,cellDates:true,blankrows:true});
+  for(let index=rowNo-2;index>=Math.max(0,rowNo-42);index--){
+    const normalized=(rows[index]||[]).map(label);
+    if(!normalized.some(value=>value==='مدين')||!normalized.some(value=>value==='دائن'))continue;
+    const column=normalized.findIndex(value=>value==='التاريخ'||value==='تاريخ الحركه'||value.includes('تاريخ الحرك'));
+    if(column>=0)return column;
+  }
+  return 8;
+}
 function putDate(workbook,row,reportDate){
   const sheet=workbook.Sheets[clean(row?.sheet,200)],rowNo=Number(row?.row||0);
   if(!sheet||!Number.isInteger(rowNo)||rowNo<1)return;
-  sheet[XLSX.utils.encode_cell({r:rowNo-1,c:8})]={t:'s',v:reportDate};
+  const column=detectedDateColumn(workbook,row);
+  sheet[XLSX.utils.encode_cell({r:rowNo-1,c:column})]={t:'s',v:reportDate};
 }
 export function repairSingleDayWorkbook(workbook,plan,reportDate){
   const removed=new Set(plan.removeRows.map(row=>`${row.sheet}|${row.row}`));
