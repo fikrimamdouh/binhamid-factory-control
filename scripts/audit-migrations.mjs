@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const directory=resolve('supabase/migrations'),files=readdirSync(directory).filter(name=>/^\d{3}_.+\.sql$/.test(name)).sort(),versions=files.map(name=>Number(name.slice(0,3))),errors=[];
-const latest=32;
+const latest=33;
 for(let version=1;version<=latest;version++){if(!versions.includes(version))errors.push(`missing migration ${String(version).padStart(3,'0')}`);}
 if(new Set(versions).size!==versions.length)errors.push('duplicate migration version');
 if(Math.max(...versions)!==latest)errors.push(`latest migration must be ${String(latest).padStart(3,'0')}`);
@@ -30,5 +30,6 @@ for(const file of files){
   if(version===30){for(const marker of ['MIGRATION_029_REQUIRED','daily_report_collection_fifo_update_trigger','replay_daily_report_collection_fifo_after_update','rebuild_customer_fifo','DAILY_REPORT_FIFO_REPAIR_FAILED','030_daily_report_fifo_integrity'])if(!sql.includes(marker))errors.push(`${file}: missing ${marker}`);}
   if(version===31){for(const marker of ['MIGRATION_030_REQUIRED','reconcile_daily_report_upgrade_snapshot','upgrade_daily_report_details_v2_legacy','daily_report_cash_row_superseded','daily_report_inventory_row_superseded','REVISED_SNAPSHOT_REPAIR_MISMATCH','031_daily_report_snapshot_reconciliation'])if(!sql.includes(marker))errors.push(`${file}: missing ${marker}`);}
   if(version===32){for(const marker of ['MIGRATION_031_REQUIRED','append_daily_report_customer_payments','allocate_collection_fifo','post_daily_report_accounting','daily_report_customer_payments_reconciled','032_customer_payment_reconciliation'])if(!sql.includes(marker))errors.push(`${file}: missing ${marker}`);}
+  if(version===33){for(const marker of ['MIGRATION_032_REQUIRED','append_daily_report_customer_payments','v_collection_id public.collection_events.id%type;','033_customer_payment_collection_id_type'])if(!sql.includes(marker))errors.push(`${file}: missing ${marker}`);}
 }
 if(errors.length){console.error(errors.join('\n'));process.exit(1);}console.log(`MIGRATIONS_OK=${files.length};LATEST=${String(latest).padStart(3,'0')}`);
