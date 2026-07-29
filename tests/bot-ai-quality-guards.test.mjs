@@ -37,7 +37,7 @@ test('price research gets a token budget large enough to emit its offers',async(
   const source=await read('api/_lib/product-market-research-fast.js');
   const cap=Number((source.match(/max_output_tokens:(\d+)/)||[])[1]);
   assert.ok(cap>=4000,`max_output_tokens too small: ${cap}`);
-  assert.match(source,/\.\.\.reasoningFor\(model,'minimal'\)/);
+  assert.match(source,/\.\.\.reasoningFor\(model,'minimal',\{withTools:true\}\)/);
   assert.match(source,/search_context_size:'low'/);
   assert.match(source,/assertResponseComplete\(data,\{code:'PRODUCT_RESEARCH_FAST_TRUNCATED'/);
 });
@@ -287,4 +287,20 @@ test('classified prices are shown as their own section and never mixed with supp
   assert.match(voiceSummary('كردان',null,[],{listings:[{price:800}]}),/إعلان مستعمل بسعر معلن/);
   const assistant=await read('api/_lib/bot-product-assistant.js');
   assert.match(assistant,/searchMarketplaceListings\(clean,\{city\}\)\.catch/,'a failing marketplace must not break the search');
+});
+
+test('minimal reasoning is never sent together with a built-in tool',async()=>{
+  const { reasoningFor, MIN_EFFORT_WITH_TOOLS }=await import('../api/_lib/openai-responses.js');
+  assert.deepEqual(reasoningFor('gpt-5-mini','minimal',{withTools:true}),{reasoning:{effort:MIN_EFFORT_WITH_TOOLS}});
+  assert.deepEqual(reasoningFor('gpt-5-mini','minimal'),{reasoning:{effort:'minimal'}});
+  assert.deepEqual(reasoningFor('gpt-5-mini','high',{withTools:true}),{reasoning:{effort:'high'}});
+  assert.deepEqual(reasoningFor('gpt-4o-mini','minimal',{withTools:true}),{});
+  // الحارس البنيوي: أي ملف يستدعي أداة مدمجة يجب أن يمرر withTools، وإلا عاد الخطأ 400.
+  const files=['api/_lib/product-market-research-fast.js','api/_lib/marketplace-listings.js','api/_lib/supplier-search-plan.js','api/_lib/product-image-identification.js'];
+  for(const file of files){
+    const source=await read(file);
+    if(!/type:'web_search'/.test(source))continue;
+    const minimalCalls=source.match(/reasoningFor\([^)]*'minimal'[^)]*\)/g)||[];
+    for(const call of minimalCalls)assert.match(call,/withTools:true/,`${file} sends minimal effort with a built-in tool`);
+  }
 });

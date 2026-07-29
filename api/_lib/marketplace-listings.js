@@ -50,7 +50,7 @@ export async function searchMarketplaceListings(query,{city='كل السعودي
       input:JSON.stringify({item:term,city,sites:MARKETPLACE_SITES,searched_at:new Date().toISOString()}),
       tools:[{type:'web_search',search_context_size:'low',user_location:{type:'approximate',city:place,country:'SA',region:city,timezone:'Asia/Riyadh'}}],
       tool_choice:'required',max_output_tokens:4000,store:false,
-      ...reasoningFor(model,'minimal'),
+      ...reasoningFor(model,'minimal',{withTools:true}),
       text:{format:{type:'json_schema',name:'saudi_marketplace_listings',description:'إعلانات مبوبة سعودية للصنف المطلوب',strict:true,schema:LISTING_SCHEMA}}
     }),
     signal:AbortSignal.timeout(timeoutMs)

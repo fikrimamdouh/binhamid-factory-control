@@ -7,9 +7,19 @@ const REASONING_MODEL=/^(?:gpt-5|o[134])/i;
 
 export function isReasoningModel(model=''){return REASONING_MODEL.test(String(model||'').trim());}
 
+// أدنى جهد تفكير مسموح مع الأدوات المدمجة مثل web_search.
+// المزود يرفض 'minimal' مع هذه الأدوات بخطأ 400، وهو ما عطّل بحث الأسعار
+// والإعلانات بالكامل. نمنع التركيبة هنا بدل الاعتماد على الانتباه في كل نداء.
+export const MIN_EFFORT_WITH_TOOLS='low';
+const EFFORT_ORDER=['minimal','low','medium','high'];
+
 // نخفض جهد التفكير حتى يبقى أغلب سقف التوكنات متاحًا للإجابة نفسها.
-export function reasoningFor(model='',effort='low'){
-  return isReasoningModel(model)?{reasoning:{effort}}:{};
+export function reasoningFor(model='',effort='low',{withTools=false}={}){
+  if(!isReasoningModel(model))return{};
+  const requested=EFFORT_ORDER.includes(effort)?effort:'low';
+  const safe=withTools&&EFFORT_ORDER.indexOf(requested)<EFFORT_ORDER.indexOf(MIN_EFFORT_WITH_TOOLS)
+    ?MIN_EFFORT_WITH_TOOLS:requested;
+  return{reasoning:{effort:safe}};
 }
 
 export function responsesOutputText(data={}){
