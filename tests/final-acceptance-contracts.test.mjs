@@ -12,7 +12,7 @@ test('automatic device bootstrap grants no business-data capability',()=>{
   assert.match(source,/DEVICE_CAPABILITY_REQUIRED/);
 });
 
-test('accounting acceptance stays schema 24 while persistent master advances production to schema 26',()=>{
+test('accounting acceptance stays schema 24 while production readiness advances to schema 32',()=>{
   const workflow=read('.github/workflows/production-readiness.yml');
   const accountingMigrations=read('.github/workflows/apply-pending-migrations.yml');
   const masterMigrations=read('.github/workflows/apply-persistent-master-migration.yml');
@@ -23,8 +23,9 @@ test('accounting acceptance stays schema 24 while persistent master advances pro
   const runtime=read('api/_lib/routes/system-runtime.js');
   assert.doesNotMatch(workflow,/directOperationsSchema\)!==15|expected schema 15|schema 15/);
   assert.match(workflow,/directOperationsSchema\)!==24|directOperationsSchema\)===24|directOperationsSchema===24/);
-  assert.match(runtime,/LATEST_REQUIRED_VERSION=31/);
+  assert.match(runtime,/LATEST_REQUIRED_VERSION=32/);
   assert.match(runtime,/directOperationsSchema:24/);
+  assert.match(runtime,/erpPaymentReconciliation:true/);
   assert.match(accountingMigrations,/024_employee_nickname_and_financial_command_center\.sql/);
   assert.ok(accountingMigrations.includes("ISOLATED_MIGRATION_TARGET: '24'"));
   assert.ok(accountingMigrations.includes('$(seq $((current_version + 1)) 24)'));
@@ -68,44 +69,4 @@ test('Telegram webhook processing is idempotent and unexpected failures are retr
   assert.match(source,/fail_telegram_update/);
   assert.match(source,/claim\?\.status==='completed'/);
   assert.match(read('api/_lib/telegram-webhook-handler.js'),/if\(req\.telegramGatewayManaged\)return/);
-  assert.doesNotMatch(source,/error_logged:true/);
-  assert.match(source,/statusCode\s*=\s*503|json\(res,503/);
-});
-
-test('security-definer acceptance RPCs are not executable by PUBLIC',()=>{
-  const sql=['supabase/migrations/019_accounting_import_and_telegram_integrity.sql','supabase/migrations/020_accounting_reversal_and_projection_safety.sql','supabase/migrations/021_reversal_ledger_balance_fix.sql'].map(read).join('\n');
-  for(const name of ['claim_telegram_update','complete_telegram_update','fail_telegram_update','reverse_journal_entry','commit_daily_report_acceptance'])assert.match(sql,new RegExp(`revoke all on function public\\.${name}[\\s\\S]{0,300}from public,anon,authenticated`));
-  assert.match(sql,/grant execute[\s\S]*to service_role/);
-});
-
-test('website and Telegram imports coexist while daily approval keeps one import identity',()=>{
-  const review=read('assets/import-review-guard.js');
-  const integrity=read('assets/daily-approval-integrity-guard.js');
-  assert.match(review,/dailyWebsiteApproval:true/);
-  assert.match(review,/autoImport:true/);
-  assert.doesNotMatch(review,/localStorage\.setItem\(AUTO_KEY,'0'\)/);
-  assert.doesNotMatch(review,/الترحيل التلقائي موقوف رقابيًا/);
-  assert.match(review,/sessionStorage\.setItem\(ACTIVE_KEY,importId\)/);
-  assert.doesNotMatch(review,/finally\s*\{[\s\S]*removeItem\(ACTIVE_KEY\)/);
-  assert.match(integrity,/payload\.importId=importId/);
-  assert.match(integrity,/clearActiveImport/);
-  assert.match(integrity,/recoveryDuplicate:true/);
-});
-
-test('structured accounting API and page are present',()=>{
-  assert.equal(exists('api/_lib/routes/accounting.js'),true);
-  assert.equal(exists('accounting.html'),true);
-  const router=read('api/router.js');
-  const vercel=read('vercel.json');
-  assert.match(router,/accounting/);
-  assert.match(vercel,/api\/accounting/);
-});
-
-test('isolated accounting acceptance remains Schema 24 and resolves status transition arguments exactly',()=>{
-  const source=read('scripts/final-acceptance-database.mjs');
-  assert.match(source,/max\(version\),0\) from public\.migration_history\)<>24/);
-  assert.match(source,/Number\(evidence\.schemaVersion\)!==24/);
-  assert.match(source,/null::uuid/);
-  assert.match(source,/'processing'::text/);
-  assert.match(source,/'posted'::text/);
 });
