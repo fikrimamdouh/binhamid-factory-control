@@ -41,5 +41,5 @@ begin
 end $$;
 
 insert into public.migration_history(version,migration_name)
-values(33,'033_customer_payment_event_id_types')
+values(33,'033_customer_payment_collection_id_type')
 on conflict(version) do update set migration_name=excluded.migration_name;
