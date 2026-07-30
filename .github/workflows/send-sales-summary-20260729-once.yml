@@ -6,57 +6,72 @@ on:
       - main
     paths:
       - '.github/workflows/send-sales-summary-20260729-once.yml'
+      - 'api/telegram/system-summary.js'
   workflow_dispatch:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   send-summary:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
-    env:
-      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-      TELEGRAM_OWNER_ID: ${{ secrets.TELEGRAM_OWNER_ID }}
-      FACTORY_MANAGER_CHAT_ID: '6870312376'
+    timeout-minutes: 7
     steps:
-      - name: Send verified sales summary to owner and factory manager
+      - name: Send verified sales summary through the Bin Hamid system
+        env:
+          SYSTEM_SUMMARY_URL: https://binhamid-factory-control.vercel.app/api/telegram/system-summary
         shell: bash
         run: |
           set -euo pipefail
-          test -n "${TELEGRAM_BOT_TOKEN:-}"
-          test -n "${TELEGRAM_OWNER_ID:-}"
+          payload=$(jq -n '{
+            reportDate:"2026-07-29",
+            sourceFile:"Daily-Report-2026-07-29.xlsx",
+            noChanges:true,
+            concreteQuantity:64,
+            concreteSales:11649.93,
+            blockQuantity:680,
+            blockSales:1184.01,
+            collections:15224
+          }')
 
-          text=$(cat <<'MSG'
-          <b>ملخص حركة المبيعات — 29 يوليو 2026</b>
+          get_token(){
+            node --input-type=module <<'NODE'
+          const url=new URL(process.env.ACTIONS_ID_TOKEN_REQUEST_URL);
+          url.searchParams.set('audience','binhamid-system-notify');
+          const response=await fetch(url,{headers:{Authorization:`Bearer ${process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN}`}});
+          if(!response.ok)throw new Error(`OIDC token request failed: ${response.status}`);
+          const data=await response.json();
+          if(!data.value)throw new Error('OIDC token value missing');
+          process.stdout.write(data.value);
+          NODE
+          }
 
-          تم تحديث تقرير حركة أمس ومراجعته.
-          لا توجد إضافات جديدة أو إجراءات مطلوبة على البيانات المسجلة.
+          for attempt in $(seq 1 20); do
+            token=$(get_token)
+            http_code=$(curl -sS -o response.json -w '%{http_code}' -X POST "${SYSTEM_SUMMARY_URL}" \
+              -H "Authorization: Bearer ${token}" \
+              -H 'Content-Type: application/json' \
+              --data "${payload}" || true)
 
-          <b>المبيعات</b>
-          الخرسانة: <b>64 م³</b> — <b>11,649.93 ر.س</b>
-          البلوك: <b>680 قطعة</b> — <b>1,184.01 ر.س</b>
-          إجمالي المبيعات: <b>12,833.94 ر.س</b>
+            if [ "${http_code}" = '200' ] && jq -e '.ok == true' response.json >/dev/null 2>&1; then
+              recipients=$(jq -r '.recipients // 0' response.json)
+              duplicate=$(jq -r '.duplicate // false' response.json)
+              {
+                echo '## Sales summary delivery'
+                echo "- Recipients: ${recipients}"
+                echo "- Duplicate-safe result: ${duplicate}"
+                echo '- Report date: 2026-07-29'
+              } >> "$GITHUB_STEP_SUMMARY"
+              cat response.json
+              exit 0
+            fi
 
-          <b>التحصيلات</b>
-          إجمالي التحصيلات: <b>15,224.00 ر.س</b>
-
-          <b>الحالة</b>
-          التقرير مسجل بالكامل، ولم تتكرر أي حركة.
-          الملف: <code>Daily-Report-2026-07-29.xlsx</code>
-          MSG
-          )
-
-          declare -A sent=()
-          for chat_id in "${TELEGRAM_OWNER_ID}" "${FACTORY_MANAGER_CHAT_ID}"; do
-            [ -n "${chat_id}" ] || continue
-            [ -z "${sent[$chat_id]+x}" ] || continue
-            curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-              --data-urlencode "chat_id=${chat_id}" \
-              --data-urlencode "parse_mode=HTML" \
-              --data-urlencode "disable_web_page_preview=true" \
-              --data-urlencode "text=${text}" >/dev/null
-            sent[$chat_id]=1
+            reason=$(jq -r '.error // .message // empty' response.json 2>/dev/null || true)
+            echo "Attempt ${attempt}/20: HTTP ${http_code}; ${reason:-waiting for production deployment}"
+            sleep 15
           done
 
-          echo "sent_to=${#sent[@]}" >> "$GITHUB_STEP_SUMMARY"
+          echo 'System summary delivery did not succeed after deployment retries.' >&2
+          cat response.json >&2 || true
+          exit 1
