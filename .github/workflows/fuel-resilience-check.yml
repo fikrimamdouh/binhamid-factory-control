@@ -1,0 +1,33 @@
+name: Fuel resilience check
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/noor-khoy-fuel-sync.yml'
+      - '.github/workflows/fuel-resilience-check.yml'
+      - 'api/fuel/delivery-status.js'
+      - 'scripts/check-fuel-delivery-status.mjs'
+      - 'tests/noor-khoy-fuel-sync.test.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fuel-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install dependencies without build scripts
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Validate fuel JavaScript
+        run: |
+          node --check api/fuel/delivery-status.js
+          node --check scripts/check-fuel-delivery-status.mjs
+      - name: Run focused fuel tests
+        run: node --test tests/noor-khoy-fuel-sync.test.mjs
