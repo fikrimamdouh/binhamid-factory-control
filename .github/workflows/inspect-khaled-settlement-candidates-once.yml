@@ -110,7 +110,7 @@ jobs:
               select coalesce(sum(balance),0) balance
               from public.customer_opening_balances o
               where coalesce(o.customer_code,o.client_id)=coalesce(c.external_id,c.customer_code)
-                and coalesce(o.balance_date,'1900-01-01'::date)<t.movement_day
+                and (case when coalesce(o.balance_date,'') ~ '^\d{4}-\d{2}-\d{2}$' then o.balance_date::date else '1900-01-01'::date end)<t.movement_day
             ) ob on true
             left join lateral (
               select coalesce(sum(greatest(0,coalesce(s.total_amount,0)-coalesce(s.paid_amount,0))),0) outstanding,
