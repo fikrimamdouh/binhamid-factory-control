@@ -1,0 +1,2 @@
+Redeploy corrected concrete portfolio selection at 2026-07-30 20:16 Asia/Riyadh.
+Target logic: concrete sales customers plus cash/bank receipts dated 2026-07-20 or later as advance payments only.
