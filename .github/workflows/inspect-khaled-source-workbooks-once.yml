@@ -1,0 +1,153 @@
+name: Inspect Khaled Source Workbooks Once
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/inspect-khaled-source-workbooks-once.yml'
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: inspect-khaled-source-workbooks-once
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_STORAGE_BUCKET: ${{ vars.SUPABASE_STORAGE_BUCKET }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+
+      - name: Install Node and PostgreSQL dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --ignore-scripts --no-audit --no-fund
+          sudo apt-get update -qq
+          sudo apt-get install -y curl ca-certificates
+          sudo install -d -m 0755 /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          . /etc/os-release
+          printf '%s\n' 'Types: deb' 'URIs: https://apt.postgresql.org/pub/repos/apt' "Suites: ${VERSION_CODENAME}-pgdg" 'Components: main' 'Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc' | sudo tee /etc/apt/sources.list.d/pgdg.sources >/dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client-17
+          echo '/usr/lib/postgresql/17/bin' >> "$GITHUB_PATH"
+
+      - name: Resolve protected database connection
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          SUPABASE_POOLER_HOST: ${{ vars.SUPABASE_POOLER_HOST }}
+          CONNECTION_DIAGNOSTIC_PATH: khaled-source-connection.json
+        run: node scripts/resolve-supabase-connection.mjs
+
+      - name: Resolve original file paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql "$SUPABASE_DB_URL" -X -t -A -v ON_ERROR_STOP=1 <<'SQL' > khaled-source-metadata.jsonl
+          select jsonb_build_object('kind','batch','row',to_jsonb(b))::text
+          from public.daily_report_batches b
+          where b.id in ('512bc5b7-53b7-4f1f-9b2a-39e11cd40796','47b9337a-b07f-4deb-a426-35196c524270')
+          order by b.report_date;
+          select jsonb_build_object('kind','import','row',to_jsonb(i))::text
+          from public.imports i
+          where i.posted_batch_id in ('512bc5b7-53b7-4f1f-9b2a-39e11cd40796','47b9337a-b07f-4deb-a426-35196c524270')
+          order by i.created_at;
+          SQL
+          test -s khaled-source-metadata.jsonl
+          cat khaled-source-metadata.jsonl
+
+      - name: Download and inspect original workbooks
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import {readFileSync,writeFileSync,mkdirSync} from 'node:fs';
+          import * as XLSX from 'xlsx';
+          import {downloadObject} from './api/_lib/supabase.js';
+
+          const metadata=readFileSync('khaled-source-metadata.jsonl','utf8').split(/\r?\n/).filter(Boolean).map(line=>JSON.parse(line));
+          const paths=[];
+          for(const entry of metadata){
+            const row=entry.row||{};
+            for(const key of ['file_path','file_storage_path','storage_path','original_path']){
+              const value=String(row[key]||'').trim();
+              if(value&&!paths.some(item=>item.path===value))paths.push({path:value,name:String(row.original_name||row.file_name||value),kind:entry.kind});
+            }
+          }
+          if(!paths.length)throw new Error('No source file path was found in batch/import metadata.');
+          if(!process.env.SUPABASE_URL||!process.env.SUPABASE_SERVICE_ROLE_KEY)throw new Error('Supabase storage credentials are not available to this workflow.');
+          mkdirSync('khaled-source-workbooks',{recursive:true});
+          const targets=[538.75,595,1450,270,450,1440];
+          const norm=value=>String(value??'').replace(/[أإآٱ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ً-ْـ]/g,'').replace(/\s+/g,' ').trim().toLowerCase();
+          const number=value=>{
+            if(typeof value==='number')return Number.isFinite(value)?value:null;
+            const text=String(value??'').replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[٬,]/g,'').replace(/٫/g,'.').replace(/[^0-9.+-]/g,'');
+            const parsed=Number(text);return Number.isFinite(parsed)?parsed:null;
+          };
+          const evidence=[];
+          for(const [fileIndex,file] of paths.entries()){
+            const downloaded=await downloadObject(file.path);
+            const local=`khaled-source-workbooks/${String(fileIndex+1).padStart(2,'0')}.xlsx`;
+            writeFileSync(local,downloaded.buffer,{mode:0o600});
+            const workbook=XLSX.read(downloaded.buffer,{type:'buffer',cellDates:true});
+            for(const sheetName of workbook.SheetNames){
+              const rows=XLSX.utils.sheet_to_json(workbook.Sheets[sheetName],{header:1,defval:'',raw:false,cellDates:true,blankrows:false});
+              for(let index=0;index<rows.length;index++){
+                const row=rows[index]||[],text=norm(row.join(' | ')),nums=row.map(number).filter(value=>value!==null);
+                const targetHits=targets.filter(target=>nums.some(value=>Math.abs(value-target)<0.01));
+                const keywordHit=/خالد احمد عبدالحكم|اشعار دائن عميل|إشعار دائن عميل|تصفية حساب العميل/.test(String(row.join(' ')));
+                if(!targetHits.length&&!keywordHit)continue;
+                const from=Math.max(0,index-3),to=Math.min(rows.length,index+4);
+                evidence.push({file:file.name,path:file.path,sheet:sheetName,row:index+1,targetHits,keywordHit,context:rows.slice(from,to).map((values,offset)=>({row:from+offset+1,values}))});
+              }
+            }
+          }
+          writeFileSync('khaled-source-workbook-evidence.json',JSON.stringify({files:paths,evidence},null,2),{mode:0o600});
+          console.log(JSON.stringify({files:paths,evidenceCount:evidence.length,evidence},null,2));
+          NODE
+          test -s khaled-source-workbook-evidence.json
+
+      - name: Upload source evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: khaled-source-workbooks-${{ github.run_id }}
+          path: |
+            khaled-source-workbook-evidence.json
+            khaled-source-metadata.jsonl
+            khaled-source-connection.json
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Publish inspection status
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          node <<'NODE'
+          const success=process.env.JOB_STATUS==='success';
+          const response=await fetch(`https://api.github.com/repos/${process.env.REPOSITORY}/statuses/${process.env.HEAD_SHA}`,{
+            method:'POST',
+            headers:{Accept:'application/vnd.github+json',Authorization:`Bearer ${process.env.GITHUB_TOKEN}`,'X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'},
+            body:JSON.stringify({state:success?'success':'failure',context:'inspect-khaled-source-workbooks',target_url:process.env.RUN_URL,description:success?'Original workbook evidence inspected.':'Original workbook inspection failed.'})
+          });
+          if(!response.ok)throw new Error(`Status publication failed with HTTP ${response.status}`);
+          NODE
