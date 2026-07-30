@@ -1,0 +1,61 @@
+name: Inspect Unresolved Portfolio Owners Once
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/inspect-unresolved-portfolio-owners-once.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+      - name: Install PostgreSQL 17 client
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y curl ca-certificates
+          sudo install -d -m 0755 /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          . /etc/os-release
+          printf '%s\n' 'Types: deb' 'URIs: https://apt.postgresql.org/pub/repos/apt' "Suites: ${VERSION_CODENAME}-pgdg" 'Components: main' 'Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc' | sudo tee /etc/apt/sources.list.d/pgdg.sources >/dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client-17
+          echo '/usr/lib/postgresql/17/bin' >> "$GITHUB_PATH"
+      - name: Resolve protected database connection
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          SUPABASE_POOLER_HOST: ${{ vars.SUPABASE_POOLER_HOST }}
+          CONNECTION_DIAGNOSTIC_PATH: unresolved-owner-connection.json
+        run: node scripts/resolve-supabase-connection.mjs
+      - name: Inspect ownership evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audit-output
+          cat > /tmp/inspect.sql <<'SQL'
+          \set ON_ERROR_STOP on
+          \copy (select table_name,column_name,data_type from information_schema.columns where table_schema='public' and table_name in('customers','customer_opening_balances') order by table_name,ordinal_position) to 'audit-output/schema.csv' csv header
+          \copy (select * from public.customers where trim(coalesce(customer_code,external_id,'')) in('11910','12520','12719','11228','12639','13167','10480','12455','13207') order by trim(coalesce(customer_code,external_id,''))) to 'audit-output/customers.csv' csv header
+          \copy (select * from public.customer_opening_balances where trim(coalesce(nullif(customer_code,''),nullif(client_id,''))) in('11910','12520','12719','11228','12639','13167','10480','12455','13207') order by trim(coalesce(nullif(customer_code,''),nullif(client_id,''))),balance_date) to 'audit-output/opening-balances.csv' csv header
+          \copy (select trim(coalesce(customer_external_id,'')) customer_code,sales_type,reference_no,customer_name,item,total_amount,delivery_date,status from public.sales_orders where trim(coalesce(customer_external_id,'')) in('11910','12520','12719','11228','12639','13167','10480','12455','13207') order by customer_code,delivery_date,reference_no) to 'audit-output/sales.csv' csv header
+          \copy (select trim(coalesce(customer_external_id,'')) customer_code,reference_no,customer_name,amount,occurred_at,status,note from public.collection_events where trim(coalesce(customer_external_id,'')) in('11910','12520','12719','11228','12639','13167','10480','12455','13207') order by customer_code,occurred_at,reference_no) to 'audit-output/collections.csv' csv header
+          \copy (with state as (select coalesce((select payload from public.app_state where key='primary' limit 1),'{}'::jsonb) payload) select c from state,lateral jsonb_array_elements(coalesce(payload->'legacy'->'cli','[]'::jsonb)) c where coalesce(c->>'code',c->>'id',c->>'cr','') in('11910','12520','12719','11228','12639','13167','10480','12455','13207')) to 'audit-output/legacy-clients.jsonl'
+          SQL
+          psql "$SUPABASE_DB_URL" -f /tmp/inspect.sql
+      - name: Upload evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: unresolved-portfolio-owners-${{ github.run_id }}
+          path: audit-output/
+          retention-days: 3
