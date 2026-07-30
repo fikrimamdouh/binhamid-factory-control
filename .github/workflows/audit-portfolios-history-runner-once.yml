@@ -54,11 +54,42 @@ jobs:
           from pathlib import Path
           path=Path('/tmp/audit-portfolio-history.sql')
           text=path.read_text(encoding='utf-8')
-          text=text.replace("\\copy (select jsonb_pretty(jsonb_build_object(","\\pset tuples_only on\n\\pset format unaligned\n\\o audit-output/portfolio-history-summary.json\nselect jsonb_pretty(jsonb_build_object(")
-          text=text.replace("))) to 'audit-output/portfolio-history-summary.json'",")));\n\\o")
+          marker="\\copy (select jsonb_pretty(jsonb_build_object("
+          if marker in text:
+              text=text.split(marker,1)[0]
           path.write_text(text,encoding='utf-8')
           PY
           psql "$SUPABASE_DB_URL" -f /tmp/audit-portfolio-history.sql
+          python - <<'PY'
+          import csv,json
+          from pathlib import Path
+          root=Path('audit-output')
+          def rows(name):
+              path=root/name
+              if not path.exists() or path.stat().st_size==0:return[]
+              with path.open(encoding='utf-8-sig',newline='') as f:return list(csv.DictReader(f))
+          def num(value):
+              try:return float(value or 0)
+              except:return 0.0
+          def yes(value):return str(value).strip().lower() in {'t','true','1','yes'}
+          batches=rows('selected-batches.csv'); invoices=rows('all-invoices.csv'); collections=rows('all-collections.csv')
+          checks=rows('source-ledger-checks.csv'); duplicates=rows('duplicates.csv'); name_issues=rows('name-issues.csv')
+          portfolio=rows('daily-portfolio-rows.csv'); totals=rows('daily-totals.csv'); cross=rows('cross-sector-sales.csv')
+          dates={r.get('report_date','') for r in batches}; all_dates={f'2026-07-{d:02d}' for d in range(23,30)}
+          settled=[]; signature=[]
+          for r in portfolio:
+              item={'date':r.get('report_date'),'sector':r.get('sector_type'),'code':r.get('customer_code'),'name':r.get('display_name'),'previousBalance':num(r.get('previous_balance')),'sales':num(r.get('current_sales')),'grossDue':num(r.get('gross_due')),'collections':num(r.get('current_collections')),'finalDebt':num(r.get('final_debt')),'advance':num(r.get('final_advance'))}
+              if yes(r.get('desired_signature_row')):signature.append(item)
+              else:settled.append(item)
+          summary={
+            'period':{'from':'2026-07-23','to':'2026-07-29','selectedDays':len(batches),'missingDays':sorted(all_dates-dates)},
+            'source':{'invoiceRows':len(invoices),'invoiceTotal':round(sum(num(r.get('amount')) for r in invoices),2),'collectionRows':len(collections),'collectionTotal':round(sum(num(r.get('amount')) for r in collections),2)},
+            'checks':{'sourceLedgerErrors':sum(r.get('status')!='ok' for r in checks),'duplicates':len(duplicates),'nameDifferences':sum(r.get('status')=='name_difference' for r in name_issues),'blankNames':sum(r.get('status')=='blank_source_name' for r in name_issues),'portfolioFormulaErrors':sum(abs(num(r.get('formula_difference')))>0.02 for r in portfolio)},
+            'byDay':totals,'crossSectorRows':len(cross),'settledRowsStillShownByCurrentLogic':settled,'signatureRows':signature,
+            'sourceErrors':[r for r in checks if r.get('status')!='ok'],'duplicateDetails':duplicates,'nameIssues':name_issues
+          }
+          (root/'portfolio-history-summary.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2),encoding='utf-8')
+          PY
           test -s audit-output/portfolio-history-summary.json
 
       - name: Upload audit evidence
