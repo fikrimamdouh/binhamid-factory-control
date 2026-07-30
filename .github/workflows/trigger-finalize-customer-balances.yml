@@ -1,0 +1,21 @@
+name: Trigger Final Customer Balance Fix
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/trigger-finalize-customer-balances.yml'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch final balance workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run finalize-customer-portfolio-balances.yml --repo "$GITHUB_REPOSITORY" --ref main
