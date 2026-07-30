@@ -1,0 +1,315 @@
+name: Audit Concrete Portfolio Full Once
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/audit-concrete-portfolio-full-once.yml'
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: audit-concrete-portfolio-full-once
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+
+      - name: Install PostgreSQL 17 client
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y curl ca-certificates
+          sudo install -d -m 0755 /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          . /etc/os-release
+          printf '%s\n' 'Types: deb' 'URIs: https://apt.postgresql.org/pub/repos/apt' "Suites: ${VERSION_CODENAME}-pgdg" 'Components: main' 'Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc' | sudo tee /etc/apt/sources.list.d/pgdg.sources >/dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client-17
+          echo '/usr/lib/postgresql/17/bin' >> "$GITHUB_PATH"
+
+      - name: Resolve protected database connection
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          SUPABASE_POOLER_HOST: ${{ vars.SUPABASE_POOLER_HOST }}
+          CONNECTION_DIAGNOSTIC_PATH: concrete-portfolio-audit-connection.json
+        run: node scripts/resolve-supabase-connection.mjs
+
+      - name: Audit names balances movements and totals
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audit-output
+          cat > /tmp/audit-concrete-portfolio.sql <<'SQL'
+          \set ON_ERROR_STOP on
+          set statement_timeout='180s';
+          set client_min_messages=warning;
+
+          create temp table chosen_batch as
+          select id,report_date,coalesce(original_name,'') original_name,committed_at
+          from public.daily_report_batches
+          where status='approved'
+          order by report_date desc,committed_at desc nulls last,id desc
+          limit 1;
+
+          create temp table legacy_clients as
+          with state as (select coalesce((select payload from public.app_state where key='primary' limit 1),'{}'::jsonb) payload)
+          select
+            trim(coalesce(nullif(c->>'code',''),nullif(c->>'id',''),nullif(c->>'cr',''))) customer_code,
+            trim(coalesce(c->>'name','')) customer_name,
+            trim(coalesce(c->>'rep',c->>'repId',c->>'salesRepId',c->>'employeeId','')) rep_id,
+            trim(coalesce(c->>'primarySector',c->>'primary_sector',c->>'ownerSector',c->>'owner_sector','')) explicit_sector,
+            trim(concat_ws(' ',c->>'seg',c->>'segment',c->>'costCenter',c->>'cost_center')) segment_text
+          from state,lateral jsonb_array_elements(coalesce(payload->'legacy'->'cli','[]'::jsonb)) c
+          where trim(coalesce(nullif(c->>'code',''),nullif(c->>'id',''),nullif(c->>'cr','')))<>'';
+
+          create temp table employee_roles as
+          with state as (select coalesce((select payload from public.app_state where key='primary' limit 1),'{}'::jsonb) payload),legacy as (
+            select trim(coalesce(nullif(e->>'id',''),nullif(e->>'external_id',''))) employee_id,
+                   trim(concat_ws(' ',e->>'declarationRole',e->>'role',e->>'job',e->>'position')) role_text
+            from state,lateral jsonb_array_elements(coalesce(payload->'legacy'->'emp','[]'::jsonb)) e
+          ),cloud as (
+            select trim(coalesce(external_id,'')) employee_id,trim(coalesce(role,'')) role_text
+            from public.employees where active=true
+          )
+          select distinct on(employee_id) employee_id,role_text from (select * from legacy union all select * from cloud) x
+          where employee_id<>'' order by employee_id,length(role_text) desc;
+
+          create temp table master_customers as
+          with all_codes as (
+            select trim(coalesce(customer_code,external_id,'')) customer_code from public.customers where active=true
+            union select customer_code from legacy_clients
+            union select trim(coalesce(customer_external_id,'')) from public.sales_orders where trim(coalesce(customer_external_id,''))<>''
+            union select trim(coalesce(customer_external_id,'')) from public.collection_events where trim(coalesce(customer_external_id,''))<>''
+            union select trim(coalesce(l.customer_code,'')) from public.daily_report_sales_lines l join chosen_batch b on b.id=l.batch_id where trim(coalesce(l.customer_code,''))<>''
+            union select trim(coalesce(m.account_code,'')) from public.daily_report_cash_movements m join chosen_batch b on b.id=m.batch_id where m.is_customer_collection=true and trim(coalesce(m.account_code,''))<>''
+          ),public_customer as (
+            select distinct on(trim(coalesce(customer_code,external_id,''))) trim(coalesce(customer_code,external_id,'')) customer_code,
+              trim(coalesce(customer_name,'')) customer_name,trim(coalesce(segment,'')) segment_text
+            from public.customers where active=true and trim(coalesce(customer_code,external_id,''))<>''
+            order by trim(coalesce(customer_code,external_id,'')),updated_at desc nulls last
+          ),sale_names as (
+            select distinct on(trim(coalesce(customer_external_id,''))) trim(coalesce(customer_external_id,'')) customer_code,trim(coalesce(customer_name,'')) customer_name
+            from public.sales_orders where trim(coalesce(customer_external_id,''))<>''
+            order by trim(coalesce(customer_external_id,'')),coalesce(delivery_date,created_at::date) desc,created_at desc
+          ),collection_names as (
+            select distinct on(trim(coalesce(customer_external_id,''))) trim(coalesce(customer_external_id,'')) customer_code,trim(coalesce(customer_name,'')) customer_name
+            from public.collection_events where trim(coalesce(customer_external_id,''))<>''
+            order by trim(coalesce(customer_external_id,'')),occurred_at desc,created_at desc
+          ),current_names as (
+            select distinct on(customer_code) customer_code,customer_name from (
+              select trim(coalesce(l.customer_code,'')) customer_code,trim(coalesce(l.customer_name,'')) customer_name,0 priority,l.source_row_no
+              from public.daily_report_sales_lines l join chosen_batch b on b.id=l.batch_id
+              union all
+              select trim(coalesce(m.account_code,'')),trim(coalesce(m.account_name,'')),1,m.source_row_no
+              from public.daily_report_cash_movements m join chosen_batch b on b.id=m.batch_id where m.is_customer_collection=true
+            ) x where customer_code<>'' order by customer_code,priority,source_row_no desc
+          )
+          select a.customer_code,
+            coalesce(nullif(l.customer_name,''),nullif(p.customer_name,''),nullif(cn.customer_name,''),nullif(sn.customer_name,''),nullif(en.customer_name,''),a.customer_code) display_name,
+            case when nullif(l.customer_name,'') is not null then 'legacy_clients' when nullif(p.customer_name,'') is not null then 'customers' when nullif(cn.customer_name,'') is not null then 'current_report' when nullif(sn.customer_name,'') is not null then 'sales_orders' when nullif(en.customer_name,'') is not null then 'collection_events' else 'code_fallback' end name_source,
+            l.rep_id,l.explicit_sector,coalesce(nullif(l.segment_text,''),p.segment_text,'') segment_text,
+            coalesce(er.role_text,'') employee_role
+          from all_codes a
+          left join legacy_clients l on l.customer_code=a.customer_code
+          left join public_customer p on p.customer_code=a.customer_code
+          left join current_names cn on cn.customer_code=a.customer_code
+          left join sale_names sn on sn.customer_code=a.customer_code
+          left join collection_names en on en.customer_code=a.customer_code
+          left join employee_roles er on er.employee_id=l.rep_id;
+
+          create temp table historical_sales as
+          select trim(coalesce(s.customer_external_id,'')) customer_code,trim(coalesce(s.customer_name,'')) customer_name,
+            s.sales_type,coalesce(s.delivery_date,s.created_at::date) sale_date,trim(coalesce(s.reference_no,'')) reference_no,
+            round(coalesce(s.total_amount,0)::numeric,2) amount,round(coalesce(s.paid_amount,0)::numeric,2) paid
+          from public.sales_orders s,chosen_batch b
+          where s.status not in ('cancelled','rejected') and coalesce(s.delivery_date,s.created_at::date)<b.report_date and trim(coalesce(s.customer_external_id,''))<>'';
+
+          create temp table current_sales as
+          select trim(coalesce(l.customer_code,'')) customer_code,trim(coalesce(l.customer_name,'')) customer_name,
+            case when l.sales_type='concrete' then 'concrete' when l.sales_type='block' then 'block' else coalesce(l.sales_type,'') end sales_type,
+            b.report_date sale_date,trim(coalesce(l.invoice_no,'')) invoice_no,trim(coalesce(l.item_name,'')) item_name,
+            round(coalesce(l.quantity,0)::numeric,3) quantity,round(coalesce(l.amount,0)::numeric,2) amount,l.source_row_no
+          from public.daily_report_sales_lines l join chosen_batch b on b.id=l.batch_id
+          where trim(coalesce(l.customer_code,''))<>'';
+
+          create temp table current_collections as
+          select trim(coalesce(m.account_code,'')) customer_code,trim(coalesce(m.account_name,'')) customer_name,
+            b.report_date movement_date,trim(coalesce(m.voucher_no,'')) voucher_no,
+            round(greatest(coalesce(m.debit,0),coalesce(m.credit,0))::numeric,2) amount,m.source_row_no,
+            trim(coalesce(m.treasury_code,'')) treasury_code,trim(coalesce(m.treasury_name,'')) treasury_name
+          from public.daily_report_cash_movements m join chosen_batch b on b.id=m.batch_id
+          where m.is_customer_collection=true and trim(coalesce(m.account_code,''))<>'' and greatest(coalesce(m.debit,0),coalesce(m.credit,0))>0;
+
+          create temp table historical_opening as
+          select trim(coalesce(nullif(customer_code,''),nullif(client_id,''))) customer_code,
+            round(sum(coalesce(balance,0))::numeric,2) opening_balance
+          from public.customer_opening_balances o,chosen_batch b
+          where trim(coalesce(nullif(customer_code,''),nullif(client_id,'')))<>''
+            and (case when coalesce(o.balance_date,'') ~ '^\d{4}-\d{2}-\d{2}$' then o.balance_date::date else '1900-01-01'::date end)<b.report_date
+          group by trim(coalesce(nullif(customer_code,''),nullif(client_id,'')));
+
+          create temp table historical_collections as
+          select trim(coalesce(e.customer_external_id,'')) customer_code,
+            round(sum(coalesce(e.amount,0))::numeric,2) collections,
+            round(sum(coalesce(e.unallocated_amount,0))::numeric,2) unallocated_credit
+          from public.collection_events e,chosen_batch b
+          where e.status not in ('cancelled','rejected','reversed') and e.occurred_at::date<b.report_date and trim(coalesce(e.customer_external_id,''))<>''
+          group by trim(coalesce(e.customer_external_id,''));
+
+          create temp table first_sales as
+          select distinct on(customer_code) customer_code,sales_type from historical_sales
+          where sales_type in ('concrete','block') order by customer_code,sale_date,reference_no;
+
+          create temp table ownership as
+          select m.*,
+            case
+              when lower(m.explicit_sector) like '%concrete%' or m.explicit_sector like '%خرسان%' then 'concrete'
+              when lower(m.explicit_sector) like '%block%' or m.explicit_sector like '%بلوك%' or m.explicit_sector like '%بلك%' then 'block'
+              when lower(m.employee_role) like '%concrete%' or lower(m.employee_role) like '%ready mix%' or m.employee_role like '%خرسان%' then 'concrete'
+              when lower(m.employee_role) like '%block%' or m.employee_role like '%بلوك%' or m.employee_role like '%بلك%' then 'block'
+              when lower(m.segment_text) like '%concrete%' or lower(m.segment_text) like '%ready mix%' or m.segment_text like '%خرسان%' then 'concrete'
+              when lower(m.segment_text) like '%block%' or m.segment_text like '%بلوك%' or m.segment_text like '%بلك%' then 'block'
+              when fs.sales_type in ('concrete','block') then fs.sales_type
+              when exists(select 1 from current_sales cs where cs.customer_code=m.customer_code and cs.sales_type='concrete') then 'concrete'
+              else '' end owner_sector
+          from master_customers m left join first_sales fs on fs.customer_code=m.customer_code;
+
+          create or replace function pg_temp.settle_portfolio(
+            p_opening numeric,p_prior_sales numeric,p_prior_paid numeric,p_unallocated numeric,p_report_sales numeric,p_report_collections numeric
+          ) returns table(previous_balance numeric,previous_credit numeric,prior_advance_applied numeric,paid_previous numeric,paid_current numeric,remaining_current numeric,remaining_previous numeric,final_debt numeric,final_advance numeric,formula_difference numeric)
+          language plpgsql as $$
+          declare opening_debt numeric:=greatest(0,coalesce(p_opening,0));opening_credit numeric:=greatest(0,-coalesce(p_opening,0));
+                  rem_prior numeric:=greatest(0,coalesce(p_prior_sales,0)-greatest(0,coalesce(p_prior_paid,0)));rem_open numeric:=opening_debt;
+                  credit_pool numeric:=opening_credit+greatest(0,coalesce(p_unallocated,0));rem_current numeric:=greatest(0,coalesce(p_report_sales,0));pay_pool numeric:=greatest(0,coalesce(p_report_collections,0));u numeric;
+          begin
+            u:=least(credit_pool,rem_prior);credit_pool:=credit_pool-u;rem_prior:=rem_prior-u;
+            u:=least(credit_pool,rem_open);credit_pool:=credit_pool-u;rem_open:=rem_open-u;
+            previous_balance:=round(rem_prior+rem_open,2);previous_credit:=round(credit_pool,2);
+            u:=least(credit_pool,rem_current);credit_pool:=credit_pool-u;rem_current:=rem_current-u;prior_advance_applied:=round(u,2);
+            u:=least(pay_pool,rem_prior);pay_pool:=pay_pool-u;rem_prior:=rem_prior-u;paid_previous:=u;
+            u:=least(pay_pool,rem_open);pay_pool:=pay_pool-u;rem_open:=rem_open-u;paid_previous:=round(paid_previous+u,2);
+            u:=least(pay_pool,rem_current);pay_pool:=pay_pool-u;rem_current:=rem_current-u;paid_current:=round(u,2);
+            remaining_current:=round(rem_current,2);remaining_previous:=round(rem_prior+rem_open,2);final_debt:=round(rem_current+rem_prior+rem_open,2);final_advance:=round(credit_pool+pay_pool,2);
+            formula_difference:=round((previous_balance-previous_credit+coalesce(p_report_sales,0)-coalesce(p_report_collections,0))-(final_debt-final_advance),2);
+            return next;
+          end $$;
+
+          create temp table customer_inputs as
+          select o.customer_code,o.display_name,o.name_source,o.owner_sector,
+            coalesce(op.opening_balance,0) opening_balance,
+            coalesce(hs.prior_sales,0) prior_sales,coalesce(hs.prior_paid,0) prior_paid,
+            coalesce(hc.unallocated_credit,0) historical_unallocated_credit,
+            coalesce(cs.report_sales,0) report_sales,coalesce(cs.report_quantity,0) report_quantity,
+            coalesce(cc.report_collections,0) report_collections,
+            coalesce(cs.items,'') items,coalesce(cs.current_name,'' ) current_sale_name,coalesce(cc.current_name,'') current_collection_name,
+            (coalesce(hs.prior_sales,0)+coalesce(cs.report_sales,0)>0) has_section_sales,
+            (coalesce(cs.report_sales,0)>0 or coalesce(cc.report_collections,0)>0) has_report_activity
+          from ownership o
+          left join historical_opening op on op.customer_code=o.customer_code
+          left join historical_collections hc on hc.customer_code=o.customer_code
+          left join lateral (select round(sum(amount),2) prior_sales,round(sum(paid),2) prior_paid from historical_sales h where h.customer_code=o.customer_code and h.sales_type='concrete') hs on true
+          left join lateral (select round(sum(amount),2) report_sales,round(sum(quantity),3) report_quantity,string_agg(distinct nullif(item_name,''),'، ') items,max(customer_name) current_name from current_sales c where c.customer_code=o.customer_code and c.sales_type='concrete') cs on true
+          left join lateral (select round(sum(amount),2) report_collections,max(customer_name) current_name from current_collections c where c.customer_code=o.customer_code) cc on true
+          where o.owner_sector='concrete' or exists(select 1 from current_sales c where c.customer_code=o.customer_code and c.sales_type='concrete');
+
+          create temp table audited_rows as
+          select i.*,s.*,
+            (i.owner_sector='concrete' and i.has_section_sales and ((s.remaining_previous>0 or s.remaining_current>0) or i.has_report_activity)) current_code_includes,
+            (i.owner_sector='concrete' and i.has_section_sales and s.final_debt>=0.50) should_appear_in_signature_table,
+            (i.owner_sector='concrete' and i.has_section_sales and s.final_debt>0 and s.final_debt<0.50) halala_only,
+            (i.owner_sector='concrete' and i.has_section_sales and s.final_debt<=0) fully_settled,
+            round(s.previous_balance+i.report_sales,2) gross_due_before_report_payment,
+            round(s.previous_balance-s.previous_credit+i.report_sales-i.report_collections,2) net_formula
+          from customer_inputs i
+          cross join lateral pg_temp.settle_portfolio(i.opening_balance,i.prior_sales,i.prior_paid,i.historical_unallocated_credit,i.report_sales,i.report_collections) s;
+
+          create temp table cross_sector as
+          select c.customer_code,max(c.customer_name) customer_name,round(sum(c.amount),2) amount,round(sum(c.quantity),3) quantity
+          from current_sales c join ownership o on o.customer_code=c.customer_code
+          where c.sales_type='concrete' and o.owner_sector<>'concrete'
+          group by c.customer_code;
+
+          create temp table source_checks as
+          select 'sale' kind,c.source_row_no,c.customer_code,c.customer_name,c.amount,
+            concat('DR-',to_char(c.sale_date,'YYYYMMDD'),'-S-',lpad(c.source_row_no::text,4,'0')) expected_reference,
+            case when exists(select 1 from public.sales_orders s where s.reference_no=concat('DR-',to_char(c.sale_date,'YYYYMMDD'),'-S-',lpad(c.source_row_no::text,4,'0')) and trim(coalesce(s.customer_external_id,''))=c.customer_code and abs(coalesce(s.total_amount,0)-c.amount)<=0.01) then 'ok' else 'missing_or_mismatch' end status
+          from current_sales c
+          union all
+          select 'collection',c.source_row_no,c.customer_code,c.customer_name,c.amount,
+            concat('DR-',to_char(c.movement_date,'YYYYMMDD'),'-C-',lpad(c.source_row_no::text,4,'0')),
+            case when exists(select 1 from public.collection_events e where e.reference_no=concat('DR-',to_char(c.movement_date,'YYYYMMDD'),'-C-',lpad(c.source_row_no::text,4,'0')) and trim(coalesce(e.customer_external_id,''))=c.customer_code and abs(coalesce(e.amount,0)-c.amount)<=0.01 and e.status not in ('cancelled','rejected','reversed')) then 'ok' else 'missing_or_mismatch' end
+          from current_collections c;
+
+          \copy (select customer_code,display_name,name_source,owner_sector,opening_balance,prior_sales,prior_paid,historical_unallocated_credit,previous_balance,previous_credit,report_sales,report_quantity,report_collections,paid_previous,paid_current,remaining_previous,remaining_current,final_debt,final_advance,gross_due_before_report_payment,net_formula,formula_difference,has_report_activity,current_code_includes,should_appear_in_signature_table,halala_only,fully_settled,items,current_sale_name,current_collection_name from audited_rows order by should_appear_in_signature_table desc,final_debt desc,display_name) to 'audit-output/concrete-customers.csv' csv header
+          \copy (select * from cross_sector order by amount desc,customer_name) to 'audit-output/concrete-cross-sector.csv' csv header
+          \copy (select * from source_checks order by kind,source_row_no) to 'audit-output/concrete-source-checks.csv' csv header
+
+          \copy (select jsonb_pretty(jsonb_build_object(
+            'batch',(select to_jsonb(b) from chosen_batch b),
+            'counts',jsonb_build_object(
+              'currentCodeRows',(select count(*) from audited_rows where current_code_includes),
+              'signatureRows',(select count(*) from audited_rows where should_appear_in_signature_table),
+              'settledStillIncluded',(select count(*) from audited_rows where current_code_includes and not should_appear_in_signature_table),
+              'halalaRows',(select count(*) from audited_rows where halala_only),
+              'fullySettledRows',(select count(*) from audited_rows where fully_settled and current_code_includes),
+              'crossSectorRows',(select count(*) from cross_sector),
+              'blankNames',(select count(*) from audited_rows where trim(display_name)=''),
+              'duplicateCodes',(select count(*) from (select customer_code from audited_rows group by customer_code having count(*)>1) d),
+              'sameNameDifferentCodes',(select count(*) from (select lower(trim(display_name)) from audited_rows group by lower(trim(display_name)) having count(distinct customer_code)>1) d),
+              'formulaErrors',(select count(*) from audited_rows where abs(formula_difference)>0.02),
+              'sourceCheckErrors',(select count(*) from source_checks where status<>'ok')
+            ),
+            'totals',jsonb_build_object(
+              'previousBalance',(select round(sum(previous_balance),2) from audited_rows where current_code_includes),
+              'primaryReportSales',(select round(sum(report_sales),2) from audited_rows where current_code_includes),
+              'crossSectorSales',(select coalesce(round(sum(amount),2),0) from cross_sector),
+              'reportedSalesIncludingCrossSector',(select coalesce(round(sum(report_sales),2),0) from audited_rows where current_code_includes)+(select coalesce(round(sum(amount),2),0) from cross_sector),
+              'reportCollections',(select round(sum(report_collections),2) from audited_rows where current_code_includes),
+              'paidPrevious',(select round(sum(paid_previous),2) from audited_rows where current_code_includes),
+              'paidCurrent',(select round(sum(paid_current),2) from audited_rows where current_code_includes),
+              'finalDebtAllCurrentRows',(select round(sum(final_debt),2) from audited_rows where current_code_includes),
+              'finalDebtSignatureRows',(select round(sum(final_debt),2) from audited_rows where should_appear_in_signature_table),
+              'halalaTotal',(select coalesce(round(sum(final_debt),2),0) from audited_rows where halala_only),
+              'finalAdvance',(select round(sum(final_advance),2) from audited_rows where current_code_includes),
+              'equationLeft',(select round(sum(previous_balance-previous_credit+report_sales-report_collections),2) from audited_rows where current_code_includes),
+              'equationRight',(select round(sum(final_debt-final_advance),2) from audited_rows where current_code_includes)
+            ),
+            'settledRows',(select coalesce(jsonb_agg(jsonb_build_object('code',customer_code,'name',display_name,'previousBalance',previous_balance,'reportSales',report_sales,'collections',report_collections,'finalDebt',final_debt,'finalAdvance',final_advance) order by display_name),'[]'::jsonb) from audited_rows where current_code_includes and not should_appear_in_signature_table),
+            'signatureRows',(select coalesce(jsonb_agg(jsonb_build_object('code',customer_code,'name',display_name,'previousBalance',previous_balance,'reportSales',report_sales,'grossDue',gross_due_before_report_payment,'collections',report_collections,'paidPrevious',paid_previous,'paidCurrent',paid_current,'finalDebt',final_debt,'items',items) order by final_debt desc,display_name),'[]'::jsonb) from audited_rows where should_appear_in_signature_table),
+            'nameIssues',(select coalesce(jsonb_agg(jsonb_build_object('code',customer_code,'name',display_name,'source',name_source,'saleName',current_sale_name,'collectionName',current_collection_name)),'[]'::jsonb) from audited_rows where trim(display_name)='' or (current_sale_name<>'' and lower(trim(current_sale_name))<>lower(trim(display_name))) or (current_collection_name<>'' and lower(trim(current_collection_name))<>lower(trim(display_name)))),
+            'sourceErrors',(select coalesce(jsonb_agg(to_jsonb(s)),'[]'::jsonb) from source_checks s where status<>'ok')
+          ))) to 'audit-output/concrete-portfolio-audit.json'
+          SQL
+
+          psql "$DATABASE_URL" -f /tmp/audit-concrete-portfolio.sql
+
+      - name: Upload audit evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: concrete-portfolio-full-audit-${{ github.run_id }}
+          path: audit-output/
+          retention-days: 7
+
+      - name: Publish audit status
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          state=success
+          description='Concrete portfolio full audit completed'
+          test -f audit-output/concrete-portfolio-audit.json || { state=failure; description='Concrete portfolio audit failed'; }
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" -f state="$state" -f context='audit-concrete-portfolio-full' -f description="$description" -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
