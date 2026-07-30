@@ -44,7 +44,7 @@ function itemSaleType(row={}){
   if(/خرسان|concrete|ready\s*mix|readymix|rmc/.test(raw))return'concrete';
   return'';
 }
-export function saleTypeOf(row={}){return explicitSaleType(row)||itemSaleType(row);}
+export function saleTypeOf(row={}){return itemSaleType(row)||explicitSaleType(row);}
 
 function createActivity(code,name){return{code:String(code||''),name:String(name||code||'عميل غير محدد'),sales:0,collections:0,lastSale:'',lastCollection:'',items:new Set(),invoices:[],collectionRows:[],alerts:new Set()};}
 function chooseDate(value,fallback=''){const text=String(value||fallback||'').slice(0,10);return /^\d{4}-\d{2}-\d{2}$/.test(text)?text:String(fallback||'').slice(0,10);}
@@ -119,7 +119,7 @@ export function settleCustomerAccount(base={},activity={},options={}){
   let remainingPriorSales=roundMoney(priorSales-priorPaidRecorded),remainingOpening=roundMoney(openingDebt),creditPool=roundMoney(openingCredit+Math.max(0,n(base.unallocatedCredit))),creditAppliedPriorSales=0,creditAppliedOpening=0;
   let step=consume(creditPool,remainingPriorSales);creditPool=step.pool;remainingPriorSales=step.amount;creditAppliedPriorSales=step.used;
   step=consume(creditPool,remainingOpening);creditPool=step.pool;remainingOpening=step.amount;creditAppliedOpening=step.used;
-  const previousBalance=roundMoney(remainingPriorSales+remainingOpening),previousCredit=roundMoney(creditPool);
+  const previousBalance=roundMoney(remainingPriorSales+remainingOpening),previousCredit=roundMoney(creditPool),previousNetBalance=roundMoney(previousBalance-previousCredit);
   const reportSales=Math.max(0,roundMoney(activity.sales)),reportCollections=Math.max(0,roundMoney(activity.collections));let remainingCurrent=reportSales,priorAdvanceApplied=0;
   step=consume(creditPool,remainingCurrent);creditPool=step.pool;remainingCurrent=step.amount;priorAdvanceApplied=step.used;
   let paymentPool=reportCollections,paidCurrent=0,paidPreviousSales=0,paidOpening=0;
@@ -128,8 +128,8 @@ export function settleCustomerAccount(base={},activity={},options={}){
   step=consume(paymentPool,remainingPriorSales);paymentPool=step.pool;remainingPriorSales=step.amount;paidPreviousSales=step.used;
   step=consume(paymentPool,remainingOpening);paymentPool=step.pool;remainingOpening=step.amount;paidOpening=step.used;
   step=consume(paymentPool,remainingCurrent);paymentPool=step.pool;remainingCurrent=step.amount;paidCurrent=step.used;
-  const paidPrevious=roundMoney(paidPreviousSales+paidOpening),finalDebt=roundMoney(remainingCurrent+remainingPriorSales+remainingOpening),finalAdvance=roundMoney(creditPool+paymentPool),customerClass=(base.openingCount||Math.abs(openingBalance)>0.004||base.invoiceCount||priorSales>0||base.collectionCount)?'old':'new',status=deriveStatus({customerClass,reportSales,reportCollections,paidCurrent,paidPrevious,remainingCurrent,finalAdvance});
-  let aging=applyToAging(base.aging||{},roundMoney(creditAppliedPriorSales+paidPreviousSales));aging.current=roundMoney(aging.current+remainingCurrent);const unagedOpening=roundMoney(remainingOpening),formulaNet=roundMoney(previousBalance-previousCredit+reportSales-reportCollections),formulaDebt=Math.max(0,formulaNet),formulaAdvance=Math.max(0,-formulaNet),alerts=new Set(activity.alerts||[]);
+  const paidPrevious=roundMoney(paidPreviousSales+paidOpening),grossDue=roundMoney(previousNetBalance+reportSales),finalDebt=roundMoney(remainingCurrent+remainingPriorSales+remainingOpening),finalAdvance=roundMoney(creditPool+paymentPool),customerClass=(base.openingCount||Math.abs(openingBalance)>0.004||base.invoiceCount||priorSales>0||base.collectionCount)?'old':'new',status=deriveStatus({customerClass,reportSales,reportCollections,paidCurrent,paidPrevious,remainingCurrent,finalAdvance});
+  let aging=applyToAging(base.aging||{},roundMoney(creditAppliedPriorSales+paidPreviousSales));aging.current=roundMoney(aging.current+remainingCurrent);const unagedOpening=roundMoney(remainingOpening),formulaNet=roundMoney(grossDue-reportCollections),formulaDebt=Math.max(0,formulaNet),formulaAdvance=Math.max(0,-formulaNet),alerts=new Set(activity.alerts||[]);
   if(!String(activity.code||base.code||base.externalId||'').trim())alerts.add('missing_customer_code');
   if(reportCollections>0&&customerClass==='new'&&reportSales<=0)alerts.add('payment_without_sales_history');
   if(finalAdvance>0)alerts.add('advance_payment');
@@ -138,7 +138,7 @@ export function settleCustomerAccount(base={},activity={},options={}){
   const alertCodes=[...alerts],alertLabels=alertCodes.map(code=>ALERT_LABEL[code]||code),oldestDaysLate=Math.max(0,...((base.sales||[]).map(row=>n(row.daysLate))));
   return{
     customerClass,customerClassLabel:customerClass==='old'?'عميل قديم':'عميل جديد',status,statusLabel:STATUS_LABEL[status]||status,
-    openingBalance,openingDebt,previousBalance,previousCredit,priorSales,priorPaidRecorded,reportSales,reportCollections,
+    openingBalance,openingDebt,previousBalance,previousCredit,previousNetBalance,grossDue,priorSales,priorPaidRecorded,reportSales,reportCollections,
     priorAdvanceApplied,paidCurrent,paidPreviousSales,paidOpening,paidPrevious,remainingCurrent,remainingPriorSales,remainingOpening,
     finalDebt,finalAdvance,aging,unagedOpening,oldestDaysLate,
     alertCodes,alertLabels,hasReportActivity:reportSales>0||reportCollections>0,
@@ -148,10 +148,10 @@ export function settleCustomerAccount(base={},activity={},options={}){
 }
 
 export function aggregateSettlements(rows=[]){
-  const totals={customers:0,newCustomers:0,oldCustomers:0,previousBalance:0,reportSales:0,reportCollections:0,paidCurrent:0,paidPrevious:0,remainingCurrent:0,remainingPrevious:0,finalDebt:0,finalAdvance:0,alerts:0,aging:{current:0,days1to30:0,days31to60:0,days61to90:0,days90plus:0},unagedOpening:0};
+  const totals={customers:0,newCustomers:0,oldCustomers:0,previousBalance:0,previousCredit:0,previousNetBalance:0,grossDue:0,reportSales:0,reportCollections:0,paidCurrent:0,paidPrevious:0,remainingCurrent:0,remainingPrevious:0,finalDebt:0,finalAdvance:0,alerts:0,aging:{current:0,days1to30:0,days31to60:0,days61to90:0,days90plus:0},unagedOpening:0};
   for(const row of rows||[]){
     totals.customers+=1;totals[row.customerClass==='new'?'newCustomers':'oldCustomers']+=1;
-    for(const key of ['previousBalance','reportSales','reportCollections','paidCurrent','paidPrevious','remainingCurrent','finalDebt','finalAdvance','unagedOpening'])totals[key]=roundMoney(totals[key]+n(row[key]));
+    for(const key of ['previousBalance','previousCredit','previousNetBalance','grossDue','reportSales','reportCollections','paidCurrent','paidPrevious','remainingCurrent','finalDebt','finalAdvance','unagedOpening'])totals[key]=roundMoney(totals[key]+n(row[key]));
     totals.remainingPrevious=roundMoney(totals.remainingPrevious+n(row.remainingPriorSales)+n(row.remainingOpening));totals.alerts+=Array.isArray(row.alertCodes)?row.alertCodes.length:0;
     for(const key of Object.keys(totals.aging))totals.aging[key]=roundMoney(totals.aging[key]+n(row.aging?.[key]));
   }

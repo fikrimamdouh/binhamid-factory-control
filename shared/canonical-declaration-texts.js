@@ -1,4 +1,4 @@
-export const CUSTOMER_PORTFOLIO_TEXT_VERSION='2026.07.22-original-v1';
+export const CUSTOMER_PORTFOLIO_TEXT_VERSION='2026.07.30-accounting-columns-signature-v4';
 
 export const CUSTOMER_PORTFOLIO_DECLARATION=`أُقر بأن العملاء المدرجين في هذا النموذج مُسندون إليّ، وأنني المسؤول المباشر عن متابعة تعاملاتهم وتحصيل مستحقات المنشأة لديهم.
 ألتزم بعدم البيع الآجل لأي عميل خارج سقف الائتمان المعتمد له، وبعدم منح أي مهلة سداد تتجاوز المدة المقررة أعلاه.

@@ -30,14 +30,14 @@ function normalizeLedgerResidualCells(document=''){
 }
 
 function ignoredResidualRows(rows=[]){
-  const output=[];
+  const totals=new Map();
   for(const row of rows||[]){
     const debt=Number(row?.outstanding??row?.finalBalance??row?.finalDebt??0);
-    if(Number.isFinite(debt)&&Math.abs(debt)>0.000001&&Math.abs(debt)<RESIDUAL_THRESHOLD)output.push({kind:debt>=0?'مدين':'دائن',amount:Math.abs(debt)});
+    if(Number.isFinite(debt)&&Math.abs(debt)>0.000001&&Math.abs(debt)<RESIDUAL_THRESHOLD){const kind=debt>=0?'مدين':'دائن';totals.set(kind,(totals.get(kind)||0)+Math.abs(debt));}
     const advance=Number(row?.finalAdvance??0);
-    if(Number.isFinite(advance)&&advance>0.000001&&advance<RESIDUAL_THRESHOLD)output.push({kind:'دائن',amount:advance});
+    if(Number.isFinite(advance)&&advance>0.000001&&advance<RESIDUAL_THRESHOLD)totals.set('دائن',(totals.get('دائن')||0)+advance);
   }
-  return output;
+  return[...totals.entries()].map(([kind,amount])=>({kind,amount}));
 }
 
 function injectIgnoredResidualTable(document='',rows=[]){
@@ -54,7 +54,7 @@ function detailPage({type,rows,offset,employee,reportDate,sourceFile,logoUrl,doc
 }
 
 export function enhancePortfolioDocument(document='',context={}){
-  const cleaned=injectIgnoredResidualTable(normalizeLedgerResidualCells(removeRepeatedPaymentTerms(document)),context.rows||[]),pages=chunks(context.rows||[],7).map((rows,index)=>detailPage({...context,rows,offset:index*7})).join('');
+  const allRows=context.rows||[],signedRows=allRows.filter(row=>Number(row?.finalDebt??row?.finalBalance??row?.outstanding??0)>=RESIDUAL_THRESHOLD),cleaned=injectIgnoredResidualTable(normalizeLedgerResidualCells(removeRepeatedPaymentTerms(document)),allRows),pages=chunks(signedRows,7).map((rows,index)=>detailPage({...context,rows,offset:index*7})).join('');
   if(!cleaned.includes('</body>'))throw Object.assign(new Error('تعذر إكمال إقرار المحفظة لأن قالب المستند لا يحتوي علامة الإغلاق المطلوبة.'),{code:'CUSTOMER_PORTFOLIO_TEMPLATE_MISSING_BODY_TAG'});
   return cleaned.replace('</body>',`${pages}</body>`);
 }

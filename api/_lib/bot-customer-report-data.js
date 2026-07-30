@@ -18,6 +18,11 @@ export function customerReportScope(role=''){
 function segmentScope(value=''){
   const text=norm(value);if(text.includes('بلوك')||text==='block')return'block';if(text.includes('خرسان')||text==='concrete')return'concrete';return'all';
 }
+function salesScope(row={}){
+  const item=segmentScope(row.item||row.item_name||row.itemName||row.product);
+  if(item!=='all')return item;
+  return segmentScope(row.sales_type||row.salesType||row.kind||row.type||row.segment);
+}
 function riyadhToday(){
   const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Riyadh',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());
   const get=type=>parts.find(x=>x.type===type)?.value||'';
@@ -54,7 +59,7 @@ async function mergeApprovedDailyFallback(sales=[],collections=[]){
   const mergedSales=(sales||[]).map(row=>({...row})),mergedCollections=(collections||[]).map(row=>({...row})),saleRefs=new Set(mergedSales.map(row=>String(row.reference_no||''))),collectionRefs=new Set(mergedCollections.map(row=>String(row.reference_no||'')));
   for(const row of dailySales){
     const reportDate=batchDates.get(String(row.batch_id));if(!reportDate)continue;const reference=dailyReference(reportDate,'S',row.source_row_no);if(saleRefs.has(reference))continue;
-    mergedSales.push({reference_no:reference,sales_type:row.sales_type,customer_external_id:String(row.customer_code||''),customer_name:String(row.customer_name||''),item:String(row.item_name||''),quantity:n(row.quantity),unit:String(row.unit||''),total_amount:money(row.amount),paid_amount:0,payment_method:'credit',status:'registered',delivery_date:reportDate,created_at:`${reportDate}T12:00:00+03:00`,source_invoice_no:String(row.invoice_no||''),_dailyFallback:true});saleRefs.add(reference);
+    mergedSales.push({reference_no:reference,sales_type:salesScope({sales_type:row.sales_type,item_name:row.item_name}),customer_external_id:String(row.customer_code||''),customer_name:String(row.customer_name||''),item:String(row.item_name||''),quantity:n(row.quantity),unit:String(row.unit||''),total_amount:money(row.amount),paid_amount:0,payment_method:'credit',status:'registered',delivery_date:reportDate,created_at:`${reportDate}T12:00:00+03:00`,source_invoice_no:String(row.invoice_no||''),_dailyFallback:true});saleRefs.add(reference);
   }
   const fallbackCollections=[];
   for(const row of dailyCash){
@@ -121,9 +126,9 @@ export function buildCustomerAnalytics({customers=[],sales=[],collections=[],ope
     if(scope==='all'||rowScope==='all'||rowScope===scope)scopedKeys.add(key);
   }
   for(const row of sales||[]){
-    if(closedStatus.has(String(row.status||'')))continue;if(scope!=='all'&&String(row.sales_type||'')!==scope)continue;
+    if(closedStatus.has(String(row.status||'')))continue;const rowSalesScope=salesScope(row);if(scope!=='all'&&rowSalesScope!==scope)continue;
     const key=resolve(row.customer_external_id,row.customer_name),agg=aggregates.get(key);scopedKeys.add(key);const total=n(row.total_amount),paid=Math.min(total,Math.max(0,n(row.paid_amount))),outstanding=Math.max(0,total-paid),saleDate=String(row.delivery_date||row.created_at||'').slice(0,10),reference=String(row.reference_no||'');
-    agg.grossSales=money(agg.grossSales+total);agg.paidApplied=money(agg.paidApplied+paid);agg.balance=money(agg.balance+outstanding);agg.invoiceCount+=1;agg.firstSale=oldest(agg.firstSale,saleDate);agg.lastSale=newest(agg.lastSale,saleDate);if(row.item)agg.products.add(String(row.item));if(row.sales_type)agg.salesTypes.add(String(row.sales_type));
+    agg.grossSales=money(agg.grossSales+total);agg.paidApplied=money(agg.paidApplied+paid);agg.balance=money(agg.balance+outstanding);agg.invoiceCount+=1;agg.firstSale=oldest(agg.firstSale,saleDate);agg.lastSale=newest(agg.lastSale,saleDate);if(row.item)agg.products.add(String(row.item));if(rowSalesScope!=='all')agg.salesTypes.add(rowSalesScope);
     const base=dateValue(row.delivery_date||row.created_at),due=addDays(base,agg.paymentDays),late=due?Math.floor((asOf-due)/dayMs):0,bucket=agingBucket(late);agg.aging[bucket]=money(agg.aging[bucket]+outstanding);agg.oldestDueDate=oldest(agg.oldestDueDate,due?due.toISOString().slice(0,10):'');agg.maxDaysLate=Math.max(agg.maxDaysLate,Math.max(0,late));agg.sales.push({...row,total,paid,outstanding,dueDate:due?due.toISOString().slice(0,10):'',daysLate:Math.max(0,late)});
     const duplicateKey=`${key}|${norm(reference)}`;if(reference&&invoiceKeys.has(duplicateKey))agg.controlAlerts.add('duplicate_invoice');if(reference)invoiceKeys.add(duplicateKey);
   }
