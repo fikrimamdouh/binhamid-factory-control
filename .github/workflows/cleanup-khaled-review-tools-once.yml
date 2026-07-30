@@ -1,0 +1,44 @@
+name: Cleanup Khaled Review Tools Once
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/cleanup-khaled-review-tools-once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ github.token }}
+
+      - name: Remove one-time review and execution tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm -f --ignore-unmatch \
+            .github/workflows/inspect-khaled-settlement-candidates-once.yml \
+            .github/workflows/inspect-khaled-customer-counterparts-once.yml \
+            .github/workflows/inspect-khaled-source-workbooks-once.yml \
+            .github/workflows/inspect-khaled-source-via-production-once.yml \
+            .github/workflows/inspect-khaled-asof-balances-once.yml \
+            .github/workflows/inspect-khaled-asof-balances-v2-once.yml \
+            .github/workflows/inspect-reviewed-payment-rpc-once.yml \
+            .github/workflows/reclassify-khaled-customer-settlements-once.yml \
+            .github/workflows/fix-khaled-reclassification-workflow-once.yml \
+            .github/workflows/apply-block-portfolio-layout-once.yml \
+            .github/workflows/relax-khaled-balance-check-once.yml \
+            .github/workflows/cleanup-khaled-review-tools-once.yml \
+            api/ops/inspect-khaled-source.js
+          git config user.name 'binhamid-system'
+          git config user.email 'actions@users.noreply.github.com'
+          git commit -m 'تنظيف أدوات مراجعة تسويات خالد المؤقتة'
+          git push origin HEAD:main
