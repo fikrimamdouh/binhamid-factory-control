@@ -1,0 +1,62 @@
+name: Send sales summary 2026-07-29 once
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/send-sales-summary-20260729-once.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  send-summary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_OWNER_ID: ${{ secrets.TELEGRAM_OWNER_ID }}
+      FACTORY_MANAGER_CHAT_ID: '6870312376'
+    steps:
+      - name: Send verified sales summary to owner and factory manager
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${TELEGRAM_BOT_TOKEN:-}"
+          test -n "${TELEGRAM_OWNER_ID:-}"
+
+          text=$(cat <<'MSG'
+          <b>ملخص حركة المبيعات — 29 يوليو 2026</b>
+
+          تم تحديث تقرير حركة أمس ومراجعته.
+          لا توجد إضافات جديدة أو إجراءات مطلوبة على البيانات المسجلة.
+
+          <b>المبيعات</b>
+          الخرسانة: <b>64 م³</b> — <b>11,649.93 ر.س</b>
+          البلوك: <b>680 قطعة</b> — <b>1,184.01 ر.س</b>
+          إجمالي المبيعات: <b>12,833.94 ر.س</b>
+
+          <b>التحصيلات</b>
+          إجمالي التحصيلات: <b>15,224.00 ر.س</b>
+
+          <b>الحالة</b>
+          التقرير مسجل بالكامل، ولم تتكرر أي حركة.
+          الملف: <code>Daily-Report-2026-07-29.xlsx</code>
+          MSG
+          )
+
+          declare -A sent=()
+          for chat_id in "${TELEGRAM_OWNER_ID}" "${FACTORY_MANAGER_CHAT_ID}"; do
+            [ -n "${chat_id}" ] || continue
+            [ -z "${sent[$chat_id]+x}" ] || continue
+            curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              --data-urlencode "chat_id=${chat_id}" \
+              --data-urlencode "parse_mode=HTML" \
+              --data-urlencode "disable_web_page_preview=true" \
+              --data-urlencode "text=${text}" >/dev/null
+            sent[$chat_id]=1
+          done
+
+          echo "sent_to=${#sent[@]}" >> "$GITHUB_STEP_SUMMARY"
