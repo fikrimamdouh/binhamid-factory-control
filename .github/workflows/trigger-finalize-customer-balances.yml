@@ -19,3 +19,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run finalize-customer-portfolio-balances.yml --repo "$GITHUB_REPOSITORY" --ref main
+
+# rerun 2026-07-30
