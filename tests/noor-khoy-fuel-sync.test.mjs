@@ -15,22 +15,42 @@ test('fuel parser classifies diesel and petrol without dropping either',()=>{
   assert.deepEqual(parsed.rows.map(row=>row.category),['diesel','petrol']);
 });
 
-test('workflow runs daily and imports a selected period without mutating main',()=>{
+test('workflow retries safely in morning and evening without mutating main',()=>{
   const workflow=read('.github/workflows/noor-khoy-fuel-sync.yml');
+  const status=read('scripts/check-fuel-delivery-status.mjs');
   assert.match(workflow,/id-token:\s*write/);
   assert.match(workflow,/contents:\s*read/);
   assert.match(workflow,/secrets\.NOOR_KHOY_USERNAME/);
   assert.match(workflow,/secrets\.NOOR_KHOY_PASSWORD/);
-  assert.match(workflow,/cron:\s*'7 5 \* \* \*'/);
+  for(const minute of ['7','19','31','43','55']){
+    assert.match(workflow,new RegExp(`cron:\\s*'${minute} 5 \\* \\* \\*'`));
+    assert.match(workflow,new RegExp(`cron:\\s*'${minute} 16 \\* \\* \\*'`));
+  }
   assert.match(workflow,/REPORT_START_DATE:/);
   assert.match(workflow,/REPORT_END_DATE:/);
-  assert.match(workflow,/cancel-in-progress:\s*true/);
+  assert.match(workflow,/cancel-in-progress:\s*false/);
+  assert.match(workflow,/node scripts\/check-fuel-delivery-status\.mjs/);
+  assert.match(workflow,/steps\.delivery_status\.outputs\.needed == 'false'/);
   assert.match(workflow,/node scripts\/noor-khoy-fuel-sync\.mjs/);
+  assert.match(status,/api\/fuel\/delivery-status/);
+  assert.match(status,/writeOutput\('needed'/);
   assert.doesNotMatch(workflow,/while \[\[/);
   assert.doesNotMatch(workflow,/\n\s*push:\s*\n/);
   assert.doesNotMatch(workflow,/contents:\s*write/);
   assert.doesNotMatch(workflow,/git push origin HEAD:main/);
   assert.doesNotMatch(workflow,/fuel-sync-status\/latest\.json/);
+});
+
+test('delivery status requires both Telegram recipients and a PDF before retries stop',()=>{
+  const endpoint=read('api/fuel/delivery-status.js');
+  assert.match(endpoint,/OIDC_AUDIENCE='binhamid-fuel-sync'/);
+  assert.match(endpoint,/workflow_ref/);
+  assert.match(endpoint,/textRecipients>=2&&documentRecipients>=2/);
+  assert.match(endpoint,/file_name=ilike\.\*report-/);
+  assert.match(endpoint,/vehicle_diesel_balance_report_sent/);
+  assert.match(endpoint,/recipient_count\|\|0\)>=2/);
+  assert.match(endpoint,/direction=eq\.outgoing/);
+  assert.match(endpoint,/delivery_status=eq\.sent/);
 });
 
 test('browser export sends dates in the export URL and rejects out-of-period rows',()=>{
@@ -79,11 +99,12 @@ test('server stores one report per period and keeps the private vehicle out sile
   assert.match(vercel,/api\/fuel\/daily-report/);
 });
 
-test('the existing fuel sync sends verified vehicle balances at 7 PM Riyadh',()=>{
+test('the existing fuel sync sends verified vehicle balances at 7 PM Riyadh with safe retries',()=>{
   const workflow=read('.github/workflows/noor-khoy-fuel-sync.yml');
   const script=read('scripts/noor-khoy-fuel-sync.mjs');
   const route=read('api/_lib/routes/fuel-sync.js');
   assert.match(workflow,/cron:\s*'7 16 \* \* \*'/);
+  assert.match(workflow,/cron:\s*'55 16 \* \* \*'/);
   assert.match(workflow,/FUEL_SYNC_MODE: vehicle-balance-report/);
   assert.match(workflow,/NOOR_KHOY_VEHICLES_URL/);
   assert.match(script,/vehicleBalanceSummary/);

@@ -1,0 +1,80 @@
+name: Backfill fuel report 2026-07-29 once
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/backfill-fuel-20260729-once.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: noor-khoy-daily-fuel-sync
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NOOR_KHOY_USERNAME: ${{ secrets.NOOR_KHOY_USERNAME }}
+      NOOR_KHOY_PASSWORD: ${{ secrets.NOOR_KHOY_PASSWORD }}
+      NOOR_KHOY_LOGIN_URL: https://www.norkhoysa.com/companies/login
+      NOOR_KHOY_DASHBOARD_URL: https://www.norkhoysa.com/companies
+      NOOR_KHOY_REPORT_URL: https://www.norkhoysa.com/companies/fuels?fueltype=all
+      BINHAMID_FUEL_UPLOAD_URL: https://binhamid-factory-control.vercel.app/api/fuel/daily-report
+      REPORT_DATE: '2026-07-29'
+      REPORT_START_DATE: '2026-07-29'
+      REPORT_END_DATE: '2026-07-29'
+      FUEL_REPORT_DATE_OFFSET_DAYS: '0'
+      FUEL_SEND_BALANCE: 'true'
+      FUEL_NOTIFY: 'true'
+      FUEL_SYNC_ARTIFACT_DIR: artifacts/noor-khoy-fuel-backfill-20260729
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install project dependencies
+        run: npm ci
+      - name: Install browser automation
+        run: |
+          npm install --no-save --no-package-lock playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Download, validate and deliver 29 July report
+        id: backfill
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/noor-khoy-fuel-backfill-20260729
+          node scripts/noor-khoy-fuel-sync.mjs 2>&1 | tee artifacts/noor-khoy-fuel-backfill-20260729/execution.log
+      - name: Keep backfill evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: noor-khoy-fuel-backfill-20260729-${{ github.run_id }}
+          path: artifacts/noor-khoy-fuel-backfill-20260729/
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Notify owner if the backfill failed
+        if: steps.backfill.outcome != 'success'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_OWNER_ID: ${{ secrets.TELEGRAM_OWNER_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          text=$'<b>فشل استكمال تقرير الوقود ليوم 2026-07-29</b>\nلم تصل أي بيانات ناقصة إلى النظام. راجع سجل GitHub Actions.'
+          curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_OWNER_ID}" \
+            --data-urlencode "parse_mode=HTML" \
+            --data-urlencode "text=${text}" >/dev/null
+      - name: Fail when the backfill failed
+        if: steps.backfill.outcome != 'success'
+        run: exit 1
