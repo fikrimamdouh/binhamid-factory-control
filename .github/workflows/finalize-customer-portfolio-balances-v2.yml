@@ -1,0 +1,142 @@
+name: Finalize Customer Portfolio Balances V2
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/finalize-customer-portfolio-balances-v2.yml'
+
+permissions:
+  contents: write
+  statuses: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+
+      - name: Apply final customer balance rules
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          data_path=Path('api/_lib/bot-customer-report-data.js')
+          data=data_path.read_text(encoding='utf-8')
+          start=data.index('  for(const row of collections||[]){')
+          end=data.index('  let rows=[...aggregates.values()]',start)
+          collection_block="""  for(const row of collections||[]){
+            if(closedStatus.has(String(row.status||'')))continue;
+            const key=resolve(row.customer_external_id,row.customer_name,scope==='all'||scope==='concrete'),agg=aggregates.get(key);if(!agg)continue;
+            if(scope!=='all'&&!scopedKeys.has(key)){
+              const ownerScope=segmentScope(agg.segment),include=ownerScope===scope||(ownerScope==='all'&&scope==='concrete');
+              if(!include)continue;
+              if(ownerScope==='all'&&scope==='concrete')agg.segment='concrete';
+              scopedKeys.add(key);
+            }
+            const collected=Math.max(0,n(row.amount)),unallocated=Math.max(0,n(row.unallocated_amount)),collectionDate=String(row.occurred_at||row.created_at||'').slice(0,10),reference=String(row.reference_no||'');agg.collections=money(agg.collections+collected);agg.unallocatedCredit=money(agg.unallocatedCredit+unallocated);agg.collectionCount+=1;agg.firstCollection=oldest(agg.firstCollection,collectionDate);agg.lastCollection=newest(agg.lastCollection,collectionDate);agg.collectionRows.push({...row,amount:collected,unallocated});
+            const duplicateKey=`${key}|${norm(reference)}|${money(collected)}|${collectionDate}`;if(reference&&collectionKeys.has(duplicateKey))agg.controlAlerts.add('duplicate_collection');if(reference)collectionKeys.add(duplicateKey);
+          }
+"""
+          data_path.write_text(data[:start]+collection_block+data[end:],encoding='utf-8')
+
+          portfolio_path=Path('api/_lib/customer-portfolio-pdf.js')
+          portfolio=portfolio_path.read_text(encoding='utf-8')
+          start=portfolio.index('function reportCustomerCandidates(')
+          end=portfolio.index('function summaryPage(',start)
+          replacement=r"""function reportCustomerCandidates(type,analyticsRows,activityRows){
+            const candidates=new Map(),add=(code,name,source)=>{const key=normalizeCustomerValue(code)||`name:${normalizeCustomerValue(name)}`;if(!key)return;const current=candidates.get(key)||{code:clean(code),name:clean(name),sources:[]};current.sources.push(source);if(!current.code&&code)current.code=clean(code);if(!current.name&&name)current.name=clean(name);candidates.set(key,current);};
+            for(const row of analyticsRows||[])if(Number(row.grossSales||0)>0||Number(row.collections||0)>0||Number(row.openingCount||0)>0||Math.abs(Number(row.netBalance||row.openingBalance||0))>0.004||Number(row.unallocatedCredit||0)>0)add(row.code||row.externalId,row.name,'history');
+            for(const row of activityRows||[])if(Number(row.sales||0)>0||Number(row.collections||0)>0)add(row.code,row.name,'report');
+            return[...candidates.values()];
+          }
+          function customerRows(type,analysis,state,analytics,ownershipAnalytics,reportDate){
+            const ownershipIndex=indexCustomerAnalytics(ownershipAnalytics?.rows||[]),sectorActivityIndex=buildReportActivityIndex(analysis,type,reportDate),allActivityIndex=buildReportActivityIndex(analysis,'',reportDate),masters=masterIndexes(state.clients),rows=[],crossSectorPurchases=[];
+            for(const candidate of reportCustomerCandidates(type,ownershipAnalytics?.rows||[],allActivityIndex.rows)){
+              const initialBase=lookupCustomer(ownershipIndex,candidate.code,candidate.name)||{},initialMaster=lookupMaster(masters,candidate.code||initialBase.code||initialBase.externalId,candidate.name||initialBase.name),code=clean(initialMaster?.code||initialMaster?.cr||candidate.code||initialBase.code||initialBase.externalId),name=clean(initialMaster?.name||candidate.name||initialBase.name)||code||'عميل غير مسمى',base=lookupCustomer(ownershipIndex,code,name)||initialBase,master=lookupMaster(masters,code,name),owner=resolveCustomerPortfolioOwner({customer:{segment:base.segment,...master},employees:state.employees,historySales:ownershipHistory(analysis,base,code,name),fallbackSector:'concrete'}),sectorActivity=lookupActivity(sectorActivityIndex,code,name);
+              if(owner.sector!==type){
+                if(Number(sectorActivity.sales||0)>0)crossSectorPurchases.push({name,code,phone:clean(master?.tel||master?.phone||base.phone),ownerSector:owner.sector,ownerSectorLabel:portfolioSectorLabel(owner.sector),ownerEmployeeName:clean(owner.employee?.name||owner.employee?.full_name),ownerSource:owner.source,sellingSector:type,amount:Number(sectorActivity.sales||0),quantity:(sectorActivity.invoices||[]).reduce((sum,row)=>sum+Number(row.quantity||0),0),item:[...(sectorActivity.items||[])].join('، '),invoices:sectorActivity.invoices||[]});
+                continue;
+              }
+              const activity=lookupActivity(allActivityIndex,code,name),settlement=settleCustomerAccount(base,activity,{reportDate}),hasAccountMovement=Number(base.grossSales||0)>0||Number(base.collections||0)>0||Number(base.openingCount||0)>0||Math.abs(Number(base.openingBalance||base.netBalance||0))>0.004||Number(base.unallocatedCredit||0)>0||Number(activity.sales||0)>0||Number(activity.collections||0)>0;
+              if(!hasAccountMovement||(!(settlement.finalDebt>0.004||settlement.finalAdvance>0.004)&&!settlement.hasReportActivity))continue;
+              const items=[...new Set([...(activity.items||[]),...(Array.isArray(base.products)?base.products:[])])];
+              rows.push({...settlement,name,code,registry:clean(master?.cr||master?.nationalId||master?.registry||code),phone:clean(master?.tel||master?.phone||base.phone),segment:type==='block'?'بلوك':'خرسانة',creditLimit:Number(master?.cap??base.creditLimit??state.cap??0)||0,item:items.slice(0,2).join('، '),quantity:(activity.invoices||[]).reduce((sum,row)=>sum+Number(row.quantity||0),0),sales:settlement.grossDue,paid:settlement.reportCollections,outstanding:settlement.finalDebt,previousBalance:settlement.previousBalance,previousCredit:settlement.previousCredit,previousNetBalance:settlement.previousNetBalance,grossDue:settlement.grossDue,reportSales:settlement.reportSales,reportCollections:settlement.reportCollections,paidCurrent:settlement.paidCurrent,paidPrevious:settlement.paidPrevious,finalBalance:settlement.finalDebt,reportSaleDate:activity.lastSale||'',reportCollectionDate:activity.lastCollection||'',invoiceDetails:activity.invoices||[],collectionDetails:activity.collectionRows||[]});
+            }
+            rows.sort((a,b)=>Number(b.hasReportActivity)-Number(a.hasReportActivity)||b.finalDebt-a.finalDebt||a.name.localeCompare(b.name,'ar'));
+            crossSectorPurchases.sort((a,b)=>b.amount-a.amount||a.name.localeCompare(b.name,'ar'));
+            return{customers:rows,crossSectorPurchases};
+          }
+          """
+          portfolio=portfolio[:start]+replacement+portfolio[end:]
+          old="allRows=portfolio.customers,rows=allRows.filter(row=>Number(row.finalDebt||0)>=0.5),crossSectorPurchases=portfolio.crossSectorPurchases;if(!rows.length&&!crossSectorPurchases.length)"
+          new="allRows=portfolio.customers,rows=allRows.filter(row=>Number(row.finalDebt||0)>=0.5),advanceRows=allRows.filter(row=>Number(row.finalAdvance||0)>=0.5),crossSectorPurchases=portfolio.crossSectorPurchases;if(!rows.length&&!advanceRows.length&&!crossSectorPurchases.length)"
+          if old not in portfolio: raise SystemExit('generation filter marker not found')
+          portfolio=portfolio.replace(old,new,1)
+          old='const totals=combinePortfolioTotals(aggregateSettlements(rows),crossSectorPurchases)'
+          if old not in portfolio: raise SystemExit('generation totals marker not found')
+          portfolio=portfolio.replace(old,'const totals=combinePortfolioTotals(aggregateSettlements(allRows),crossSectorPurchases)',1)
+          collect_start=portfolio.index('export async function collectPortfolioRows(')
+          collect=r"""export async function collectPortfolioRows(analysis={},sourceFile='daily-report.xlsx',requestedTypes=['block','concrete'],options={}){
+            const types=[...new Set((Array.isArray(requestedTypes)?requestedTypes:[requestedTypes]).map(clean).filter(type=>VALID_TYPES.has(type)))];if(!types.length)throw Object.assign(new Error('حدد قطاع البلوك أو الخرسانة.'),{status:400,code:'PORTFOLIO_TYPE_REQUIRED'});
+            const reportDate=isoDate(options?.reportDate)||await resolveReportDate(analysis,sourceFile),state=await loadAppState(),ownershipAnalytics=options?.ownershipAnalytics||await loadCustomerAnalytics({active:true,role:'admin'},{asOf:reportDate,beforeDate:reportDate});
+            return Promise.all(types.map(async type=>{const rep=findRep(state.employees,type);if(!rep)throw Object.assign(new Error(`لا يوجد موظف نشط بدور ${ROLE_BY_TYPE[type]}؛ تم منع إصدار الكشف باسم موظف غير صحيح.`),{status:409,code:`PORTFOLIO_${type.toUpperCase()}_REP_NOT_FOUND`});const analytics=await loadCustomerAnalytics({active:true,role:ANALYTICS_ROLE[type]},{asOf:reportDate,beforeDate:reportDate}),portfolio=customerRows(type,analysis,state,analytics,ownershipAnalytics,reportDate),allCustomers=portfolio.customers,customers=allCustomers.filter(row=>Number(row.finalDebt||0)>=0.5);return{type,reportDate,companyName:state.companyName,employee:{name:rep?.name||'',nationalId:digits(rep?.nid||rep?.national_id)},customers,allCustomers,crossSectorPurchases:portfolio.crossSectorPurchases,summary:combinePortfolioTotals(aggregateSettlements(allCustomers),portfolio.crossSectorPurchases)};}));
+          }
+          """
+          portfolio_path.write_text(portfolio[:collect_start]+collect,encoding='utf-8')
+          PY
+
+      - name: Validate balance and payment rules
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check api/_lib/bot-customer-report-data.js
+          node --check api/_lib/customer-portfolio-pdf.js
+          node --check api/_lib/customer-settlement.js
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { buildCustomerAnalytics } from './api/_lib/bot-customer-report-data.js';
+          import { settleCustomerAccount } from './api/_lib/customer-settlement.js';
+          const customers=[{external_id:'U1',customer_code:'U1',customer_name:'غير مصنف',segment:''},{external_id:'B1',customer_code:'B1',customer_name:'بلوك',segment:'بلوك'},{external_id:'C1',customer_code:'C1',customer_name:'خرسانة',segment:'خرسانة'}];
+          const collections=[{reference_no:'CU',customer_external_id:'U1',customer_name:'غير مصنف',amount:100,unallocated_amount:100,status:'recorded',occurred_at:'2026-07-29'},{reference_no:'CB',customer_external_id:'B1',customer_name:'بلوك',amount:20,unallocated_amount:20,status:'recorded',occurred_at:'2026-07-29'},{reference_no:'CC',customer_external_id:'C1',customer_name:'خرسانة',amount:30,unallocated_amount:30,status:'recorded',occurred_at:'2026-07-29'}];
+          const concrete=buildCustomerAnalytics({customers,collections,role:'concrete_sales',asOf:new Date('2026-07-29T00:00:00Z')});
+          assert.deepEqual(concrete.rows.map(row=>row.code).sort(),['C1','U1']);
+          assert.equal(concrete.rows.find(row=>row.code==='U1').creditBalance,100);
+          const block=buildCustomerAnalytics({customers,collections,role:'block_sales',asOf:new Date('2026-07-29T00:00:00Z')});
+          assert.deepEqual(block.rows.map(row=>row.code),['B1']);
+          const settlement=settleCustomerAccount({openingBalance:100,grossSales:50,paidApplied:0,unallocatedCredit:0,openingCount:1,invoiceCount:1,collectionCount:0,aging:{}},{code:'X',sales:25,collections:160,alerts:new Set(),invoices:[],collectionRows:[]},{reportDate:'2026-07-29'});
+          assert.equal(settlement.grossDue,175);assert.equal(settlement.finalDebt,15);assert.equal(settlement.finalAdvance,0);assert.equal(settlement.reportCollections,160);
+          const source=await import('node:fs/promises').then(fs=>fs.readFile('api/_lib/customer-portfolio-pdf.js','utf8'));
+          assert.match(source,/fallbackSector:'concrete'/);assert.match(source,/allActivityIndex=buildReportActivityIndex\(analysis,''/);assert.match(source,/aggregateSettlements\(allRows\)/);
+          JS
+
+      - name: Commit final production fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'customer-balance-fix-bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add api/_lib/bot-customer-report-data.js api/_lib/customer-portfolio-pdf.js
+          git diff --cached --quiet && exit 0
+          git commit -m 'إقفال أرصدة العملاء وربط السدادات بالمحفظة الأساسية'
+          git push origin HEAD:main
+
+      - name: Publish status
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          state=failure
+          description='Customer balance finalization failed'
+          if [ "${{ job.status }}" = "success" ]; then state=success; description='Customer balances and payments finalized'; fi
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" -f state="$state" -f context='customer-balance-finalization-v2' -f description="$description" -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
