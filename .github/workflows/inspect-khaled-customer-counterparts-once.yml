@@ -1,0 +1,188 @@
+name: Inspect Khaled Customer Counterparts Once
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/inspect-khaled-customer-counterparts-once.yml'
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: inspect-khaled-customer-counterparts-once
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+
+      - name: Install PostgreSQL 17 client
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y curl ca-certificates
+          sudo install -d -m 0755 /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          . /etc/os-release
+          printf '%s\n' 'Types: deb' 'URIs: https://apt.postgresql.org/pub/repos/apt' "Suites: ${VERSION_CODENAME}-pgdg" 'Components: main' 'Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc' | sudo tee /etc/apt/sources.list.d/pgdg.sources >/dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client-17
+          echo '/usr/lib/postgresql/17/bin' >> "$GITHUB_PATH"
+
+      - name: Resolve protected database connection
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          SUPABASE_POOLER_HOST: ${{ vars.SUPABASE_POOLER_HOST }}
+          CONNECTION_DIAGNOSTIC_PATH: khaled-counterparts-connection.json
+        run: node scripts/resolve-supabase-connection.mjs
+
+      - name: Inspect all customer-side counterpart evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/khaled-counterparts.sql <<'SQL'
+          \pset tuples_only on
+          \pset format unaligned
+          set statement_timeout='120s';
+          with target(amount, movement_day, source_doc) as (
+            values
+              (538.75::numeric,'2026-07-22'::date,'84'::text),
+              (595.00::numeric,'2026-07-25'::date,'87'::text),
+              (1450.00::numeric,'2026-07-23'::date,'85'::text),
+              (270.00::numeric,'2026-07-19'::date,'83'::text),
+              (450.00::numeric,'2026-07-25'::date,'86'::text),
+              (1440.00::numeric,'2026-07-25'::date,'88'::text)
+          ),
+          cash_customer_matches as (
+            select t.amount,t.movement_day,t.source_doc,b.report_date,m.id,m.batch_id,m.source_row_no,m.treasury_code,m.debit,m.credit,m.account_code,m.account_name,m.account_type,m.movement_type,m.voucher_no,m.movement_date_text,m.description,m.is_customer_collection
+            from target t
+            join public.daily_report_cash_movements m
+              on greatest(coalesce(m.debit,0),coalesce(m.credit,0))=t.amount
+             and coalesce(m.account_type,'') ilike '%عميل%'
+            left join public.daily_report_batches b on b.id=m.batch_id
+            where coalesce(nullif(m.movement_date_text,''),b.report_date::text)::date between t.movement_day-interval '10 days' and t.movement_day+interval '10 days'
+          ),
+          sales_exact as (
+            select t.amount,t.movement_day,t.source_doc,s.id,s.reference_no,s.customer_external_id,s.customer_name,s.sales_type,s.item,s.total_amount,s.paid_amount,greatest(0,coalesce(s.total_amount,0)-coalesce(s.paid_amount,0)) outstanding,s.status,coalesce(s.delivery_date,s.created_at::date) sale_date
+            from target t
+            join public.sales_orders s
+              on abs(coalesce(s.total_amount,0)-t.amount)<0.01
+              or abs(greatest(0,coalesce(s.total_amount,0)-coalesce(s.paid_amount,0))-t.amount)<0.01
+            where coalesce(s.delivery_date,s.created_at::date) between t.movement_day-interval '45 days' and '2026-07-26'::date
+          ),
+          daily_sales_exact as (
+            select t.amount,t.movement_day,t.source_doc,b.report_date,d.id,d.batch_id,d.source_row_no,d.invoice_no,d.sales_type,d.customer_code,d.customer_name,d.item_name,d.amount as sale_amount,d.quantity
+            from target t
+            join public.daily_report_sales_lines d on abs(coalesce(d.amount,0)-t.amount)<0.01
+            join public.daily_report_batches b on b.id=d.batch_id
+            where b.report_date between t.movement_day-interval '45 days' and '2026-07-26'::date
+          ),
+          daily_sales_group_exact as (
+            select t.amount,t.movement_day,t.source_doc,b.report_date,d.customer_code,d.customer_name,d.sales_type,sum(d.amount) grouped_sales,count(*) line_count,jsonb_agg(jsonb_build_object('invoice',d.invoice_no,'row',d.source_row_no,'item',d.item_name,'amount',d.amount) order by d.source_row_no) lines
+            from target t
+            join public.daily_report_batches b on b.report_date between t.movement_day-interval '45 days' and '2026-07-26'::date
+            join public.daily_report_sales_lines d on d.batch_id=b.id
+            group by t.amount,t.movement_day,t.source_doc,b.report_date,d.customer_code,d.customer_name,d.sales_type
+            having abs(sum(d.amount)-t.amount)<0.01
+          ),
+          opening_exact as (
+            select t.amount,t.movement_day,t.source_doc,o.customer_code,o.customer_name,o.client_id,o.balance,o.previous,o.debit,o.credit,o.cheques,o.difference,o.balance_date
+            from target t
+            join public.customer_opening_balances o
+              on abs(coalesce(o.balance,0)-t.amount)<0.01
+              or abs(coalesce(o.previous,0)-t.amount)<0.01
+              or abs(coalesce(o.debit,0)-t.amount)<0.01
+              or abs(coalesce(o.credit,0)-t.amount)<0.01
+          ),
+          current_balances as (
+            select c.external_id,c.customer_code,c.customer_name,c.segment,
+                   coalesce(ob.opening,0)+coalesce(so.outstanding,0)-coalesce(ce.unallocated,0) calculated_debt,
+                   ob.opening_rows,so.order_rows,ce.credit_rows
+            from public.customers c
+            left join lateral (
+              select coalesce(sum(o.balance),0) opening,
+                     jsonb_agg(jsonb_build_object('date',o.balance_date,'balance',o.balance,'previous',o.previous,'debit',o.debit,'credit',o.credit)) opening_rows
+              from public.customer_opening_balances o
+              where coalesce(o.customer_code,o.client_id)=coalesce(c.external_id,c.customer_code)
+                and (case when coalesce(o.balance_date,'') ~ '^\d{4}-\d{2}-\d{2}$' then o.balance_date::date else '1900-01-01'::date end)<='2026-07-26'::date
+            ) ob on true
+            left join lateral (
+              select coalesce(sum(greatest(0,coalesce(s.total_amount,0)-coalesce(s.paid_amount,0))),0) outstanding,
+                     jsonb_agg(jsonb_build_object('reference',s.reference_no,'date',coalesce(s.delivery_date,s.created_at::date),'salesType',s.sales_type,'item',s.item,'total',s.total_amount,'paid',s.paid_amount,'outstanding',greatest(0,coalesce(s.total_amount,0)-coalesce(s.paid_amount,0))) order by coalesce(s.delivery_date,s.created_at::date)) filter(where greatest(0,coalesce(s.total_amount,0)-coalesce(s.paid_amount,0))>0) order_rows
+              from public.sales_orders s
+              where s.customer_external_id=coalesce(c.external_id,c.customer_code)
+                and s.status not in ('cancelled','rejected')
+                and coalesce(s.delivery_date,s.created_at::date)<='2026-07-26'::date
+            ) so on true
+            left join lateral (
+              select coalesce(sum(coalesce(e.unallocated_amount,0)),0) unallocated,
+                     jsonb_agg(jsonb_build_object('reference',e.reference_no,'date',e.occurred_at::date,'amount',e.amount,'unallocated',e.unallocated_amount)) filter(where coalesce(e.unallocated_amount,0)>0) credit_rows
+              from public.collection_events e
+              where e.customer_external_id=coalesce(c.external_id,c.customer_code)
+                and e.status not in ('cancelled','rejected') and e.occurred_at::date<='2026-07-26'::date
+            ) ce on true
+            where c.active=true
+          ),
+          current_balance_exact as (
+            select t.amount,t.movement_day,t.source_doc,b.*
+            from target t join current_balances b on abs(b.calculated_debt-t.amount)<0.01
+          ),
+          customer_collections_exact as (
+            select t.amount,t.movement_day,t.source_doc,e.id,e.reference_no,e.customer_external_id,e.customer_name,e.amount collection_amount,e.allocated_amount,e.unallocated_amount,e.payment_method,e.occurred_at,e.note
+            from target t join public.collection_events e on abs(e.amount-t.amount)<0.01
+            where e.occurred_at::date between t.movement_day-interval '45 days' and '2026-07-26'::date
+          )
+          select jsonb_pretty(jsonb_build_object(
+            'cashCustomerMatches',(select coalesce(jsonb_agg(to_jsonb(x) order by x.movement_day,x.amount,x.report_date,x.source_row_no),'[]'::jsonb) from cash_customer_matches x),
+            'salesExact',(select coalesce(jsonb_agg(to_jsonb(x) order by x.movement_day,x.amount,x.sale_date),'[]'::jsonb) from sales_exact x),
+            'dailySalesExact',(select coalesce(jsonb_agg(to_jsonb(x) order by x.movement_day,x.amount,x.report_date,x.source_row_no),'[]'::jsonb) from daily_sales_exact x),
+            'dailySalesGroupedExact',(select coalesce(jsonb_agg(to_jsonb(x) order by x.movement_day,x.amount,x.report_date),'[]'::jsonb) from daily_sales_group_exact x),
+            'openingExact',(select coalesce(jsonb_agg(to_jsonb(x) order by x.movement_day,x.amount,x.balance_date),'[]'::jsonb) from opening_exact x),
+            'currentBalanceExact',(select coalesce(jsonb_agg(to_jsonb(x) order by x.movement_day,x.amount,x.customer_name),'[]'::jsonb) from current_balance_exact x),
+            'customerCollectionsExact',(select coalesce(jsonb_agg(to_jsonb(x) order by x.movement_day,x.amount,x.occurred_at),'[]'::jsonb) from customer_collections_exact x)
+          ));
+          SQL
+          psql "$SUPABASE_DB_URL" -X -v ON_ERROR_STOP=1 --file /tmp/khaled-counterparts.sql | tee khaled-customer-counterparts.json
+          test -s khaled-customer-counterparts.json
+
+      - name: Upload counterpart evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: khaled-customer-counterparts-${{ github.run_id }}
+          path: |
+            khaled-customer-counterparts.json
+            khaled-counterparts-connection.json
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Publish inspection status
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          node <<'NODE'
+          const success=process.env.JOB_STATUS==='success';
+          const response=await fetch(`https://api.github.com/repos/${process.env.REPOSITORY}/statuses/${process.env.HEAD_SHA}`,{
+            method:'POST',
+            headers:{Accept:'application/vnd.github+json',Authorization:`Bearer ${process.env.GITHUB_TOKEN}`,'X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'},
+            body:JSON.stringify({state:success?'success':'failure',context:'inspect-khaled-customer-counterparts',target_url:process.env.RUN_URL,description:success?'Customer counterpart evidence inspected.':'Customer counterpart inspection failed.'})
+          });
+          if(!response.ok)throw new Error(`Status publication failed with HTTP ${response.status}`);
+          NODE
