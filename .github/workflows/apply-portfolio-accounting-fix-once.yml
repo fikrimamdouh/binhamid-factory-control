@@ -8,6 +8,7 @@ on:
       - '.github/workflows/apply-portfolio-accounting-fix-once.yml'
 
 permissions:
+  actions: read
   contents: write
   statuses: write
 
@@ -22,11 +23,21 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24.x'
-      - name: Replace portfolio sources
+      - name: Download validated portfolio sources
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          base64 -d .github/portfolio-fix.b64 | tar -xzf -
+          rm -rf /tmp/portfolio-source
+          mkdir -p /tmp/portfolio-source
+          gh run download 30537891350 --repo "$GITHUB_REPOSITORY" --name portfolio-source-30537891350 --dir /tmp/portfolio-source
+          test -s /tmp/portfolio-source/api/_lib/customer-portfolio-pdf.js
+          cp /tmp/portfolio-source/api/_lib/customer-portfolio-pdf.js api/_lib/
+          cp /tmp/portfolio-source/api/_lib/customer-portfolio-document.js api/_lib/
+          cp /tmp/portfolio-source/api/_lib/customer-settlement.js api/_lib/
+          cp /tmp/portfolio-source/shared/customer-portfolio-declaration.js shared/
+          cp /tmp/portfolio-source/tests/customer-portfolio-debt-allocation.test.mjs tests/
           python - <<'PY'
           from pathlib import Path
           p=Path('shared/canonical-declaration-texts.js')
@@ -54,8 +65,11 @@ jobs:
           const declaration=renderCustomerPortfolioDeclaration({type:'concrete',companyName:'مصنع',employee:{name:'مندوب'},customers:rows.filter(r=>r.finalDebt>=.5),dateGregorian:'2026-07-29',logoUrl:'logo.png'}).document;
           const output=enhancePortfolioDocument(declaration,{type:'concrete',rows,unresolvedRows:[],employee:{name:'مندوب'},reportDate:'2026-07-29',sourceFile:'daily.xlsx',logoUrl:'logo.png',documentRef:'REF'});
           assert.match(output,/الرصيد السابق/);assert.match(output,/مشتريات الفترة/);assert.match(output,/إجمالي المستحق/);assert.match(output,/فروق هللات مستبعدة/);
-          const table=output.match(/<table class="led">[\s\S]*?<\/table>/)?.[0]||'';assert.match(table,/مدين/);assert.doesNotMatch(table,/هللات/);
-          const totals=aggregateSettlements(rows);assert.equal(totals.previousNetBalance,100.29);assert.equal(totals.grossDue,150.29);
+          const table=output.match(/<table class="led">[\s\S]*?<\/table>/)?.[0]||'';
+          assert.match(table,/مدين/);assert.doesNotMatch(table,/هللات/);
+          const totals=aggregateSettlements(rows);
+          assert.equal(totals.previousNetBalance,100.29);
+          assert.equal(totals.grossDue,150.29);
           JS
       - name: Commit production fix
         shell: bash
