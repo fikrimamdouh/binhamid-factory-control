@@ -50,7 +50,16 @@ jobs:
           mkdir -p audit-output
           awk '/cat > \/tmp\/audit-portfolio-history.sql <<.SQL./{capture=1;next} capture && /^          SQL$/{exit} capture{sub(/^          /,"");print}' .github/workflows/audit-portfolios-history-23-29-once.yml > /tmp/audit-portfolio-history.sql
           test -s /tmp/audit-portfolio-history.sql
+          python - <<'PY'
+          from pathlib import Path
+          path=Path('/tmp/audit-portfolio-history.sql')
+          text=path.read_text(encoding='utf-8')
+          text=text.replace("\\copy (select jsonb_pretty(jsonb_build_object(","\\pset tuples_only on\n\\pset format unaligned\n\\o audit-output/portfolio-history-summary.json\nselect jsonb_pretty(jsonb_build_object(")
+          text=text.replace("))) to 'audit-output/portfolio-history-summary.json'",")));\n\\o")
+          path.write_text(text,encoding='utf-8')
+          PY
           psql "$SUPABASE_DB_URL" -f /tmp/audit-portfolio-history.sql
+          test -s audit-output/portfolio-history-summary.json
 
       - name: Upload audit evidence
         uses: actions/upload-artifact@v4
