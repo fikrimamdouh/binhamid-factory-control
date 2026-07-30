@@ -1,0 +1,74 @@
+name: Diagnose fuel schedule
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/diagnose-fuel-schedule.yml
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Inspect recent Noor Khoy scheduled runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          api="https://api.github.com/repos/${REPOSITORY}"
+          auth=(-H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28")
+          runs_file="$(mktemp)"
+          curl -fsSL "${auth[@]}" "${api}/actions/workflows/noor-khoy-fuel-sync.yml/runs?per_page=20" > "$runs_file"
+
+          echo '=== RECENT FUEL WORKFLOW RUNS ==='
+          jq -r '.workflow_runs[] | [.id,.event,.status,(.conclusion//"-"),.created_at,.run_started_at,.updated_at,.head_sha,.html_url] | @tsv' "$runs_file"
+
+          mapfile -t run_ids < <(jq -r '.workflow_runs[] | select(.event=="schedule") | .id' "$runs_file" | head -n 6)
+          if [ "${#run_ids[@]}" -eq 0 ]; then
+            echo 'NO_SCHEDULED_RUNS_FOUND'
+            exit 0
+          fi
+
+          for run_id in "${run_ids[@]}"; do
+            echo
+            echo "=== RUN ${run_id} ==="
+            jq -r --argjson id "$run_id" '.workflow_runs[] | select(.id==$id) | {id,event,status,conclusion,created_at,run_started_at,updated_at,head_sha,html_url}' "$runs_file"
+
+            jobs_file="$(mktemp)"
+            curl -fsSL "${auth[@]}" "${api}/actions/runs/${run_id}/jobs?per_page=100" > "$jobs_file"
+            echo '--- JOBS ---'
+            jq -r '.jobs[] | [.id,.name,.status,(.conclusion//"-"),.started_at,.completed_at] | @tsv' "$jobs_file"
+            echo '--- STEPS ---'
+            jq -r '.jobs[] as $job | $job.steps[]? | [$job.name,.number,.name,.status,(.conclusion//"-")] | @tsv' "$jobs_file"
+
+            artifacts_file="$(mktemp)"
+            curl -fsSL "${auth[@]}" "${api}/actions/runs/${run_id}/artifacts?per_page=100" > "$artifacts_file"
+            echo '--- ARTIFACTS ---'
+            jq -r '.artifacts[]? | [.id,.name,.expired,.created_at,.expires_at] | @tsv' "$artifacts_file"
+
+            while IFS=$'\t' read -r artifact_id artifact_name expired; do
+              [ -n "${artifact_id:-}" ] || continue
+              [ "$expired" = "false" ] || continue
+              dir="/tmp/fuel-artifact-${artifact_id}"
+              mkdir -p "$dir"
+              curl -fsSL -L "${auth[@]}" "${api}/actions/artifacts/${artifact_id}/zip" -o "$dir/artifact.zip"
+              unzip -q "$dir/artifact.zip" -d "$dir/content" || true
+              echo "--- ARTIFACT CONTENT: ${artifact_name} ---"
+              find "$dir/content" -maxdepth 4 -type f -printf '%P\n' | sort
+              while IFS= read -r file; do
+                echo "--- FILE ${file#$dir/content/} ---"
+                case "$file" in
+                  *.json|*.log|*.txt) tail -n 250 "$file" ;;
+                esac
+              done < <(find "$dir/content" -type f \( -name 'execution.log' -o -name 'failure-context.json' -o -name 'upload-response.json' -o -name 'vehicle-balance-response.json' -o -name 'dashboard-balance.json' -o -name '*.txt' \) | sort)
+            done < <(jq -r '.artifacts[]? | [.id,.name,(.expired|tostring)] | @tsv' "$artifacts_file")
+          done
