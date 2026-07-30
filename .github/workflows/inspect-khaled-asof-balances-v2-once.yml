@@ -1,0 +1,175 @@
+name: Inspect Khaled As Of Balances V2 Once
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/inspect-khaled-asof-balances-v2-once.yml'
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: inspect-khaled-asof-balances-v2-once
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+
+      - name: Install PostgreSQL 17 client
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y curl ca-certificates
+          sudo install -d -m 0755 /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          . /etc/os-release
+          printf '%s\n' 'Types: deb' 'URIs: https://apt.postgresql.org/pub/repos/apt' "Suites: ${VERSION_CODENAME}-pgdg" 'Components: main' 'Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc' | sudo tee /etc/apt/sources.list.d/pgdg.sources >/dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client-17
+          echo '/usr/lib/postgresql/17/bin' >> "$GITHUB_PATH"
+
+      - name: Resolve protected database connection
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          SUPABASE_POOLER_HOST: ${{ vars.SUPABASE_POOLER_HOST }}
+          CONNECTION_DIAGNOSTIC_PATH: khaled-asof-v2-connection.json
+        run: node scripts/resolve-supabase-connection.mjs
+
+      - name: Rebuild active customer balances with the real customer code
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/khaled-asof-v2.sql <<'SQL'
+          \pset tuples_only on
+          \pset format unaligned
+          set statement_timeout='120s';
+          with target(amount,movement_day,source_doc) as (
+            values
+              (538.75::numeric,'2026-07-22'::date,'84'::text),
+              (1450.00::numeric,'2026-07-23'::date,'85'::text)
+          ),
+          active_customers as (
+            select coalesce(nullif(c.customer_code,''),nullif(c.external_id,'')) customer_code,c.customer_name,c.segment
+            from public.customers c
+            where c.active=true and coalesce(nullif(c.customer_code,''),nullif(c.external_id,'')) is not null
+          ),
+          rebuilt as (
+            select t.amount,t.movement_day,t.source_doc,c.customer_code,c.customer_name,c.segment,
+                   op.opening_date,coalesce(op.opening_balance,0) opening_balance,
+                   coalesce(sb.sales_before,0) sales_before,coalesce(st.sales_through,0) sales_through,
+                   coalesce(cb.collections_before,0) collections_before,coalesce(ct.collections_through,0) collections_through,
+                   round((coalesce(op.opening_balance,0)+coalesce(sb.sales_before,0)-coalesce(cb.collections_before,0))::numeric,2) net_before_day,
+                   round((coalesce(op.opening_balance,0)+coalesce(st.sales_through,0)-coalesce(ct.collections_through,0))::numeric,2) net_through_day,
+                   sb.sales_rows_before,st.sales_rows_through,cb.collection_rows_before,ct.collection_rows_through
+            from target t
+            cross join active_customers c
+            left join lateral (
+              select case when coalesce(o.balance_date,'') ~ '^\d{4}-\d{2}-\d{2}$' then o.balance_date::date else null end opening_date,
+                     sum(coalesce(o.balance,0)) opening_balance
+              from public.customer_opening_balances o
+              where coalesce(nullif(o.customer_code,''),nullif(o.client_id,''))=c.customer_code
+                and (case when coalesce(o.balance_date,'') ~ '^\d{4}-\d{2}-\d{2}$' then o.balance_date::date else '1900-01-01'::date end)<=t.movement_day
+              group by case when coalesce(o.balance_date,'') ~ '^\d{4}-\d{2}-\d{2}$' then o.balance_date::date else null end
+              order by opening_date desc nulls last
+              limit 1
+            ) op on true
+            left join lateral (
+              select sum(coalesce(s.total_amount,0)) sales_before,
+                     jsonb_agg(jsonb_build_object('reference',s.reference_no,'date',coalesce(s.delivery_date,s.created_at::date),'type',s.sales_type,'item',s.item,'amount',s.total_amount) order by coalesce(s.delivery_date,s.created_at::date)) sales_rows_before
+              from public.sales_orders s
+              where s.customer_external_id=c.customer_code and s.status not in ('cancelled','rejected')
+                and coalesce(s.delivery_date,s.created_at::date)>coalesce(op.opening_date,'1900-01-01'::date)
+                and coalesce(s.delivery_date,s.created_at::date)<t.movement_day
+            ) sb on true
+            left join lateral (
+              select sum(coalesce(s.total_amount,0)) sales_through,
+                     jsonb_agg(jsonb_build_object('reference',s.reference_no,'date',coalesce(s.delivery_date,s.created_at::date),'type',s.sales_type,'item',s.item,'amount',s.total_amount) order by coalesce(s.delivery_date,s.created_at::date)) sales_rows_through
+              from public.sales_orders s
+              where s.customer_external_id=c.customer_code and s.status not in ('cancelled','rejected')
+                and coalesce(s.delivery_date,s.created_at::date)>coalesce(op.opening_date,'1900-01-01'::date)
+                and coalesce(s.delivery_date,s.created_at::date)<=t.movement_day
+            ) st on true
+            left join lateral (
+              select sum(coalesce(e.amount,0)) collections_before,
+                     jsonb_agg(jsonb_build_object('reference',e.reference_no,'date',e.occurred_at::date,'amount',e.amount,'method',e.payment_method,'note',e.note) order by e.occurred_at) collection_rows_before
+              from public.collection_events e
+              where e.customer_external_id=c.customer_code and e.status not in ('cancelled','rejected')
+                and e.occurred_at::date>coalesce(op.opening_date,'1900-01-01'::date)
+                and e.occurred_at::date<t.movement_day
+            ) cb on true
+            left join lateral (
+              select sum(coalesce(e.amount,0)) collections_through,
+                     jsonb_agg(jsonb_build_object('reference',e.reference_no,'date',e.occurred_at::date,'amount',e.amount,'method',e.payment_method,'note',e.note) order by e.occurred_at) collection_rows_through
+              from public.collection_events e
+              where e.customer_external_id=c.customer_code and e.status not in ('cancelled','rejected')
+                and e.occurred_at::date>coalesce(op.opening_date,'1900-01-01'::date)
+                and e.occurred_at::date<=t.movement_day
+            ) ct on true
+          ),
+          meaningful as (
+            select r.*,
+                   least(abs(r.net_before_day-r.amount),abs(r.net_through_day-r.amount)) difference
+            from rebuilt r
+            where abs(r.opening_balance)+abs(r.sales_before)+abs(r.sales_through)+abs(r.collections_before)+abs(r.collections_through)>0.005
+          ),
+          ranked as (
+            select m.*,row_number() over(partition by m.amount,m.movement_day order by m.difference,m.customer_name) rank_no
+            from meaningful m
+          ),
+          amount_movements as (
+            select t.amount,t.movement_day,t.source_doc,'sale' kind,s.customer_external_id customer_code,s.customer_name,coalesce(s.delivery_date,s.created_at::date) movement_date,s.reference_no reference,s.total_amount movement_amount,s.sales_type method,s.item note
+            from target t join public.sales_orders s on abs(coalesce(s.total_amount,0)-t.amount)<0.01 and s.status not in ('cancelled','rejected')
+            union all
+            select t.amount,t.movement_day,t.source_doc,'collection' kind,e.customer_external_id,e.customer_name,e.occurred_at::date,e.reference_no,e.amount,e.payment_method,e.note
+            from target t join public.collection_events e on abs(coalesce(e.amount,0)-t.amount)<0.01 and e.status not in ('cancelled','rejected')
+          )
+          select jsonb_pretty(jsonb_build_object(
+            'nearestBalances',(select coalesce(jsonb_agg(to_jsonb(x) order by x.amount,x.rank_no),'[]'::jsonb) from ranked x where x.rank_no<=25),
+            'exactOrNearBalances',(select coalesce(jsonb_agg(to_jsonb(x) order by x.amount,x.difference),'[]'::jsonb) from ranked x where x.difference<=5),
+            'sameAmountMovements',(select coalesce(jsonb_agg(to_jsonb(x) order by x.amount,x.movement_date),'[]'::jsonb) from amount_movements x)
+          ));
+          SQL
+          psql "$SUPABASE_DB_URL" -X -v ON_ERROR_STOP=1 --file /tmp/khaled-asof-v2.sql | tee khaled-asof-balances-v2.json
+          test -s khaled-asof-balances-v2.json
+
+      - name: Upload corrected balance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: khaled-asof-balances-v2-${{ github.run_id }}
+          path: |
+            khaled-asof-balances-v2.json
+            khaled-asof-v2-connection.json
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Publish inspection status
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          node <<'NODE'
+          const success=process.env.JOB_STATUS==='success';
+          const response=await fetch(`https://api.github.com/repos/${process.env.REPOSITORY}/statuses/${process.env.HEAD_SHA}`,{
+            method:'POST',
+            headers:{Accept:'application/vnd.github+json',Authorization:`Bearer ${process.env.GITHUB_TOKEN}`,'X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'},
+            body:JSON.stringify({state:success?'success':'failure',context:'inspect-khaled-asof-balances-v2',target_url:process.env.RUN_URL,description:success?'Corrected historical balances inspected.':'Corrected balance inspection failed.'})
+          });
+          if(!response.ok)throw new Error(`Status publication failed with HTTP ${response.status}`);
+          NODE
