@@ -1,0 +1,123 @@
+name: Inspect Block Customer Balances Once
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/inspect-block-customer-balances-once.yml'
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: inspect-block-customer-balances-once
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+
+      - name: Install PostgreSQL 17 client
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y curl ca-certificates
+          sudo install -d -m 0755 /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          . /etc/os-release
+          printf '%s\n' 'Types: deb' 'URIs: https://apt.postgresql.org/pub/repos/apt' "Suites: ${VERSION_CODENAME}-pgdg" 'Components: main' 'Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc' | sudo tee /etc/apt/sources.list.d/pgdg.sources >/dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client-17
+          echo '/usr/lib/postgresql/17/bin' >> "$GITHUB_PATH"
+
+      - name: Resolve protected database connection
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          SUPABASE_POOLER_HOST: ${{ vars.SUPABASE_POOLER_HOST }}
+          CONNECTION_DIAGNOSTIC_PATH: block-customer-balance-connection.json
+        run: node scripts/resolve-supabase-connection.mjs
+
+      - name: Inspect customer ownership schema and current balances
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/inspect-block-customers.sql <<'SQL'
+          \pset tuples_only on
+          \pset format unaligned
+          set statement_timeout='120s';
+          set client_min_messages=warning;
+
+          with relevant_tables as (
+            select table_name,
+                   jsonb_agg(column_name order by ordinal_position) as columns
+            from information_schema.columns
+            where table_schema='public'
+              and (
+                table_name ilike '%customer%'
+                or table_name ilike '%portfolio%'
+                or table_name ilike '%assignment%'
+                or table_name ilike '%representative%'
+                or table_name ilike '%employee%'
+                or table_name ilike '%sales%'
+              )
+            group by table_name
+          ), customer_rows as (
+            select coalesce(jsonb_agg(to_jsonb(x)),'[]'::jsonb) as rows
+            from (
+              select * from public.customers
+              where active=true
+              order by created_at desc nulls last, id
+              limit 80
+            ) x
+          )
+          select jsonb_pretty(jsonb_build_object(
+            'ok',true,
+            'relevantTables',coalesce((select jsonb_agg(jsonb_build_object('table',table_name,'columns',columns) order by table_name) from relevant_tables),'[]'::jsonb),
+            'activeCustomers',(select rows from customer_rows)
+          ));
+          SQL
+
+          psql "$SUPABASE_DB_URL" -X -v ON_ERROR_STOP=1 --file /tmp/inspect-block-customers.sql | tee block-customer-schema-and-sample.json
+          test -s block-customer-schema-and-sample.json
+          grep -q '"ok": true' block-customer-schema-and-sample.json
+
+      - name: Upload inspection evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: block-customer-balance-inspection-${{ github.run_id }}
+          path: |
+            block-customer-schema-and-sample.json
+            block-customer-balance-connection.json
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Publish inspection status
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          node <<'NODE'
+          const success=process.env.JOB_STATUS==='success';
+          const response=await fetch(`https://api.github.com/repos/${process.env.REPOSITORY}/statuses/${process.env.HEAD_SHA}`,{
+            method:'POST',
+            headers:{Accept:'application/vnd.github+json',Authorization:`Bearer ${process.env.GITHUB_TOKEN}`,'X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'},
+            body:JSON.stringify({state:success?'success':'failure',context:'inspect-block-customer-balances',target_url:process.env.RUN_URL,description:success?'Block customer balance schema inspected.':'Block customer balance inspection failed.'})
+          });
+          if(!response.ok)throw new Error(`Status publication failed with HTTP ${response.status}`);
+          NODE
