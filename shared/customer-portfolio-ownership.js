@@ -1,7 +1,7 @@
 const clean=value=>String(value??'').trim();
 const norm=value=>clean(value).toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ًٌٍَُِّْـ]/g,'').replace(/[^a-z0-9\u0600-\u06ff]+/gi,' ').replace(/\s+/g,' ').trim();
 
-export const CUSTOMER_PORTFOLIO_OWNERSHIP_VERSION='2026.07.28-owner-before-segment-item-authority-v2';
+export const CUSTOMER_PORTFOLIO_OWNERSHIP_VERSION='2026.07.30-unclassified-to-concrete-v3';
 
 export function portfolioSector(value=''){
   const text=norm(value);
@@ -46,7 +46,9 @@ export function resolveCustomerPortfolioOwner({customer={},employees=[],historyS
   const firstSale=earliestPortfolioSector(historySales);
   if(firstSale)return{sector:firstSale,source:'first_historical_sale',employee:null};
   const fallback=portfolioSector(fallbackSector);
-  return{sector:fallback,source:fallback?'current_sale_fallback':'unresolved',employee:null};
+  // Any account with no reliable block/concrete ownership is carried by the
+  // concrete portfolio so its receipt is preserved as an advance payment.
+  return{sector:'concrete',source:fallback==='concrete'?'current_sale_fallback':'unclassified_to_concrete',employee:null};
 }
 
 export function portfolioSectorLabel(value=''){
