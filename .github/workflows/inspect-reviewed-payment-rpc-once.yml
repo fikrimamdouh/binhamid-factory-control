@@ -1,0 +1,68 @@
+name: Inspect Reviewed Payment RPC Once
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/inspect-reviewed-payment-rpc-once.yml'
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+
+      - name: Inspect RPC definition and approved payload shape
+        shell: bash
+        run: |
+          set -euo pipefail
+          matches=$(grep -RIl --exclude-dir=.git 'append_daily_report_customer_payments' . || true)
+          if [ -z "${matches}" ]; then
+            echo 'RPC definition not found in repository.' >&2
+            exit 1
+          fi
+          echo '=== FILES ==='
+          printf '%s\n' "${matches}"
+          echo '=== DEFINITIONS ==='
+          while IFS= read -r file; do
+            echo "--- ${file} ---"
+            grep -n -A220 -B20 'append_daily_report_customer_payments' "${file}" || true
+          done <<< "${matches}"
+          echo '=== PAYLOAD SAMPLE ==='
+          node --input-type=module <<'NODE'
+          import {readFileSync} from 'node:fs';
+          import {gunzipSync} from 'node:zlib';
+          const encoded=readFileSync('ops/reconciliation/erp-payment-differences-2026-07-19-to-27.json.gz.b64','utf8').trim();
+          const payload=JSON.parse(gunzipSync(Buffer.from(encoded,'base64')).toString('utf8'));
+          console.log(JSON.stringify({source:payload.source,count:payload.payments?.length,keys:Object.keys(payload.payments?.[0]||{}),sample:(payload.payments||[]).slice(0,5)},null,2));
+          NODE
+
+      - name: Publish inspection status
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          node <<'NODE'
+          const success=process.env.JOB_STATUS==='success';
+          const response=await fetch(`https://api.github.com/repos/${process.env.REPOSITORY}/statuses/${process.env.HEAD_SHA}`,{
+            method:'POST',
+            headers:{Accept:'application/vnd.github+json',Authorization:`Bearer ${process.env.GITHUB_TOKEN}`,'X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'},
+            body:JSON.stringify({state:success?'success':'failure',context:'inspect-reviewed-payment-rpc',target_url:process.env.RUN_URL,description:success?'Reviewed payment RPC inspected.':'Reviewed payment RPC inspection failed.'})
+          });
+          if(!response.ok)throw new Error(`Status publication failed with HTTP ${response.status}`);
+          NODE
