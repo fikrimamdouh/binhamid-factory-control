@@ -67,17 +67,44 @@ test('automatic Telegram delivery includes the owner and Manea once',()=>{
   assert.deepEqual(erpTelegramRecipients('6870312376','6870312376'),['6870312376']);
 });
 
-test('upgraded historical report sends an explicit Telegram success notice',()=>{
+test('upgraded historical report sends the full approved Telegram summary',()=>{
   const text=buildErpDuplicateNoticeText({
     reportDate:'2026-07-26',
     sourceFile:'26(1).xlsx',
-    upgrade:{upgraded:true,salesAdded:1,cashMovementsAdded:3,treasuriesAdded:1,inventoryAdded:1,salesCount:18,cashMovementCount:17,treasuryCount:2,inventoryCount:2}
+    upgrade:{
+      upgraded:true,
+      salesAdded:1,
+      cashMovementsAdded:3,
+      treasuriesAdded:1,
+      inventoryAdded:1,
+      salesCount:18,
+      cashMovementCount:17,
+      treasuryCount:2,
+      inventoryCount:2,
+      summary:{
+        invoiceCount:18,
+        blockSales:5920,
+        concreteSales:47801,
+        salesTotal:53721,
+        collectionTotal:24627,
+        cashMovementCount:17,
+        bankMovementCount:5,
+        treasuryCount:2,
+        finishedGoodsCount:1,
+        rawMaterialsCount:1
+      }
+    }
   });
   assert.match(text,/تم تحديث تقرير ERP القديم بنجاح/);
   assert.match(text,/دون تكرار أي حركة/);
   assert.match(text,/السجلات المستكملة: <b>6<\/b>/);
   assert.match(text,/الفواتير: <b>18<\/b>/);
+  assert.match(text,/مبيعات البلوك: <b>5,920\.00 ر\.س<\/b>/);
+  assert.match(text,/مبيعات الخرسانة: <b>47,801\.00 ر\.س<\/b>/);
+  assert.match(text,/إجمالي المبيعات: <b>53,721\.00 ر\.س<\/b>/);
+  assert.match(text,/التحصيلات: <b>24,627\.00 ر\.س<\/b>/);
   assert.match(text,/الحركات المالية: <b>17<\/b>/);
+  assert.match(text,/الحركات البنكية: <b>5<\/b>/);
 });
 
 test('portfolio preparation uses dated analytics and persists fixed snapshots after posting',async()=>{
@@ -90,6 +117,8 @@ test('portfolio preparation uses dated analytics and persists fixed snapshots af
   assert.match(portfolio,/persistPortfolioReportSnapshot/);
   assert.match(delivery,/loadCustomerAnalytics\(\{active:true,role:'admin'\},\{asOf:reportDate,beforeDate:reportDate\}\)/);
   assert.match(delivery,/persistPortfolioReportSnapshot\(report\)/);
+  assert.match(delivery,/daily_report_batches/);
+  assert.match(delivery,/summary=batch\?\.summary\?\.daily\|\|batch\?\.summary/);
   assert.match(dailyPdf,/currentBatch:options\?\.currentBatch!==false/);
   assert.match(route,/prepareErpSuccessDelivery\(\{analysis,sourceFile:originalName,reportDate\}\)/);
   assert.match(route,/sendErpDuplicateNotice/);
