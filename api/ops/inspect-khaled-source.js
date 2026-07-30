@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import * as XLSX from 'xlsx';
 import { errorResponse, json, method } from '../_lib/http.js';
 import { downloadObject } from '../_lib/supabase.js';
+import { parseDailyWorkbook } from '../_lib/daily-summary-parser.js';
 
 const REPOSITORY='fikrimamdouh/binhamid-factory-control';
 const OIDC_ISSUER='https://token.actions.githubusercontent.com';
@@ -18,6 +19,7 @@ const clean=(value,max=2000)=>String(value??'').replace(/\s+/g,' ').trim().slice
 const audiences=value=>Array.isArray(value)?value:[value];
 const norm=value=>clean(value,4000).toLowerCase().replace(/[أإآٱ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ً-ْـ]/g,'').replace(/\s+/g,' ');
 const western=value=>String(value??'').replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[۰-۹]/g,d=>'۰۱۲۳۴۵۶۷۸۹'.indexOf(d));
+const money=value=>Math.round((Number(value||0)+Number.EPSILON)*100)/100;
 const number=value=>{
   if(typeof value==='number')return Number.isFinite(value)?value:null;
   const text=western(value).replace(/[٬,]/g,'').replace(/٫/g,'.').replace(/[^0-9.+-]/g,'');
@@ -30,6 +32,8 @@ const safeCell=value=>{
   if(typeof value==='boolean')return value;
   return clean(value,600);
 };
+const safeSale=row=>({sheet:clean(row.sheet,120),row:Number(row.row||0),reportDate:clean(row.reportDate,20),invoice:clean(row.invoice,120),customerCode:clean(row.customerCode,120),customer:clean(row.customer,500),item:clean(row.item,500),kind:clean(row.kind,50),quantity:Number(row.quantity||0),amount:money(row.amount)});
+const safeCash=row=>({sheet:clean(row.sheet,120),row:Number(row.row||0),reportDate:clean(row.reportDate,20),movementDate:clean(row.movementDate,20),treasuryCode:clean(row.treasuryCode,40),treasuryName:clean(row.treasuryName,200),debit:money(row.debit),credit:money(row.credit),accountName:clean(row.accountName,500),accountType:clean(row.accountType,150),accountCode:clean(row.accountCode,120),description:clean(row.description,1000),movementType:clean(row.movementType,180),voucherNo:clean(row.voucherNo,120),paymentMethod:clean(row.paymentMethod,80),isCustomerCollection:Boolean(row.isCustomerCollection)});
 
 function base64Json(value){try{return JSON.parse(Buffer.from(value,'base64url').toString('utf8'));}catch{return null;}}
 async function jwks(){
@@ -57,8 +61,42 @@ async function requireGithubIdentity(req){
   return claims;
 }
 
+function customerSubsetMatches(sales=[]){
+  const groups=new Map();
+  for(const sale of sales){
+    const key=clean(sale.customerCode,120)||`name:${norm(sale.customer)}`;
+    if(!groups.has(key))groups.set(key,[]);
+    groups.get(key).push(sale);
+  }
+  const matches=[];
+  for(const [customerKey,rows] of groups){
+    const candidates=rows.filter(row=>money(row.amount)>0).sort((a,b)=>money(b.amount)-money(a.amount));
+    for(const target of TARGETS){
+      const found=[];
+      const walk=(index,total,picked)=>{
+        if(found.length>=8)return;
+        const rounded=money(total);
+        if(Math.abs(rounded-target)<0.01&&picked.length){found.push([...picked]);return;}
+        if(index>=candidates.length||rounded>target+0.01)return;
+        for(let cursor=index;cursor<candidates.length;cursor++){
+          const next=money(total+candidates[cursor].amount);
+          if(next>target+0.01)continue;
+          picked.push(candidates[cursor]);
+          walk(cursor+1,next,picked);
+          picked.pop();
+        }
+      };
+      walk(0,0,[]);
+      for(const subset of found){
+        matches.push({target,customerKey,customerCode:clean(rows[0]?.customerCode,120),customer:clean(rows[0]?.customer,500),sum:money(subset.reduce((sum,row)=>sum+money(row.amount),0)),lines:subset.map(safeSale)});
+      }
+    }
+  }
+  return matches;
+}
+
 function workbookEvidence(buffer,file){
-  const workbook=XLSX.read(buffer,{type:'buffer',cellDates:true}),evidence=[];
+  const workbook=XLSX.read(buffer,{type:'buffer',cellDates:true}),analysis=parseDailyWorkbook(workbook,XLSX),evidence=[];
   for(const sheetName of workbook.SheetNames){
     const rows=XLSX.utils.sheet_to_json(workbook.Sheets[sheetName],{header:1,defval:'',raw:false,cellDates:true,blankrows:false});
     const matchingIndexes=[];
@@ -73,7 +111,11 @@ function workbookEvidence(buffer,file){
     const context=[...included].sort((a,b)=>a-b).map(index=>({row:index+1,values:(rows[index]||[]).map(safeCell)}));
     if(context.length)evidence.push({sheet:clean(sheetName,200),rowCount:rows.length,matches:matchingIndexes.map(match=>({row:match.index+1,targetHits:match.targetHits,keywordHit:match.keywordHit,values:match.values})),context});
   }
-  return{date:file.date,name:file.name,path:file.path,sheets:workbook.SheetNames.map(name=>clean(name,200)),evidence};
+  const sales=(analysis.sales||[]).map(safeSale),cash=(analysis.cashMovements||[]).map(safeCash);
+  return{
+    date:file.date,name:file.name,path:file.path,sheets:workbook.SheetNames.map(name=>clean(name,200)),evidence,
+    parsed:{sales,cashMovements:cash,blockSales:sales.filter(row=>row.kind==='بلوك'),customerCash:cash.filter(row=>norm(row.accountType).includes('عميل')||row.accountCode==='1100048'),subsetMatches:customerSubsetMatches(analysis.sales||[])}
+  };
 }
 
 export default async function handler(req,res){
