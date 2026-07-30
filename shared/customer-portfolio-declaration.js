@@ -5,7 +5,7 @@ const fmtG=value=>{const text=clean(value);if(!/^\d{4}-\d{2}-\d{2}$/.test(text))
 const hijri=value=>{try{return new Intl.DateTimeFormat('ar-SA-u-ca-islamic-umalqura',{day:'2-digit',month:'2-digit',year:'numeric',timeZone:'Asia/Riyadh'}).format(new Date(`${value}T12:00:00+03:00`)).replace(/[٠-٩]/g,char=>'٠١٢٣٤٥٦٧٨٩'.indexOf(char)).replace(/\u200f/g,'');}catch{return'';}};
 const chunks=(rows,size)=>{const output=[];for(let index=0;index<rows.length;index+=size)output.push(rows.slice(index,index+size));return output.length?output:[[]];};
 
-export const CUSTOMER_PORTFOLIO_TEXT_VERSION='2026.07.27-primary-owner-cross-sector-v2';
+export const CUSTOMER_PORTFOLIO_TEXT_VERSION='2026.07.30-single-line-item-no-phone-v3';
 export const CANONICAL_CUSTOMER_PORTFOLIO_DECLARATION=`أُقر بأن العملاء المدرجين في هذا النموذج مُسندون إليّ، وأنني المسؤول المباشر عن متابعة تعاملاتهم وتحصيل مستحقات المنشأة لديهم.
 ألتزم بعدم البيع الآجل لأي عميل خارج سقف الائتمان المعتمد له، وبعدم منح أي مهلة سداد تتجاوز المدة المقررة أعلاه.
 ألتزم بالحصول على موافقة كتابية مسبقة من الإدارة قبل أي تجاوز لسقف الائتمان أو مهلة السداد أو قبل التعامل مع عميل غير مُسجّل في هذا النموذج.
@@ -59,17 +59,26 @@ function employeeSection(model,sector,totalCredit){const e=model.employee||{},da
 const amount=value=>Number(value||0);
 const qty=value=>{const n=Number(value||0);return n?n.toLocaleString('en-US',{maximumFractionDigits:3}):'—';};
 const hasLedgerAmounts=customers=>(customers||[]).some(row=>amount(row?.sales)||amount(row?.paid)||amount(row?.outstanding));
+function itemLedgerCell(value){
+  const text=clean(value)||'—',length=[...text].length;
+  const fontSize=length>72?4.3:length>60?4.7:length>50?5.1:length>42?5.5:length>34?5.9:length>27?6.3:6.7;
+  return`<td style="width:34mm;max-width:34mm;white-space:nowrap;overflow:hidden;text-overflow:clip;word-break:normal;letter-spacing:-.14pt;font-size:${fontSize}pt;line-height:1.15">${esc(text)}</td>`;
+}
 function ledgerSection(rows,offset,model,sector,totalCredit,finalChunk,number='٢',title='كشف العملاء المُسندين'){
   const days=Number(model.days||3)||3,showAmounts=hasLedgerAmounts(model.customers);
   const head=showAmounts
-    ?`<th style="width:7mm">م</th><th>اسم العميل / المنشأة</th><th style="width:20mm">الصنف</th><th style="width:15mm">الكمية</th><th style="width:18mm">الجوال</th><th style="width:18mm">سقف الائتمان</th><th style="width:13mm">مهلة السداد</th><th style="width:19mm">قيمة المشتريات</th><th style="width:17mm">المسدَّد</th><th style="width:19mm">المتبقي</th>`
-    :`<th style="width:7mm">م</th><th>اسم العميل / المنشأة</th><th style="width:16mm">القطاع</th><th style="width:24mm">السجل / الهوية</th><th style="width:22mm">الجوال</th><th style="width:24mm">سقف الائتمان</th><th style="width:18mm">مهلة السداد</th>`;
+    ?`<th style="width:7mm">م</th><th>اسم العميل / المنشأة</th><th style="width:34mm">الصنف</th><th style="width:14mm">الكمية</th><th style="width:17mm">سقف الائتمان</th><th style="width:12mm">مهلة السداد</th><th style="width:18mm">قيمة المشتريات</th><th style="width:16mm">المسدَّد</th><th style="width:18mm">المتبقي</th>`
+    :`<th style="width:7mm">م</th><th>اسم العميل / المنشأة</th><th style="width:20mm">القطاع</th><th style="width:28mm">السجل / الهوية</th><th style="width:24mm">سقف الائتمان</th><th style="width:18mm">مهلة السداد</th>`;
   const bodyRows=rows.length
-    ?rows.map((row,index)=>`<tr><td class="idx">${String(offset+index+1).padStart(2,'0')}</td><td class="nm">${esc(row.name)}</td><td>${esc(showAmounts?(row.item||'—'):(row.segment||sector))}</td><td class="mono">${showAmounts?esc(qty(row.quantity)):esc(row.registry||row.code||'—')}</td><td class="mono">${esc(row.phone||'—')}</td><td class="num">${money(row.creditLimit||0)}</td><td class="mono">${Number(row.paymentDays||days)} يوم</td>${showAmounts?`<td class="num">${money(amount(row.sales))}</td><td class="num">${money(amount(row.paid))}</td><td class="num">${money(amount(row.outstanding))}</td>`:''}</tr>`).join('')
-    :`<tr><td colspan="${showAmounts?10:7}" class="none">لا يوجد عملاء مُسندون في تاريخ إصدار هذه الوثيقة</td></tr>`;
+    ?rows.map((row,index)=>{
+      const prefix=`<td class="idx">${String(offset+index+1).padStart(2,'0')}</td><td class="nm">${esc(row.name)}</td>`;
+      if(showAmounts)return`<tr>${prefix}${itemLedgerCell(row.item)}<td class="mono">${esc(qty(row.quantity))}</td><td class="num">${money(row.creditLimit||0)}</td><td class="mono">${Number(row.paymentDays||days)} يوم</td><td class="num">${money(amount(row.sales))}</td><td class="num">${money(amount(row.paid))}</td><td class="num">${money(amount(row.outstanding))}</td></tr>`;
+      return`<tr>${prefix}<td>${esc(row.segment||sector)}</td><td class="mono">${esc(row.registry||row.code||'—')}</td><td class="num">${money(row.creditLimit||0)}</td><td class="mono">${Number(row.paymentDays||days)} يوم</td></tr>`;
+    }).join('')
+    :`<tr><td colspan="${showAmounts?9:6}" class="none">لا يوجد عملاء مُسندون في تاريخ إصدار هذه الوثيقة</td></tr>`;
   const sums=(model.customers||[]).reduce((out,row)=>{out.sales+=amount(row.sales);out.paid+=amount(row.paid);out.outstanding+=amount(row.outstanding);return out;},{sales:0,paid:0,outstanding:0});
   const foot=finalChunk&&model.customers.length
-    ?`<tfoot><tr><td colspan="5" class="lbl">إجمالي الالتزام الائتماني</td><td class="num">${money(totalCredit)}</td><td></td>${showAmounts?`<td class="num">${money(sums.sales)}</td><td class="num">${money(sums.paid)}</td><td class="num">${money(sums.outstanding)}</td>`:''}</tr></tfoot>`
+    ?`<tfoot><tr><td colspan="4" class="lbl">إجمالي الالتزام الائتماني</td><td class="num">${money(totalCredit)}</td><td></td>${showAmounts?`<td class="num">${money(sums.sales)}</td><td class="num">${money(sums.paid)}</td><td class="num">${money(sums.outstanding)}</td>`:''}</tr></tfoot>`
     :'';
   const note=showAmounts
     ?`محدّث تلقائيًا من التقرير المعتمد حتى ${fmtG(model.dateGregorian)} م — «قيمة المشتريات» و«المسدَّد» عن الفترة، و«المتبقي» هو كامل الرصيد غير المسدَّد شاملًا ما سبق — ويحل كل إصدار جديد محل ما قبله`
