@@ -80,15 +80,33 @@ export function buildReportActivityIndex(analysis={},type='',reportDate=''){
   return{byCustomerCode,byCustomerName,rows:[...new Set([...byCustomerCode.values(),...byCustomerName.values()])]};
 }
 
+function analyticsScope(rows=[]){
+  const salesScopes=new Set(),segmentScopes=new Set();
+  for(const row of rows||[]){
+    for(const value of Array.isArray(row?.salesTypes)?row.salesTypes:[]){const scope=explicitSaleType({salesType:value});if(scope)salesScopes.add(scope);}
+    const segment=explicitSaleType({segment:row?.segment});if(segment)segmentScopes.add(segment);
+  }
+  if(salesScopes.size===1)return[...salesScopes][0];
+  if(!salesScopes.size&&segmentScopes.size===1)return[...segmentScopes][0];
+  return'';
+}
 export function indexCustomerAnalytics(rows=[]){
   const byCustomerCode=new Map(),byCustomerName=new Map();
   for(const row of rows||[]){
     for(const value of [row.code,row.externalId,row.customer_code,row.customer_external_id].map(normalizeCustomerValue).filter(Boolean))if(!byCustomerCode.has(value))byCustomerCode.set(value,row);
     const name=normalizeCustomerValue(row.name||row.customer_name);if(name&&!byCustomerName.has(name))byCustomerName.set(name,row);
   }
-  return{byCustomerCode,byCustomerName};
+  return{byCustomerCode,byCustomerName,scope:analyticsScope(rows)};
 }
-export function lookupCustomer(index={},code='',name=''){return index?.byCustomerCode?.get(normalizeCustomerValue(code))||index?.byCustomerName?.get(normalizeCustomerValue(name))||null;}
+export function lookupCustomer(index={},code='',name=''){
+  const found=index?.byCustomerCode?.get(normalizeCustomerValue(code))||index?.byCustomerName?.get(normalizeCustomerValue(name))||null;
+  if(found)return found;
+  // Any report-day receipt that has no block/concrete history is owned by the
+  // concrete portfolio. A neutral zero-value base lets the receipt become an
+  // advance payment without inventing a sale or changing the customer's debt.
+  if(index?.scope==='concrete')return{grossSales:Number.EPSILON,paidApplied:Number.EPSILON,segment:'concrete',openingBalance:0,unallocatedCredit:0,invoiceCount:0,collectionCount:0,sales:[],aging:{}};
+  return null;
+}
 export function lookupActivity(index={},code='',name=''){return index?.byCustomerCode?.get(normalizeCustomerValue(code))||index?.byCustomerName?.get(normalizeCustomerValue(name))||createActivity(code,name);}
 
 function consume(pool,amount){const used=Math.min(Math.max(0,roundMoney(pool)),Math.max(0,roundMoney(amount)));return{used:roundMoney(used),pool:roundMoney(pool-used),amount:roundMoney(amount-used)};}
