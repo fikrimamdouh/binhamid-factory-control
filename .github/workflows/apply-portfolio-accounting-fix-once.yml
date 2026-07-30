@@ -1,4 +1,4 @@
-name: Apply Portfolio Accounting Fix Once
+name: Finalize Customer Payment Allocation
 
 on:
   workflow_dispatch:
@@ -22,7 +22,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24.x'
-      - name: Patch portfolio accounting and declaration layout
+      - name: Apply customer payment ownership fix
         shell: bash
         run: |
           set -euo pipefail
@@ -34,119 +34,106 @@ jobs:
                   raise SystemExit(f'missing patch marker: {label}')
               return text.replace(old, new, 1)
 
-          p=Path('api/_lib/customer-settlement.js')
-          s=p.read_text(encoding='utf-8')
-          s=replace_once(s,"export function saleTypeOf(row={}){return explicitSaleType(row)||itemSaleType(row);}","export function saleTypeOf(row={}){return itemSaleType(row)||explicitSaleType(row);}",'item classification priority')
-          s=replace_once(s,"const previousBalance=roundMoney(remainingPriorSales+remainingOpening),previousCredit=roundMoney(creditPool);","const previousBalance=roundMoney(remainingPriorSales+remainingOpening),previousCredit=roundMoney(creditPool),previousNetBalance=roundMoney(previousBalance-previousCredit);",'previous net balance')
-          s=replace_once(s,"const paidPrevious=roundMoney(paidPreviousSales+paidOpening),finalDebt=roundMoney(remainingCurrent+remainingPriorSales+remainingOpening),finalAdvance=roundMoney(creditPool+paymentPool)","const paidPrevious=roundMoney(paidPreviousSales+paidOpening),grossDue=roundMoney(previousNetBalance+reportSales),finalDebt=roundMoney(remainingCurrent+remainingPriorSales+remainingOpening),finalAdvance=roundMoney(creditPool+paymentPool)",'gross due')
-          s=replace_once(s,"formulaNet=roundMoney(previousBalance-previousCredit+reportSales-reportCollections)","formulaNet=roundMoney(grossDue-reportCollections)",'formula net')
-          s=replace_once(s,"openingBalance,openingDebt,previousBalance,previousCredit,priorSales","openingBalance,openingDebt,previousBalance,previousCredit,previousNetBalance,grossDue,priorSales",'return accounting fields')
-          s=replace_once(s,"const totals={customers:0,newCustomers:0,oldCustomers:0,previousBalance:0,reportSales:0","const totals={customers:0,newCustomers:0,oldCustomers:0,previousBalance:0,previousCredit:0,previousNetBalance:0,grossDue:0,reportSales:0",'aggregate fields')
-          s=replace_once(s,"for(const key of ['previousBalance','reportSales'","for(const key of ['previousBalance','previousCredit','previousNetBalance','grossDue','reportSales'",'aggregate loop')
-          p.write_text(s,encoding='utf-8')
+          p = Path('api/_lib/bot-customer-report-data.js')
+          s = p.read_text(encoding='utf-8')
 
-          p=Path('api/_lib/bot-customer-report-data.js')
-          s=p.read_text(encoding='utf-8')
-          marker="function segmentScope(value=''){\n  const text=norm(value);if(text.includes('بلوك')||text==='block')return'block';if(text.includes('خرسان')||text==='concrete')return'concrete';return'all';\n}\n"
-          helper="""function salesScope(row={}){\n  const item=segmentScope(row.item||row.item_name||row.itemName||row.product);\n  if(item!=='all')return item;\n  return segmentScope(row.sales_type||row.salesType||row.kind||row.type||row.segment);\n}\n"""
-          s=replace_once(s,marker,marker+helper,'sales scope helper')
-          s=replace_once(s,"mergedSales.push({reference_no:reference,sales_type:row.sales_type,","mergedSales.push({reference_no:reference,sales_type:salesScope({sales_type:row.sales_type,item_name:row.item_name}),",'fallback sale type')
-          s=replace_once(s,"if(closedStatus.has(String(row.status||'')))continue;if(scope!=='all'&&String(row.sales_type||'')!==scope)continue;","if(closedStatus.has(String(row.status||'')))continue;const rowSalesScope=salesScope(row);if(scope!=='all'&&rowSalesScope!==scope)continue;",'analytics sale scope')
-          s=replace_once(s,"if(row.sales_type)agg.salesTypes.add(String(row.sales_type));","if(rowSalesScope!=='all')agg.salesTypes.add(rowSalesScope);",'stored sale scope')
-          p.write_text(s,encoding='utf-8')
+          s = replace_once(
+              s,
+              "function agingBucket(days){if(days<=0)return'current';if(days<=30)return'days1to30';if(days<=60)return'days31to60';if(days<=90)return'days61to90';return'days90plus';}\n",
+              "function agingBucket(days){if(days<=0)return'current';if(days<=30)return'days1to30';if(days<=60)return'days31to60';if(days<=90)return'days61to90';return'days90plus';}\nfunction applyCreditToAging(source={},amount=0){const aging={current:Math.max(0,n(source.current)),days1to30:Math.max(0,n(source.days1to30)),days31to60:Math.max(0,n(source.days31to60)),days61to90:Math.max(0,n(source.days61to90)),days90plus:Math.max(0,n(source.days90plus))};let remaining=Math.max(0,n(amount));for(const key of ['days90plus','days61to90','days31to60','days1to30','current']){const used=Math.min(remaining,aging[key]);aging[key]=money(aging[key]-used);remaining=money(remaining-used);if(remaining<=0)break;}return aging;}\n",
+              'aging credit helper'
+          )
 
-          p=Path('shared/customer-portfolio-declaration.js')
-          s=p.read_text(encoding='utf-8')
-          a=s.index('function liability(model){')
-          b=s.index('function qrLike',a)
-          liability=r'''function liability(model){
-            if(!hasLedgerAmounts(model.customers))return'';
-            const sums=(model.customers||[]).reduce((out,row)=>{out.previous+=amount(row.previousNetBalance??(amount(row.previousBalance)-amount(row.previousCredit)));out.purchases+=amount(row.reportSales??row.sales);out.due+=amount(row.grossDue??(amount(row.previousNetBalance)+amount(row.reportSales)));out.paid+=amount(row.reportCollections??row.paid);out.outstanding+=amount(row.finalDebt??row.outstanding);return out;},{previous:0,purchases:0,due:0,paid:0,outstanding:0});
-            const cell=(label,value,strong)=>`<div style="flex:1;padding:1.2mm 1.6mm;border-inline-start:.7pt solid #E8E1D2"><div style="font-size:5.5pt;color:${strong?'#7E2D20':'#9A9077'};font-weight:600;margin-bottom:.3mm">${label}</div><div style="font-family:ui-monospace,monospace;font-size:${strong?'10.2pt':'8pt'};font-weight:700;color:${strong?'#8A2D20':'#0B2233'}">${money(value)}</div></div>`;
-            return`<div style="margin-top:1.6mm;border:1.1pt solid #B4893A;background:linear-gradient(180deg,#FDF8EF,#F6EBD8);break-inside:avoid"><div style="display:flex;align-items:stretch">${cell('الرصيد السابق',sums.previous,false)}${cell('مشتريات الفترة',sums.purchases,false)}${cell('إجمالي المستحق',sums.due,false)}${cell('المسدَّد',sums.paid,false)}${cell('المتبقي في ذمة المندوب',sums.outstanding,true)}</div><div style="border-top:.7pt solid #E0CFA8;padding:1.2mm 2.4mm;font-size:7.6pt;line-height:1.45;color:#33301F;text-align:justify">أُقِرُّ بأن إجمالي المبالغ غير المسدَّدة والمذكورة أعلاه والبالغة <b>${money(sums.outstanding)}</b> ريال سعودي هي في ذمتي حتى تاريخ هذه الوثيقة، وأنني مسؤول عن متابعتها وتحصيلها وتوريدها لخزينة المنشأة، ولا يُبرئ ذمتي منها إلا سداد العميل الفعلي أو قرار كتابي من الإدارة.</div></div>`;
-          }
-          '''
-          s=s[:a]+liability+s[b:]
-          s=replace_once(s,"const hasLedgerAmounts=customers=>(customers||[]).some(row=>amount(row?.sales)||amount(row?.paid)||amount(row?.outstanding));","const hasLedgerAmounts=customers=>(customers||[]).some(row=>amount(row?.reportSales??row?.sales)||amount(row?.reportCollections??row?.paid)||amount(row?.finalDebt??row?.outstanding)||amount(row?.previousNetBalance));",'ledger amount detection')
-          a=s.index('function ledgerSection(')
-          b=s.index('function crossSectorSection',a)
-          ledger=r'''function ledgerSection(rows,offset,model,sector,totalCredit,finalChunk,number='٢',title='كشف العملاء المُسندين'){
-            const showAmounts=hasLedgerAmounts(model.customers);
-            const head=showAmounts?`<th style="width:7mm">م</th><th>اسم العميل / المنشأة</th><th style="width:28mm">الصنف</th><th style="width:22mm">الرصيد السابق</th><th style="width:22mm">مشتريات الفترة</th><th style="width:22mm">إجمالي المستحق</th><th style="width:21mm">المسدَّد</th><th style="width:22mm">المتبقي</th>`:`<th style="width:7mm">م</th><th>اسم العميل / المنشأة</th><th style="width:20mm">القطاع</th><th style="width:28mm">السجل / الهوية</th><th style="width:24mm">سقف الائتمان</th><th style="width:18mm">مهلة السداد</th>`;
-            const bodyRows=rows.length?rows.map((row,index)=>{const prefix=`<td class="idx">${String(offset+index+1).padStart(2,'0')}</td><td class="nm">${esc(row.name)}</td>`;if(showAmounts){const previous=amount(row.previousNetBalance??(amount(row.previousBalance)-amount(row.previousCredit))),purchases=amount(row.reportSales??row.sales),due=amount(row.grossDue??(previous+purchases)),paid=amount(row.reportCollections??row.paid),outstanding=amount(row.finalDebt??row.outstanding);return`<tr>${prefix}${itemLedgerCell(row.item)}<td class="num">${money(previous)}</td><td class="num">${money(purchases)}</td><td class="num">${money(due)}</td><td class="num">${money(paid)}</td><td class="num">${money(outstanding)}</td></tr>`;}return`<tr>${prefix}<td>${esc(row.segment||sector)}</td><td class="mono">${esc(row.registry||row.code||'—')}</td><td class="num">${money(row.creditLimit||0)}</td><td class="mono">${Number(row.paymentDays||model.days||3)} يوم</td></tr>`;}).join(''):`<tr><td colspan="${showAmounts?8:6}" class="none">لا يوجد عملاء عليهم رصيد فعلي في تاريخ إصدار هذه الوثيقة</td></tr>`;
-            const sums=(model.customers||[]).reduce((out,row)=>{const previous=amount(row.previousNetBalance??(amount(row.previousBalance)-amount(row.previousCredit))),purchases=amount(row.reportSales??row.sales);out.previous+=previous;out.purchases+=purchases;out.due+=amount(row.grossDue??(previous+purchases));out.paid+=amount(row.reportCollections??row.paid);out.outstanding+=amount(row.finalDebt??row.outstanding);return out;},{previous:0,purchases:0,due:0,paid:0,outstanding:0});
-            const foot=finalChunk&&model.customers.length&&showAmounts?`<tfoot><tr><td colspan="3" class="lbl">الإجمالي</td><td class="num">${money(sums.previous)}</td><td class="num">${money(sums.purchases)}</td><td class="num">${money(sums.due)}</td><td class="num">${money(sums.paid)}</td><td class="num">${money(sums.outstanding)}</td></tr></tfoot>`:'';
-            const note=showAmounts?`محدّث تلقائيًا من التقرير المعتمد حتى ${fmtG(model.dateGregorian)} م — المتبقي = الرصيد السابق + مشتريات الفترة − المسدَّد. لا يظهر في جدول التوقيع إلا العميل الذي عليه 0.50 ر.س فأكثر.`:`محدّث تلقائيًا من التقرير المعتمد حتى ${fmtG(model.dateGregorian)} م — ويحل كل إصدار جديد محل ما قبله`;
-            return sec(number,title,`<table class="led"><thead><tr>${head}</tr></thead><tbody>${bodyRows}</tbody>${foot}</table><div class="ledn">${note}</div>`,false,`${model.customers.length} عميل`);
-          }
+          s = replace_once(
+              s,
+              "  };\n  const scopedKeys=new Set();\n",
+              "  };\n  const sectorHints=new Map();\n  const addSectorHint=(key,sector)=>{if(!key||sector==='all')return;const set=sectorHints.get(key)||new Set();set.add(sector);sectorHints.set(key,set);};\n  for(const [key,agg] of aggregates)addSectorHint(key,segmentScope(agg.segment));\n  for(const row of openingBalances||[]){const key=resolve(row.customerCode||row.clientId,row.customerName),agg=aggregates.get(key);addSectorHint(key,segmentScope(row.segment||agg?.segment));}\n  for(const row of sales||[]){if(closedStatus.has(String(row.status||'')))continue;const key=resolve(row.customer_external_id,row.customer_name);addSectorHint(key,salesScope(row));}\n  const portfolioScope=(key,agg)=>{const explicit=segmentScope(agg?.segment);if(explicit!=='all')return explicit;const hints=sectorHints.get(key);if(hints?.size===1)return[...hints][0];return'concrete';};\n  const scopedKeys=new Set();\n",
+              'portfolio ownership hints'
+          )
 
-          '''
-          s=s[:a]+ledger+s[b:]
-          s=s.replace("export const CUSTOMER_PORTFOLIO_TEXT_VERSION='2026.07.30-single-line-item-no-phone-v3';","export const CUSTOMER_PORTFOLIO_TEXT_VERSION='2026.07.30-accounting-columns-signature-v4';")
-          p.write_text(s,encoding='utf-8')
+          s = replace_once(
+              s,
+              "    if(scope==='all'||rowScope==='all'||rowScope===scope)scopedKeys.add(key);",
+              "    const targetScope=rowScope!=='all'?rowScope:portfolioScope(key,agg);if(scope==='all'||targetScope===scope)scopedKeys.add(key);",
+              'opening balance scope'
+          )
 
-          p=Path('api/_lib/customer-portfolio-document.js')
-          s=p.read_text(encoding='utf-8')
-          old="""function ignoredResidualRows(rows=[]){\n  const output=[];\n  for(const row of rows||[]){\n    const debt=Number(row?.outstanding??row?.finalBalance??row?.finalDebt??0);\n    if(Number.isFinite(debt)&&Math.abs(debt)>0.000001&&Math.abs(debt)<RESIDUAL_THRESHOLD)output.push({kind:debt>=0?'مدين':'دائن',amount:Math.abs(debt)});\n    const advance=Number(row?.finalAdvance??0);\n    if(Number.isFinite(advance)&&advance>0.000001&&advance<RESIDUAL_THRESHOLD)output.push({kind:'دائن',amount:advance});\n  }\n  return output;\n}"""
-          new="""function ignoredResidualRows(rows=[]){\n  const totals=new Map();\n  for(const row of rows||[]){\n    const debt=Number(row?.outstanding??row?.finalBalance??row?.finalDebt??0);\n    if(Number.isFinite(debt)&&Math.abs(debt)>0.000001&&Math.abs(debt)<RESIDUAL_THRESHOLD){const kind=debt>=0?'مدين':'دائن';totals.set(kind,(totals.get(kind)||0)+Math.abs(debt));}\n    const advance=Number(row?.finalAdvance??0);\n    if(Number.isFinite(advance)&&advance>0.000001&&advance<RESIDUAL_THRESHOLD)totals.set('دائن',(totals.get('دائن')||0)+advance);\n  }\n  return[...totals.entries()].map(([kind,amount])=>({kind,amount}));\n}"""
-          s=replace_once(s,old,new,'residual aggregation')
-          s=replace_once(s,"const cleaned=injectIgnoredResidualTable(normalizeLedgerResidualCells(removeRepeatedPaymentTerms(document)),context.rows||[]),pages=chunks(context.rows||[],7).map((rows,index)=>detailPage({...context,rows,offset:index*7})).join('');","const allRows=context.rows||[],signedRows=allRows.filter(row=>Number(row?.finalDebt??row?.finalBalance??row?.outstanding??0)>=RESIDUAL_THRESHOLD),cleaned=injectIgnoredResidualTable(normalizeLedgerResidualCells(removeRepeatedPaymentTerms(document)),allRows),pages=chunks(signedRows,7).map((rows,index)=>detailPage({...context,rows,offset:index*7})).join('');",'signed detail rows')
-          p.write_text(s,encoding='utf-8')
+          s = replace_once(
+              s,
+              "    if(closedStatus.has(String(row.status||'')))continue;const key=resolve(row.customer_external_id,row.customer_name,scope==='all');if(scope!=='all'&&!scopedKeys.has(key))continue;const agg=aggregates.get(key);if(!agg)continue;",
+              "    if(closedStatus.has(String(row.status||'')))continue;const key=resolve(row.customer_external_id,row.customer_name,true),agg=aggregates.get(key);if(!agg)continue;const targetScope=portfolioScope(key,agg);if(scope!=='all'&&targetScope!==scope)continue;scopedKeys.add(key);",
+              'collection portfolio scope'
+          )
 
-          p=Path('api/_lib/customer-portfolio-pdf.js')
-          s=p.read_text(encoding='utf-8')
-          s=replace_once(s,"sales:settlement.previousBalance+settlement.reportSales,paid:settlement.reportCollections,outstanding:settlement.finalDebt,\n      previousBalance:settlement.previousBalance,reportSales:settlement.reportSales","sales:settlement.grossDue,paid:settlement.reportCollections,outstanding:settlement.finalDebt,\n      previousBalance:settlement.previousBalance,previousCredit:settlement.previousCredit,previousNetBalance:settlement.previousNetBalance,grossDue:settlement.grossDue,reportSales:settlement.reportSales",'pdf accounting fields')
-          s=replace_once(s,"const analytics=await loadCustomerAnalytics({active:true,role:ANALYTICS_ROLE[type]},{asOf:reportDate,beforeDate:reportDate}),portfolio=customerRows(type,analysis,state,analytics,ownershipAnalytics,reportDate),rows=portfolio.customers,crossSectorPurchases=portfolio.crossSectorPurchases;if(!rows.length&&!crossSectorPurchases.length)throw","const analytics=await loadCustomerAnalytics({active:true,role:ANALYTICS_ROLE[type]},{asOf:reportDate,beforeDate:reportDate}),portfolio=customerRows(type,analysis,state,analytics,ownershipAnalytics,reportDate),allRows=portfolio.customers,rows=allRows.filter(row=>Number(row.finalDebt||0)>=0.5),crossSectorPurchases=portfolio.crossSectorPurchases;if(!rows.length&&!crossSectorPurchases.length)throw",'signature row filter')
-          s=replace_once(s,"enhanced=enhancePortfolioDocument(renderedDocument,{type,rows,employee:rep","enhanced=enhancePortfolioDocument(renderedDocument,{type,rows:allRows,employee:rep",'residual context')
-          s=replace_once(s,"customers:rows,crossSectorPurchases,totals,primaryCustomerCount:rows.length","customers:rows,allCustomers:allRows,crossSectorPurchases,totals,primaryCustomerCount:rows.length",'snapshot all customers')
-          s=replace_once(s,"const analytics=await loadCustomerAnalytics({active:true,role:ANALYTICS_ROLE[type]},{asOf:reportDate,beforeDate:reportDate}),portfolio=customerRows(type,analysis,state,analytics,ownershipAnalytics,reportDate),customers=portfolio.customers;return","const analytics=await loadCustomerAnalytics({active:true,role:ANALYTICS_ROLE[type]},{asOf:reportDate,beforeDate:reportDate}),portfolio=customerRows(type,analysis,state,analytics,ownershipAnalytics,reportDate),customers=portfolio.customers.filter(row=>Number(row.finalDebt||0)>=0.5);return",'collection row filter')
-          p.write_text(s,encoding='utf-8')
+          s = replace_once(
+              s,
+              "    const overdue=money(item.aging.days1to30+item.aging.days31to60+item.aging.days61to90+item.aging.days90plus),netBalance=money(item.balance-item.unallocatedCredit),debitBalance=Math.max(0,netBalance),creditBalance=Math.max(0,-netBalance),utilization=item.creditLimit>0?debitBalance/item.creditLimit:null;",
+              "    const reconciledCollectionCredit=Math.max(0,money(item.collections-item.paidApplied)),effectiveUnallocatedCredit=Math.max(item.unallocatedCredit,reconciledCollectionCredit),reconciledAging=applyCreditToAging(item.aging,effectiveUnallocatedCredit),overdue=money(reconciledAging.days1to30+reconciledAging.days31to60+reconciledAging.days61to90+reconciledAging.days90plus),netBalance=money(item.balance-effectiveUnallocatedCredit),debitBalance=Math.max(0,netBalance),creditBalance=Math.max(0,-netBalance),utilization=item.creditLimit>0?debitBalance/item.creditLimit:null;",
+              'collection reconciliation'
+          )
 
-          p=Path('shared/canonical-declaration-texts.js')
-          s=p.read_text(encoding='utf-8').replace('2026.07.22-original-v1','2026.07.30-accounting-columns-signature-v4')
-          p.write_text(s,encoding='utf-8')
+          s = replace_once(
+              s,
+              "    return{...item,overdue,netBalance,debitBalance,creditBalance,utilization,decision,customerClass,customerClassLabel:customerClass==='old'?'عميل قديم':'عميل جديد',products:[...item.products].slice(0,12),salesTypes:[...item.salesTypes],controlAlerts:[...item.controlAlerts]};",
+              "    return{...item,unallocatedCredit:effectiveUnallocatedCredit,reconciledCollectionCredit,aging:reconciledAging,overdue,netBalance,debitBalance,creditBalance,utilization,decision,customerClass,customerClassLabel:customerClass==='old'?'عميل قديم':'عميل جديد',products:[...item.products].slice(0,12),salesTypes:[...item.salesTypes],controlAlerts:[...item.controlAlerts]};",
+              'reconciled analytics row'
+          )
+
+          p.write_text(s, encoding='utf-8')
+
+          test = Path('tests/customer-payment-portfolio-ownership.test.mjs')
+          test.write_text(r'''import test from 'node:test';
+import assert from 'node:assert/strict';
+import { buildCustomerAnalytics } from '../api/_lib/bot-customer-report-data.js';
+
+const customers=[
+  {external_id:'B1',customer_code:'B1',customer_name:'عميل بلوك',segment:'بلوك'},
+  {external_id:'C1',customer_code:'C1',customer_name:'عميل خرسانة',segment:'خرسانة'}
+];
+const sales=[
+  {reference_no:'SB1',customer_external_id:'B1',customer_name:'عميل بلوك',item:'بلوك',total_amount:100,paid_amount:0,status:'registered',delivery_date:'2026-07-29'},
+  {reference_no:'SC1',customer_external_id:'C1',customer_name:'عميل خرسانة',item:'خرسانة',total_amount:200,paid_amount:0,status:'registered',delivery_date:'2026-07-29'}
+];
+const collections=[
+  {reference_no:'PB1',customer_external_id:'B1',customer_name:'عميل بلوك',amount:30,allocated_amount:0,unallocated_amount:0,status:'recorded',occurred_at:'2026-07-29'},
+  {reference_no:'PC1',customer_external_id:'C1',customer_name:'عميل خرسانة',amount:50,allocated_amount:0,unallocated_amount:0,status:'recorded',occurred_at:'2026-07-29'},
+  {reference_no:'PU1',customer_external_id:'U1',customer_name:'سداد غير مصنف',amount:40,allocated_amount:0,unallocated_amount:0,status:'recorded',occurred_at:'2026-07-29'}
+];
+
+test('block portfolio keeps only block-owned payments and reconciles the balance',()=>{
+  const result=buildCustomerAnalytics({customers,sales,collections,openingBalances:[],role:'block_sales',asOf:new Date('2026-07-30T00:00:00Z')});
+  assert.deepEqual(result.rows.map(row=>row.code),['B1']);
+  assert.equal(result.rows[0].grossSales,100);
+  assert.equal(result.rows[0].collections,30);
+  assert.equal(result.rows[0].netBalance,70);
+});
+
+test('concrete portfolio receives concrete and unclassified payments as advance credit',()=>{
+  const result=buildCustomerAnalytics({customers,sales,collections,openingBalances:[],role:'concrete_sales',asOf:new Date('2026-07-30T00:00:00Z')});
+  const byCode=new Map(result.rows.map(row=>[row.code,row]));
+  assert.equal(byCode.get('C1').grossSales,200);
+  assert.equal(byCode.get('C1').collections,50);
+  assert.equal(byCode.get('C1').netBalance,150);
+  assert.equal(byCode.get('U1').collections,40);
+  assert.equal(byCode.get('U1').netBalance,-40);
+  assert.equal(byCode.get('U1').creditBalance,40);
+  assert.equal(byCode.has('B1'),false);
+});
+''',encoding='utf-8')
           PY
-      - name: Validate syntax and accounting contract
+      - name: Validate payment and balance rules
         shell: bash
         run: |
           set -euo pipefail
-          node --check api/_lib/customer-portfolio-pdf.js
-          node --check api/_lib/customer-portfolio-document.js
-          node --check api/_lib/customer-settlement.js
           node --check api/_lib/bot-customer-report-data.js
-          node --check shared/customer-portfolio-declaration.js
-          node --input-type=module <<'JS'
-          import assert from 'node:assert/strict';
-          import { settleCustomerAccount,aggregateSettlements,saleTypeOf } from './api/_lib/customer-settlement.js';
-          import { renderCustomerPortfolioDeclaration } from './shared/customer-portfolio-declaration.js';
-          import { enhancePortfolioDocument } from './api/_lib/customer-portfolio-document.js';
-          assert.equal(saleTypeOf({sales_type:'concrete',item:'بلوك 20'}),'block');
-          const a=settleCustomerAccount({openingBalance:100,openingCount:1,grossSales:0,paidApplied:0,unallocatedCredit:0,aging:{}},{code:'1',name:'مدين',sales:50,collections:20});
-          assert.equal(a.previousNetBalance,100);assert.equal(a.grossDue,150);assert.equal(a.finalDebt,130);
-          const rows=[{...a,name:'مدين',code:'1',item:'خرسانة',sales:a.grossDue,paid:a.reportCollections,outstanding:a.finalDebt,finalBalance:a.finalDebt},{name:'هللات',code:'2',item:'بلوك',previousNetBalance:.29,previousBalance:.29,previousCredit:0,reportSales:0,grossDue:.29,reportCollections:0,paidCurrent:0,paidPrevious:0,finalDebt:.29,finalBalance:.29,finalAdvance:0,customerClass:'old',customerClassLabel:'قديم',statusLabel:'هللات',sales:.29,paid:0,outstanding:.29,aging:{}}];
-          const declaration=renderCustomerPortfolioDeclaration({type:'concrete',companyName:'مصنع',employee:{name:'مندوب'},customers:rows.filter(row=>row.finalDebt>=.5),dateGregorian:'2026-07-29',logoUrl:'logo.png'}).document;
-          const output=enhancePortfolioDocument(declaration,{type:'concrete',rows,employee:{name:'مندوب'},reportDate:'2026-07-29',sourceFile:'daily.xlsx',logoUrl:'logo.png',documentRef:'REF'});
-          assert.match(output,/الرصيد السابق/);assert.match(output,/مشتريات الفترة/);assert.match(output,/إجمالي المستحق/);assert.match(output,/فروق هللات مستبعدة/);
-          const table=output.match(/<table class="led">[\s\S]*?<\/table>/)?.[0]||'';assert.match(table,/مدين/);assert.doesNotMatch(table,/هللات/);
-          const totals=aggregateSettlements(rows);assert.equal(totals.previousNetBalance,100.29);assert.equal(totals.grossDue,150.29);
-          JS
+          node --test tests/customer-payment-portfolio-ownership.test.mjs
       - name: Commit production fix
         shell: bash
         run: |
           set -euo pipefail
           git config user.name 'portfolio-fix-bot'
           git config user.email 'actions@users.noreply.github.com'
-          git add api/_lib/customer-portfolio-pdf.js api/_lib/customer-portfolio-document.js api/_lib/customer-settlement.js api/_lib/bot-customer-report-data.js shared/customer-portfolio-declaration.js shared/canonical-declaration-texts.js
+          git add api/_lib/bot-customer-report-data.js tests/customer-payment-portfolio-ownership.test.mjs
           git diff --cached --quiet && exit 0
-          git commit -m 'تصحيح عرض وحساب محفظتي البلوك والخرسانة'
+          git commit -m 'ربط كل السدادات بمحفظة العميل وتصحيح الرصيد النهائي'
           git push origin HEAD:main
-      - name: Publish status
-        if: always()
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          state=success
-          description='Portfolio accounting fix applied'
-          git diff --exit-code >/dev/null 2>&1 || { state=failure; description='Portfolio accounting fix failed'; }
-          gh api -X POST "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" -f state="$state" -f context='apply-portfolio-accounting-fix' -f description="$description" -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
