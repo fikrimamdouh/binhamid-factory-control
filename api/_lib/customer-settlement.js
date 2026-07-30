@@ -3,6 +3,13 @@ export const roundMoney=value=>Math.abs(n(value))<0.005?0:Math.round((n(value)+N
 export const normalizeCustomerValue=value=>String(value??'').trim().toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ًٌٍَُِّْـ]/g,'').replace(/[_-]+/g,' ').replace(/\s+/g,' ');
 export const customerLookupKey=(code,name)=>{const normalized=normalizeCustomerValue(code);return normalized?`code:${normalized}`:`name:${normalizeCustomerValue(name)||'unknown'}`;};
 
+export const CONCRETE_ADVANCE_START_DATE='2026-07-20';
+const collectionMethodText=row=>[row?.paymentMethod,row?.payment_method,row?.method,row?.paymentType,row?.payment_type,row?.treasuryName,row?.treasury_name,row?.note].map(normalizeCustomerValue).filter(Boolean).join(' ');
+export function isEligibleConcreteAdvanceCollection(row={},cutoff=CONCRETE_ADVANCE_START_DATE){
+  const date=String(row?.date||row?.occurred_at||row?.created_at||row?.movementDate||row?.movement_date||'').slice(0,10),amount=Math.max(0,Number(row?.amount??row?.debit??row?.credit??0)||0),method=collectionMethodText(row);
+  return amount>0&&date>=cutoff&&/(^| )(cash|bank|نقد|كاش|بنك|تحويل|حواله|حوال|ايداع|خزينه|صندوق|شبكه|مدى)( |$)/.test(method);
+}
+
 const SALE_TYPE_LABEL={block:'بلوك',concrete:'خرسانة'};
 const STATUS_LABEL={
   new_paid_full:'عميل جديد — سدد مشتريات التقرير بالكامل',
@@ -74,7 +81,7 @@ export function buildReportActivityIndex(analysis={},type='',reportDate=''){
   }
   for(const [index,row] of (analysis?.collections||[]).entries()){
     const code=row.customerCode||row.customer_code||row.accountCode||row.account_code||'',name=row.customer||row.customerName||row.customer_name||row.accountName||row.account_name||'',activity=resolve(code,name),amount=Math.max(0,n(row.amount??row.debit??row.credit)),date=chooseDate(row.movementDate||row.movement_date||row.occurred_at||row.date,reportDate),reference=String(row.voucherNo||row.voucher_no||row.reference_no||`row-${row.row||index+1}`);
-    activity.collections=roundMoney(activity.collections+amount);activity.lastCollection=activity.lastCollection>date?activity.lastCollection:date;activity.collectionRows.push({reference,date,amount,treasuryCode:String(row.treasuryCode||row.treasury_code||''),treasuryName:String(row.treasuryName||row.treasury_name||'')});
+    const paymentMethod=String(row.paymentMethod||row.payment_method||row.method||row.paymentType||row.payment_type||''),note=String(row.note||row.description||row.details||'');activity.collections=roundMoney(activity.collections+amount);activity.lastCollection=activity.lastCollection>date?activity.lastCollection:date;activity.collectionRows.push({reference,date,amount,paymentMethod,note,treasuryCode:String(row.treasuryCode||row.treasury_code||''),treasuryName:String(row.treasuryName||row.treasury_name||'')});
     const duplicateKey=`${normalizeCustomerValue(code||name)}|${normalizeCustomerValue(reference)}|${roundMoney(amount)}|${date}`;if(collectionKeys.has(duplicateKey))activity.alerts.add('duplicate_collection');collectionKeys.add(duplicateKey);
   }
   return{byCustomerCode,byCustomerName,rows:[...new Set([...byCustomerCode.values(),...byCustomerName.values()])]};
@@ -98,15 +105,7 @@ export function indexCustomerAnalytics(rows=[]){
   }
   return{byCustomerCode,byCustomerName,scope:analyticsScope(rows)};
 }
-export function lookupCustomer(index={},code='',name=''){
-  const found=index?.byCustomerCode?.get(normalizeCustomerValue(code))||index?.byCustomerName?.get(normalizeCustomerValue(name))||null;
-  if(found)return found;
-  // Any report-day receipt that has no block/concrete history is owned by the
-  // concrete portfolio. A neutral zero-value base lets the receipt become an
-  // advance payment without inventing a sale or changing the customer's debt.
-  if(index?.scope==='concrete')return{grossSales:Number.EPSILON,paidApplied:Number.EPSILON,segment:'concrete',openingBalance:0,unallocatedCredit:0,invoiceCount:0,collectionCount:0,sales:[],aging:{}};
-  return null;
-}
+export function lookupCustomer(index={},code='',name=''){return index?.byCustomerCode?.get(normalizeCustomerValue(code))||index?.byCustomerName?.get(normalizeCustomerValue(name))||null;}
 export function lookupActivity(index={},code='',name=''){return index?.byCustomerCode?.get(normalizeCustomerValue(code))||index?.byCustomerName?.get(normalizeCustomerValue(name))||createActivity(code,name);}
 
 function consume(pool,amount){const used=Math.min(Math.max(0,roundMoney(pool)),Math.max(0,roundMoney(amount)));return{used:roundMoney(used),pool:roundMoney(pool-used),amount:roundMoney(amount-used)};}

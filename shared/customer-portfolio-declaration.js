@@ -5,7 +5,7 @@ const fmtG=value=>{const text=clean(value);if(!/^\d{4}-\d{2}-\d{2}$/.test(text))
 const hijri=value=>{try{return new Intl.DateTimeFormat('ar-SA-u-ca-islamic-umalqura',{day:'2-digit',month:'2-digit',year:'numeric',timeZone:'Asia/Riyadh'}).format(new Date(`${value}T12:00:00+03:00`)).replace(/[٠-٩]/g,char=>'٠١٢٣٤٥٦٧٨٩'.indexOf(char)).replace(/\u200f/g,'');}catch{return'';}};
 const chunks=(rows,size)=>{const output=[];for(let index=0;index<rows.length;index+=size)output.push(rows.slice(index,index+size));return output.length?output:[[]];};
 
-export const CUSTOMER_PORTFOLIO_TEXT_VERSION='2026.07.30-accounting-columns-signature-v4';
+export const CUSTOMER_PORTFOLIO_TEXT_VERSION='2026.07.30-concrete-cash-bank-cutoff-v5';
 export const CANONICAL_CUSTOMER_PORTFOLIO_DECLARATION=`أُقر بأن العملاء المدرجين في هذا النموذج مُسندون إليّ، وأنني المسؤول المباشر عن متابعة تعاملاتهم وتحصيل مستحقات المنشأة لديهم.
 ألتزم بعدم البيع الآجل لأي عميل خارج سقف الائتمان المعتمد له، وبعدم منح أي مهلة سداد تتجاوز المدة المقررة أعلاه.
 ألتزم بالحصول على موافقة كتابية مسبقة من الإدارة قبل أي تجاوز لسقف الائتمان أو مهلة السداد أو قبل التعامل مع عميل غير مُسجّل في هذا النموذج.
