@@ -1,0 +1,114 @@
+name: Noor Khoy morning fuel watchdog
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/noor-khoy-fuel-watchdog.yml
+  workflow_dispatch:
+  schedule:
+    - cron: '11 5 * * *'
+    - cron: '26 5 * * *'
+    - cron: '41 5 * * *'
+    - cron: '56 5 * * *'
+    - cron: '11 6 * * *'
+    - cron: '26 6 * * *'
+    - cron: '41 6 * * *'
+    - cron: '56 6 * * *'
+    - cron: '11 7 * * *'
+    - cron: '26 7 * * *'
+    - cron: '41 7 * * *'
+    - cron: '56 7 * * *'
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: noor-khoy-daily-fuel-sync
+  cancel-in-progress: false
+
+jobs:
+  ensure-morning-fuel-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NOOR_KHOY_USERNAME: ${{ secrets.NOOR_KHOY_USERNAME }}
+      NOOR_KHOY_PASSWORD: ${{ secrets.NOOR_KHOY_PASSWORD }}
+      NOOR_KHOY_LOGIN_URL: https://www.norkhoysa.com/companies/login
+      NOOR_KHOY_DASHBOARD_URL: https://www.norkhoysa.com/companies
+      NOOR_KHOY_REPORT_URL: https://www.norkhoysa.com/companies/fuels?fueltype=all
+      BINHAMID_FUEL_UPLOAD_URL: https://binhamid-factory-control.vercel.app/api/fuel/daily-report
+      REPORT_DATE: ''
+      REPORT_START_DATE: ''
+      REPORT_END_DATE: ''
+      FUEL_REPORT_DATE_OFFSET_DAYS: '-1'
+      FUEL_SEND_BALANCE: 'true'
+      FUEL_NOTIFY: 'true'
+      FUEL_SYNC_ARTIFACT_DIR: artifacts/noor-khoy-fuel-watchdog
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Check whether yesterday's fuel report was already delivered
+        id: delivery_status
+        env:
+          FUEL_STATUS_KIND: daily-report
+          FUEL_STATUS_DATE_OFFSET_DAYS: '-1'
+        run: node scripts/check-fuel-delivery-status.mjs
+
+      - name: Record watchdog skip after an earlier success
+        if: steps.delivery_status.outputs.needed == 'false'
+        run: echo "Fuel report ${{ steps.delivery_status.outputs.report_date }} was already delivered at ${{ steps.delivery_status.outputs.delivered_at }}."
+
+      - name: Install project dependencies
+        if: steps.delivery_status.outputs.needed != 'false'
+        run: npm ci
+
+      - name: Install browser automation
+        if: steps.delivery_status.outputs.needed != 'false'
+        run: |
+          npm install --no-save --no-package-lock playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Download and deliver yesterday's fuel report
+        id: fuel_import
+        if: steps.delivery_status.outputs.needed != 'false'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/noor-khoy-fuel-watchdog
+          node scripts/noor-khoy-fuel-sync.mjs 2>&1 | tee artifacts/noor-khoy-fuel-watchdog/execution.log
+
+      - name: Keep watchdog evidence
+        if: always() && steps.delivery_status.outputs.needed != 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: noor-khoy-fuel-watchdog-${{ github.run_id }}
+          path: artifacts/noor-khoy-fuel-watchdog/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Notify owner after the final watchdog attempt fails
+        if: github.event_name == 'schedule' && github.event.schedule == '56 7 * * *' && steps.delivery_status.outputs.needed != 'false' && steps.fuel_import.outcome != 'success'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_OWNER_ID: ${{ secrets.TELEGRAM_OWNER_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          text=$'<b>تعذر إرسال تقرير الوقود الصباحي</b>\nفشل المسار الأساسي ومسار المراقبة الاحتياطي حتى الساعة 10:56 صباحًا بتوقيت السعودية.'
+          curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_OWNER_ID}" \
+            --data-urlencode "parse_mode=HTML" \
+            --data-urlencode "text=${text}" >/dev/null
+
+      - name: Fail when watchdog delivery failed
+        if: steps.delivery_status.outputs.needed != 'false' && steps.fuel_import.outcome != 'success'
+        run: exit 1
