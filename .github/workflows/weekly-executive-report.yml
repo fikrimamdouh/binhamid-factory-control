@@ -1,0 +1,31 @@
+name: Weekly executive report
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/weekly-executive-report.yml
+  workflow_dispatch:
+  schedule:
+    - cron: '7 17 * * 5'
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: weekly-executive-report
+  cancel-in-progress: false
+
+jobs:
+  send-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Build and send the weekly report to Telegram
+        run: node scripts/send-weekly-executive-report.mjs
