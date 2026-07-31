@@ -1,3 +1,4 @@
+# Activated after initial workflow registration.
 name: Noor Khoy morning fuel watchdog
 
 on:
