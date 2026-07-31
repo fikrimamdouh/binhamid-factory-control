@@ -25,6 +25,7 @@ on:
 permissions:
   contents: read
   id-token: write
+  statuses: write
 
 concurrency:
   group: noor-khoy-daily-fuel-sync
@@ -95,6 +96,44 @@ jobs:
           path: artifacts/noor-khoy-fuel-watchdog/
           if-no-files-found: ignore
           retention-days: 7
+
+      - name: Publish watchdog delivery status
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DELIVERY_NEEDED: ${{ steps.delivery_status.outputs.needed }}
+          IMPORT_OUTCOME: ${{ steps.fuel_import.outcome }}
+          REPORT_DATE_RESOLVED: ${{ steps.delivery_status.outputs.report_date }}
+        shell: bash
+        run: |
+          node <<'NODE'
+          const needed=String(process.env.DELIVERY_NEEDED||'');
+          const outcome=String(process.env.IMPORT_OUTCOME||'');
+          const reportDate=String(process.env.REPORT_DATE_RESOLVED||'yesterday');
+          const success=needed==='false'||outcome==='success';
+          const description=needed==='false'
+            ? `Fuel report ${reportDate} was already delivered`
+            : success
+              ? `Fuel report ${reportDate} delivered by watchdog`
+              : `Fuel report ${reportDate} watchdog failed`;
+          const response=await fetch(`https://api.github.com/repos/${process.env.GITHUB_REPOSITORY}/statuses/${process.env.GITHUB_SHA}`,{
+            method:'POST',
+            headers:{
+              Authorization:`Bearer ${process.env.GH_TOKEN}`,
+              Accept:'application/vnd.github+json',
+              'X-GitHub-Api-Version':'2022-11-28',
+              'Content-Type':'application/json'
+            },
+            body:JSON.stringify({
+              state:success?'success':'failure',
+              context:success?'fuel-watchdog:delivered':'fuel-watchdog:failed',
+              description:description.slice(0,140),
+              target_url:`${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
+            })
+          });
+          if(!response.ok)throw new Error(`status publish failed: ${response.status} ${await response.text()}`);
+          NODE
 
       - name: Notify owner after the final watchdog attempt fails
         if: github.event_name == 'schedule' && github.event.schedule == '56 7 * * *' && steps.delivery_status.outputs.needed != 'false' && steps.fuel_import.outcome != 'success'
