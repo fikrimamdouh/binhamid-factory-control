@@ -25,7 +25,6 @@ import * as reportsTelegram from './_lib/routes/reports-telegram.js';
 import * as weeklyReport from './_lib/routes/weekly-report.js';
 import * as weeklyReportStatus from './_lib/routes/weekly-report-status.js';
 import * as weeklyReportManagerDelivery from './_lib/routes/weekly-report-manager-delivery.js';
-import * as dailySalesBrief from './_lib/routes/daily-sales-brief.js';
 import * as customerPortfolioRange from './_lib/routes/customer-portfolio-range.js';
 import * as attendanceSafe from './_lib/routes/attendance-safe.js';
 import * as botPermissions from './_lib/routes/bot-permissions.js';
@@ -78,7 +77,6 @@ const routes={
   'weekly-report/send':weeklyReport.sendWeeklyReport,
   'weekly-report/status':weeklyReportStatus.weeklyReportStatus,
   'weekly-report/deliver-managers':weeklyReportManagerDelivery.deliverWeeklyReportToManagers,
-  'daily-sales-brief/send':dailySalesBrief.sendDailySalesBrief,
   'attendance-safe':attendanceSafe.attendanceSafe,
   'bot-permissions':botPermissions.botPermissions,
   'opening-balances':openingBalances
