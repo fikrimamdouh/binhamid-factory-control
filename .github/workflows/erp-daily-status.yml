@@ -1,0 +1,168 @@
+name: ERP Daily Report Status
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/erp-daily-status.yml
+  workflow_dispatch:
+    inputs:
+      report_date:
+        description: Report date in YYYY-MM-DD
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      REQUESTED_DATE: ${{ github.event.inputs.report_date }}
+      GITHUB_TOKEN: ${{ github.token }}
+      REPOSITORY: ${{ github.repository }}
+      HEAD_SHA: ${{ github.sha }}
+      RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Inspect committed ERP report
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_DB_URL:-}" ]; then
+            echo "SUPABASE_DB_URL is not configured" >&2
+            exit 1
+          fi
+
+          report_date="${REQUESTED_DATE:-}"
+          if [ -z "$report_date" ]; then
+            report_date=$(TZ=Asia/Riyadh date -d 'yesterday' +%F)
+          fi
+
+          export PGCONNECT_TIMEOUT=15
+          export PGOPTIONS='-c statement_timeout=30000'
+
+          batch=$(psql "$SUPABASE_DB_URL" -X -A -t -F '|' -v ON_ERROR_STOP=1 -v report_date="$report_date" <<'SQL'
+SELECT
+  b.id::text,
+  b.report_date::text,
+  b.status::text,
+  COALESCE(to_char(b.committed_at AT TIME ZONE 'Asia/Riyadh','YYYY-MM-DD HH24:MI:SS'),'')
+FROM daily_report_batches b
+WHERE b.report_date = :'report_date'::date
+ORDER BY b.committed_at DESC NULLS LAST, b.created_at DESC
+LIMIT 1;
+SQL
+          )
+
+          latest=$(psql "$SUPABASE_DB_URL" -X -A -t -F '|' -v ON_ERROR_STOP=1 <<'SQL'
+SELECT
+  b.report_date::text,
+  b.status::text,
+  COALESCE(to_char(b.committed_at AT TIME ZONE 'Asia/Riyadh','YYYY-MM-DD HH24:MI:SS'),'')
+FROM daily_report_batches b
+ORDER BY b.report_date DESC, b.committed_at DESC NULLS LAST
+LIMIT 1;
+SQL
+          )
+
+          state=failure
+          context='erp-daily:missing'
+          description="ERP ${report_date}: no committed batch"
+
+          {
+            echo "# ERP daily report check"
+            echo
+            echo "- Requested date: ${report_date}"
+            echo "- Latest batch: ${latest:-none}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -n "$batch" ]; then
+            IFS='|' read -r batch_id batch_date batch_status committed_at <<< "$batch"
+            totals=$(psql "$SUPABASE_DB_URL" -X -A -t -F '|' -v ON_ERROR_STOP=1 -v batch_id="$batch_id" <<'SQL'
+WITH s AS (
+  SELECT COUNT(*)::bigint AS invoices,
+         COALESCE(SUM(amount),0)::numeric AS sales,
+         COALESCE(SUM(amount) FILTER (WHERE sales_type='block'),0)::numeric AS block_sales,
+         COALESCE(SUM(amount) FILTER (WHERE sales_type='concrete'),0)::numeric AS concrete_sales
+  FROM daily_report_sales_lines
+  WHERE batch_id = :'batch_id'::uuid
+), c AS (
+  SELECT COUNT(*) FILTER (WHERE is_customer_collection)::bigint AS collection_rows,
+         COALESCE(SUM(debit-credit) FILTER (WHERE is_customer_collection),0)::numeric AS collections
+  FROM daily_report_cash_movements
+  WHERE batch_id = :'batch_id'::uuid
+)
+SELECT s.invoices,
+       ROUND(s.sales,2),
+       ROUND(s.block_sales,2),
+       ROUND(s.concrete_sales,2),
+       c.collection_rows,
+       ROUND(c.collections,2)
+FROM s CROSS JOIN c;
+SQL
+            )
+            IFS='|' read -r invoices sales block_sales concrete_sales collection_rows collections <<< "$totals"
+            state=success
+            context='erp-daily:committed'
+            description="ERP ${report_date}: ${invoices} invoices; sales ${sales}; collections ${collections}"
+            {
+              echo "- Batch ID: ${batch_id}"
+              echo "- Status: ${batch_status}"
+              echo "- Committed at Riyadh: ${committed_at:-not set}"
+              echo "- Invoices: ${invoices}"
+              echo "- Sales: ${sales} SAR"
+              echo "- Block sales: ${block_sales} SAR"
+              echo "- Concrete sales: ${concrete_sales} SAR"
+              echo "- Collection rows: ${collection_rows}"
+              echo "- Collections: ${collections} SAR"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            attempts=$(psql "$SUPABASE_DB_URL" -X -A -t -F '|' -v ON_ERROR_STOP=1 -v report_date="$report_date" <<'SQL'
+SELECT COUNT(*)::text,
+       COALESCE(MAX(i.status::text),'none'),
+       COALESCE(MAX(i.last_error_code::text),'')
+FROM imports i
+WHERE i.report_type IN ('daily_movement','block_daily_movement','concrete_daily_movement')
+  AND (
+    i.original_name ILIKE '%' || :'report_date' || '%'
+    OR i.created_at::date BETWEEN :'report_date'::date AND (:'report_date'::date + INTERVAL '1 day')
+  );
+SQL
+            )
+            IFS='|' read -r attempt_count attempt_status attempt_error <<< "$attempts"
+            if [ "${attempt_count:-0}" != "0" ]; then
+              context='erp-daily:import-not-committed'
+              description="ERP ${report_date}: import ${attempt_status}; error ${attempt_error:-none}"
+            fi
+            {
+              echo "- Import attempts: ${attempt_count:-0}"
+              echo "- Last import status: ${attempt_status:-none}"
+              echo "- Last error code: ${attempt_error:-none}"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          DESCRIPTION="$description" STATE="$state" CONTEXT="$context" node <<'NODE'
+          const payload = {
+            state: process.env.STATE,
+            context: process.env.CONTEXT,
+            target_url: process.env.RUN_URL,
+            description: String(process.env.DESCRIPTION || '').slice(0, 140),
+          };
+          const response = await fetch(`https://api.github.com/repos/${process.env.REPOSITORY}/statuses/${process.env.HEAD_SHA}`, {
+            method: 'POST',
+            headers: {
+              Accept: 'application/vnd.github+json',
+              Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+              'X-GitHub-Api-Version': '2022-11-28',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload),
+          });
+          if (!response.ok) throw new Error(`status publish failed: HTTP ${response.status}`);
+          console.log(JSON.stringify(payload));
+          NODE
