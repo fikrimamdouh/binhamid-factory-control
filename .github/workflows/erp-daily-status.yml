@@ -6,6 +6,11 @@ on:
       - main
     paths:
       - .github/workflows/erp-daily-status.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/erp-daily-status.yml
   workflow_dispatch:
     inputs:
       report_date:
