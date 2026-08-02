@@ -50,16 +50,16 @@ async function authorize(req){
 }
 
 async function recipients(){
-  const users=await select('app_users','active=eq.true&role=in.(admin,manager)&select=id&limit=100').catch(()=>[])||[];
+  const users=await select('app_users','active=eq.true&role=in.(admin,manager)&select=id&limit=100')||[];
   const ids=users.map(item=>item.id).filter(Boolean).join(',');
-  const channels=ids?await select('user_channels',`active=eq.true&channel=eq.telegram&user_id=in.(${ids})&select=external_id&limit=200`).catch(()=>[]):[];
+  const channels=ids?await select('user_channels',`active=eq.true&channel=eq.telegram&user_id=in.(${ids})&select=external_id&limit=200`):[];
   const result=new Set((channels||[]).map(item=>clean(item.external_id,100)).filter(Boolean));
   if(config.telegramOwnerId)result.add(String(config.telegramOwnerId));
   return [...result];
 }
 async function alreadySent({runDay,slot,batchId}){
   const since=new Date(Date.now()-36*3600000).toISOString();
-  const rows=await select('audit_log',`action=eq.telegram_sales_brief_sent&created_at=gte.${encodeURIComponent(since)}&select=details&order=created_at.desc&limit=100`).catch(()=>[])||[];
+  const rows=await select('audit_log',`action=eq.telegram_sales_brief_sent&created_at=gte.${encodeURIComponent(since)}&select=details&order=created_at.desc&limit=100`)||[];
   return rows.some(row=>String(row?.details?.run_day||'')===runDay&&String(row?.details?.slot||'')===slot&&String(row?.details?.batch_id||'')===String(batchId||''));
 }
 async function recordSent(details){
