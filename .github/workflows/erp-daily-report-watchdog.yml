@@ -1,0 +1,72 @@
+name: ERP daily report watchdog
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/erp-daily-report-watchdog.yml
+      - api/_lib/routes/erp-daily-report-status.js
+      - api/router.js
+  workflow_dispatch:
+  schedule:
+    - cron: '20 5 * * *'
+    - cron: '40 5 * * *'
+    - cron: '0 6 * * *'
+    - cron: '30 6 * * *'
+    - cron: '0 7 * * *'
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: erp-daily-report-watchdog
+  cancel-in-progress: false
+
+jobs:
+  verify-yesterday-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Request GitHub OIDC token and inspect report status
+        id: status
+        shell: bash
+        env:
+          STATUS_URL: https://binhamid-factory-control.vercel.app/api/router?route=erp-daily-report/status
+        run: |
+          set -euo pipefail
+          token_response=$(curl -fsS -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=binhamid-erp-daily-report-watchdog")
+          token=$(node -e "const x=JSON.parse(process.argv[1]); if(!x.value)process.exit(2); process.stdout.write(x.value)" "$token_response")
+          response=$(curl -fsS -X POST "$STATUS_URL" \
+            -H "Authorization: Bearer $token" \
+            -H 'Content-Type: application/json' \
+            --data '{}')
+          echo "$response"
+          node - "$response" <<'NODE'
+          const fs=require('node:fs');
+          const data=JSON.parse(process.argv[2]);
+          if(!data.ok)throw new Error(data.error||'ERP status check failed');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT,`delivered=${data.delivered?'true':'false'}\nreport_date=${data.reportDate}\n`);
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,`## ERP daily report watchdog\n\n- Report date: ${data.reportDate}\n- Delivered: ${data.delivered}\n- Batch status: ${data.batch?.status||'none'}\n- Import attempts: ${(data.imports||[]).length}\n`);
+          NODE
+
+      - name: Notify owner when the morning report is missing
+        if: steps.status.outputs.delivered != 'true' && (github.event_name == 'workflow_dispatch' || github.event.schedule == '20 5 * * *' || github.event.schedule == '0 7 * * *')
+        shell: bash
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_OWNER_ID: ${{ secrets.TELEGRAM_OWNER_ID }}
+          REPORT_DATE: ${{ steps.status.outputs.report_date }}
+          SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          set -euo pipefail
+          if [ "$SCHEDULE" = '0 7 * * *' ]; then
+            text=$(printf '<b>تنبيه نهائي: تقرير المبيعات لم يصل</b>\nتقرير ERP بتاريخ <b>%s</b> لم يصل حتى الساعة 10:00 صباحًا بتوقيت السعودية.\nيلزم تشغيل حارس الكمبيوتر أو الاستخراج اليدوي فورًا.' "$REPORT_DATE")
+          else
+            text=$(printf '<b>تنبيه: تقرير المبيعات لم يصل بعد</b>\nتقرير ERP بتاريخ <b>%s</b> غير موجود حتى الساعة 08:20 صباحًا.\nحارس الكمبيوتر سيستمر في إعادة المحاولة كل 5 دقائق.' "$REPORT_DATE")
+          fi
+          curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_OWNER_ID}" \
+            --data-urlencode "parse_mode=HTML" \
+            --data-urlencode "text=${text}" >/dev/null
