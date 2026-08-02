@@ -20,7 +20,7 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     env:
       SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
       REQUESTED_DATE: ${{ github.event.inputs.report_date }}
@@ -29,18 +29,59 @@ jobs:
       HEAD_SHA: ${{ github.sha }}
       RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
-      - name: Inspect committed ERP report
+      - name: Install PostgreSQL client
         shell: bash
         run: |
           set -euo pipefail
-          if [ -z "${SUPABASE_DB_URL:-}" ]; then
-            echo "SUPABASE_DB_URL is not configured" >&2
-            exit 1
-          fi
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client
+          psql --version
+
+      - name: Inspect committed ERP report
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          publish_status() {
+            local state="$1"
+            local context="$2"
+            local description="$3"
+            STATE="$state" CONTEXT="$context" DESCRIPTION="$description" node <<'NODE'
+          const payload = {
+            state: process.env.STATE,
+            context: process.env.CONTEXT,
+            target_url: process.env.RUN_URL,
+            description: String(process.env.DESCRIPTION || '').slice(0, 140),
+          };
+          const response = await fetch(`https://api.github.com/repos/${process.env.REPOSITORY}/statuses/${process.env.HEAD_SHA}`, {
+            method: 'POST',
+            headers: {
+              Accept: 'application/vnd.github+json',
+              Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+              'X-GitHub-Api-Version': '2022-11-28',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload),
+          });
+          if (!response.ok) throw new Error(`status publish failed: HTTP ${response.status}`);
+          console.log(JSON.stringify(payload));
+          NODE
+          }
+
+          failure_status() {
+            publish_status failure 'erp-daily:check-failed' 'ERP database check failed; inspect workflow diagnostics' || true
+          }
+          trap failure_status ERR
 
           report_date="${REQUESTED_DATE:-}"
           if [ -z "$report_date" ]; then
             report_date=$(TZ=Asia/Riyadh date -d 'yesterday' +%F)
+          fi
+          publish_status pending 'erp-daily:checking' "Checking ERP report ${report_date}"
+
+          if [ -z "${SUPABASE_DB_URL:-}" ]; then
+            echo "SUPABASE_DB_URL is not configured" >&2
+            exit 1
           fi
 
           export PGCONNECT_TIMEOUT=15
@@ -69,10 +110,6 @@ ORDER BY b.report_date DESC, b.committed_at DESC NULLS LAST
 LIMIT 1;
 SQL
           )
-
-          state=failure
-          context='erp-daily:missing'
-          description="ERP ${report_date}: no committed batch"
 
           {
             echo "# ERP daily report check"
@@ -107,9 +144,6 @@ FROM s CROSS JOIN c;
 SQL
             )
             IFS='|' read -r invoices sales block_sales concrete_sales collection_rows collections <<< "$totals"
-            state=success
-            context='erp-daily:committed'
-            description="ERP ${report_date}: ${invoices} invoices; sales ${sales}; collections ${collections}"
             {
               echo "- Batch ID: ${batch_id}"
               echo "- Status: ${batch_status}"
@@ -121,6 +155,7 @@ SQL
               echo "- Collection rows: ${collection_rows}"
               echo "- Collections: ${collections} SAR"
             } >> "$GITHUB_STEP_SUMMARY"
+            publish_status success 'erp-daily:committed' "ERP ${report_date}: ${invoices} invoices; sales ${sales}; collections ${collections}"
           else
             attempts=$(psql "$SUPABASE_DB_URL" -X -A -t -F '|' -v ON_ERROR_STOP=1 -v report_date="$report_date" <<'SQL'
 SELECT COUNT(*)::text,
@@ -135,34 +170,16 @@ WHERE i.report_type IN ('daily_movement','block_daily_movement','concrete_daily_
 SQL
             )
             IFS='|' read -r attempt_count attempt_status attempt_error <<< "$attempts"
-            if [ "${attempt_count:-0}" != "0" ]; then
-              context='erp-daily:import-not-committed'
-              description="ERP ${report_date}: import ${attempt_status}; error ${attempt_error:-none}"
-            fi
             {
               echo "- Import attempts: ${attempt_count:-0}"
               echo "- Last import status: ${attempt_status:-none}"
               echo "- Last error code: ${attempt_error:-none}"
             } >> "$GITHUB_STEP_SUMMARY"
+            if [ "${attempt_count:-0}" != "0" ]; then
+              publish_status failure 'erp-daily:import-not-committed' "ERP ${report_date}: import ${attempt_status}; error ${attempt_error:-none}"
+            else
+              publish_status failure 'erp-daily:missing' "ERP ${report_date}: no file received; latest ${latest:-none}"
+            fi
           fi
 
-          DESCRIPTION="$description" STATE="$state" CONTEXT="$context" node <<'NODE'
-          const payload = {
-            state: process.env.STATE,
-            context: process.env.CONTEXT,
-            target_url: process.env.RUN_URL,
-            description: String(process.env.DESCRIPTION || '').slice(0, 140),
-          };
-          const response = await fetch(`https://api.github.com/repos/${process.env.REPOSITORY}/statuses/${process.env.HEAD_SHA}`, {
-            method: 'POST',
-            headers: {
-              Accept: 'application/vnd.github+json',
-              Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
-              'X-GitHub-Api-Version': '2022-11-28',
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(payload),
-          });
-          if (!response.ok) throw new Error(`status publish failed: HTTP ${response.status}`);
-          console.log(JSON.stringify(payload));
-          NODE
+          trap - ERR
