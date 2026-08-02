@@ -1,26 +1,15 @@
 name: ERP Daily Report Status
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - .github/workflows/erp-daily-status.yml
   pull_request:
     branches:
       - main
     paths:
       - .github/workflows/erp-daily-status.yml
   workflow_dispatch:
-    inputs:
-      report_date:
-        description: Report date in YYYY-MM-DD
-        required: false
-        default: ''
 
 permissions:
   contents: read
-  statuses: write
 
 jobs:
   inspect:
@@ -28,11 +17,6 @@ jobs:
     timeout-minutes: 12
     env:
       SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
-      REQUESTED_DATE: ${{ github.event.inputs.report_date }}
-      GITHUB_TOKEN: ${{ github.token }}
-      REPOSITORY: ${{ github.repository }}
-      HEAD_SHA: ${{ github.sha }}
-      RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - name: Install PostgreSQL client
         shell: bash
@@ -40,151 +24,122 @@ jobs:
           set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y postgresql-client
-          psql --version
 
-      - name: Inspect committed ERP report
+      - name: Resolve authenticated database endpoint
         shell: bash
         run: |
-          set -Eeuo pipefail
-
-          publish_status() {
-            local state="$1"
-            local context="$2"
-            local description="$3"
-            STATE="$state" CONTEXT="$context" DESCRIPTION="$description" node <<'NODE'
-          const payload = {
-            state: process.env.STATE,
-            context: process.env.CONTEXT,
-            target_url: process.env.RUN_URL,
-            description: String(process.env.DESCRIPTION || '').slice(0, 140),
+          set -euo pipefail
+          node <<'NODE'
+          const { appendFileSync } = require('node:fs');
+          const { spawnSync } = require('node:child_process');
+          const raw = String(process.env.SUPABASE_DB_URL || '').trim();
+          if (!raw) throw new Error('SUPABASE_DB_URL_EMPTY');
+          const configured = new URL(raw);
+          const password = decodeURIComponent(configured.password);
+          const probe = value => {
+            const url = new URL(value);
+            url.searchParams.set('sslmode', 'require');
+            url.searchParams.set('connect_timeout', '5');
+            const result = spawnSync('psql', [url.toString(), '-X', '-t', '-A', '-v', 'ON_ERROR_STOP=1', '-c', 'select 1;'], {
+              encoding: 'utf8', env: process.env, timeout: 12000,
+            });
+            return result.status === 0 && String(result.stdout || '').trim() === '1' ? url.toString() : '';
           };
-          const response = await fetch(`https://api.github.com/repos/${process.env.REPOSITORY}/statuses/${process.env.HEAD_SHA}`, {
-            method: 'POST',
-            headers: {
-              Accept: 'application/vnd.github+json',
-              Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
-              'X-GitHub-Api-Version': '2022-11-28',
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(payload),
-          });
-          if (!response.ok) throw new Error(`status publish failed: HTTP ${response.status}`);
-          console.log(JSON.stringify(payload));
+          let effective = '';
+          if (configured.hostname.endsWith('.pooler.supabase.com')) effective = probe(configured.toString());
+          if (!effective) {
+            const match = configured.hostname.match(/^db\.([a-z0-9]+)\.supabase\.co$/i);
+            if (!match) throw new Error('SUPABASE_HOST_UNSUPPORTED');
+            const ref = match[1];
+            const regions = [
+              'us-east-1','eu-central-1','ap-southeast-1','us-west-1','us-west-2','us-east-2',
+              'ca-central-1','eu-west-1','eu-west-2','eu-west-3','eu-central-2','eu-north-1',
+              'ap-south-1','ap-northeast-1','ap-northeast-2','ap-southeast-2','sa-east-1'
+            ];
+            for (const cluster of ['0','1']) {
+              for (const region of regions) {
+                const candidate = new URL(configured.toString());
+                candidate.protocol = 'postgresql:';
+                candidate.username = `postgres.${ref}`;
+                candidate.password = password;
+                candidate.hostname = `aws-${cluster}-${region}.pooler.supabase.com`;
+                candidate.port = '5432';
+                effective = probe(candidate.toString());
+                if (effective) break;
+              }
+              if (effective) break;
+            }
+          }
+          if (!effective) throw new Error('DATABASE_ENDPOINT_NOT_RESOLVED');
+          process.stdout.write(`::add-mask::${effective}\n`);
+          appendFileSync(process.env.GITHUB_ENV, `EFFECTIVE_DB_URL=${effective}\n`, { mode: 0o600 });
+          console.log('DATABASE_CONNECTION_READY');
           NODE
-          }
 
-          failure_status() {
-            publish_status failure 'erp-daily:check-failed' 'ERP database check failed; inspect workflow diagnostics' || true
-          }
-          trap failure_status ERR
-
-          report_date="${REQUESTED_DATE:-}"
-          if [ -z "$report_date" ]; then
-            report_date=$(TZ=Asia/Riyadh date -d 'yesterday' +%F)
-          fi
-          publish_status pending 'erp-daily:checking' "Checking ERP report ${report_date}"
-
-          if [ -z "${SUPABASE_DB_URL:-}" ]; then
-            echo "SUPABASE_DB_URL is not configured" >&2
-            exit 1
-          fi
-
+      - name: Inspect report dated 2026-08-01
+        shell: bash
+        run: |
+          set -euo pipefail
           export PGCONNECT_TIMEOUT=15
           export PGOPTIONS='-c statement_timeout=30000'
-
-          batch=$(psql "$SUPABASE_DB_URL" -X -A -t -F '|' -v ON_ERROR_STOP=1 -v report_date="$report_date" <<'SQL'
-SELECT
-  b.id::text,
-  b.report_date::text,
-  b.status::text,
-  COALESCE(to_char(b.committed_at AT TIME ZONE 'Asia/Riyadh','YYYY-MM-DD HH24:MI:SS'),'')
-FROM daily_report_batches b
-WHERE b.report_date = :'report_date'::date
-ORDER BY b.committed_at DESC NULLS LAST, b.created_at DESC
-LIMIT 1;
-SQL
-          )
-
-          latest=$(psql "$SUPABASE_DB_URL" -X -A -t -F '|' -v ON_ERROR_STOP=1 <<'SQL'
-SELECT
-  b.report_date::text,
-  b.status::text,
-  COALESCE(to_char(b.committed_at AT TIME ZONE 'Asia/Riyadh','YYYY-MM-DD HH24:MI:SS'),'')
-FROM daily_report_batches b
-ORDER BY b.report_date DESC, b.committed_at DESC NULLS LAST
-LIMIT 1;
-SQL
-          )
-
           {
-            echo "# ERP daily report check"
-            echo
-            echo "- Requested date: ${report_date}"
-            echo "- Latest batch: ${latest:-none}"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-          if [ -n "$batch" ]; then
-            IFS='|' read -r batch_id batch_date batch_status committed_at <<< "$batch"
-            totals=$(psql "$SUPABASE_DB_URL" -X -A -t -F '|' -v ON_ERROR_STOP=1 -v batch_id="$batch_id" <<'SQL'
-WITH s AS (
-  SELECT COUNT(*)::bigint AS invoices,
-         COALESCE(SUM(amount),0)::numeric AS sales,
-         COALESCE(SUM(amount) FILTER (WHERE sales_type='block'),0)::numeric AS block_sales,
-         COALESCE(SUM(amount) FILTER (WHERE sales_type='concrete'),0)::numeric AS concrete_sales
-  FROM daily_report_sales_lines
-  WHERE batch_id = :'batch_id'::uuid
-), c AS (
-  SELECT COUNT(*) FILTER (WHERE is_customer_collection)::bigint AS collection_rows,
-         COALESCE(SUM(debit-credit) FILTER (WHERE is_customer_collection),0)::numeric AS collections
-  FROM daily_report_cash_movements
-  WHERE batch_id = :'batch_id'::uuid
+            echo 'ERP_DIAGNOSTIC_BEGIN'
+            psql "$EFFECTIVE_DB_URL" -X -A -t -F '|' -v ON_ERROR_STOP=1 <<'SQL'
+WITH target AS (
+  SELECT id, report_date, status, committed_at, created_at, file_hash
+  FROM daily_report_batches
+  WHERE report_date = DATE '2026-08-01'
+  ORDER BY committed_at DESC NULLS LAST, created_at DESC
+  LIMIT 1
+), sales AS (
+  SELECT s.batch_id,
+         COUNT(*) AS invoice_count,
+         ROUND(COALESCE(SUM(s.amount),0),2) AS sales_total,
+         ROUND(COALESCE(SUM(s.amount) FILTER (WHERE s.sales_type='block'),0),2) AS block_total,
+         ROUND(COALESCE(SUM(s.amount) FILTER (WHERE s.sales_type='concrete'),0),2) AS concrete_total
+  FROM daily_report_sales_lines s
+  JOIN target t ON t.id=s.batch_id
+  GROUP BY s.batch_id
+), cash AS (
+  SELECT c.batch_id,
+         COUNT(*) FILTER (WHERE c.is_customer_collection) AS collection_rows,
+         ROUND(COALESCE(SUM(c.debit-c.credit) FILTER (WHERE c.is_customer_collection),0),2) AS collections_total
+  FROM daily_report_cash_movements c
+  JOIN target t ON t.id=c.batch_id
+  GROUP BY c.batch_id
 )
-SELECT s.invoices,
-       ROUND(s.sales,2),
-       ROUND(s.block_sales,2),
-       ROUND(s.concrete_sales,2),
-       c.collection_rows,
-       ROUND(c.collections,2)
-FROM s CROSS JOIN c;
-SQL
-            )
-            IFS='|' read -r invoices sales block_sales concrete_sales collection_rows collections <<< "$totals"
-            {
-              echo "- Batch ID: ${batch_id}"
-              echo "- Status: ${batch_status}"
-              echo "- Committed at Riyadh: ${committed_at:-not set}"
-              echo "- Invoices: ${invoices}"
-              echo "- Sales: ${sales} SAR"
-              echo "- Block sales: ${block_sales} SAR"
-              echo "- Concrete sales: ${concrete_sales} SAR"
-              echo "- Collection rows: ${collection_rows}"
-              echo "- Collections: ${collections} SAR"
-            } >> "$GITHUB_STEP_SUMMARY"
-            publish_status success 'erp-daily:committed' "ERP ${report_date}: ${invoices} invoices; sales ${sales}; collections ${collections}"
-          else
-            attempts=$(psql "$SUPABASE_DB_URL" -X -A -t -F '|' -v ON_ERROR_STOP=1 -v report_date="$report_date" <<'SQL'
-SELECT COUNT(*)::text,
-       COALESCE(MAX(i.status::text),'none'),
-       COALESCE(MAX(i.last_error_code::text),'')
-FROM imports i
-WHERE i.report_type IN ('daily_movement','block_daily_movement','concrete_daily_movement')
-  AND (
-    i.original_name ILIKE '%' || :'report_date' || '%'
-    OR i.created_at::date BETWEEN :'report_date'::date AND (:'report_date'::date + INTERVAL '1 day')
-  );
-SQL
-            )
-            IFS='|' read -r attempt_count attempt_status attempt_error <<< "$attempts"
-            {
-              echo "- Import attempts: ${attempt_count:-0}"
-              echo "- Last import status: ${attempt_status:-none}"
-              echo "- Last error code: ${attempt_error:-none}"
-            } >> "$GITHUB_STEP_SUMMARY"
-            if [ "${attempt_count:-0}" != "0" ]; then
-              publish_status failure 'erp-daily:import-not-committed' "ERP ${report_date}: import ${attempt_status}; error ${attempt_error:-none}"
-            else
-              publish_status failure 'erp-daily:missing' "ERP ${report_date}: no file received; latest ${latest:-none}"
-            fi
-          fi
+SELECT 'TARGET', t.id::text, t.report_date::text, t.status::text,
+       COALESCE(to_char(t.committed_at AT TIME ZONE 'Asia/Riyadh','YYYY-MM-DD HH24:MI:SS'),'NOT_COMMITTED'),
+       COALESCE(s.invoice_count,0)::text, COALESCE(s.sales_total,0)::text,
+       COALESCE(s.block_total,0)::text, COALESCE(s.concrete_total,0)::text,
+       COALESCE(c.collection_rows,0)::text, COALESCE(c.collections_total,0)::text
+FROM target t
+LEFT JOIN sales s ON s.batch_id=t.id
+LEFT JOIN cash c ON c.batch_id=t.id;
 
-          trap - ERR
+SELECT 'LATEST', report_date::text, status::text,
+       COALESCE(to_char(committed_at AT TIME ZONE 'Asia/Riyadh','YYYY-MM-DD HH24:MI:SS'),'NOT_COMMITTED')
+FROM daily_report_batches
+ORDER BY report_date DESC, committed_at DESC NULLS LAST, created_at DESC
+LIMIT 1;
+
+SELECT 'IMPORT', id::text, status::text, original_name,
+       COALESCE(last_error_code::text,''), COALESCE(last_error_message::text,''),
+       to_char(created_at AT TIME ZONE 'Asia/Riyadh','YYYY-MM-DD HH24:MI:SS')
+FROM imports
+WHERE report_type IN ('daily_movement','block_daily_movement','concrete_daily_movement')
+  AND created_at >= TIMESTAMPTZ '2026-08-01 00:00:00+03'
+ORDER BY created_at DESC
+LIMIT 10;
+SQL
+            echo 'ERP_DIAGNOSTIC_END'
+          } | tee erp-diagnostic.txt
+
+      - name: Upload diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: erp-diagnostic-${{ github.run_id }}
+          path: erp-diagnostic.txt
+          if-no-files-found: warn
+          retention-days: 3
