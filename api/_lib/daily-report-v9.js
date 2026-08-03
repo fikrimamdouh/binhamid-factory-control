@@ -3,7 +3,7 @@ import * as XLSX from 'xlsx';
 import currentDailyReport from './daily-report-v8.js';
 import { parseDailyWorkbook } from './daily-summary-parser.js';
 import { splitAggregatedAnalysis } from './daily-report-v3.js';
-import { anchorBlankRows,repairSingleDayWorkbook } from './daily-report-v7.js';
+import { anchorBlankRows } from './daily-report-v7.js';
 
 const TOKEN_SHA='b4ba6180ffc5d0ce658168f76b3362b69b7e930b998e8304fa6afe68da8289a0';
 const clean=(value,max=1000)=>String(value??'').trim().slice(0,max);
@@ -38,16 +38,37 @@ export function singleDayFilenameDate(value){
   return match?.[1]||'';
 }
 
+export function swappedDayMonthDate(reportDate=''){
+  const match=clean(reportDate,20).match(/^(20\d{2})-(\d{2})-(\d{2})$/);
+  if(!match)return'';
+  const month=Number(match[2]),day=Number(match[3]);
+  if(month<1||month>12||day<1||day>12||month===day)return'';
+  return`${match[1]}-${String(day).padStart(2,'0')}-${String(month).padStart(2,'0')}`;
+}
+
+function namedRowDate(row){return row?._erpUndatedKind==='sale'?saleDate(row):rowDate(row);}
+
+export function namedDailyRowsToRepair(analysis={},reportDate=''){
+  const swapped=swappedDayMonthDate(reportDate);
+  const sales=(analysis.sales||[]).map(row=>({...row,_erpUndatedKind:'sale'}));
+  const cash=(analysis.cashMovements||analysis.collections||[]).map(row=>({...row,_erpUndatedKind:'cash'}));
+  return[...sales,...cash].filter(row=>{
+    const current=namedRowDate(row);
+    return!current||Boolean(swapped&&current===swapped);
+  });
+}
+
 export function undatedNamedDailyRows(analysis={}){
-  const sales=(analysis.sales||[]).filter(row=>!saleDate(row)).map(row=>({...row,_erpUndatedKind:'sale'}));
-  const cash=(analysis.cashMovements||analysis.collections||[]).filter(row=>!rowDate(row)).map(row=>({...row,_erpUndatedKind:'cash'}));
-  return[...sales,...cash];
+  return namedDailyRowsToRepair(analysis,'').filter(row=>!namedRowDate(row));
 }
 
 export function shouldRepairNamedSingleDay(analysis={},reportDate=''){
   if(!/^20\d{2}-\d{2}-\d{2}$/.test(reportDate))return false;
-  const split=splitAggregatedAnalysis(analysis);
-  return split.sourceDates.length>1&&undatedNamedDailyRows(analysis).length>0;
+  const rows=namedDailyRowsToRepair(analysis,reportDate);
+  if(!rows.length)return false;
+  const split=splitAggregatedAnalysis(analysis),sourceDates=[...new Set(split.sourceDates||analysis.reportDates||[])].filter(value=>/^20\d{2}-\d{2}-\d{2}$/.test(value));
+  const allowed=new Set([reportDate,swappedDayMonthDate(reportDate)].filter(Boolean));
+  return sourceDates.every(value=>allowed.has(value));
 }
 
 function isoCellDate(value){
@@ -75,16 +96,17 @@ function peerDateColumn(workbook,row,analysis){
   return-1;
 }
 
-function headerDateColumn(workbook,row){
+function headerDateColumn(workbook,row,fullSheet=false){
   const sheet=workbook.Sheets[clean(row?.sheet,200)],rowNo=Number(row?.row||0);
   if(!sheet||!sheet['!ref']||!Number.isInteger(rowNo)||rowNo<1)return-1;
   const rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:'',raw:true,cellDates:true,blankrows:true});
   let best={score:-1,column:-1};
-  for(let index=rowNo-2;index>=Math.max(0,rowNo-60);index--){
+  const start=fullSheet?rows.length-1:rowNo-2,end=fullSheet?0:Math.max(0,rowNo-60);
+  for(let index=start;index>=end;index--){
     const normalized=(rows[index]||[]).map(label),dateColumns=[];
     normalized.forEach((value,column)=>{if(value==='التاريخ'||value.includes('تاريخ الحرك')||value.includes('تاريخ الفاتور')||value.includes('تاريخ التقرير')||/report date|transaction date|invoice date/.test(value))dateColumns.push(column);});
     if(!dateColumns.length)continue;
-    let score=60-(rowNo-2-index);
+    let score=fullSheet?20:60-(rowNo-2-index);
     if(row?._erpUndatedKind==='cash'){
       if(normalized.some(value=>value==='مدين')&&normalized.some(value=>value==='دائن'))score+=100;
       if(normalized.some(value=>value.includes('الخزين')||value.includes('الحساب')||value.includes('السند')))score+=25;
@@ -97,21 +119,31 @@ function headerDateColumn(workbook,row){
   return best.column;
 }
 
+function fallbackDateColumn(workbook,row){
+  const sheet=workbook.Sheets[clean(row?.sheet,200)];
+  if(!sheet?.['!ref'])return 8;
+  const range=XLSX.utils.decode_range(sheet['!ref']);
+  return Math.max(8,range.e.c+1);
+}
+
 function putNamedDate(workbook,row,analysis,reportDate){
   const sheet=workbook.Sheets[clean(row?.sheet,200)],rowNo=Number(row?.row||0);
   if(!sheet||!Number.isInteger(rowNo)||rowNo<1)return false;
-  const column=peerDateColumn(workbook,row,analysis)>=0?peerDateColumn(workbook,row,analysis):headerDateColumn(workbook,row);
-  if(column<0)return false;
+  const peer=peerDateColumn(workbook,row,analysis),nearby=headerDateColumn(workbook,row,false),global=headerDateColumn(workbook,row,true);
+  const column=peer>=0?peer:nearby>=0?nearby:global>=0?global:fallbackDateColumn(workbook,row);
   sheet[XLSX.utils.encode_cell({r:rowNo-1,c:column})]={t:'s',v:reportDate};
+  const range=XLSX.utils.decode_range(sheet['!ref']||'A1');
+  if(column>range.e.c){range.e.c=column;sheet['!ref']=XLSX.utils.encode_range(range);}
   return true;
 }
 
 export function repairNamedSingleDayWorkbook(workbook,analysis,reportDate){
-  const rows=undatedNamedDailyRows(analysis),sales=rows.filter(row=>row._erpUndatedKind==='sale'),cash=rows.filter(row=>row._erpUndatedKind==='cash');
-  let salesAssigned=0;
+  const rows=namedDailyRowsToRepair(analysis,reportDate),sales=rows.filter(row=>row._erpUndatedKind==='sale'),cash=rows.filter(row=>row._erpUndatedKind==='cash');
+  let salesAssigned=0,cashAssigned=0;
   for(const row of sales)if(putNamedDate(workbook,row,analysis,reportDate))salesAssigned++;
-  const buffer=repairSingleDayWorkbook(workbook,{undatedRows:cash,removeRows:[]},reportDate);
-  return{buffer,salesAssigned,cashAssigned:cash.length,totalRequested:rows.length};
+  for(const row of cash)if(putNamedDate(workbook,row,analysis,reportDate))cashAssigned++;
+  const buffer=XLSX.write(workbook,{type:'buffer',bookType:'xlsx',compression:true});
+  return{buffer,salesAssigned,cashAssigned,totalRequested:rows.length,swappedDate:swappedDayMonthDate(reportDate)};
 }
 
 async function guarded(req,res){
@@ -129,7 +161,7 @@ async function guarded(req,res){
     const forwarded=Object.create(req);
     forwarded.body=repaired.buffer;
     forwarded.headers={...(req.headers||{}),'x-erp-single-day-filename-date':reportDate};
-    console.info('ERP named single-day repair applied',{sourceFile,reportDate,salesAssigned:repaired.salesAssigned,cashAssigned:repaired.cashAssigned,totalRequested:repaired.totalRequested,explicitDates:[...new Set(analysis.reportDates||[])]});
+    console.info('ERP named single-day repair applied',{sourceFile,reportDate,swappedDate:repaired.swappedDate,salesAssigned:repaired.salesAssigned,cashAssigned:repaired.cashAssigned,totalRequested:repaired.totalRequested,explicitDates:[...new Set(analysis.reportDates||[])]});
     return currentDailyReport(forwarded,res);
   }catch(error){
     console.warn('ERP named single-day pre-repair skipped',error);
