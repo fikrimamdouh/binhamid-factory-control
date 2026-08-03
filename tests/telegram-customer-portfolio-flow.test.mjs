@@ -82,7 +82,8 @@ test('concrete classifier accepts canonical and ready-mix values',()=>{
 test('server fallback uses the same website document system',()=>{
   assert.match(portfolio,/renderCustomerPortfolioDeclaration/);
   assert.match(portfolio,/company:state\.company/);
-  assert.match(renderer,/primary-owner-cross-sector-v2/);
+  assert.match(renderer,/function crossSectorSection/);
+  assert.match(renderer,/مسؤولية فاتورة القطاع البائع فقط/);
   for(const marker of ['class="doc"','class="spine"','class="mast"','class="tbar"','class="dg"','class="led"','class="cov"','class="exe"','IBM Plex Sans Arabic','Reem Kufi','width:210mm;height:297mm'])assert.match(renderer,new RegExp(marker));
 });
 
@@ -97,7 +98,8 @@ test('website-style fallback splits only at complete A4 pages',()=>{
 
 test('bot prefers fixed historical snapshot then generates only missing departments',()=>{
   assert.match(botPortfolio,/readExactPointer/);
-  assert.match(botPortfolio,/snapshotVersion!=='portfolio-settlement-v3-cross-sector'/);
+  assert.match(botPortfolio,/const SNAPSHOT_VERSION='portfolio-settlement-v4-concrete-cash-bank-cutoff'/);
+  assert.match(botPortfolio,/pointer\.snapshotVersion!==SNAPSHOT_VERSION/);
   assert.match(botPortfolio,/const needsGeneration=\[\]/);
   assert.match(botPortfolio,/generateAvailablePortfolioPdfs/);
   assert.match(botPortfolio,/persistPortfolioReportSnapshot/);
