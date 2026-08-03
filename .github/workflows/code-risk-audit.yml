@@ -24,8 +24,10 @@ jobs:
       - name: Scan silent failures and HTML sinks
         run: node scripts/audit-code-risks.mjs
       - name: Publish summary
+        if: always()
         run: cat artifacts/code-risk-audit/report.md >> "$GITHUB_STEP_SUMMARY"
       - name: Upload audit evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: code-risk-audit-${{ github.sha }}
