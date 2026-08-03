@@ -41,12 +41,16 @@ test('new customer is distinguished and can be fully paid',()=>{
   assert.equal(result.finalAdvance,0);
 });
 
-test('declared concrete sector is retained while item mismatch and duplicates are flagged',()=>{
-  const index=buildReportActivityIndex({sales:[{invoice:'A1',kind:'خرسانة',item:'بلوك 20',customerCode:'1',customer:'عميل',amount:100},{invoice:'A1',kind:'خرسانة',item:'خرسانة',customerCode:'1',customer:'عميل',amount:100}],collections:[]},'concrete','2026-07-27');
-  assert.equal(index.rows.length,1);
-  assert.equal(index.rows[0].sales,200);
-  assert.ok(index.rows[0].alerts.has('duplicate_invoice'));
-  assert.ok(index.rows[0].alerts.has('sales_type_mismatch'));
+test('item description controls sector while a declared mismatch is flagged',()=>{
+  const analysis={sales:[{invoice:'A1',kind:'خرسانة',item:'بلوك 20',customerCode:'1',customer:'عميل',amount:100},{invoice:'A1',kind:'خرسانة',item:'خرسانة',customerCode:'1',customer:'عميل',amount:100}],collections:[]};
+  const concrete=buildReportActivityIndex(analysis,'concrete','2026-07-27');
+  const block=buildReportActivityIndex(analysis,'block','2026-07-27');
+  assert.equal(concrete.rows.length,1);
+  assert.equal(concrete.rows[0].sales,100);
+  assert.equal(block.rows.length,1);
+  assert.equal(block.rows[0].sales,100);
+  assert.ok(block.rows[0].alerts.has('sales_type_mismatch'));
+  assert.ok(!block.rows[0].alerts.has('duplicate_invoice'));
 });
 
 test('customers with the same name and different codes remain separate',()=>{
@@ -77,7 +81,7 @@ test('payment terms are removed from the portfolio tables and kept in declaratio
 test('portfolio is limited to section sales history and current report activity',async()=>{
   const portfolio=await readFile(new URL('../api/_lib/customer-portfolio-pdf.js',import.meta.url),'utf8');
   assert.match(portfolio,/hasSectionSales/);
-  assert.match(portfolio,/base\.grossSales/);
+  assert.match(portfolio,/scopedBase\?\.grossSales/);
   assert.match(portfolio,/settlement\.remainingPriorSales/);
   assert.match(portfolio,/settlement\.hasReportActivity/);
   assert.doesNotMatch(portfolio,/assignedToRep/);
@@ -98,5 +102,5 @@ test('portfolio includes classifications, totals, aging and fixed snapshots',asy
   assert.match(portfolio,/أعمار المديونية/);
   assert.match(portfolio,/persistPortfolioReportSnapshot/);
   assert.match(portfolio,/portfolio-snapshots/);
-  assert.match(portfolio,/portfolio-settlement-v3-cross-sector/);
+  assert.match(portfolio,/portfolio-settlement-v4-concrete-cash-bank-cutoff/);
 });
