@@ -6,9 +6,10 @@ import { ERP_FAILED_RETRY_POLICIES, ERP_FAILED_RETRY_REVISION } from '../api/_li
 const read=path=>readFile(new URL(`../${path}`,import.meta.url),'utf8');
 
 test('failed ERP agent retries only explicitly repairable failures',()=>{
-  assert.match(ERP_FAILED_RETRY_REVISION,/all-undated-sales-cash/);
+  assert.match(ERP_FAILED_RETRY_REVISION,/swapped-day-month-and-undated/);
   assert.equal(ERP_FAILED_RETRY_POLICIES.ERP_RANGE_UNDATED_ROWS.autoRetry,true);
   assert.equal(ERP_FAILED_RETRY_POLICIES.ERP_RANGE_UNDATED_ROWS.maxAttemptsPerRevision,1);
+  assert.match(ERP_FAILED_RETRY_POLICIES.ERP_RANGE_UNDATED_ROWS.reason,/day-month-swapped dates/);
   assert.equal(ERP_FAILED_RETRY_POLICIES.ERP_SYNC_NOT_DAILY_REPORT.autoRetry,false);
   assert.equal(ERP_FAILED_RETRY_POLICIES.ERP_TRANSACTION_CONFLICT.autoRetry,false);
 });
