@@ -1,13 +1,13 @@
 import { json, method } from '../http.js';
 
-export const ERP_FAILED_RETRY_REVISION='2026.08.03-all-undated-sales-cash-v2';
+export const ERP_FAILED_RETRY_REVISION='2026.08.03-swapped-day-month-and-undated-v3';
 
 export const ERP_FAILED_RETRY_POLICIES=Object.freeze({
   ERP_RANGE_UNDATED_ROWS:Object.freeze({
     autoRetry:true,
     maxAttemptsPerRevision:1,
     strategy:'latest-file-per-report-date',
-    reason:'The production importer can now assign the date encoded in Daily-Report-YYYY-MM-DD to undated sales and cash rows.'
+    reason:'The production importer now assigns the Daily-Report filename date to undated rows and corrects ERP day-month-swapped dates in named daily workbooks.'
   }),
   ERP_SYNC_NOT_DAILY_REPORT:Object.freeze({
     autoRetry:false,
