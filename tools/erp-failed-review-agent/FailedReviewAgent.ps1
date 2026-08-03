@@ -99,6 +99,15 @@ try {
   $revision = [string]$policy.revision
   $state = Load-State
   $files = @(Get-ChildItem -LiteralPath $FailedDir -File -Filter '*.xlsx' -ErrorAction SilentlyContinue)
+
+  $supersededByHash = @{}
+  foreach ($entry in @($policy.supersededFiles)) {
+    $knownHash = String($entry.sha256).ToLowerInvariant()
+    if ($knownHash -match '^[0-9a-f]{64}$' -and [string]$entry.disposition -eq 'archive-superseded') {
+      $supersededByHash[$knownHash] = $entry
+    }
+  }
+
   $processedByDate = @{}
   foreach ($processed in @(Get-ChildItem -LiteralPath $ProcessedDir -File -Filter '*.xlsx' -ErrorAction SilentlyContinue)) {
     $processedDate = Get-ReportDateFromName $processed.Name
@@ -107,9 +116,28 @@ try {
       $processedByDate[$processedDate] = $processed
     }
   }
-  $reviewed = @()
 
+  $reviewed = @()
   foreach ($file in $files) {
+    try {
+      $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+    } catch {
+      Write-AgentLog 'WARN' 'Failed report hash could not be calculated; file was left untouched.' @{ file=$file.Name; error=$_.Exception.Message }
+      continue
+    }
+
+    if ($supersededByHash.ContainsKey($hash)) {
+      $known = $supersededByHash[$hash]
+      $supersededName = '{0}-reviewed-superseded-{1}{2}' -f [System.IO.Path]::GetFileNameWithoutExtension($file.Name),(Get-Date -Format 'yyyyMMdd-HHmmss'),$file.Extension
+      try {
+        $target = Move-Unique -File $file -DestinationDirectory $SupersededDir -DestinationName $supersededName
+        Write-AgentLog 'SUCCESS' 'Reviewed failed report archived by exact SHA-256 because production already contains its approved data.' @{ file=$file.Name; target=$target; hash=$hash; reportDate=$known.reportDate; reason=$known.reason; revision=$revision }
+      } catch {
+        Write-AgentLog 'WARN' 'Reviewed superseded report could not be archived.' @{ file=$file.Name; hash=$hash; error=$_.Exception.Message }
+      }
+      continue
+    }
+
     $reportDate = Get-ReportDateFromName $file.Name
     if ([string]::IsNullOrWhiteSpace($reportDate)) { continue }
 
@@ -133,6 +161,7 @@ try {
     $rule = if ($null -ne $property) { $property.Value } else { $policy.defaultPolicy }
     $reviewed += [pscustomobject]@{
       File = $file
+      Hash = $hash
       ReportDate = $reportDate
       ErrorCode = $errorCode
       Rule = $rule
@@ -156,7 +185,7 @@ try {
     }
 
     if (-not (Test-Path -LiteralPath $chosen.File.FullName)) { continue }
-    $hash = (Get-FileHash -LiteralPath $chosen.File.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+    $hash = [string]$chosen.Hash
     $key = '{0}|{1}|{2}' -f $hash,$chosen.ErrorCode,$revision
     $maxAttempts = [int]($chosen.Rule.maxAttemptsPerRevision)
     if ($maxAttempts -lt 1) { $maxAttempts = 1 }
@@ -195,7 +224,7 @@ try {
     Write-AgentLog 'INFO' 'Failed report requires manual review and was not re-uploaded.' @{ file=$item.File.Name; reportDate=$item.ReportDate; errorCode=$item.ErrorCode; reason=$item.Rule.reason }
   }
 
-  Write-AgentLog 'INFO' 'Failed-review cycle completed.' @{ revision=$revision; failedFiles=$files.Count; classified=$reviewed.Count; retryable=$retryable.Count }
+  Write-AgentLog 'INFO' 'Failed-review cycle completed.' @{ revision=$revision; failedFiles=$files.Count; classified=$reviewed.Count; retryable=$retryable.Count; knownSuperseded=$supersededByHash.Count }
 } finally {
   Remove-Item -LiteralPath $LockPath -Force -ErrorAction SilentlyContinue
 }
