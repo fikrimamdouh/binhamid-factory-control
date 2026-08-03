@@ -4,6 +4,12 @@ import { extname, join, relative } from 'node:path';
 const ROOT=process.cwd();
 const OUT='artifacts/code-risk-audit';
 const EXCLUDED=new Set(['.git','node_modules','.vercel','dist','coverage','backups','artifacts']);
+const AUDIT_EXCLUDED_FILES=new Set([
+  'scripts/audit-code-risks.mjs',
+  // One-time source patch generator. Its template strings are not shipped runtime code;
+  // the generated runtime modules themselves remain part of this audit.
+  'scripts/apply-faisal-accountant-preview.mjs'
+]);
 const ALLOWED=new Set(['.js','.mjs','.cjs','.html']);
 const P0_HINT=/(account|ledger|trial|financial|finance|sales|collection|payment|invoice|inventory|cost|journal)/i;
 
@@ -57,7 +63,7 @@ const files=await walk('.');
 const findings=[];
 for(const file of files){
   const path=relative(ROOT,file).replaceAll('\\','/');
-  if(path==='scripts/audit-code-risks.mjs')continue;
+  if(AUDIT_EXCLUDED_FILES.has(path))continue;
   const text=await readFile(file,'utf8');
   findings.push(...findSilentFailures(path,text),...findHtmlSinks(path,text));
 }
