@@ -26,6 +26,7 @@ import * as weeklyReport from './_lib/routes/weekly-report.js';
 import * as weeklyReportStatus from './_lib/routes/weekly-report-status.js';
 import * as weeklyReportManagerDelivery from './_lib/routes/weekly-report-manager-delivery.js';
 import * as erpDailyReportStatus from './_lib/routes/erp-daily-report-status.js';
+import * as erpFailedRetryPolicy from './_lib/routes/erp-failed-retry-policy.js';
 import * as customerPortfolioRange from './_lib/routes/customer-portfolio-range.js';
 import * as attendanceSafe from './_lib/routes/attendance-safe.js';
 import * as botPermissions from './_lib/routes/bot-permissions.js';
@@ -79,6 +80,7 @@ const routes={
   'weekly-report/status':weeklyReportStatus.weeklyReportStatus,
   'weekly-report/deliver-managers':weeklyReportManagerDelivery.deliverWeeklyReportToManagers,
   'erp-daily-report/status':erpDailyReportStatus.erpDailyReportStatus,
+  'erp-failed-retry-policy':erpFailedRetryPolicy.erpFailedRetryPolicy,
   'attendance-safe':attendanceSafe.attendanceSafe,
   'bot-permissions':botPermissions.botPermissions,
   'opening-balances':openingBalances
