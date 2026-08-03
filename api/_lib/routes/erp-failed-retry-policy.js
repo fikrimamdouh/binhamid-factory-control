@@ -1,6 +1,6 @@
 import { json, method } from '../http.js';
 
-export const ERP_FAILED_RETRY_REVISION='2026.08.03-swapped-day-month-and-undated-v3';
+export const ERP_FAILED_RETRY_REVISION='2026.08.03-swapped-day-month-undated-and-superseded-v4';
 
 export const ERP_FAILED_RETRY_POLICIES=Object.freeze({
   ERP_RANGE_UNDATED_ROWS:Object.freeze({
@@ -11,11 +11,11 @@ export const ERP_FAILED_RETRY_POLICIES=Object.freeze({
   }),
   ERP_SYNC_NOT_DAILY_REPORT:Object.freeze({
     autoRetry:false,
-    reason:'The workbook has no recognized daily-report data and requires source-file review.'
+    reason:'The workbook has no recognized daily-report data. If a newer successful Processed copy exists for the same date, the local review agent archives this failed copy as superseded; otherwise source-file review is required.'
   }),
   ERP_TRANSACTION_CONFLICT:Object.freeze({
     autoRetry:false,
-    reason:'Conflicting invoice or payment data requires accounting review.'
+    reason:'Conflicting invoice or payment data requires accounting review unless a newer successful Processed copy already supersedes it.'
   }),
   ERP_PAYMENT_MIGRATION_REQUIRED:Object.freeze({
     autoRetry:false,
