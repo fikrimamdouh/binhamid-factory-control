@@ -22,8 +22,8 @@ import { createDriverPoolLink, handleDriverPoolStart } from './bot-driver-pool-r
 );
 invitations=replaceOnce(
   invitations,
-  `function invitationMenu(){return keyboard([[{text:'دعوة فيصل سيد أحمد — رابط واحد',callback_data:'ent:inv|faisal'}],[{text:'دعوة مستخدم جديد',callback_data:'ent:inv|new'},{text:'قائمة الدعوات',callback_data:'ent:inv|list'}],[{text:'القائمة الرئيسية',callback_data:'ent:help'}]]);}`,
-  `function invitationMenu(){return keyboard([[{text:'دعوة فيصل سيد أحمد — رابط واحد',callback_data:'ent:inv|faisal'}],[{text:'إنشاء رابط تسجيل السائقين',callback_data:'ent:inv|drivers'}],[{text:'دعوة مستخدم جديد',callback_data:'ent:inv|new'},{text:'قائمة الدعوات',callback_data:'ent:inv|list'}],[{text:'القائمة الرئيسية',callback_data:'ent:help'}]]);}`,
+  `function invitationMenu(){return keyboard([[{text:'دعوة مستخدم جديد',callback_data:'ent:inv|new'},{text:'قائمة الدعوات',callback_data:'ent:inv|list'}],[{text:'القائمة الرئيسية',callback_data:'ent:help'}]]);}`,
+  `function invitationMenu(){return keyboard([[{text:'إنشاء رابط تسجيل السائقين',callback_data:'ent:inv|drivers'}],[{text:'دعوة مستخدم جديد',callback_data:'ent:inv|new'},{text:'قائمة الدعوات',callback_data:'ent:inv|list'}],[{text:'القائمة الرئيسية',callback_data:'ent:help'}]]);}`,
   'driver registration menu'
 );
 invitations=replaceOnce(
