@@ -70,7 +70,8 @@ test('exact website print is archived with portfolio metadata',()=>{
 test('bot prefers the fixed financial snapshot and generates only missing departments',()=>{
   assert.match(bot,/downloadObject/);
   assert.match(bot,/sendExactDailyPortfolio/);
-  assert.match(bot,/snapshotVersion!=='portfolio-settlement-v3-cross-sector'/);
+  assert.match(bot,/const SNAPSHOT_VERSION='portfolio-settlement-v4-concrete-cash-bank-cutoff'/);
+  assert.match(bot,/pointer\.snapshotVersion!==SNAPSHOT_VERSION/);
   assert.match(bot,/persistPortfolioReportSnapshot/);
   assert.match(batch,/generateAvailablePortfolioPdfs/);
   assert.match(batch,/missingTypes\.push\(type\)/);
