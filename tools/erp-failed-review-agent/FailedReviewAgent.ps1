@@ -102,7 +102,7 @@ try {
 
   $supersededByHash = @{}
   foreach ($entry in @($policy.supersededFiles)) {
-    $knownHash = String($entry.sha256).ToLowerInvariant()
+    $knownHash = ([string]$entry.sha256).ToLowerInvariant()
     if ($knownHash -match '^[0-9a-f]{64}$' -and [string]$entry.disposition -eq 'archive-superseded') {
       $supersededByHash[$knownHash] = $entry
     }
