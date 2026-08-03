@@ -5,6 +5,10 @@ on:
     branches: [diagnose/july-failed-files-20260803]
     paths:
       - '.github/workflows/export-open-order-source-20260803.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/export-open-order-source-20260803.yml'
 
 permissions:
   contents: read
