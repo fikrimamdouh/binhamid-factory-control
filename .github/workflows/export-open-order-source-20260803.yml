@@ -1,0 +1,30 @@
+name: Export open order source
+
+on:
+  push:
+    branches: [diagnose/july-failed-files-20260803]
+    paths:
+      - '.github/workflows/export-open-order-source-20260803.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare source
+        run: |
+          mkdir -p source/api/_lib/routes source/api/_lib source/tests source/supabase/migrations source/scripts
+          cp api/_lib/routes/management.js source/api/_lib/routes/
+          cp api/_lib/bot-sales.js source/api/_lib/
+          cp tests/telegram-master-data-persistence.test.mjs source/tests/
+          cp tests/enterprise-operations.test.mjs source/tests/ 2>/dev/null || true
+          cp supabase/migrations/029_daily_report_v2_upgrade.sql source/supabase/migrations/
+          cp scripts/audit-migrations.mjs source/scripts/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: open-order-source-${{ github.run_id }}
+          path: source/
+          retention-days: 3
