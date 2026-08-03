@@ -71,13 +71,14 @@ gateway=replaceOnce(
 );
 gateway=replaceOnce(
   gateway,
-  `  const raw=String(message.text||message.caption||'').trim(),normalized=norm(raw);`,
+  `  const raw=String(message.text||message.caption||'').trim(),normalized=norm(raw),switchDecision=shouldSwitchSession(state,raw);`,
   `  const raw=String(message.text||message.caption||'').trim(),normalized=norm(raw);
   if(state.startsWith('driver_pool_')){
     if(message.chat.type!=='private'){await sendMessage(message.chat.id,'تسجيل السائق يتم من المحادثة الخاصة مع البوت.');return true;}
     if(!await logIntercepted(update,message,identity))return true;
     if(await continueDriverPoolSession(message,identity,session,raw))return true;
-  }`,
+  }
+  const switchDecision=shouldSwitchSession(state,raw);`,
   'gateway driver registration session'
 );
 write('api/_lib/telegram-webhook-gateway.js',gateway);
