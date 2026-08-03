@@ -1,0 +1,62 @@
+name: Diagnose sales order status
+
+on:
+  push:
+    branches: [diagnose/july-failed-files-20260803]
+    paths:
+      - '.github/workflows/diagnose-sales-order-status-20260803.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/diagnose-sales-order-status-20260803.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client
+      - name: Resolve protected database connection
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          SUPABASE_POOLER_HOST: ${{ vars.SUPABASE_POOLER_HOST }}
+        run: node scripts/resolve-supabase-connection.mjs
+      - name: Inspect sales order sources and statuses
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql "$SUPABASE_DB_URL" -X -v ON_ERROR_STOP=1 -A -F '|' <<'SQL' | tee sales-order-status.txt
+          select 'schema_version',coalesce(max(version),0)::text from public.migration_history;
+          select 'status',coalesce(status,''),count(*)::text,
+                 count(*) filter(where reference_no like 'DR-%')::text,
+                 count(*) filter(where reference_no not like 'DR-%')::text
+          from public.sales_orders
+          group by status
+          order by count(*) desc,status;
+          select 'daily_report_total',count(*)::text,
+                 count(*) filter(where status='registered')::text,
+                 count(*) filter(where status in ('invoiced','partially_collected','collected'))::text
+          from public.sales_orders where reference_no like 'DR-%';
+          select 'operational_total',count(*)::text,
+                 count(*) filter(where status in ('registered','confirmed','scheduled','in_production','ready','dispatched','on_hold'))::text
+          from public.sales_orders where reference_no not like 'DR-%';
+          select 'sample',reference_no,status,customer_name,total_amount::text,delivery_date::text,sales_person_name
+          from public.sales_orders
+          order by created_at desc
+          limit 80;
+          SQL
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sales-order-status-${{ github.run_id }}
+          path: sales-order-status.txt
+          retention-days: 3
