@@ -6,6 +6,11 @@ on:
       - diagnose/july-failed-files-20260803
     paths:
       - '.github/workflows/diagnose-july-failed-files-20260803.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/diagnose-july-failed-files-20260803.yml'
 
 permissions:
   contents: read
@@ -51,8 +56,6 @@ jobs:
             select b.report_date,b.id,b.status,b.committed_at,b.original_name,b.summary,
               (select count(*) from public.daily_report_sales_lines s where s.batch_id=b.id) sales_rows,
               (select coalesce(sum(s.amount),0) from public.daily_report_sales_lines s where s.batch_id=b.id) sales_total,
-              (select coalesce(sum(case when lower(coalesce(s.sale_type,''))='block' then s.amount else 0 end),0) from public.daily_report_sales_lines s where s.batch_id=b.id) block_total,
-              (select coalesce(sum(case when lower(coalesce(s.sale_type,''))='concrete' then s.amount else 0 end),0) from public.daily_report_sales_lines s where s.batch_id=b.id) concrete_total,
               (select count(*) from public.daily_report_cash_movements c where c.batch_id=b.id) cash_rows,
               (select count(*) from public.daily_report_cash_movements c where c.batch_id=b.id and c.is_customer_collection=true) collection_rows,
               (select coalesce(sum(greatest(c.debit,c.credit)),0) from public.daily_report_cash_movements c where c.batch_id=b.id and c.is_customer_collection=true) collection_total
