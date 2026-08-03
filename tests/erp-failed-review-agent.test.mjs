@@ -6,7 +6,7 @@ import { ERP_FAILED_RETRY_POLICIES, ERP_FAILED_RETRY_REVISION } from '../api/_li
 const read=path=>readFile(new URL(`../${path}`,import.meta.url),'utf8');
 
 test('failed ERP agent retries only explicitly repairable failures',()=>{
-  assert.match(ERP_FAILED_RETRY_REVISION,/swapped-day-month-and-undated/);
+  assert.match(ERP_FAILED_RETRY_REVISION,/swapped-day-month-undated-and-superseded/);
   assert.equal(ERP_FAILED_RETRY_POLICIES.ERP_RANGE_UNDATED_ROWS.autoRetry,true);
   assert.equal(ERP_FAILED_RETRY_POLICIES.ERP_RANGE_UNDATED_ROWS.maxAttemptsPerRevision,1);
   assert.match(ERP_FAILED_RETRY_POLICIES.ERP_RANGE_UNDATED_ROWS.reason,/day-month-swapped dates/);
@@ -23,6 +23,15 @@ test('local failed-review agent is revision-bound, hash-bound and uses the exist
   assert.match(script,/ManualReview\\Superseded/);
   assert.match(script,/Move-Unique -File \$chosen\.File -DestinationDirectory \$IncomingDir/);
   assert.doesNotMatch(script,/x-erp-sync-token/i);
+});
+
+test('failed copies are archived only when a newer processed report supersedes them',async()=>{
+  const script=await read('tools/erp-failed-review-agent/FailedReviewAgent.ps1');
+  assert.match(script,/\$ProcessedDir = Join-Path \$Root 'Processed'/);
+  assert.match(script,/\$processedByDate = @\{\}/);
+  assert.match(script,/\$processed\.LastWriteTimeUtc -ge \$file\.LastWriteTimeUtc/);
+  assert.match(script,/superseded-by-processed/);
+  assert.match(script,/newer successful processed report exists for the same date/);
 });
 
 test('central router exposes the public non-sensitive retry policy',async()=>{

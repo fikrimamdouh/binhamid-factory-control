@@ -6,13 +6,14 @@ param(
 $ErrorActionPreference = 'Stop'
 $IncomingDir = Join-Path $Root 'Incoming'
 $FailedDir = Join-Path $Root 'Failed'
+$ProcessedDir = Join-Path $Root 'Processed'
 $LogsDir = Join-Path $Root 'Logs'
 $SupersededDir = Join-Path $Root 'ManualReview\Superseded'
 $StatePath = Join-Path $LogsDir 'failed-review-agent-state.json'
 $LogPath = Join-Path $LogsDir ('failed-review-agent-{0}.log' -f (Get-Date -Format 'yyyy-MM-dd'))
 $LockPath = Join-Path $LogsDir 'failed-review-agent.lock'
 
-foreach ($dir in @($IncomingDir,$FailedDir,$LogsDir,$SupersededDir)) {
+foreach ($dir in @($IncomingDir,$FailedDir,$ProcessedDir,$LogsDir,$SupersededDir)) {
   New-Item -ItemType Directory -Path $dir -Force | Out-Null
 }
 
@@ -98,14 +99,36 @@ try {
   $revision = [string]$policy.revision
   $state = Load-State
   $files = @(Get-ChildItem -LiteralPath $FailedDir -File -Filter '*.xlsx' -ErrorAction SilentlyContinue)
+  $processedByDate = @{}
+  foreach ($processed in @(Get-ChildItem -LiteralPath $ProcessedDir -File -Filter '*.xlsx' -ErrorAction SilentlyContinue)) {
+    $processedDate = Get-ReportDateFromName $processed.Name
+    if ([string]::IsNullOrWhiteSpace($processedDate)) { continue }
+    if (-not $processedByDate.ContainsKey($processedDate) -or $processed.LastWriteTimeUtc -gt $processedByDate[$processedDate].LastWriteTimeUtc) {
+      $processedByDate[$processedDate] = $processed
+    }
+  }
   $reviewed = @()
 
   foreach ($file in $files) {
     $reportDate = Get-ReportDateFromName $file.Name
-    $errorCode = Get-ErrorCodeFromName $file.Name
-    if ([string]::IsNullOrWhiteSpace($reportDate) -or [string]::IsNullOrWhiteSpace($errorCode)) {
-      continue
+    if ([string]::IsNullOrWhiteSpace($reportDate)) { continue }
+
+    if ($processedByDate.ContainsKey($reportDate)) {
+      $processed = $processedByDate[$reportDate]
+      if ($processed.LastWriteTimeUtc -ge $file.LastWriteTimeUtc) {
+        $supersededName = '{0}-superseded-by-processed-{1}{2}' -f [System.IO.Path]::GetFileNameWithoutExtension($file.Name),(Get-Date -Format 'yyyyMMdd-HHmmss'),$file.Extension
+        try {
+          $target = Move-Unique -File $file -DestinationDirectory $SupersededDir -DestinationName $supersededName
+          Write-AgentLog 'INFO' 'Failed report moved to superseded review because a newer successful processed report exists for the same date.' @{ file=$file.Name; target=$target; reportDate=$reportDate; processedFile=$processed.Name }
+        } catch {
+          Write-AgentLog 'WARN' 'Superseded failed report could not be moved.' @{ file=$file.Name; reportDate=$reportDate; processedFile=$processed.Name; error=$_.Exception.Message }
+        }
+        continue
+      }
     }
+
+    $errorCode = Get-ErrorCodeFromName $file.Name
+    if ([string]::IsNullOrWhiteSpace($errorCode)) { continue }
     $property = $policy.policies.PSObject.Properties[$errorCode]
     $rule = if ($null -ne $property) { $property.Value } else { $policy.defaultPolicy }
     $reviewed += [pscustomobject]@{

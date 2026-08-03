@@ -22,8 +22,8 @@ import { createDriverPoolLink, handleDriverPoolStart } from './bot-driver-pool-r
 );
 invitations=replaceOnce(
   invitations,
-  `function invitationMenu(){return keyboard([[{text:'دعوة فيصل سيد أحمد — رابط واحد',callback_data:'ent:inv|faisal'}],[{text:'دعوة مستخدم جديد',callback_data:'ent:inv|new'},{text:'قائمة الدعوات',callback_data:'ent:inv|list'}],[{text:'القائمة الرئيسية',callback_data:'ent:help'}]]);}`,
-  `function invitationMenu(){return keyboard([[{text:'دعوة فيصل سيد أحمد — رابط واحد',callback_data:'ent:inv|faisal'}],[{text:'إنشاء رابط تسجيل السائقين',callback_data:'ent:inv|drivers'}],[{text:'دعوة مستخدم جديد',callback_data:'ent:inv|new'},{text:'قائمة الدعوات',callback_data:'ent:inv|list'}],[{text:'القائمة الرئيسية',callback_data:'ent:help'}]]);}`,
+  `function invitationMenu(){return keyboard([[{text:'دعوة مستخدم جديد',callback_data:'ent:inv|new'},{text:'قائمة الدعوات',callback_data:'ent:inv|list'}],[{text:'القائمة الرئيسية',callback_data:'ent:help'}]]);}`,
+  `function invitationMenu(){return keyboard([[{text:'إنشاء رابط تسجيل السائقين',callback_data:'ent:inv|drivers'}],[{text:'دعوة مستخدم جديد',callback_data:'ent:inv|new'},{text:'قائمة الدعوات',callback_data:'ent:inv|list'}],[{text:'القائمة الرئيسية',callback_data:'ent:help'}]]);}`,
   'driver registration menu'
 );
 invitations=replaceOnce(
@@ -71,13 +71,14 @@ gateway=replaceOnce(
 );
 gateway=replaceOnce(
   gateway,
-  `  const raw=String(message.text||message.caption||'').trim(),normalized=norm(raw);`,
+  `  const raw=String(message.text||message.caption||'').trim(),normalized=norm(raw),switchDecision=shouldSwitchSession(state,raw);`,
   `  const raw=String(message.text||message.caption||'').trim(),normalized=norm(raw);
   if(state.startsWith('driver_pool_')){
     if(message.chat.type!=='private'){await sendMessage(message.chat.id,'تسجيل السائق يتم من المحادثة الخاصة مع البوت.');return true;}
     if(!await logIntercepted(update,message,identity))return true;
     if(await continueDriverPoolSession(message,identity,session,raw))return true;
-  }`,
+  }
+  const switchDecision=shouldSwitchSession(state,raw);`,
   'gateway driver registration session'
 );
 write('api/_lib/telegram-webhook-gateway.js',gateway);
