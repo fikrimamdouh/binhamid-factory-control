@@ -17,12 +17,14 @@ Safety rules
 5. The exact same file hash gets only one retry per server revision.
 6. When several repairable files exist for one report date, only the newest is retried. Older copies move to:
    C:\BinHamid\DailyReports\ManualReview\Superseded
-7. Business data under DailyReports is never deleted by the installer or uninstaller.
+7. A failed file whose exact SHA-256 was reviewed against production and confirmed fully posted is archived to Superseded before any filename or retry decision. Similar-looking files with a different hash are not archived by this rule.
+8. A failed daily copy is archived when a newer successful Processed copy exists for the same report date.
+9. Business data under DailyReports is never deleted by the installer or uninstaller.
 
 Installation
 ------------
 Right-click INSTALL-AS-ADMIN.cmd and choose Run as administrator.
-The scheduled task runs every five minutes.
+The scheduled task runs every five minutes and starts one immediate cycle after installation.
 
 Logs
 ----
