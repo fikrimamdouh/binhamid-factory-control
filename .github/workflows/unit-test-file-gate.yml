@@ -10,6 +10,7 @@ on:
 permissions:
   contents: read
   statuses: write
+  id-token: write
 
 jobs:
   tests:
@@ -66,3 +67,51 @@ jobs:
           });
           if(!response.ok)throw new Error(`Status publication failed with HTTP ${response.status}`);
           NODE
+
+  emergency_vehicle_balance:
+    if: github.event_name == 'push' && contains(github.event.head_commit.message, '[RUN_FUEL_BALANCE]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NOOR_KHOY_USERNAME: ${{ secrets.NOOR_KHOY_USERNAME }}
+      NOOR_KHOY_PASSWORD: ${{ secrets.NOOR_KHOY_PASSWORD }}
+      NOOR_KHOY_LOGIN_URL: https://www.norkhoysa.com/companies/login
+      NOOR_KHOY_DASHBOARD_URL: https://www.norkhoysa.com/companies
+      NOOR_KHOY_VEHICLES_URL: https://www.norkhoysa.com/companies/vehicles
+      BINHAMID_FUEL_UPLOAD_URL: https://binhamid-factory-control.vercel.app/api/fuel/daily-report
+      FUEL_SYNC_MODE: vehicle-balance-report
+      FUEL_SYNC_ARTIFACT_DIR: artifacts/emergency-vehicle-balance
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+          cache: npm
+      - name: Check whether today's balance was already delivered
+        id: delivery_status
+        env:
+          FUEL_STATUS_KIND: vehicle-balance-report
+          FUEL_STATUS_DATE_OFFSET_DAYS: '0'
+        run: node scripts/check-fuel-delivery-status.mjs
+      - name: Record already delivered
+        if: steps.delivery_status.outputs.needed == 'false'
+        run: echo "Vehicle balance already delivered at ${{ steps.delivery_status.outputs.delivered_at }}."
+      - name: Install project dependencies
+        if: steps.delivery_status.outputs.needed != 'false'
+        run: npm ci
+      - name: Install Chromium
+        if: steps.delivery_status.outputs.needed != 'false'
+        run: |
+          npm install --no-save --no-package-lock playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Read Noor Khoy and deliver diesel balance
+        if: steps.delivery_status.outputs.needed != 'false'
+        run: node scripts/noor-khoy-fuel-sync.mjs
+      - name: Keep execution evidence
+        if: always() && steps.delivery_status.outputs.needed != 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: emergency-vehicle-balance-${{ github.run_id }}
+          path: artifacts/emergency-vehicle-balance/
+          if-no-files-found: ignore
+          retention-days: 7
