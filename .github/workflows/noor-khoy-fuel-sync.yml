@@ -36,10 +36,6 @@ permissions:
   contents: read
   id-token: write
 
-concurrency:
-  group: noor-khoy-daily-fuel-sync
-  cancel-in-progress: false
-
 jobs:
   sync:
     if: >-
