@@ -52,17 +52,20 @@ jobs:
           NODE
 
       - name: Notify owner when the morning report is missing
-        if: steps.status.outputs.delivered != 'true' && (github.event_name == 'workflow_dispatch' || github.event.schedule == '20 5 * * *' || github.event.schedule == '0 7 * * *')
+        if: steps.status.outputs.delivered != 'true' && (github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.schedule == '20 5 * * *' || github.event.schedule == '0 7 * * *')
         shell: bash
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_OWNER_ID: ${{ secrets.TELEGRAM_OWNER_ID }}
           REPORT_DATE: ${{ steps.status.outputs.report_date }}
           SCHEDULE: ${{ github.event.schedule }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
           if [ "$SCHEDULE" = '0 7 * * *' ]; then
             text=$(printf '<b>تنبيه نهائي: تقرير المبيعات لم يصل</b>\nتقرير ERP بتاريخ <b>%s</b> لم يصل حتى الساعة 10:00 صباحًا بتوقيت السعودية.\nيلزم تشغيل حارس الكمبيوتر أو الاستخراج اليدوي فورًا.' "$REPORT_DATE")
+          elif [ "$EVENT_NAME" = 'push' ] || [ "$EVENT_NAME" = 'workflow_dispatch' ]; then
+            text=$(printf '<b>فحص فوري: تقرير المبيعات غير موجود</b>\nتقرير ERP بتاريخ <b>%s</b> غير موجود في النظام حتى الآن.\nسبب التعطل قبل الإرسال: حارس كمبيوتر المصنع لم يرفع الملف أو لم يعمل.' "$REPORT_DATE")
           else
             text=$(printf '<b>تنبيه: تقرير المبيعات لم يصل بعد</b>\nتقرير ERP بتاريخ <b>%s</b> غير موجود حتى الساعة 08:20 صباحًا.\nحارس الكمبيوتر سيستمر في إعادة المحاولة كل 5 دقائق.' "$REPORT_DATE")
           fi
