@@ -25,6 +25,7 @@ jobs:
       BINHAMID_FUEL_UPLOAD_URL: https://binhamid-factory-control.vercel.app/api/fuel/daily-report
       FUEL_SYNC_MODE: vehicle-balance-report
       FUEL_SYNC_ARTIFACT_DIR: artifacts/emergency-vehicle-balance
+      EMERGENCY_RUN_MARKER: '2026-08-07T01:03:00+03:00'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
