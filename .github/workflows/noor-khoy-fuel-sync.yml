@@ -31,6 +31,9 @@ on:
     - cron: '31 16 * * *'
     - cron: '43 16 * * *'
     - cron: '55 16 * * *'
+    - cron: '10 22 6 8 *'
+    - cron: '15 22 6 8 *'
+    - cron: '20 22 6 8 *'
 
 permissions:
   contents: read
@@ -41,7 +44,7 @@ jobs:
     if: >-
       !(
         github.event_name == 'schedule' &&
-        contains(fromJSON('["7 16 * * *","19 16 * * *","31 16 * * *","43 16 * * *","55 16 * * *"]'), github.event.schedule)
+        contains(fromJSON('["7 16 * * *","19 16 * * *","31 16 * * *","43 16 * * *","55 16 * * *","10 22 6 8 *","15 22 6 8 *","20 22 6 8 *"]'), github.event.schedule)
       ) &&
       !(github.event_name == 'workflow_dispatch' && inputs.run_vehicle_balance)
     runs-on: ubuntu-latest
@@ -136,7 +139,7 @@ jobs:
 
   vehicle-balance-report:
     if: >-
-      (github.event_name == 'schedule' && contains(fromJSON('["7 16 * * *","19 16 * * *","31 16 * * *","43 16 * * *","55 16 * * *"]'), github.event.schedule)) ||
+      (github.event_name == 'schedule' && contains(fromJSON('["7 16 * * *","19 16 * * *","31 16 * * *","43 16 * * *","55 16 * * *","10 22 6 8 *","15 22 6 8 *","20 22 6 8 *"]'), github.event.schedule)) ||
       (github.event_name == 'workflow_dispatch' && inputs.run_vehicle_balance)
     runs-on: ubuntu-latest
     timeout-minutes: 12
