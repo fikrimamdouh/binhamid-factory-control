@@ -1,0 +1,70 @@
+name: Emergency vehicle diesel balance once
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/emergency-vehicle-balance-once.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  vehicle-balance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NOOR_KHOY_USERNAME: ${{ secrets.NOOR_KHOY_USERNAME }}
+      NOOR_KHOY_PASSWORD: ${{ secrets.NOOR_KHOY_PASSWORD }}
+      NOOR_KHOY_LOGIN_URL: https://www.norkhoysa.com/companies/login
+      NOOR_KHOY_DASHBOARD_URL: https://www.norkhoysa.com/companies
+      NOOR_KHOY_VEHICLES_URL: https://www.norkhoysa.com/companies/vehicles
+      BINHAMID_FUEL_UPLOAD_URL: https://binhamid-factory-control.vercel.app/api/fuel/daily-report
+      FUEL_SYNC_MODE: vehicle-balance-report
+      FUEL_SYNC_ARTIFACT_DIR: artifacts/emergency-vehicle-balance
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Check whether today's vehicle balance was already delivered
+        id: delivery_status
+        env:
+          FUEL_STATUS_KIND: vehicle-balance-report
+          FUEL_STATUS_DATE_OFFSET_DAYS: '0'
+        run: node scripts/check-fuel-delivery-status.mjs
+      - name: Record already-delivered result
+        if: steps.delivery_status.outputs.needed == 'false'
+        run: echo "Vehicle balance ${{ steps.delivery_status.outputs.report_date }} was already delivered at ${{ steps.delivery_status.outputs.delivered_at }}."
+      - name: Install project dependencies
+        if: steps.delivery_status.outputs.needed != 'false'
+        run: npm ci
+      - name: Install browser automation
+        if: steps.delivery_status.outputs.needed != 'false'
+        run: |
+          npm install --no-save --no-package-lock playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Read Noor Khoy balances and deliver Telegram report
+        id: vehicle_balance
+        if: steps.delivery_status.outputs.needed != 'false'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/emergency-vehicle-balance
+          node scripts/noor-khoy-fuel-sync.mjs 2>&1 | tee artifacts/emergency-vehicle-balance/execution.log
+      - name: Keep execution evidence
+        if: always() && steps.delivery_status.outputs.needed != 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: emergency-vehicle-balance-${{ github.run_id }}
+          path: artifacts/emergency-vehicle-balance/
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Fail when delivery failed
+        if: steps.delivery_status.outputs.needed != 'false' && steps.vehicle_balance.outcome != 'success'
+        run: exit 1
