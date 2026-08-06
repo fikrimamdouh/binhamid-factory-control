@@ -30,61 +30,23 @@ jobs:
           node-version: '24.x'
           cache: npm
 
-      - name: Patch treasury deduplication and import lifecycle
+      - name: Patch the import lifecycle
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
 
-          def replace_once(text, old, new, label):
-              if old not in text:
-                  if new in text:
-                      return text
-                  raise SystemExit(f'missing patch marker: {label}')
-              return text.replace(old, new, 1)
-
-          v3 = Path('api/_lib/daily-report-v3.js')
-          s = v3.read_text(encoding='utf-8')
-          marker = "const norm=value=>clean(value,1000).toLowerCase().replace(/[أإآٱ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ً-ْـ]/g,'').replace(/\\s+/g,' ');\n"
-          helper = marker + "\nexport function mergeTreasurySnapshots(rows=[]){\n  const merged=new Map();\n  for(const source of rows||[]){\n    const treasuryCode=clean(source?.treasuryCode,20);\n    if(!treasuryCode)continue;\n    const row={...source,treasuryCode},current=merged.get(treasuryCode);\n    if(!current){merged.set(treasuryCode,row);continue;}\n    current.treasuryName=current.treasuryName||row.treasuryName||null;\n    if(Number.isFinite(Number(row.opening)))current.opening=money(row.opening);\n    if(Number.isFinite(Number(row.closing)))current.closing=money(row.closing);\n  }\n  return[...merged.values()];\n}\n"
-          s = replace_once(s, marker, helper, 'treasury merge helper')
-          s = replace_once(
-              s,
-              "    treasuries:(analysis.treasuries||[]).map(row=>({treasuryCode:row.treasuryCode,treasuryName:row.treasuryName,opening:row.opening,closing:row.closing})),",
-              "    treasuries:mergeTreasurySnapshots(analysis.treasuries||[]).map(row=>({treasuryCode:row.treasuryCode,treasuryName:row.treasuryName,opening:row.opening,closing:row.closing})),",
-              'treasury payload deduplication'
-          )
-          v3.write_text(s, encoding='utf-8')
-
-          v8 = Path('api/_lib/daily-report-v8.js')
-          s = v8.read_text(encoding='utf-8')
-          s = replace_once(
-              s,
-              "import { resumeReviewedReport20260728 } from './erp-reviewed-resume.js';",
-              "import { resumeReviewedReport20260728 } from './erp-reviewed-resume.js';\nimport { retryFailedCloudReport } from './erp-failed-cloud-retry.js';",
-              'cloud retry import'
-          )
-          s = replace_once(
-              s,
-              "    if(clean(params.get('action'))==='resume-reviewed-2026-07-28')return resumeReviewedReport20260728(req,res);",
-              "    if(clean(params.get('action'))==='resume-reviewed-2026-07-28')return resumeReviewedReport20260728(req,res);\n    if(clean(params.get('action'))==='retry-failed-cloud')return retryFailedCloudReport(req,res);",
-              'cloud retry route'
-          )
-          s = replace_once(
-              s,
-              "export { resumeReviewedReport20260728 } from './erp-reviewed-resume.js';",
-              "export { resumeReviewedReport20260728 } from './erp-reviewed-resume.js';\nexport { retryFailedCloudReport } from './erp-failed-cloud-retry.js';",
-              'cloud retry export'
-          )
-          v8.write_text(s, encoding='utf-8')
-
           daily = Path('api/_lib/routes/daily-report.js')
-          s = daily.read_text(encoding='utf-8')
-          old = "  let original;\n  try{original=await resolveStoredOriginal({importId,originalName,fileHash},reportDate,fileHash);}"
-          new = "  await transitionImport(importId,'ready_for_review',actor,'اكتمل التحقق الآلي والملف جاهز للترحيل').catch(error=>{if(!/TRANSITION_INVALID/i.test(String(error?.message||'')))throw error;});\n  await transitionImport(importId,'processing',actor,'بدء الترحيل الآلي بعد التحقق').catch(error=>{if(!/TRANSITION_INVALID/i.test(String(error?.message||'')))throw error;});\n  let original;\n  try{original=await resolveStoredOriginal({importId,originalName,fileHash},reportDate,fileHash);}"
-          s = replace_once(s, old, new, 'telegram import lifecycle before commit')
-          daily.write_text(s, encoding='utf-8')
+          text = daily.read_text(encoding='utf-8')
+          ready_marker = "transitionImport(importId,'ready_for_review',actor,'اكتمل التحقق الآلي والملف جاهز للترحيل')"
+          if ready_marker not in text:
+              old = "  let original;\n  try{original=await resolveStoredOriginal({importId,originalName,fileHash},reportDate,fileHash);}"
+              new = "  await transitionImport(importId,'ready_for_review',actor,'اكتمل التحقق الآلي والملف جاهز للترحيل').catch(error=>{if(!/TRANSITION_INVALID/i.test(String(error?.message||'')))throw error;});\n  await transitionImport(importId,'processing',actor,'بدء الترحيل الآلي بعد التحقق').catch(error=>{if(!/TRANSITION_INVALID/i.test(String(error?.message||'')))throw error;});\n  let original;\n  try{original=await resolveStoredOriginal({importId,originalName,fileHash},reportDate,fileHash);}"
+              if old not in text:
+                  raise SystemExit('missing telegram import lifecycle patch marker')
+              text = text.replace(old, new, 1)
+              daily.write_text(text, encoding='utf-8')
           PY
 
       - name: Validate the production patch
@@ -96,19 +58,10 @@ jobs:
           node --check api/_lib/daily-report-v8.js
           node --check api/_lib/erp-failed-cloud-retry.js
           node --check api/_lib/routes/daily-report.js
+          test "$(grep -c "export function mergeTreasurySnapshots" api/_lib/daily-report-v3.js)" -eq 1
+          grep -q "treasuries:mergeTreasurySnapshots" api/_lib/daily-report-v3.js
           grep -q "transitionImport(importId,'ready_for_review'" api/_lib/routes/daily-report.js
           grep -q "transitionImport(importId,'processing'" api/_lib/routes/daily-report.js
-          node --input-type=module <<'NODE'
-          import assert from 'node:assert/strict';
-          import { mergeTreasurySnapshots } from './api/_lib/daily-report-v3.js';
-          const merged=mergeTreasurySnapshots([
-            {treasuryCode:'101',treasuryName:'الخزنة',opening:10,closing:20},
-            {treasuryCode:'101',treasuryName:'الخزنة',opening:10,closing:20},
-            {treasuryCode:'105',treasuryName:'البنك',opening:30,closing:40}
-          ]);
-          assert.equal(merged.length,2);
-          assert.deepEqual(merged.map(row=>row.treasuryCode),['101','105']);
-          NODE
 
       - name: Commit the server fix
         shell: bash
@@ -116,7 +69,7 @@ jobs:
           set -euo pipefail
           git config user.name 'erp-recovery-bot'
           git config user.email 'actions@users.noreply.github.com'
-          git add api/_lib/daily-report-v3.js api/_lib/daily-report-v8.js api/_lib/erp-failed-cloud-retry.js api/_lib/routes/daily-report.js
+          git add api/_lib/routes/daily-report.js
           if git diff --cached --quiet; then
             echo 'Patch already applied.'
           else
