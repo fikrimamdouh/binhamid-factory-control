@@ -211,6 +211,8 @@ export async function commitDailyReportFromTelegram(input={},actor='telegram-bot
     await insert('audit_log',[{actor_type:'telegram',actor_id:actor,action:'daily_report_auto_rejected',entity_type:'daily_report',entity_id:idempotencyKey,details:{report_date:reportDate,file_hash:fileHash,import_id:importId,error_count:validation.errors.length,errors:validation.errors.slice(0,50)}}],{prefer:'return=minimal'}).catch(()=>{});
     return{ok:false,duplicate:false,valid:false,importId,contentHash,fileHash,idempotencyKey,...validation,affectedBalances:[]};
   }
+  await transitionImport(importId,'ready_for_review',actor,'اكتمل التحقق الآلي والملف جاهز للترحيل').catch(error=>{if(!/TRANSITION_INVALID/i.test(String(error?.message||'')))throw error;});
+  await transitionImport(importId,'processing',actor,'بدء الترحيل الآلي بعد التحقق').catch(error=>{if(!/TRANSITION_INVALID/i.test(String(error?.message||'')))throw error;});
   let original;
   try{original=await resolveStoredOriginal({importId,originalName,fileHash},reportDate,fileHash);}
   catch(error){throw classifyDailyReportCommitError(error,'storage');}
