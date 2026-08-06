@@ -30,7 +30,7 @@ jobs:
           node-version: '24.x'
           cache: npm
 
-      - name: Deduplicate treasury snapshots and expose cloud retry
+      - name: Patch treasury deduplication and import lifecycle
         shell: bash
         run: |
           set -euo pipefail
@@ -78,6 +78,13 @@ jobs:
               'cloud retry export'
           )
           v8.write_text(s, encoding='utf-8')
+
+          daily = Path('api/_lib/routes/daily-report.js')
+          s = daily.read_text(encoding='utf-8')
+          old = "  let original;\n  try{original=await resolveStoredOriginal({importId,originalName,fileHash},reportDate,fileHash);}"
+          new = "  await transitionImport(importId,'ready_for_review',actor,'اكتمل التحقق الآلي والملف جاهز للترحيل').catch(error=>{if(!/TRANSITION_INVALID/i.test(String(error?.message||'')))throw error;});\n  await transitionImport(importId,'processing',actor,'بدء الترحيل الآلي بعد التحقق').catch(error=>{if(!/TRANSITION_INVALID/i.test(String(error?.message||'')))throw error;});\n  let original;\n  try{original=await resolveStoredOriginal({importId,originalName,fileHash},reportDate,fileHash);}"
+          s = replace_once(s, old, new, 'telegram import lifecycle before commit')
+          daily.write_text(s, encoding='utf-8')
           PY
 
       - name: Validate the production patch
@@ -88,6 +95,9 @@ jobs:
           node --check api/_lib/daily-report-v3.js
           node --check api/_lib/daily-report-v8.js
           node --check api/_lib/erp-failed-cloud-retry.js
+          node --check api/_lib/routes/daily-report.js
+          grep -q "transitionImport(importId,'ready_for_review'" api/_lib/routes/daily-report.js
+          grep -q "transitionImport(importId,'processing'" api/_lib/routes/daily-report.js
           node --input-type=module <<'NODE'
           import assert from 'node:assert/strict';
           import { mergeTreasurySnapshots } from './api/_lib/daily-report-v3.js';
@@ -106,11 +116,11 @@ jobs:
           set -euo pipefail
           git config user.name 'erp-recovery-bot'
           git config user.email 'actions@users.noreply.github.com'
-          git add api/_lib/daily-report-v3.js api/_lib/daily-report-v8.js api/_lib/erp-failed-cloud-retry.js
+          git add api/_lib/daily-report-v3.js api/_lib/daily-report-v8.js api/_lib/erp-failed-cloud-retry.js api/_lib/routes/daily-report.js
           if git diff --cached --quiet; then
             echo 'Patch already applied.'
           else
-            git commit -m 'إصلاح تكرار أرصدة الخزن وإتاحة إعادة الترحيل السحابي'
+            git commit -m 'تصحيح دورة حالة ملف ERP قبل الترحيل الآلي'
             git pull --rebase origin main
             git push origin HEAD:main
           fi
@@ -123,17 +133,17 @@ jobs:
           RETRY_URL: https://binhamid-factory-control.vercel.app/api/erp/daily-report?action=retry-failed-cloud&reportDate=2026-08-05
         run: |
           set -euo pipefail
-          token_response=$(curl -fsS -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=binhamid-erp-failed-cloud-retry")
-          token=$(node -e "const x=JSON.parse(process.argv[1]);if(!x.value)process.exit(2);process.stdout.write(x.value)" "$token_response")
-          for attempt in $(seq 1 36); do
-            code=$(curl -sS -o retry-response.json -w '%{http_code}' -H "Authorization: Bearer $token" "$RETRY_URL" || true)
+          for attempt in $(seq 1 18); do
+            token_response=$(curl -fsS -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=binhamid-erp-failed-cloud-retry")
+            token=$(node -e "const x=JSON.parse(process.argv[1]);if(!x.value)process.exit(2);process.stdout.write(x.value)" "$token_response")
+            code=$(curl --max-time 120 -sS -o retry-response.json -w '%{http_code}' -H "Authorization: Bearer $token" "$RETRY_URL" || true)
             printf 'attempt=%s http=%s\n' "$attempt" "$code"
             cat retry-response.json || true
             printf '\n'
             if [ "$code" = '200' ] && grep -q '2026-08-06-treasury-dedup-v1' retry-response.json; then
               exit 0
             fi
-            sleep 10
+            sleep 12
           done
           exit 1
 
