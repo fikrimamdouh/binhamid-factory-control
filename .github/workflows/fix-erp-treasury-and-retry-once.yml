@@ -1,0 +1,155 @@
+name: Fix ERP treasury duplication and retry once
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/fix-erp-treasury-and-retry-once.yml'
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: fix-erp-treasury-and-retry-once
+  cancel-in-progress: false
+
+jobs:
+  fix-and-retry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+
+      - name: Deduplicate treasury snapshots and expose cloud retry
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text, old, new, label):
+              if old not in text:
+                  if new in text:
+                      return text
+                  raise SystemExit(f'missing patch marker: {label}')
+              return text.replace(old, new, 1)
+
+          v3 = Path('api/_lib/daily-report-v3.js')
+          s = v3.read_text(encoding='utf-8')
+          marker = "const norm=value=>clean(value,1000).toLowerCase().replace(/[أإآٱ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ً-ْـ]/g,'').replace(/\\s+/g,' ');\n"
+          helper = marker + "\nexport function mergeTreasurySnapshots(rows=[]){\n  const merged=new Map();\n  for(const source of rows||[]){\n    const treasuryCode=clean(source?.treasuryCode,20);\n    if(!treasuryCode)continue;\n    const row={...source,treasuryCode},current=merged.get(treasuryCode);\n    if(!current){merged.set(treasuryCode,row);continue;}\n    current.treasuryName=current.treasuryName||row.treasuryName||null;\n    if(Number.isFinite(Number(row.opening)))current.opening=money(row.opening);\n    if(Number.isFinite(Number(row.closing)))current.closing=money(row.closing);\n  }\n  return[...merged.values()];\n}\n"
+          s = replace_once(s, marker, helper, 'treasury merge helper')
+          s = replace_once(
+              s,
+              "    treasuries:(analysis.treasuries||[]).map(row=>({treasuryCode:row.treasuryCode,treasuryName:row.treasuryName,opening:row.opening,closing:row.closing})),",
+              "    treasuries:mergeTreasurySnapshots(analysis.treasuries||[]).map(row=>({treasuryCode:row.treasuryCode,treasuryName:row.treasuryName,opening:row.opening,closing:row.closing})),",
+              'treasury payload deduplication'
+          )
+          v3.write_text(s, encoding='utf-8')
+
+          v8 = Path('api/_lib/daily-report-v8.js')
+          s = v8.read_text(encoding='utf-8')
+          s = replace_once(
+              s,
+              "import { resumeReviewedReport20260728 } from './erp-reviewed-resume.js';",
+              "import { resumeReviewedReport20260728 } from './erp-reviewed-resume.js';\nimport { retryFailedCloudReport } from './erp-failed-cloud-retry.js';",
+              'cloud retry import'
+          )
+          s = replace_once(
+              s,
+              "    if(clean(params.get('action'))==='resume-reviewed-2026-07-28')return resumeReviewedReport20260728(req,res);",
+              "    if(clean(params.get('action'))==='resume-reviewed-2026-07-28')return resumeReviewedReport20260728(req,res);\n    if(clean(params.get('action'))==='retry-failed-cloud')return retryFailedCloudReport(req,res);",
+              'cloud retry route'
+          )
+          s = replace_once(
+              s,
+              "export { resumeReviewedReport20260728 } from './erp-reviewed-resume.js';",
+              "export { resumeReviewedReport20260728 } from './erp-reviewed-resume.js';\nexport { retryFailedCloudReport } from './erp-failed-cloud-retry.js';",
+              'cloud retry export'
+          )
+          v8.write_text(s, encoding='utf-8')
+          PY
+
+      - name: Validate the production patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check api/_lib/daily-report-v3.js
+          node --check api/_lib/daily-report-v8.js
+          node --check api/_lib/erp-failed-cloud-retry.js
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { mergeTreasurySnapshots } from './api/_lib/daily-report-v3.js';
+          const merged=mergeTreasurySnapshots([
+            {treasuryCode:'101',treasuryName:'الخزنة',opening:10,closing:20},
+            {treasuryCode:'101',treasuryName:'الخزنة',opening:10,closing:20},
+            {treasuryCode:'105',treasuryName:'البنك',opening:30,closing:40}
+          ]);
+          assert.equal(merged.length,2);
+          assert.deepEqual(merged.map(row=>row.treasuryCode),['101','105']);
+          NODE
+
+      - name: Commit the server fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'erp-recovery-bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add api/_lib/daily-report-v3.js api/_lib/daily-report-v8.js api/_lib/erp-failed-cloud-retry.js
+          if git diff --cached --quiet; then
+            echo 'Patch already applied.'
+          else
+            git commit -m 'إصلاح تكرار أرصدة الخزن وإتاحة إعادة الترحيل السحابي'
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
+
+      - name: Retry the stored report after production deployment
+        id: retry
+        continue-on-error: true
+        shell: bash
+        env:
+          RETRY_URL: https://binhamid-factory-control.vercel.app/api/erp/daily-report?action=retry-failed-cloud&reportDate=2026-08-05
+        run: |
+          set -euo pipefail
+          token_response=$(curl -fsS -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=binhamid-erp-failed-cloud-retry")
+          token=$(node -e "const x=JSON.parse(process.argv[1]);if(!x.value)process.exit(2);process.stdout.write(x.value)" "$token_response")
+          for attempt in $(seq 1 36); do
+            code=$(curl -sS -o retry-response.json -w '%{http_code}' -H "Authorization: Bearer $token" "$RETRY_URL" || true)
+            printf 'attempt=%s http=%s\n' "$attempt" "$code"
+            cat retry-response.json || true
+            printf '\n'
+            if [ "$code" = '200' ] && grep -q '2026-08-06-treasury-dedup-v1' retry-response.json; then
+              exit 0
+            fi
+            sleep 10
+          done
+          exit 1
+
+      - name: Notify owner if cloud retry failed
+        if: always() && steps.retry.outcome != 'success'
+        continue-on-error: true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_OWNER_ID: ${{ secrets.TELEGRAM_OWNER_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          text=$'<b>فشل إصلاح تقرير المبيعات تلقائيًا</b>\nتم إصلاح منطق تكرار أرصدة الخزن، لكن إعادة ترحيل ملف 2026-08-05 لم تكتمل. راجع سجل GitHub Actions.'
+          curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_OWNER_ID}" \
+            --data-urlencode "parse_mode=HTML" \
+            --data-urlencode "text=${text}" >/dev/null
+
+      - name: Fail when the cloud retry failed
+        if: always() && steps.retry.outcome != 'success'
+        run: exit 1
