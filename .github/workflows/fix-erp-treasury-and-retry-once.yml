@@ -28,6 +28,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24.x'
+          cache: npm
 
       - name: Deduplicate treasury snapshots and expose cloud retry
         shell: bash
@@ -83,6 +84,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          npm ci --ignore-scripts --no-audit --no-fund
           node --check api/_lib/daily-report-v3.js
           node --check api/_lib/daily-report-v8.js
           node --check api/_lib/erp-failed-cloud-retry.js
@@ -134,21 +136,6 @@ jobs:
             sleep 10
           done
           exit 1
-
-      - name: Notify owner if cloud retry failed
-        if: always() && steps.retry.outcome != 'success'
-        continue-on-error: true
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_OWNER_ID: ${{ secrets.TELEGRAM_OWNER_ID }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          text=$'<b>فشل إصلاح تقرير المبيعات تلقائيًا</b>\nتم إصلاح منطق تكرار أرصدة الخزن، لكن إعادة ترحيل ملف 2026-08-05 لم تكتمل. راجع سجل GitHub Actions.'
-          curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            --data-urlencode "chat_id=${TELEGRAM_OWNER_ID}" \
-            --data-urlencode "parse_mode=HTML" \
-            --data-urlencode "text=${text}" >/dev/null
 
       - name: Fail when the cloud retry failed
         if: always() && steps.retry.outcome != 'success'
