@@ -6,6 +6,20 @@ const westernDigits=value=>String(value??'').replace(/[٠-٩]/g,d=>'٠١٢٣٤٥
 const money=value=>Math.round((Number(value||0)+Number.EPSILON)*100)/100;
 const qty=value=>Math.round((Number(value||0)+Number.EPSILON)*1000)/1000;
 const norm=value=>clean(value,1000).toLowerCase().replace(/[أإآٱ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/[ً-ْـ]/g,'').replace(/\s+/g,' ');
+
+export function mergeTreasurySnapshots(rows=[]){
+  const merged=new Map();
+  for(const source of rows||[]){
+    const treasuryCode=clean(source?.treasuryCode,20);
+    if(!treasuryCode)continue;
+    const row={...source,treasuryCode},current=merged.get(treasuryCode);
+    if(!current){merged.set(treasuryCode,row);continue;}
+    current.treasuryName=current.treasuryName||row.treasuryName||null;
+    if(Number.isFinite(Number(row.opening)))current.opening=money(row.opening);
+    if(Number.isFinite(Number(row.closing)))current.closing=money(row.closing);
+  }
+  return[...merged.values()];
+}
 const LEGACY_BASELINE_START='2026-07-19';
 const LEGACY_BASELINE_END='2026-07-23';
 
@@ -58,7 +72,7 @@ export function payloadFromAnalysis(analysis,reportDate){
   return{
     sales:(analysis.sales||[]).map((row,index)=>({sourceRowNo:row.row||index+1,invoiceNo:row.invoice,salesType:erpSaleType(row),customerCode:row.customerCode,customerName:row.customer,item:row.item,quantity:row.quantity,amount:row.amount,paymentTerms:row.paymentTerms||null,transactionDate:row.reportDate||reportDate})),
     cashMovements:(analysis.cashMovements||analysis.collections||[]).map((row,index)=>({sourceRowNo:row.row||index+1,treasuryCode:row.treasuryCode,treasuryName:row.treasuryName,debit:row.debit??row.amount??0,credit:row.credit??0,accountName:row.accountName??row.customer,accountType:row.accountType||null,accountCode:row.accountCode??row.customerCode,description:row.description||null,movementType:row.movementType??row.type??null,voucherNo:row.voucherNo??row.receipt??null,movementDate:row.movementDate||row.reportDate||reportDate,paymentMethod:row.paymentMethod||null,isCustomerCollection:Boolean(row.isCustomerCollection??row.customerCode)})),
-    treasuries:(analysis.treasuries||[]).map(row=>({treasuryCode:row.treasuryCode,treasuryName:row.treasuryName,opening:row.opening,closing:row.closing})),
+    treasuries:mergeTreasurySnapshots(analysis.treasuries||[]).map(row=>({treasuryCode:row.treasuryCode,treasuryName:row.treasuryName,opening:row.opening,closing:row.closing})),
     inventory,
     summary:{...analysis.summary,totalSales:analysis.summary?.salesTotal||0,parserVersion:'daily-report-v3-aggregate-safe'}
   };
