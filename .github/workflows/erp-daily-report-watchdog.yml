@@ -1,5 +1,6 @@
 name: ERP daily report watchdog
 
+# Manual verification revision: 2026-08-06-posting-aware-v1
 on:
   push:
     branches:
@@ -47,27 +48,42 @@ jobs:
           const fs=require('node:fs');
           const data=JSON.parse(process.argv[2]);
           if(!data.ok)throw new Error(data.error||'ERP status check failed');
-          fs.appendFileSync(process.env.GITHUB_OUTPUT,`delivered=${data.delivered?'true':'false'}\nreport_date=${data.reportDate}\n`);
-          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,`## ERP daily report watchdog\n\n- Report date: ${data.reportDate}\n- Delivered: ${data.delivered}\n- Batch status: ${data.batch?.status||'none'}\n- Import attempts: ${(data.imports||[]).length}\n`);
+          const latest=(data.imports||[])[0]||{};
+          const output={
+            delivered:data.delivered?'true':'false',
+            report_date:data.reportDate,
+            import_count:String((data.imports||[]).length),
+            import_status:String(latest.status||''),
+            import_error:String(latest.last_error_message||latest.last_error_code||'').replace(/[\r\n]+/g,' ').slice(0,500)
+          };
+          for(const[key,value]of Object.entries(output))fs.appendFileSync(process.env.GITHUB_OUTPUT,`${key}<<ERP_VALUE\n${value}\nERP_VALUE\n`);
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,`## ERP daily report watchdog\n\n- Report date: ${data.reportDate}\n- Delivered: ${data.delivered}\n- Batch status: ${data.batch?.status||'none'}\n- Import attempts: ${(data.imports||[]).length}\n- Latest import status: ${latest.status||'none'}\n- Latest error: ${latest.last_error_message||latest.last_error_code||'none'}\n`);
           NODE
 
-      - name: Notify owner when the morning report is missing
+      - name: Notify owner when the morning report is missing or failed
         if: steps.status.outputs.delivered != 'true' && (github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.schedule == '20 5 * * *' || github.event.schedule == '0 7 * * *')
         shell: bash
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_OWNER_ID: ${{ secrets.TELEGRAM_OWNER_ID }}
           REPORT_DATE: ${{ steps.status.outputs.report_date }}
+          IMPORT_COUNT: ${{ steps.status.outputs.import_count }}
+          IMPORT_STATUS: ${{ steps.status.outputs.import_status }}
+          IMPORT_ERROR: ${{ steps.status.outputs.import_error }}
           SCHEDULE: ${{ github.event.schedule }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          if [ "$SCHEDULE" = '0 7 * * *' ]; then
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_OWNER_ID" ]; then
+            echo 'Telegram repository secrets are not configured; status inspection still completed.'
+            exit 0
+          fi
+          if [ "${IMPORT_COUNT:-0}" -gt 0 ]; then
+            text=$(printf '<b>تقرير المبيعات وصل لكنه لم يُرحّل</b>\nتقرير ERP بتاريخ <b>%s</b> موجود في التخزين، وحالة المعالجة: <b>%s</b>.\nالسبب: <code>%s</code>' "$REPORT_DATE" "${IMPORT_STATUS:-failed}" "${IMPORT_ERROR:-غير محدد}")
+          elif [ "$SCHEDULE" = '0 7 * * *' ]; then
             text=$(printf '<b>تنبيه نهائي: تقرير المبيعات لم يصل</b>\nتقرير ERP بتاريخ <b>%s</b> لم يصل حتى الساعة 10:00 صباحًا بتوقيت السعودية.\nيلزم تشغيل حارس الكمبيوتر أو الاستخراج اليدوي فورًا.' "$REPORT_DATE")
-          elif [ "$EVENT_NAME" = 'push' ] || [ "$EVENT_NAME" = 'workflow_dispatch' ]; then
-            text=$(printf '<b>فحص فوري: تقرير المبيعات غير موجود</b>\nتقرير ERP بتاريخ <b>%s</b> غير موجود في النظام حتى الآن.\nسبب التعطل قبل الإرسال: حارس كمبيوتر المصنع لم يرفع الملف أو لم يعمل.' "$REPORT_DATE")
           else
-            text=$(printf '<b>تنبيه: تقرير المبيعات لم يصل بعد</b>\nتقرير ERP بتاريخ <b>%s</b> غير موجود حتى الساعة 08:20 صباحًا.\nحارس الكمبيوتر سيستمر في إعادة المحاولة كل 5 دقائق.' "$REPORT_DATE")
+            text=$(printf '<b>تنبيه: تقرير المبيعات لم يصل بعد</b>\nتقرير ERP بتاريخ <b>%s</b> غير موجود في التخزين حتى الآن.' "$REPORT_DATE")
           fi
           curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             --data-urlencode "chat_id=${TELEGRAM_OWNER_ID}" \
