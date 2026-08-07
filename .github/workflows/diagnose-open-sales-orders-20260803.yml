@@ -1,0 +1,76 @@
+name: Diagnose open sales orders count
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/diagnose-open-sales-orders-20260803.yml'
+  push:
+    branches: [diagnose/july-failed-files-20260803]
+    paths:
+      - '.github/workflows/diagnose-open-sales-orders-20260803.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+      - name: Locate open-order calculations and sales-order writes
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs=require('node:fs');
+          const path=require('node:path');
+          const roots=['api','assets','shared','tests','supabase','migrations','scripts'];
+          const allowed=new Set(['.js','.mjs','.cjs','.ts','.html','.sql','.json']);
+          const patterns=[
+            /sales_orders/gi,
+            /open[_\s-]*orders?/gi,
+            /pending[_\s-]*orders?/gi,
+            /أوامر\s*البيع/gi,
+            /طلبات\s*البيع/gi,
+            /مبيعات\s*مفتوحة/gi,
+            /salesOrder/gi
+          ];
+          const files=[];
+          function walk(dir){
+            if(!fs.existsSync(dir))return;
+            for(const entry of fs.readdirSync(dir,{withFileTypes:true})){
+              if(['node_modules','.git','artifacts','dist','coverage'].includes(entry.name))continue;
+              const full=path.join(dir,entry.name);
+              if(entry.isDirectory())walk(full);else if(allowed.has(path.extname(entry.name)))files.push(full);
+            }
+          }
+          roots.forEach(walk);
+          const hits=[];
+          for(const file of files){
+            const text=fs.readFileSync(file,'utf8');
+            const lines=text.split(/\r?\n/);
+            for(let i=0;i<lines.length;i++){
+              if(patterns.some(rx=>{rx.lastIndex=0;return rx.test(lines[i]);})){
+                const start=Math.max(0,i-3),end=Math.min(lines.length,i+4);
+                hits.push({file:file.replaceAll('\\','/'),line:i+1,snippet:lines.slice(start,end).map((x,j)=>`${start+j+1}: ${x}`).join('\n')});
+              }
+            }
+          }
+          fs.mkdirSync('diagnostics',{recursive:true});
+          fs.writeFileSync('diagnostics/open-sales-orders-hits.json',JSON.stringify(hits,null,2));
+          fs.writeFileSync('diagnostics/open-sales-orders-hits.txt',hits.map(h=>`\n=== ${h.file}:${h.line} ===\n${h.snippet}\n`).join(''));
+          console.log(`MATCHES=${hits.length}`);
+          console.log(hits.map(h=>`${h.file}:${h.line}`).join('\n'));
+          NODE
+          cat diagnostics/open-sales-orders-hits.txt
+      - name: Upload source-location evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: open-sales-orders-diagnostic-${{ github.run_id }}
+          path: diagnostics/
+          retention-days: 3
