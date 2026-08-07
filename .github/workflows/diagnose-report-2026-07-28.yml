@@ -1,0 +1,113 @@
+name: Diagnose ERP Report 2026-07-28
+
+on:
+  push:
+    branches:
+      - diagnose/report-2026-07-28
+    paths:
+      - '.github/workflows/diagnose-report-2026-07-28.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/diagnose-report-2026-07-28.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+
+      - name: Install PostgreSQL client
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client
+
+      - name: Resolve protected database connection
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          SUPABASE_POOLER_HOST: ${{ vars.SUPABASE_POOLER_HOST }}
+          CONNECTION_DIAGNOSTIC_PATH: diagnostic-connection.json
+        run: node scripts/resolve-supabase-connection.mjs
+
+      - name: Query 28 July posting state
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql "$SUPABASE_DB_URL" -X -v ON_ERROR_STOP=1 -t -A <<'SQL' > report-2026-07-28-diagnostic.json
+          with target_batch as (
+            select * from public.daily_report_batches where report_date='2026-07-28'::date order by committed_at desc nulls last limit 1
+          ),
+          batch_stats as (
+            select
+              b.id,
+              (select count(*) from public.daily_report_sales_lines s where s.batch_id=b.id) as sales_rows,
+              (select coalesce(sum(amount),0) from public.daily_report_sales_lines s where s.batch_id=b.id) as sales_total,
+              (select count(*) from public.daily_report_cash_movements c where c.batch_id=b.id) as cash_rows,
+              (select count(*) from public.daily_report_cash_movements c where c.batch_id=b.id and c.is_customer_collection=true) as collection_rows,
+              (select coalesce(sum(debit),0) from public.daily_report_cash_movements c where c.batch_id=b.id and c.is_customer_collection=true) as collection_total,
+              (select count(*) from public.daily_report_cash_movements c where c.batch_id=b.id and c.voucher_no in ('585','591')) as vouchers_585_591,
+              (select jsonb_agg(jsonb_build_object('id',c.id,'customer',c.account_code,'voucher',c.voucher_no,'debit',c.debit,'date',c.movement_date_text) order by c.id)
+                 from public.daily_report_cash_movements c where c.batch_id=b.id and c.voucher_no in ('585','591')) as voucher_rows
+            from target_batch b
+          ),
+          import_rows as (
+            select coalesce(jsonb_agg(jsonb_build_object(
+              'id',id,'status',status,'originalName',original_name,'fileHash',file_hash,
+              'postedBatchId',posted_batch_id,'lastErrorCode',last_error_code,
+              'lastErrorMessage',last_error_message,'updatedAt',updated_at,'summary',summary
+            ) order by updated_at desc),'[]'::jsonb) as rows
+            from public.imports
+            where original_name ilike '%2026-07-28%'
+          ),
+          attempt_rows as (
+            select coalesce(jsonb_agg(to_jsonb(a) order by created_at desc),'[]'::jsonb) as rows
+            from (
+              select report_date,original_name,status,existing_batch_id,summary,errors,warnings,created_at
+              from public.daily_report_import_attempts
+              where report_date='2026-07-28'::date
+              order by created_at desc
+              limit 20
+            ) a
+          ),
+          audit_rows as (
+            select coalesce(jsonb_agg(to_jsonb(a) order by created_at desc),'[]'::jsonb) as rows
+            from (
+              select action,entity_type,entity_id,details,created_at
+              from public.audit_log
+              where created_at >= now()-interval '1 day'
+                and (details::text ilike '%2026-07-28%' or entity_id in (select id::text from target_batch))
+              order by created_at desc
+              limit 50
+            ) a
+          )
+          select jsonb_pretty(jsonb_build_object(
+            'checkedAt',now(),
+            'schemaVersion',(select coalesce(max(version),0) from public.migration_history),
+            'batch',(select to_jsonb(b) from target_batch b),
+            'batchStats',(select to_jsonb(s) from batch_stats s),
+            'imports',(select rows from import_rows),
+            'attempts',(select rows from attempt_rows),
+            'audit',(select rows from audit_rows)
+          ));
+          SQL
+          cat report-2026-07-28-diagnostic.json
+
+      - name: Upload diagnostic evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: report-2026-07-28-diagnostic-${{ github.run_id }}
+          path: |
+            report-2026-07-28-diagnostic.json
+            diagnostic-connection.json
+          retention-days: 7
